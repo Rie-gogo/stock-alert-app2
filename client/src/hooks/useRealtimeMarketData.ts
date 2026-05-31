@@ -362,8 +362,23 @@ export function useRealtimeMarketData({
 
             // 🌟 【絶好の売りタイミング (S)】
             // 1. 強い上昇トレンド（バンドウォーク）中は、RSIが高くても売らずに利益を伸ばす（ホールド）
-            // 2. 条件：(デッドクロス発生) または (RSI買われすぎかつボリバン上限タッチ)
-            // 3. または、大口の超大口売り崩しを検知した時
+            // 2. ゴールデンクロス（上昇転換）発生から最低5分（5ローソク足）の間は、上昇初動のため絶対に「売りシグナル」を出さない（ゴールデンクロス・プロテクション）
+            // 3. 条件：(デッドクロス発生) または (RSI買われすぎかつボリバン上限タッチ)
+            
+            // 直近5本以内でゴールデンクロスが発生したか確認
+            let isWithinGoldenCrossProtection = false;
+            const candleCount = enrichedCandles.length;
+            for (let j = Math.max(1, candleCount - 5); j < candleCount; j++) {
+              const c_j = enrichedCandles[j];
+              const p_j = enrichedCandles[j - 1];
+              if (c_j.ma5 !== undefined && c_j.ma25 !== undefined && p_j.ma5 !== undefined && p_j.ma25 !== undefined) {
+                if (p_j.ma5 <= p_j.ma25 && c_j.ma5 > c_j.ma25) {
+                  isWithinGoldenCrossProtection = true;
+                  break;
+                }
+              }
+            }
+
             const isSellDC = p5 >= p25 && c5 < c25;
             const isSellOverboughtAndTop = cRsi >= rsiThresholdUpper && cClose >= cBbu;
 
@@ -382,8 +397,8 @@ export function useRealtimeMarketData({
               playBeep('sell');
               onAlert(alert);
               addSignalToCandle(currentEnrichedCandle, 'sell', 'デッドクロス');
-            } else if (isSellOverboughtAndTop && !isStrongUpTrend) {
-              // 強い上昇トレンド中でない場合のみ、ボリバン上限での売りシグナルを発生
+            } else if (isSellOverboughtAndTop && !isStrongUpTrend && !isWithinGoldenCrossProtection) {
+              // 強い上昇トレンド中でなく、かつゴールデンクロス直後のプロテクション期間外の場合のみ、ボリバン上限での売りシグナルを発生
               const alert: AlertLog = {
                 id: Math.random().toString(36).substring(2, 9),
                 time: timeStr,

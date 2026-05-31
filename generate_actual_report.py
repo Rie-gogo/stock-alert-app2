@@ -156,8 +156,19 @@ def simulate_trading(symbol, name, timestamps, closes, initial_capital=3000000):
         # 強い上昇トレンドの判定
         is_strong_uptrend = c_m5 > c_m25 * 1.003 and close >= c_m5
         
-        # 売りシグナル：デッドクロス、または(トレンドが強くない状態での買われすぎ＋ボリバン上限)
-        should_sell = is_dc or (is_overbought and is_bb_upper and not is_strong_uptrend)
+        # ゴールデンクロス（上昇転換）発生から5分（5ローソク足）以内は売りをロックする（ゴールデンクロス・プロテクション）
+        is_within_gc_protection = False
+        for j in range(max(0, i - 5), i):
+            c_j = df.iloc[j]
+            p_j = df.iloc[j - 1] if j > 0 else None
+            if p_j is not None and 'ma5' in c_j and 'ma25' in c_j and 'ma5' in p_j and 'ma25' in p_j:
+                if p_j['ma5'] is not None and p_j['ma25'] is not None and c_j['ma5'] is not None and c_j['ma25'] is not None:
+                    if p_j['ma5'] <= p_j['ma25'] and c_j['ma5'] > c_j['ma25']:
+                        is_within_gc_protection = True
+                        break
+                        
+        # 売りシグナル：デッドクロス、または(トレンドが強くない状態 ＆ ゴールデンクロス直後でない状態 での買われすぎ＋ボリバン上限)
+        should_sell = is_dc or (is_overbought and is_bb_upper and not is_strong_uptrend and not is_within_gc_protection)
         
         # 損切りロジック (-1.5% で強制損切り)
         is_stop_loss = position_shares > 0 and close <= position_price * 0.985

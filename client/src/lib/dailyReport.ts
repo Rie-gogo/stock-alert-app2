@@ -178,8 +178,21 @@ export function simulateStock(
     // 強い上昇トレンド中はRSI/ボリバン上限タッチでの売りを抑制（ホールド）
     const isStrongUpTrend = curr.ma5 > curr.ma25 * 1.003 && curr.close >= curr.ma5;
     
-    // 売りシグナルの厳格化：デッドクロス発生、または(トレンドが強くない状態での買われすぎ＋ボリバン上限)
-    const shouldSell = isDeadCross || (isRsiOverbought && isBbUpper && !isStrongUpTrend);
+    // ゴールデンクロス（上昇転換）発生から5分（5ローソク足）以内は売りをロックする（ゴールデンクロス・プロテクション）
+    let isWithinGoldenCrossProtection = false;
+    for (let j = Math.max(0, i - 5); j < i; j++) {
+      const c_j = candles[j];
+      const p_j = candles[j - 1];
+      if (p_j && c_j.ma5 !== undefined && c_j.ma25 !== undefined && p_j.ma5 !== undefined && p_j.ma25 !== undefined) {
+        if (p_j.ma5 <= p_j.ma25 && c_j.ma5 > c_j.ma25) {
+          isWithinGoldenCrossProtection = true;
+          break;
+        }
+      }
+    }
+
+    // 売りシグナルの厳格化：デッドクロス発生、または(トレンドが強くない状態 ＆ ゴールデンクロス直後でない状態 での買われすぎ＋ボリバン上限)
+    const shouldSell = isDeadCross || (isRsiOverbought && isBbUpper && !isStrongUpTrend && !isWithinGoldenCrossProtection);
 
     // 損切りロジック (-1.5% で強制損切り)
     const isStopLoss = positionShares > 0 && curr.close <= positionPrice * 0.985;

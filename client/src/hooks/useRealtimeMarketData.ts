@@ -305,87 +305,99 @@ export function useRealtimeMarketData({
 
         // 6. テクニカル分析シグナルの検知
         if (prevEnrichedCandle && currentEnrichedCandle) {
-          const { ma5: p5, ma25: p25, rsi: pRsi, bbUpper: pBbu, bbLower: pBbl } = prevEnrichedCandle;
+          const { ma5: p5, ma25: p25, rsi: pRsi } = prevEnrichedCandle;
           const { ma5: c5, ma25: c25, rsi: cRsi, bbUpper: cBbu, bbLower: cBbl, close: cClose } = currentEnrichedCandle;
 
-          // 【厳格化された高勝率シグナル判定】
-          // 単一の指標だけでなく、複数の条件が合致した「ここぞというタイミング」のみシグナルを発生させる
-          
-          const isUpTrend = c5 !== undefined && c25 !== undefined && c5 > c25; // 移動平均が上昇トレンド中
-          
           if (c5 !== undefined && c25 !== undefined && p5 !== undefined && p25 !== undefined && cRsi !== undefined && cBbu !== undefined && cBbl !== undefined) {
             
-            // 🌟 絶好の買いタイミング (B):
-            // 条件：(ゴールデンクロス発生) かつ (RSIが売られすぎ <= 35) または (ボリンジャーバンド下限 -2σにタッチ以下)
+            // トレンド・需給・大口動向を組み込んだ超厳格化判定
+            const isUpTrend = c5 > c25;
+            const isDownTrend = c5 < c25;
+            const isStrongDownTrend = isDownTrend && cClose < c5;
+            const isStrongUpTrend = isUpTrend && cClose >= c5;
+
+            // 直近15件の大口取引のネット出来高を計算
+            const recentTradesList = [...newTicks, ...prev.trades].slice(0, 15);
+            let netLargeVol = 0;
+            recentTradesList.forEach(t => {
+              if (t.sizeType === 'large' || t.sizeType === 'huge') {
+                if (t.changeType === 'up') netLargeVol += t.volume;
+                else if (t.changeType === 'down') netLargeVol -= t.volume;
+              }
+            });
+
+            // 板需給比率
+            const askTotal = updatedBoard.totalAskVolume;
+            const bidTotal = updatedBoard.totalBidVolume;
+            const askRatio = askTotal / (askTotal + bidTotal);
+
+            // 🌟 【絶好の買いタイミング (B)】
+            // 1. 強い下降トレンド（落ちてくるナイフ）中は絶対に買わない
+            // 2. 売り板が圧倒的に厚い（売り板が60%以上）時は買わない
+            // 3. 条件：(ゴールデンクロス発生) または (RSI売られすぎかつボリバン下限にタッチ)
+            // 4. さらに、大口の売り崩しが発生していないこと
             const isBuyGC = p5 <= p25 && c5 > c25;
-            const isBuyOversold = cRsi <= rsiThresholdLower;
-            const isBuyAtBottom = cClose <= cBbl;
+            const isBuyOversoldAndBottom = cRsi <= rsiThresholdLower && cClose <= cBbl;
             
-            if (isBuyGC && (isBuyOversold || isBuyAtBottom)) {
-              const alert: AlertLog = {
-                id: Math.random().toString(36).substring(2, 9),
-                time: timeStr,
-                symbol: selectedStock.symbol,
-                type: 'ma_cross',
-                signal: 'B',
-                title: '🌟 【絶好の買い場】トリプル合致シグナル発生！',
-                message: `移動平均GC・RSI売られすぎ(${cRsi.toFixed(0)}%)・ボリバン下限がすべて合致した最強の反発タイミングです。`,
-                price: latestPrice,
-                timestamp: Date.now(),
-              };
-              playBeep('buy');
-              onAlert(alert);
-              addSignalToCandle(currentEnrichedCandle, 'buy', '絶好の買い');
-            }
-
-            // 🌟 絶好の売りタイミング (S):
-            // 改善点：強い上昇トレンド中の「フライング売り推奨」を防ぐ。
-            // 条件：(デッドクロス発生 または 大口売り優勢) かつ (RSIが買われすぎ >= 65) かつ (上昇トレンドが崩れかけた時のみ。上昇トレンド継続中は「上昇継続・ホールド」と診断)
-            const isSellDC = p5 >= p25 && c5 < p25;
-            const isSellOverbought = cRsi >= rsiThresholdUpper;
-            const isSellAtTop = cClose >= cBbu;
-
-            if (isSellOverbought && isSellAtTop) {
-              // RSIとボリバン上限の両方に達しても、上昇トレンドが非常に強い(5MAが25MAより大幅に上)場合はフライング売りを防止しホールド
-              const trendStrength = (c5 - c25) / c25;
-              const isExtremelyStrongTrend = trendStrength > 0.005; // 0.5%以上の乖離（強い上昇トレンド）
-
-              if (isExtremelyStrongTrend) {
-                // 上昇が強すぎるため、売りシグナルを出さずに「上昇継続・ホールド」とする（ログのみ、または警告音なし）
-                console.log('上昇トレンドが強いため、売り推奨を抑制（ホールド推奨）');
-              } else {
-                // トレンドが弱まる、またはデッドクロス発生時に初めて「絶好の売り」とする
+            if (!isStrongDownTrend && askRatio < 0.6 && netLargeVol >= -2000) {
+              if (isBuyGC || isBuyOversoldAndBottom) {
                 const alert: AlertLog = {
                   id: Math.random().toString(36).substring(2, 9),
                   time: timeStr,
                   symbol: selectedStock.symbol,
-                  type: 'bollinger',
-                  signal: 'S',
-                  title: '🎯 【絶好の売り場】調整下落シグナル発生！',
-                  message: `RSI買われすぎ(${cRsi.toFixed(0)}%)かつボリバン上限に到達。トレンドの天井圏を検知しました。`,
+                  type: 'ma_cross',
+                  signal: 'B',
+                  title: '🌟 【絶好の買い場】高勝率シグナル合致！',
+                  message: isBuyGC 
+                    ? `トレンド転換のゴールデンクロスを検知。板需給も良好で安全な買い場です。`
+                    : `RSI売られすぎ(${cRsi.toFixed(0)}%)とボリバン下限タッチが合致。反発期待値が極めて高いタイミングです。`,
                   price: latestPrice,
                   timestamp: Date.now(),
                 };
-                playBeep('sell');
+                playBeep('buy');
                 onAlert(alert);
-                addSignalToCandle(currentEnrichedCandle, 'sell', '絶好の売り');
+                addSignalToCandle(currentEnrichedCandle, 'buy', isBuyGC ? 'トレンド転換' : '反発買い');
               }
-            } else if (isSellDC && isSellOverbought) {
-              // デッドクロスと買われすぎが同時に重なったとき
+            }
+
+            // 🌟 【絶好の売りタイミング (S)】
+            // 1. 強い上昇トレンド（バンドウォーク）中は、RSIが高くても売らずに利益を伸ばす（ホールド）
+            // 2. 条件：(デッドクロス発生) または (RSI買われすぎかつボリバン上限タッチ)
+            // 3. または、大口の超大口売り崩しを検知した時
+            const isSellDC = p5 >= p25 && c5 < c25;
+            const isSellOverboughtAndTop = cRsi >= rsiThresholdUpper && cClose >= cBbu;
+
+            if (isSellDC) {
               const alert: AlertLog = {
                 id: Math.random().toString(36).substring(2, 9),
                 time: timeStr,
                 symbol: selectedStock.symbol,
                 type: 'ma_cross',
                 signal: 'S',
-                title: '📉 【絶好の売り場】トレンド転換デッドクロス！',
-                message: `買われすぎゾーンからのデッドクロスが発生。上昇トレンド終了、売り推奨。`,
+                title: '📉 【絶好の売り場】デッドクロス発生！',
+                message: `短期線が長期線を下抜け。上昇トレンド終了、即時利益確定または損切りを推奨。`,
                 price: latestPrice,
                 timestamp: Date.now(),
               };
               playBeep('sell');
               onAlert(alert);
-              addSignalToCandle(currentEnrichedCandle, 'sell', 'トレンド転換');
+              addSignalToCandle(currentEnrichedCandle, 'sell', 'デッドクロス');
+            } else if (isSellOverboughtAndTop && !isStrongUpTrend) {
+              // 強い上昇トレンド中でない場合のみ、ボリバン上限での売りシグナルを発生
+              const alert: AlertLog = {
+                id: Math.random().toString(36).substring(2, 9),
+                time: timeStr,
+                symbol: selectedStock.symbol,
+                type: 'bollinger',
+                signal: 'S',
+                title: '🎯 【絶好の売り場】買われすぎ＆ボリバン上限！',
+                message: `RSI買われすぎ(${cRsi.toFixed(0)}%)かつボリバン上限に到達。トレンドの天井圏を検知。`,
+                price: latestPrice,
+                timestamp: Date.now(),
+              };
+              playBeep('sell');
+              onAlert(alert);
+              addSignalToCandle(currentEnrichedCandle, 'sell', '天井圏売り');
             }
           }
         }

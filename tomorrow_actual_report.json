@@ -1,0 +1,176 @@
+{
+  "date": "2026-05-31",
+  "total_profit": 0,
+  "reports": [
+    {
+      "symbol": "6526",
+      "name": "ソシオネクスト",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "6920",
+      "name": "レーザーテック",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "6857",
+      "name": "アドバンテスト",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "9107",
+      "name": "川崎汽船",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "8306",
+      "name": "三菱UFJ FG",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "9984",
+      "name": "ソフトバンクグループ",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "8035",
+      "name": "東京エレクトロン",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "7011",
+      "name": "三菱重工業",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "4568",
+      "name": "第一三共",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    },
+    {
+      "symbol": "3778",
+      "name": "さくらインターネット",
+      "initial_capital": 3000000,
+      "final_balance": 3000000,
+      "profit_amount": 0,
+      "profit_rate": 0.0,
+      "win_rate": 0,
+      "trades_count": 0,
+      "trades": [],
+      "loss_causes": [
+        "特になし（利益獲得に成功）。"
+      ],
+      "countermeasures": [
+        "現在の厳格化フィルタリングルールを維持し、利益を最大化する。"
+      ]
+    }
+  ]
+}

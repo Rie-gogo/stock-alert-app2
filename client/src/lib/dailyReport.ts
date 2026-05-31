@@ -135,13 +135,19 @@ export function simulateStock(
       continue;
     }
 
-    // 1. 買いシグナル (高勝率な合流条件：ゴールデンクロスかつ売られすぎ、またはボリバン下限到達)
+    // 1. 買いシグナル (高勝率な合流条件：ゴールデンクロス、またはトレンドが下降中でない状態での売られすぎ＋ボリバン下限タッチ)
     const isRsiOversold = curr.rsi <= rsiLower;
     const isBbLower = curr.close <= curr.bbLower;
     const isGoldenCross = prev.ma5 <= prev.ma25 && curr.ma5 > curr.ma25;
+    
+    // 強い下降トレンド（落ちてくるナイフ）の判定
+    const isDownTrend = curr.ma5 < curr.ma25;
+    const isStrongDownTrend = isDownTrend && curr.close < curr.ma5;
 
-    // 「ここぞというタイミング」：GCかつ(RSI売られすぎ、またはボリバン下限)の時に買いを厳選
-    const shouldBuy = isGoldenCross && (isRsiOversold || isBbLower);
+    // 「ここぞというタイミング」：
+    // - 強い下降トレンド中は絶対に買わない
+    // - (ゴールデンクロス発生) または (RSI売られすぎ かつ ボリバン下限にタッチ) の時に厳選
+    const shouldBuy = !isStrongDownTrend && (isGoldenCross || (isRsiOversold && isBbLower));
 
     if (positionShares === 0 && shouldBuy) {
       // 資金の全額(または最大)で買えるだけ買う

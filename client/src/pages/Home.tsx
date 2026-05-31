@@ -89,7 +89,14 @@ export default function Home() {
 
   // リアルタイム売買シグナル診断の計算
   const marketDiagnosis = marketState
-    ? diagnoseMarket(marketState.candles, marketState.trades, rsiUpper, rsiLower)
+    ? diagnoseMarket(
+        marketState.candles,
+        marketState.trades,
+        rsiUpper,
+        rsiLower,
+        marketState.board.totalAskVolume,
+        marketState.board.totalBidVolume
+      )
     : null;
 
   return (

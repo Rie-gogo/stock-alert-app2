@@ -7,6 +7,7 @@ import TradeHistoryComponent from '../components/TradeHistoryComponent';
 import AlertHistoryComponent from '../components/AlertHistoryComponent';
 import BacktestModal from '../components/BacktestModal';
 import AdvisorPanel from '../components/AdvisorPanel';
+import DailyReportModal from '../components/DailyReportModal';
 import { diagnoseMarket } from '../lib/advisor';
 import { toast } from 'sonner';
 import {
@@ -168,6 +169,9 @@ export default function Home() {
 
         {/* 右側：コントロール */}
         <div className="flex items-center space-x-3">
+          {/* デイリー検証レポート */}
+          <DailyReportModal rsiUpper={rsiUpper} rsiLower={rsiLower} />
+
           {/* バックテストモーダル */}
           {marketState && (
             <BacktestModal

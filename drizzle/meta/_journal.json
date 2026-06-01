@@ -8,6 +8,13 @@
       "when": 1780314082889,
       "tag": "0000_damp_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1780320016097,
+      "tag": "0001_brave_risque",
+      "breakpoints": true
     }
   ]
 }

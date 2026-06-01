@@ -96,6 +96,8 @@ async function main() {
       trades: r.trades,
       lossCauses: r.lossCauses,
       countermeasures: r.countermeasures,
+      signals: r.signals ?? [],
+      isRealData: r.isRealData ?? false,
     }))
   );
 

@@ -131,6 +131,8 @@ export async function dailySimulationHandler(req: Request, res: Response) {
         trades: r.trades,
         lossCauses: r.lossCauses,
         countermeasures: r.countermeasures,
+        signals: r.signals ?? [],
+        isRealData: r.isRealData ?? false,
       }))
     );
 

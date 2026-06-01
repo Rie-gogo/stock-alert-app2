@@ -29,6 +29,16 @@ export interface TradeRecord {
   profitRate?: number;
 }
 
+export interface SignalRecord {
+  time: string;
+  type: "buy" | "sell" | "warn";
+  price: number;
+  ma5: number | null;
+  ma25: number | null;
+  rsi: number | null;
+  reason: string;
+}
+
 export interface StockSimResult {
   symbol: string;
   name: string;
@@ -43,6 +53,7 @@ export interface StockSimResult {
   trades: TradeRecord[];
   lossCauses: string[];
   countermeasures: string[];
+  signals?: SignalRecord[];
 }
 
 export interface DailySimReport {

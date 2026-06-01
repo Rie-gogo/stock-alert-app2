@@ -4,7 +4,7 @@
  * simulation.ts の架空データ生成を置き換える
  */
 import { callDataApi } from "./_core/dataApi";
-import type { StockSimResult, TradeRecord } from "./simulation";
+import type { StockSimResult, TradeRecord, SignalRecord } from "./simulation";
 
 // 対象銘柄のYahoo Finance ティッカーマッピング
 export const REAL_TARGET_STOCKS = [
@@ -233,6 +233,7 @@ export async function simulateStockReal(
 
   // シミュレーション実行
   const trades: TradeRecord[] = [];
+  const signals: SignalRecord[] = [];
   let capital = initialCapital;
   let positionShares = 0;
   let positionPrice = 0;
@@ -280,12 +281,24 @@ export async function simulateStockReal(
         positionShares = shares;
         positionPrice = curr.close;
         capital -= totalAmount;
+        const buyReason = isGoldenCross
+          ? `ゴールデンクロス (MA5:${curr.ma5?.toFixed(1)} > MA25:${curr.ma25?.toFixed(1)})`
+          : `RSI売られすぎ+BB下限 (RSI:${curr.rsi?.toFixed(1)}, BB下:${curr.bbLower?.toFixed(1)})`;
         trades.push({
           time: curr.time,
           type: "buy",
           price: curr.close,
           shares,
           totalAmount,
+        });
+        signals.push({
+          time: curr.time,
+          type: "buy",
+          price: curr.close,
+          ma5: curr.ma5,
+          ma25: curr.ma25,
+          rsi: curr.rsi,
+          reason: buyReason,
         });
       }
     }
@@ -308,6 +321,12 @@ export async function simulateStockReal(
       if (profit > 0) winCount++;
       else lossCount++;
 
+      const sellReason = isStopLoss
+        ? `損切り (${stopLossPercent}%下落, 入荷:${positionPrice.toFixed(1)}→現在:${curr.close.toFixed(1)})`
+        : isDeadCross
+        ? `デッドクロス (MA5:${curr.ma5?.toFixed(1)} < MA25:${curr.ma25?.toFixed(1)})`
+        : `RSI買われすぎ+BB上限 (RSI:${curr.rsi?.toFixed(1)}, BB上:${curr.bbUpper?.toFixed(1)})`;
+
       trades.push({
         time: curr.time,
         type: "sell",
@@ -316,6 +335,15 @@ export async function simulateStockReal(
         totalAmount,
         profit,
         profitRate,
+      });
+      signals.push({
+        time: curr.time,
+        type: "sell",
+        price: curr.close,
+        ma5: curr.ma5,
+        ma25: curr.ma25,
+        rsi: curr.rsi,
+        reason: sellReason,
       });
 
       positionShares = 0;
@@ -340,6 +368,15 @@ export async function simulateStockReal(
       totalAmount,
       profit,
       profitRate,
+    });
+    signals.push({
+      time: lastCandle.time,
+      type: "sell",
+      price: lastCandle.close,
+      ma5: lastCandle.ma5,
+      ma25: lastCandle.ma25,
+      rsi: lastCandle.rsi,
+      reason: `引け値強制決済 (入荷:${positionPrice.toFixed(1)}→引け:${lastCandle.close.toFixed(1)})`,
     });
   }
 
@@ -379,6 +416,7 @@ export async function simulateStockReal(
     trades,
     lossCauses,
     countermeasures,
+    signals,
     isRealData: true,
   };
 }

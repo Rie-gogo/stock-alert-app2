@@ -101,11 +101,28 @@ export const stockReports = mysqlTable("stock_reports", {
   lossCauses: json("lossCauses").notNull().$type<string[]>(),
   /** 対策リスト JSON */
   countermeasures: json("countermeasures").notNull().$type<string[]>(),
+  /** シグナル一覧 JSON - 買い/売りタイミング・理由の詳細 */
+  signals: json("signals").$type<SignalRecord[]>(),
+  /** 実データ使用フラグ */
+  isRealData: boolean("isRealData").notNull().default(false),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type StockReport = typeof stockReports.$inferSelect;
 export type InsertStockReport = typeof stockReports.$inferInsert;
+
+/**
+ * シグナルレコード（JSON内に格納） - 実際のチャートと同様の買い/売りタイミング詳細
+ */
+export interface SignalRecord {
+  time: string;
+  type: "buy" | "sell" | "warn";
+  price: number;
+  ma5: number | null;
+  ma25: number | null;
+  rsi: number | null;
+  reason: string;
+}
 
 /**
  * 取引レコード（JSON内に格納）

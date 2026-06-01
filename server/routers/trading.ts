@@ -174,6 +174,8 @@ export const tradingRouter = router({
           trades: r.trades,
           lossCauses: r.lossCauses,
           countermeasures: r.countermeasures,
+          signals: r.signals ?? [],
+          isRealData: (r as { isRealData?: boolean }).isRealData ?? false,
         }))
       );
 

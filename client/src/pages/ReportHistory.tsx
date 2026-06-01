@@ -374,9 +374,82 @@ export default function ReportHistory() {
                       </div>
                     </div>
 
-                    {/* 取引履歴 */}
+                    {/* 全シグナル一覧（実際のチャートと同様の買い/売りタイミング） */}
+                    {(() => {
+                      const signals = (activeStockReport as any).signals as any[] | undefined;
+                      const hasSignals = signals && signals.length > 0;
+                      return (
+                        <div className="border border-border/60 rounded-lg p-3 bg-card/40">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] text-muted-foreground font-bold">
+                              ⚡ 全シグナル一覧 ({hasSignals ? signals!.length : 0}件)
+                            </span>
+                          </div>
+                          {!hasSignals ? (
+                            <div className="text-center py-4 text-[10px] text-muted-foreground">
+                              シグナルデータがありません（古いレポートは再実行で更新されます）
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-[10px] font-mono">
+                                <thead>
+                                  <tr className="border-b border-border/40">
+                                    <th className="text-left py-1 px-2 text-muted-foreground font-bold">時刻</th>
+                                    <th className="text-left py-1 px-2 text-muted-foreground font-bold">種別</th>
+                                    <th className="text-right py-1 px-2 text-muted-foreground font-bold">価格</th>
+                                    <th className="text-right py-1 px-2 text-muted-foreground font-bold">MA5</th>
+                                    <th className="text-right py-1 px-2 text-muted-foreground font-bold">MA25</th>
+                                    <th className="text-right py-1 px-2 text-muted-foreground font-bold">RSI</th>
+                                    <th className="text-left py-1 px-2 text-muted-foreground font-bold">理由</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/20">
+                                  {signals!.map((sig: any, idx: number) => {
+                                    const isBuy = sig.type === 'buy';
+                                    const isWarn = sig.type === 'warn';
+                                    return (
+                                      <tr key={idx} className="hover:bg-secondary/20 transition-colors">
+                                        <td className="py-1.5 px-2 text-muted-foreground">{sig.time}</td>
+                                        <td className="py-1.5 px-2">
+                                          <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] ${
+                                            isBuy
+                                              ? 'bg-destructive/15 text-destructive border border-destructive/30'
+                                              : isWarn
+                                              ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
+                                              : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                          }`}>
+                                            {isBuy ? '▲BUY' : isWarn ? '◆WARN' : '▼SELL'}
+                                          </span>
+                                        </td>
+                                        <td className="py-1.5 px-2 text-right font-bold text-foreground">
+                                          {sig.price?.toLocaleString()}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-right text-muted-foreground">
+                                          {sig.ma5?.toFixed(1) ?? '-'}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-right text-muted-foreground">
+                                          {sig.ma25?.toFixed(1) ?? '-'}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-right text-muted-foreground">
+                                          {sig.rsi?.toFixed(1) ?? '-'}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-muted-foreground max-w-[200px] truncate">
+                                          {sig.reason}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* 取引履歴（損益付き） */}
                     <div className="border border-border/60 rounded-lg p-3 bg-card/40">
-                      <span className="text-[10px] text-muted-foreground font-bold block mb-2">🕒 取引履歴</span>
+                      <span className="text-[10px] text-muted-foreground font-bold block mb-2">🕒 取引履歴（損益付き）</span>
                       <div className="max-h-[140px] overflow-y-auto space-y-1">
                         {(activeStockReport.trades as any[]).length === 0 ? (
                           <div className="text-center py-4 text-[10px] text-muted-foreground">

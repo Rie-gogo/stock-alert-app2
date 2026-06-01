@@ -23,7 +23,8 @@
 ## Phase 4: 毎平日自動レポート生成スケジューラーの設定
 - [x] server/scheduledHandlers.ts - 毎平日シミュレーション実行ハンドラー
 - [x] server/_core/index.ts - /api/scheduled/daily-simulation エンドポイント登録
-- [x] デプロイ後に manus-heartbeat create で平日9時(JST=UTC+9→0時UTC)スケジュール登録 (task_uid: DbUxCsDA4RZyZy8v4PhQ77, 次回実行: 2026-06-02T00:00:00Z)
+- [x] デプロイ後に manus-heartbeat create で平日スケジュール登録 (task_uid: DbUxCsDA4RZyZy8v4PhQ77)
+- [x] Heartbeat cronを大引け後（JST 15:30 = UTC 06:30）に修正 (cron: 0 30 6 * * 1-5, 次回実行: 2026-06-02T06:30:00Z)
 
 ## Phase 5: テスト・チェックポイント保存
 - [x] server/simulation.test.ts - シミュレーションエンジンのユニットテスト（11テスト全通過）

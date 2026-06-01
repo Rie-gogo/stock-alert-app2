@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import ReportHistory from "./pages/ReportHistory";
 import AlgorithmPage from "./pages/AlgorithmPage";
+import RealDataChart from "./pages/RealDataChart";
 
 function Router() {
   return (
@@ -14,6 +15,7 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/reports"} component={ReportHistory} />
       <Route path={"/algorithm"} component={AlgorithmPage} />
+      <Route path={"/chart"} component={RealDataChart} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

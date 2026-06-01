@@ -25,6 +25,7 @@ import {
   Grid3X3,
   History,
   Activity,
+  BarChart2,
   AlertTriangle,
   Zap,
 } from 'lucide-react';
@@ -195,6 +196,14 @@ export default function Home() {
             <button className="flex items-center space-x-1 px-3 py-1 rounded text-xs font-bold transition-all duration-200 border bg-secondary/50 text-muted-foreground border-border/50 hover:bg-secondary hover:text-foreground">
               <Settings2 className="w-3.5 h-3.5" />
               <span>アルゴリズム</span>
+            </button>
+          </Link>
+
+          {/* 実際の株価チャートページへのリンク */}
+          <Link href="/chart">
+            <button className="flex items-center space-x-1 px-3 py-1 rounded text-xs font-bold transition-all duration-200 border bg-primary/10 text-primary border-primary/30 hover:bg-primary/20">
+              <BarChart2 className="w-3.5 h-3.5" />
+              <span>実際のチャート</span>
             </button>
           </Link>
 

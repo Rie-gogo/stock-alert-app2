@@ -52,3 +52,20 @@
 - [x] ChartComponentとtypes.tsにWarn（警告）マーカー型を追加（buy|sell|warn）
 - [x] 超大口売り崩し時にWマーカーをローソク足に自動付与
 - [x] useRealtimeMarketData.tsのaddSignalToCandle関数をwarnに対応
+
+## Phase 8: 実際の株価データ読み込み・チャート表示
+- [x] server/routers/stockData.ts - Yahoo Finance APIから分足データを取得するtRPCエンドポイント
+- [x] テクニカル指標（MA5/MA25/RSI/BB）をサーバー側で計算してシグナル付きで返す
+- [x] Home.tsx - 「実際のチャート」ボタンをヘッダーに追加
+- [x] 実際データモード時はYahoo Financeから取得したローソク足をChartComponentに表示
+- [x] 実際データモード時はB/S/Wシグナルマーカーをチャート上に自動表示
+- [x] 銀柄コード入力欄（デフォルト: 9984.T）と日付選択（デフォルト: 今日）
+- [x] 板情報・歩み値はシミュレーションのまま（実際データは取得不可のため）
+
+## Phase 9: 実際のYahoo Financeデータでレポート生成
+- [x] server/realSimulation.ts - Yahoo Finance実データを使ったシミュレーションエンジン実装
+- [x] 対豈10銘柄のYahoo Financeティッカーシンボルマッピング（例: 9984 → 9984.T）
+- [x] 実データ取得失敗時のフォールバック（架空データで代替）
+- [x] scheduledHandlers.ts - 実データシミュレーションを呼び出すよう更新
+- [x] レポート履歴ページに「実データ/架空データ」の区別をバッジで明示表示（一覧・詳細両方）
+- [x] レポートに「実際の株価データを使用」と明記

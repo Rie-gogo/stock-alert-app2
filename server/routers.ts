@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { tradingRouter } from "./routers/trading";
 import { aiAnalysisRouter } from "./routers/aiAnalysis";
+import { stockDataRouter } from "./routers/stockData";
 
 export const appRouter = router({
   system: systemRouter,
@@ -23,6 +24,9 @@ export const appRouter = router({
 
   // リアルタイムAI市場分析
   aiAnalysis: aiAnalysisRouter,
+
+  // 実際の株価データ（Yahoo Finance）
+  stockData: stockDataRouter,
 });
 
 export type AppRouter = typeof appRouter;

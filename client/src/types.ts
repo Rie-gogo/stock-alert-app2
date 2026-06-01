@@ -23,7 +23,7 @@ export interface CandleData {
   
   // Plot Markers
   signals?: {
-    type: 'buy' | 'sell';
+    type: 'buy' | 'sell' | 'warn';
     reason: string;
   }[];
 }

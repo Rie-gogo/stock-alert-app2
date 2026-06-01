@@ -237,6 +237,11 @@ export function useRealtimeMarketData({
           };
           playBeep('warning');
           onAlert(alert);
+          // Wマーカーをローソク足に追加
+          if (prev.candles.length > 0) {
+            const lastC = prev.candles[prev.candles.length - 1];
+            addSignalToCandle(lastC, 'warn', '超大口売り崩し');
+          }
         }
 
         // 🚀 大口の買い上がり (8,000株以上の買いが複数連続)
@@ -443,7 +448,7 @@ export function useRealtimeMarketData({
 }
 
 // ヘルパー: ローソク足に売買シグナルマークを追加
-function addSignalToCandle(candle: CandleData, type: 'buy' | 'sell', reason: string) {
+function addSignalToCandle(candle: CandleData, type: 'buy' | 'sell' | 'warn', reason: string) {
   if (!candle.signals) {
     candle.signals = [];
   }

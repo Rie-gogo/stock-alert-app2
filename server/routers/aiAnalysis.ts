@@ -47,19 +47,15 @@ const TradeTickSchema = z.object({
  * ローソク足データをテキスト形式に変換（LLMへの入力用）
  */
 function formatCandlesForLLM(candles: z.infer<typeof CandleSchema>[]): string {
-  const recent = candles.slice(-20); // 直近20本のみ
+  const recent = candles.slice(-15); // 直近15本のみ（高速化）
   const lines = recent.map((c) => {
-    const rsiStr = c.rsi !== undefined ? ` RSI:${c.rsi.toFixed(1)}` : "";
+    const rsiStr = c.rsi !== undefined ? ` RSI:${c.rsi.toFixed(0)}` : "";
     const maStr =
       c.ma5 !== undefined && c.ma25 !== undefined
-        ? ` 5MA:${c.ma5.toFixed(1)} 25MA:${c.ma25.toFixed(1)}`
+        ? ` 5MA:${c.ma5.toFixed(0)} 25MA:${c.ma25.toFixed(0)}`
         : "";
-    const bbStr =
-      c.bbUpper !== undefined && c.bbLower !== undefined
-        ? ` BB上:${c.bbUpper.toFixed(1)} BB下:${c.bbLower.toFixed(1)}`
-        : "";
-    const candleType = c.close > c.open ? "陽線" : c.close < c.open ? "陰線" : "同値";
-    return `${c.time} [${candleType}] 始:${c.open.toFixed(1)} 高:${c.high.toFixed(1)} 安:${c.low.toFixed(1)} 終:${c.close.toFixed(1)} 出来高:${c.volume.toLocaleString()}${maStr}${rsiStr}${bbStr}`;
+    const candleType = c.close > c.open ? "陽" : c.close < c.open ? "陰" : "同";
+    return `${c.time}[${candleType}]終${c.close.toFixed(0)} 量${c.volume.toLocaleString()}${maStr}${rsiStr}`;
   });
   return lines.join("\n");
 }
@@ -68,51 +64,41 @@ function formatCandlesForLLM(candles: z.infer<typeof CandleSchema>[]): string {
  * 板情報をテキスト形式に変換
  */
 function formatBoardForLLM(board: z.infer<typeof BoardDataSchema>): string {
-  const topAsks = board.asks.slice(0, 5);
-  const topBids = board.bids.slice(0, 5);
+  const topAsks = board.asks.slice(0, 3);
+  const topBids = board.bids.slice(0, 3);
   const askRatio = board.totalAskVolume / (board.totalAskVolume + board.totalBidVolume);
 
-  const askLines = topAsks
-    .map((a) => `  売 ${a.price.toFixed(1)}: ${a.volume.toLocaleString()}株`)
-    .join("\n");
-  const bidLines = topBids
-    .map((b) => `  買 ${b.price.toFixed(1)}: ${b.volume.toLocaleString()}株`)
-    .join("\n");
+  const askLines = topAsks.map((a) => `売${a.price.toFixed(0)}:${a.volume.toLocaleString()}`).join(" ");
+  const bidLines = topBids.map((b) => `買${b.price.toFixed(0)}:${b.volume.toLocaleString()}`).join(" ");
 
-  return `【売り板（上位5本）】\n${askLines}\n【買い板（上位5本）】\n${bidLines}\n売り板合計: ${board.totalAskVolume.toLocaleString()}株 / 買い板合計: ${board.totalBidVolume.toLocaleString()}株\n売り板比率: ${(askRatio * 100).toFixed(1)}%`;
+  return `${askLines} | ${bidLines} | 売比率${(askRatio * 100).toFixed(0)}%`;
 }
 
 /**
  * 歩み値をテキスト形式に変換
  */
 function formatTradesForLLM(trades: z.infer<typeof TradeTickSchema>[]): string {
-  const recent = trades.slice(0, 20);
-  const largeTrades = recent.filter((t) => t.sizeType !== "normal");
-
+  const recent = trades.slice(0, 10);
   let netLargeVolume = 0;
-  largeTrades.forEach((t) => {
+  recent.filter((t) => t.sizeType !== "normal").forEach((t) => {
     if (t.changeType === "up") netLargeVolume += t.volume;
     else if (t.changeType === "down") netLargeVolume -= t.volume;
   });
 
-  const lines = recent
-    .slice(0, 10)
-    .map((t) => {
-      const sizeLabel = t.sizeType === "huge" ? "【超大口】" : t.sizeType === "large" ? "[大口]" : "";
-      const dirLabel = t.changeType === "up" ? "↑" : t.changeType === "down" ? "↓" : "→";
-      return `  ${t.time} ${dirLabel} ${t.price.toFixed(1)} ${t.volume.toLocaleString()}株 ${sizeLabel}`;
-    })
-    .join("\n");
+  const lines = recent.slice(0, 6).map((t) => {
+    const sizeLabel = t.sizeType === "huge" ? "超大口" : t.sizeType === "large" ? "大口" : "";
+    const dirLabel = t.changeType === "up" ? "↑" : t.changeType === "down" ? "↓" : "→";
+    return `${dirLabel}${t.price.toFixed(0)}(${t.volume.toLocaleString()}${sizeLabel})`;
+  }).join(" ");
 
-  const netLabel = netLargeVolume > 0 ? `大口純買い +${netLargeVolume.toLocaleString()}株` : `大口純売り ${netLargeVolume.toLocaleString()}株`;
-
-  return `【直近10件の歩み値】\n${lines}\n${netLabel}`;
+  const netLabel = netLargeVolume > 0 ? `大口純買+${netLargeVolume.toLocaleString()}` : `大口純売${netLargeVolume.toLocaleString()}`;
+  return `${lines} [${netLabel}]`;
 }
 
 export const aiAnalysisRouter = router({
   /**
-   * リアルタイム市場データをLLMに送り、AI分析を取得する
-   * （ストリーミングなし・通常のtRPC mutation）
+   * リアルタイム市場データをLLMに送り、構造化されたAI分析を取得する
+   * 結論（verdict）を必ず返す構造化JSON形式
    */
   analyzeMarket: publicProcedure
     .input(
@@ -135,25 +121,11 @@ export const aiAnalysisRouter = router({
       let pastPerformanceContext = "";
       try {
         const stats = await getRecentStats(14);
-        const recentReports = await getDailyReportList(5);
-
         if (stats.totalDays > 0) {
-          pastPerformanceContext = `
-【過去${stats.totalDays}日間のシミュレーション成績】
-- 平均勝率: ${(stats.avgWinRate * 100).toFixed(1)}%
-- 平均損益率: ${(stats.avgProfitRate * 100).toFixed(2)}%
-- 目標勝率: 80〜90%（現在${stats.avgWinRate >= 0.8 ? "達成中" : "未達成"}）
-`;
-        }
-
-        if (recentReports.length > 0) {
-          const latestReport = recentReports[0];
-          if (latestReport.aiSummary) {
-            pastPerformanceContext += `\n【直近のAI改善提案】\n${latestReport.aiSummary}`;
-          }
+          pastPerformanceContext = `\n過去${stats.totalDays}日成績: 勝率${(stats.avgWinRate * 100).toFixed(0)}% 損益率${(stats.avgProfitRate * 100).toFixed(1)}%`;
         }
       } catch {
-        // 過去データ取得失敗は無視（初回実行時など）
+        // 初回実行時など、過去データなしは無視
       }
 
       const candlesText = formatCandlesForLLM(input.candles);
@@ -166,59 +138,76 @@ export const aiAnalysisRouter = router({
       const currentMa25 = latestCandle?.ma25;
 
       const systemPrompt = `あなたは日本株デイトレードの専門AIアナリストです。
-リアルタイムの市場データ（チャート・板情報・歩み値）を分析し、以下の観点で深く読み解いてください：
+市場データを分析し、必ず以下のJSON形式のみで回答してください。他のテキストは不要です。
 
-1. **チャートの読み方**: ローソク足のパターン、移動平均線のトレンド、RSIの過熱感、ボリンジャーバンドの収縮・拡大
-2. **板情報の意味**: 売り板・買い板の厚さから機関投資家や大口の意図を推測
-3. **歩み値の解釈**: 大口取引の方向性から「誰が何をしているか」を推測
-4. **複合判断**: 上記3つを統合して「今何が起きているか」「なぜこの動きか」を説明
-5. **具体的なアクション提案**: エントリー・見送り・損切りの根拠を明確に
+{
+  "verdict": "BUY" | "SELL" | "WAIT",
+  "confidence": 1〜5の整数（確信度）,
+  "entry_price": 推奨エントリー価格（数値）または null,
+  "stop_loss": 損切り価格（数値）または null,
+  "take_profit": 利確目標価格（数値）または null,
+  "reason": "判断理由を1〜2文で簡潔に",
+  "warning": "注意点があれば1文で" または null
+}
 
-回答は日本語で、専門的だが分かりやすく、400文字以内にまとめてください。
-重要な警告がある場合は冒頭に「⚠️【警告】」と明記してください。`;
+BUY=今すぐ買い, SELL=今すぐ売り/空売り, WAIT=様子見`;
 
-      const userPrompt = `【銘柄】${input.stockName}（${input.symbol}）
-【現在値】${input.currentPrice.toFixed(1)}円 (前日比: ${input.priceChange >= 0 ? "+" : ""}${input.priceChange.toFixed(1)}円 / ${input.priceChange >= 0 ? "+" : ""}${input.priceChangePercent.toFixed(2)}%)
-【累計出来高】${input.volume.toLocaleString()}株
-【RSI設定】買われすぎ閾値: ${input.rsiUpper} / 売られすぎ閾値: ${input.rsiLower}
-【現在のテクニカル】RSI: ${currentRsi?.toFixed(1) ?? "計算中"} / 5MA: ${currentMa5?.toFixed(1) ?? "計算中"} / 25MA: ${currentMa25?.toFixed(1) ?? "計算中"}
+      const userPrompt = `【${input.stockName}(${input.symbol})】現在値:${input.currentPrice.toFixed(0)} 前日比:${input.priceChange >= 0 ? "+" : ""}${input.priceChange.toFixed(0)}(${input.priceChangePercent.toFixed(1)}%) RSI:${currentRsi?.toFixed(0) ?? "?"} 5MA:${currentMa5?.toFixed(0) ?? "?"} 25MA:${currentMa25?.toFixed(0) ?? "?"}
+RSI閾値: 買われすぎ${input.rsiUpper} 売られすぎ${input.rsiLower}${pastPerformanceContext}
 
-=== 1分足チャート（直近20本）===
+【チャート直近15本】
 ${candlesText}
 
-=== 板情報 ===
-${boardText}
-
-=== 歩み値 ===
-${tradesText}
-${pastPerformanceContext}
-
-上記のデータを総合的に分析し、現在の市場状況と推奨アクションを教えてください。`;
+【板】${boardText}
+【歩み値】${tradesText}`;
 
       const response = await invokeLLM({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        response_format: { type: "json_object" },
+        max_tokens: 512,
       });
 
       const rawContent = response.choices[0]?.message?.content;
-      const analysisText = typeof rawContent === "string" ? rawContent : "分析結果を取得できませんでした。";
+      const contentStr = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
+
+      // JSONパース
+      let parsed: {
+        verdict: "BUY" | "SELL" | "WAIT";
+        confidence: number;
+        entry_price: number | null;
+        stop_loss: number | null;
+        take_profit: number | null;
+        reason: string;
+        warning: string | null;
+      };
+
+      try {
+        parsed = JSON.parse(contentStr);
+        // verdictのバリデーション
+        if (!["BUY", "SELL", "WAIT"].includes(parsed.verdict)) {
+          parsed.verdict = "WAIT";
+        }
+        parsed.confidence = Math.max(1, Math.min(5, Math.round(parsed.confidence ?? 3)));
+      } catch {
+        parsed = {
+          verdict: "WAIT",
+          confidence: 1,
+          entry_price: null,
+          stop_loss: null,
+          take_profit: null,
+          reason: "分析データの解析に失敗しました。",
+          warning: "再度お試しください。",
+        };
+      }
 
       return {
-        analysis: analysisText,
+        ...parsed,
         timestamp: Date.now(),
         symbol: input.symbol,
         currentPrice: input.currentPrice,
       };
     }),
-
-  /**
-   * ストリーミングAI分析（SSE経由）
-   * このエンドポイントはtRPCではなくExpressで直接実装するため、
-   * フロントエンドはfetchで /api/ai/stream-analysis を呼ぶ
-   */
-  getStreamEndpointInfo: publicProcedure.query(() => {
-    return { endpoint: "/api/ai/stream-analysis" };
-  }),
 });

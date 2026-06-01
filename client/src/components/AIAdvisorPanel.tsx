@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { Sparkles, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus, Brain } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertTriangle, Brain, TrendingUp, TrendingDown, Minus, Target, ShieldAlert } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { MarketState, Stock } from '../types';
-import { Streamdown } from 'streamdown';
 import { AdvisorDiagnosis } from '../lib/advisor';
 
 interface AIAdvisorPanelProps {
@@ -10,9 +9,53 @@ interface AIAdvisorPanelProps {
   selectedStock: Stock;
   rsiUpper: number;
   rsiLower: number;
-  // ルールベースの診断（既存）も受け取り、並列表示する
   ruleBasedDiagnosis: AdvisorDiagnosis | null;
 }
+
+type AnalysisResult = {
+  verdict: 'BUY' | 'SELL' | 'WAIT';
+  confidence: number;
+  entry_price: number | null;
+  stop_loss: number | null;
+  take_profit: number | null;
+  reason: string;
+  warning: string | null;
+  timestamp: number;
+  currentPrice: number;
+};
+
+const VERDICT_CONFIG = {
+  BUY: {
+    label: '買い',
+    labelEn: 'BUY',
+    bg: 'bg-red-500',
+    border: 'border-red-500/60',
+    text: 'text-red-400',
+    bgLight: 'bg-red-950/30',
+    icon: TrendingUp,
+    description: '今すぐエントリー推奨',
+  },
+  SELL: {
+    label: '売り',
+    labelEn: 'SELL',
+    bg: 'bg-emerald-500',
+    border: 'border-emerald-500/60',
+    text: 'text-emerald-400',
+    bgLight: 'bg-emerald-950/30',
+    icon: TrendingDown,
+    description: '手仕舞い / 空売り推奨',
+  },
+  WAIT: {
+    label: '様子見',
+    labelEn: 'WAIT',
+    bg: 'bg-yellow-500',
+    border: 'border-yellow-500/60',
+    text: 'text-yellow-400',
+    bgLight: 'bg-yellow-950/20',
+    icon: Minus,
+    description: 'エントリー見送り',
+  },
+};
 
 export default function AIAdvisorPanel({
   marketState,
@@ -21,34 +64,27 @@ export default function AIAdvisorPanel({
   rsiLower,
   ruleBasedDiagnosis,
 }: AIAdvisorPanelProps) {
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [lastAnalyzedAt, setLastAnalyzedAt] = useState<number | null>(null);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastRequestRef = useRef<number>(0);
 
   const analyzeMarket = trpc.aiAnalysis.analyzeMarket.useMutation({
     onSuccess: (data) => {
-      setAiAnalysis(data.analysis);
-      setLastAnalyzedAt(data.timestamp);
+      setResult(data as AnalysisResult);
       setIsAnalyzing(false);
       setError(null);
     },
     onError: (err) => {
-      setError('AI分析に失敗しました。しばらくしてから再試行してください。');
+      setError('AI分析に失敗しました。再試行してください。');
       setIsAnalyzing(false);
-      console.error('AI analysis error:', err);
     },
   });
 
   const handleAnalyze = useCallback(() => {
     if (!marketState || isAnalyzing) return;
-
-    // 連続リクエスト防止（10秒以内の再リクエストはブロック）
     const now = Date.now();
-    if (now - lastRequestRef.current < 10000) {
-      return;
-    }
+    if (now - lastRequestRef.current < 8000) return;
     lastRequestRef.current = now;
 
     setIsAnalyzing(true);
@@ -81,7 +117,7 @@ export default function AIAdvisorPanel({
         totalAskVolume: marketState.board.totalAskVolume,
         totalBidVolume: marketState.board.totalBidVolume,
       },
-      trades: marketState.trades.slice(0, 30).map((t) => ({
+      trades: marketState.trades.slice(0, 20).map((t) => ({
         time: t.time,
         price: t.price,
         volume: t.volume,
@@ -93,150 +129,166 @@ export default function AIAdvisorPanel({
     });
   }, [marketState, isAnalyzing, selectedStock, rsiUpper, rsiLower, analyzeMarket]);
 
-  // ルールベース診断のスコアバー表示
+  const cfg = result ? VERDICT_CONFIG[result.verdict] : null;
+  const VerdictIcon = cfg?.icon ?? Brain;
+
+  // ルールベーススコアのメーター表示（-100〜+100 → 0〜100%）
   const ruleScore = ruleBasedDiagnosis?.score ?? 0;
   const rulePercentage = ((ruleScore + 100) / 200) * 100;
 
-  // 警告チェック（AI分析テキストに警告が含まれているか）
-  const hasWarning = aiAnalysis?.includes('⚠️') || aiAnalysis?.includes('警告');
-
-  const lastAnalyzedStr = lastAnalyzedAt
-    ? new Date(lastAnalyzedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : null;
-
   return (
-    <div className={`border rounded-lg p-3.5 transition-all duration-300 ${
-      hasWarning
-        ? 'border-yellow-500/50 bg-yellow-950/20'
+    <div className={`border rounded-lg overflow-hidden transition-all duration-300 ${
+      result
+        ? `${VERDICT_CONFIG[result.verdict].border} ${VERDICT_CONFIG[result.verdict].bgLight}`
         : 'border-border bg-card/60'
     }`}>
-      {/* ヘッダー */}
-      <div className="flex items-center justify-between mb-3 select-none">
+      {/* ヘッダー行 */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border/40 bg-card/40">
         <div className="flex items-center space-x-2">
-          <Brain className="w-4 h-4 text-primary animate-pulse" />
-          <h3 className="text-xs font-bold text-foreground">
-            AI売買シグナル診断
-            <span className="ml-2 text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded border border-primary/30 font-mono">
-              LLM搭載
-            </span>
-          </h3>
+          <Brain className="w-4 h-4 text-primary" />
+          <span className="text-xs font-bold text-foreground">AI売買シグナル診断</span>
+          <span className="text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded border border-primary/30 font-mono">LLM搭載</span>
         </div>
-        <div className="flex items-center space-x-2">
-          {lastAnalyzedStr && (
-            <span className="text-[10px] text-muted-foreground font-mono">
-              最終分析: {lastAnalyzedStr}
-            </span>
+        <button
+          onClick={handleAnalyze}
+          disabled={!marketState || isAnalyzing}
+          className={`flex items-center space-x-1.5 px-3 py-1 rounded text-[11px] font-bold border transition-all duration-200 ${
+            isAnalyzing
+              ? 'bg-primary/10 text-primary border-primary/30 cursor-wait'
+              : !marketState
+              ? 'bg-muted text-muted-foreground border-border cursor-not-allowed'
+              : 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 active:scale-95'
+          }`}
+        >
+          {isAnalyzing ? (
+            <><RefreshCw className="w-3 h-3 animate-spin" /><span>分析中...</span></>
+          ) : (
+            <><Sparkles className="w-3 h-3" /><span>AI分析を実行</span></>
           )}
-          <button
-            onClick={handleAnalyze}
-            disabled={!marketState || isAnalyzing}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-bold border transition-all duration-200 ${
-              isAnalyzing
-                ? 'bg-primary/10 text-primary border-primary/30 cursor-wait'
-                : !marketState
-                ? 'bg-muted text-muted-foreground border-border cursor-not-allowed'
-                : 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 active:scale-95'
-            }`}
-          >
-            {isAnalyzing ? (
-              <>
-                <RefreshCw className="w-3 h-3 animate-spin" />
-                <span>AI分析中...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3 h-3" />
-                <span>AI分析を実行</span>
-              </>
-            )}
-          </button>
-        </div>
+        </button>
       </div>
 
-      {/* ルールベース診断メーター（常時表示） */}
-      {ruleBasedDiagnosis && (
-        <div className="mb-3 pb-3 border-b border-border/40">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-muted-foreground font-bold">テクニカル指標スコア（自動計算）</span>
-            <span className={`text-xs font-extrabold ${ruleBasedDiagnosis.colorClass}`}>
-              {ruleBasedDiagnosis.label}
-            </span>
+      <div className="p-3.5">
+        {/* ===== AI分析結果エリア ===== */}
+        {isAnalyzing && (
+          <div className="flex items-center justify-center py-5 space-x-3">
+            <div className="flex space-x-1">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+              ))}
+            </div>
+            <span className="text-[11px] text-muted-foreground">チャート・板・歩み値をAIが読み解いています...</span>
           </div>
-          <div className="relative h-3 bg-secondary/60 rounded-full overflow-hidden border border-border/50">
-            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-border/80 z-10" />
-            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-transparent to-destructive/20" />
-            <div
-              className="absolute top-0 bottom-0 w-1 bg-foreground shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all duration-500 ease-out z-20"
-              style={{ left: `${rulePercentage}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-[9px] text-muted-foreground font-mono mt-0.5">
-            <span>売り</span>
-            <span>様子見</span>
-            <span>買い</span>
-          </div>
-          {/* ルールベースの理由（折りたたみ） */}
-          <div className="mt-1.5 space-y-0.5 max-h-[50px] overflow-y-auto">
-            {ruleBasedDiagnosis.reason.slice(0, 2).map((r, i) => (
-              <p key={i} className="text-[9px] text-muted-foreground leading-relaxed">
-                {r}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* AI分析結果エリア */}
-      <div className="min-h-[80px]">
-        {error && (
-          <div className="flex items-center space-x-2 text-yellow-400 text-xs bg-yellow-950/30 border border-yellow-500/30 rounded p-2">
+        {error && !isAnalyzing && (
+          <div className="flex items-center space-x-2 text-yellow-400 text-xs bg-yellow-950/30 border border-yellow-500/30 rounded p-2 mb-3">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        {isAnalyzing && !aiAnalysis && (
-          <div className="flex flex-col items-center justify-center py-4 space-y-2">
-            <div className="flex space-x-1">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="w-2 h-2 rounded-full bg-primary animate-bounce"
-                  style={{ animationDelay: `${i * 150}ms` }}
-                />
-              ))}
+        {result && !isAnalyzing && cfg && (
+          <div className="space-y-3">
+            {/* ★ 結論バッジ（最も目立つ部分） */}
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg ${cfg.bg} text-white font-extrabold text-lg tracking-wide shadow-lg`}>
+                <VerdictIcon className="w-5 h-5" />
+                <span>{cfg.label}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className={`text-xs font-bold ${cfg.text}`}>{cfg.description}</span>
+                <div className="flex items-center space-x-1 mt-0.5">
+                  <span className="text-[10px] text-muted-foreground">確信度:</span>
+                  <div className="flex space-x-0.5">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div
+                        key={i}
+                        className={`w-3 h-3 rounded-sm ${i <= result.confidence ? cfg.bg : 'bg-secondary/60'}`}
+                      />
+                    ))}
+                  </div>
+                  <span className={`text-[10px] font-bold ${cfg.text}`}>{result.confidence}/5</span>
+                </div>
+              </div>
+              <div className="ml-auto text-[10px] text-muted-foreground font-mono">
+                {new Date(result.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </div>
             </div>
-            <p className="text-[10px] text-muted-foreground">
-              チャート・板情報・歩み値をAIが読み解いています...
+
+            {/* 価格情報（エントリー・損切り・利確） */}
+            {(result.entry_price || result.stop_loss || result.take_profit) && (
+              <div className="grid grid-cols-3 gap-2">
+                {result.entry_price && (
+                  <div className="bg-secondary/30 border border-border/50 rounded p-2 text-center">
+                    <div className="text-[9px] text-muted-foreground font-bold flex items-center justify-center space-x-1">
+                      <Target className="w-2.5 h-2.5" /><span>エントリー</span>
+                    </div>
+                    <div className="text-sm font-extrabold text-foreground font-mono mt-0.5">{result.entry_price.toFixed(1)}</div>
+                  </div>
+                )}
+                {result.stop_loss && (
+                  <div className="bg-secondary/30 border border-border/50 rounded p-2 text-center">
+                    <div className="text-[9px] text-muted-foreground font-bold flex items-center justify-center space-x-1">
+                      <ShieldAlert className="w-2.5 h-2.5 text-emerald-400" /><span>損切り</span>
+                    </div>
+                    <div className="text-sm font-extrabold text-emerald-400 font-mono mt-0.5">{result.stop_loss.toFixed(1)}</div>
+                  </div>
+                )}
+                {result.take_profit && (
+                  <div className="bg-secondary/30 border border-border/50 rounded p-2 text-center">
+                    <div className="text-[9px] text-muted-foreground font-bold flex items-center justify-center space-x-1">
+                      <TrendingUp className="w-2.5 h-2.5 text-destructive" /><span>利確目標</span>
+                    </div>
+                    <div className="text-sm font-extrabold text-destructive font-mono mt-0.5">{result.take_profit.toFixed(1)}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 判断理由（1〜2文） */}
+            <div className={`rounded p-2.5 border ${cfg.border} bg-card/40`}>
+              <p className="text-[11px] text-foreground leading-relaxed">{result.reason}</p>
+              {result.warning && (
+                <p className="text-[10px] text-yellow-400 mt-1.5 flex items-start space-x-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                  <span>{result.warning}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!result && !isAnalyzing && !error && (
+          <div className="flex flex-col items-center justify-center py-3 space-y-2 text-center">
+            <Brain className="w-7 h-7 text-muted-foreground/40" />
+            <p className="text-[11px] text-muted-foreground">
+              「AI分析を実行」を押すと、<br />
+              <span className="font-bold text-foreground">買い / 売り / 様子見</span> を即座に判定します
             </p>
           </div>
         )}
 
-        {aiAnalysis && !isAnalyzing && (
-          <div className={`rounded p-2.5 text-[11px] leading-relaxed ${
-            hasWarning
-              ? 'bg-yellow-950/30 border border-yellow-500/30'
-              : 'bg-secondary/20 border border-border/40'
-          }`}>
-            <div className="flex items-center space-x-1.5 mb-1.5">
-              <Brain className="w-3 h-3 text-primary shrink-0" />
-              <span className="text-[10px] font-bold text-primary">AIアナリストの見解</span>
+        {/* ===== テクニカル指標メーター（ルールベース・常時表示） ===== */}
+        {ruleBasedDiagnosis && (
+          <div className="mt-3 pt-3 border-t border-border/30">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-muted-foreground">テクニカル指標スコア（自動計算）</span>
+              <span className={`text-[10px] font-bold ${ruleBasedDiagnosis.colorClass}`}>
+                {ruleScore > 20 ? '買い優勢' : ruleScore < -20 ? '売り優勢' : '中立'}
+                {' '}({ruleScore > 0 ? '+' : ''}{ruleScore})
+              </span>
             </div>
-            <div className="text-foreground">
-              <Streamdown>{aiAnalysis}</Streamdown>
+            <div className="relative h-2 bg-secondary/60 rounded-full overflow-hidden border border-border/50">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-transparent to-destructive/20" />
+              <div className="absolute left-1/2 top-0 bottom-0 w-px bg-border/80 z-10" />
+              <div
+                className="absolute top-0.5 bottom-0.5 w-1.5 rounded-full bg-foreground shadow-[0_0_6px_rgba(255,255,255,0.7)] transition-all duration-500 ease-out z-20"
+                style={{ left: `calc(${rulePercentage}% - 3px)` }}
+              />
             </div>
-          </div>
-        )}
-
-        {!aiAnalysis && !isAnalyzing && !error && (
-          <div className="flex flex-col items-center justify-center py-4 space-y-2 text-center">
-            <Brain className="w-8 h-8 text-muted-foreground/40" />
-            <div>
-              <p className="text-[11px] text-muted-foreground font-bold">AI分析が未実行です</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                「AI分析を実行」ボタンを押すと、チャート・板情報・歩み値を<br />
-                AIが総合的に読み解いて売買判断を提示します
-              </p>
+            <div className="flex justify-between text-[9px] text-muted-foreground font-mono mt-0.5">
+              <span>←売り</span><span>中立</span><span>買い→</span>
             </div>
           </div>
         )}

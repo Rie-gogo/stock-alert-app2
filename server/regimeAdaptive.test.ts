@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { evaluateRegimeGates, getLotRatio, REGIME_CONSTANTS } from "./realSimulation";
+import {
+  evaluateRegimeGates,
+  getLotRatio,
+  REGIME_CONSTANTS,
+  computeMarketEfficiency,
+  isRangeBoundDay,
+} from "./realSimulation";
 
 /**
  * レジーム適応型ロジックの単体テスト
@@ -76,19 +82,55 @@ describe("evaluateRegimeGates（レジーム方向ゲート）", () => {
 });
 
 describe("getLotRatio（銘柄別ロット縮小）", () => {
-  it("超ボラ銘柄（ソフトバンクG・第一三共・ソシオネクスト）は極小ロット", () => {
+  it("超ボラ/低相性銘柄（ソフトバンクG・第一三共・ソシオネクスト・川崎汽船）は極小ロット", () => {
     expect(getLotRatio("9984")).toBe(REGIME_CONSTANTS.LOT_SMALL);
     expect(getLotRatio("4568")).toBe(REGIME_CONSTANTS.LOT_SMALL);
     expect(getLotRatio("6526")).toBe(REGIME_CONSTANTS.LOT_SMALL);
   });
 
+  it("川崎汽船(9107)はトレンド系ロジックと相性が悪いため最小ロットで監視継続する", () => {
+    // 出来高重視の方針により除外せず、ロットを極小にして損失を抑える
+    expect(getLotRatio("9107")).toBe(REGIME_CONSTANTS.LOT_SMALL);
+  });
+
   it("通常銘柄は通常ロット", () => {
-    expect(getLotRatio("9107")).toBe(REGIME_CONSTANTS.LOT_NORMAL);
     expect(getLotRatio("8306")).toBe(REGIME_CONSTANTS.LOT_NORMAL);
   });
 
-  it("超ボラ銘柄のロットは通常銘柄より十分小さい", () => {
-    expect(getLotRatio("9984")).toBeLessThan(getLotRatio("9107"));
+  it("極小ロット銘柄のロットは通常銘柄より十分小さい", () => {
+    expect(getLotRatio("9984")).toBeLessThan(getLotRatio("8306"));
+  });
+});
+
+describe("computeMarketEfficiency / isRangeBoundDay（レンジ回避フィルター）", () => {
+  it("一方向にトレンドした日は効率が高くレンジと見なされない", () => {
+    // 寄り100、高値110、安値100、引け110：値幅の全てが上げに使われた（効率1.0）
+    const eff = computeMarketEfficiency([
+      { open: 100, high: 110, low: 100, close: 110 },
+      { open: 200, high: 220, low: 200, close: 220 },
+    ]);
+    expect(eff).toBeCloseTo(1, 5);
+    expect(isRangeBoundDay(eff)).toBe(false);
+  });
+
+  it("大きく往復して始値近くに戻った日は効率が低くレンジと判定される", () => {
+    // 寄り100、高値110、安傐90、引け101：値幅20%だが純変厖1%→効率0.05
+    const eff = computeMarketEfficiency([
+      { open: 100, high: 110, low: 90, close: 101 },
+    ]);
+    expect(eff).toBeLessThan(REGIME_CONSTANTS.RANGE_EFFICIENCY_THRESHOLD);
+    expect(isRangeBoundDay(eff)).toBe(true);
+  });
+
+  it("閾値を0.30として境界を正しく判定する", () => {
+    expect(REGIME_CONSTANTS.RANGE_EFFICIENCY_THRESHOLD).toBe(0.3);
+    expect(isRangeBoundDay(0.29)).toBe(true);
+    expect(isRangeBoundDay(0.31)).toBe(false);
+  });
+
+  it("データが空のときは効率1（レンジでない）を返し誤った取引停止を防ぐ", () => {
+    expect(computeMarketEfficiency([])).toBe(1);
+    expect(isRangeBoundDay(computeMarketEfficiency([]))).toBe(false);
   });
 });
 

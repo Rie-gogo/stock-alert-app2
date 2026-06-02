@@ -15,6 +15,13 @@
       "when": 1780320016097,
       "tag": "0001_brave_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1780410397435,
+      "tag": "0002_true_shockwave",
+      "breakpoints": true
     }
   ]
 }

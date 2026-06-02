@@ -12,7 +12,13 @@ import {
   getAlgorithmImprovements,
   getRecentStats,
   getSymbolPerformanceHistory,
+  createPaperTrade,
+  closePaperTrade,
+  getPaperTrades,
+  getOpenPaperTradeCount,
+  deletePaperTrade,
 } from "../db";
+import { MAX_CONCURRENT_POSITIONS } from "@shared/stocks";
 import { generateDailySimReport } from "../simulation";
 import { generateRealDailyReport } from "../realSimulation";
 import { invokeLLM } from "../_core/llm";
@@ -330,5 +336,82 @@ export const tradingRouter = router({
         basedOnDays: history.length > 0 ? Math.min(input.days, history.length) : 0,
         recommendations,
       };
+    }),
+
+  // ============================================================
+  // 仮想売買（ペーパートレード）
+  // ============================================================
+
+  /**
+   * 仮想売買の履歴を取得（オープン中＋決済済み）
+   */
+  getPaperTrades: protectedProcedure.query(async ({ ctx }) => {
+    const trades = await getPaperTrades(ctx.user.id);
+    return trades;
+  }),
+
+  /**
+   * 仮買い／仮売りエントリーを記録
+   * 同時保有は最大 MAX_CONCURRENT 銘柄まで（保有中ポジション数で判定）。
+   */
+  openPaperTrade: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(1).max(10),
+        symbolName: z.string().min(1).max(50),
+        side: z.enum(["long", "short"]),
+        entryPrice: z.number().positive(),
+        quantity: z.number().int().positive(),
+        note: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const openCount = await getOpenPaperTradeCount(ctx.user.id);
+      if (openCount >= MAX_CONCURRENT_POSITIONS) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `同時保有は最大${MAX_CONCURRENT_POSITIONS}銘柄までです。新しく仮エントリーするには、まず保有中のポジションを決済してください。`,
+        });
+      }
+
+      const trade = await createPaperTrade({
+        userId: ctx.user.id,
+        symbol: input.symbol,
+        symbolName: input.symbolName,
+        side: input.side,
+        entryPrice: String(input.entryPrice),
+        quantity: input.quantity,
+        note: input.note ?? null,
+      });
+      return { success: true, trade };
+    }),
+
+  /**
+   * 仮ポジションを決済（損益を計算して closed に更新）
+   */
+  closePaperTrade: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        exitPrice: z.number().positive(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const trade = await closePaperTrade({
+        id: input.id,
+        userId: ctx.user.id,
+        exitPrice: input.exitPrice,
+      });
+      return { success: true, trade };
+    }),
+
+  /**
+   * 仮ポジション／履歴を削除（誤記録の取り消し用）
+   */
+  deletePaperTrade: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      await deletePaperTrade({ id: input.id, userId: ctx.user.id });
+      return { success: true };
     }),
 });

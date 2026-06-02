@@ -184,4 +184,15 @@
 - [x] portfolio.test.ts（applyPortfolioRules/rankRecommendedSymbols/recommendForNextDay）の vitest を追加し全合格（77テスト・tsc 0件）
 - [x] RecommendationPanel.tsxを作成しHome.tsx右サイドバーに「本日の推奨銘柄トップ3」を表示（クリックで監視銘柄切替）
 - [x] 全テスト再実行（77テスト全通過、tscエラー0件）
-- [ ] チェックポイント保存と明日のリアルタイム実践手順の案内
+- [x] チェックポイント保存（version: acc9d361）・推奨銘柄パネルのブラウザ動作確認済
+- [x] 明日のリアルタイム実践シミュレーション手順を案内
+## 仮想売買（ペーパートレード）機能（2026-06-02 着手）
+- [x] drizzle/schema.ts に paperTrades テーブルを追加
+- [x] pnpm db:push でマイグレーション実行（paper_tradesテーブル作成確認済）
+- [x] server/db.ts に createPaperTrade / closePaperTrade / getPaperTrades / getOpenPaperTradeCount / deletePaperTrade ヘルパーを追加
+- [x] server/routers/trading.ts に openPaperTrade / closePaperTrade / getPaperTrades / deletePaperTrade 手続きを追加（同時保有3銘柄制限をサーバー側でも検証）
+- [x] Home.tsx に「仮買い／仮売り」ボタンを追加（現在の監視銘柄・現在値を自動取得）
+- [x] PaperTradePanel.tsx を作成（オープン中ポジション + 決済済み履歴 + 累計損益）
+- [x] 同時保有3銘柄制限のUIフィードバック
+- [x] paperTrade の vitest を追加して全通過（8ファイル84テスト pass）
+- [ ] チェックポイント保存・ユーザー案内

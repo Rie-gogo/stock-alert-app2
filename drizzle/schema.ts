@@ -188,3 +188,40 @@ export const algorithmConfig = mysqlTable("algorithm_config", {
 
 export type AlgorithmConfig = typeof algorithmConfig.$inferSelect;
 export type InsertAlgorithmConfig = typeof algorithmConfig.$inferInsert;
+
+/**
+ * 仮想売買（ペーパートレード）記録
+ * ユーザーがリアルタイムで「仮買い／仮売り」をボタンで記録するための個人取引履歴。
+ * 実際の発注は行わない練習用途。
+ */
+export const paperTrades = mysqlTable("paper_trades", {
+  id: int("id").autoincrement().primaryKey(),
+  /** 取引したユーザーのID */
+  userId: int("userId").notNull(),
+  /** 銘柄コード（例: 9984） */
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  /** 銘柄名 */
+  symbolName: varchar("symbolName", { length: 50 }).notNull(),
+  /** ポジション方向: long=買い / short=空売り */
+  side: mysqlEnum("side", ["long", "short"]).notNull(),
+  /** エントリー価格（円） */
+  entryPrice: decimal("entryPrice", { precision: 12, scale: 2 }).notNull(),
+  /** 株数 */
+  quantity: int("quantity").notNull(),
+  /** ステータス: open=保有中 / closed=決済済み */
+  status: mysqlEnum("status", ["open", "closed"]).notNull().default("open"),
+  /** 決済価格（円）- 決済時のみ */
+  exitPrice: decimal("exitPrice", { precision: 12, scale: 2 }),
+  /** 損益額（円）- 決済時に計算 */
+  pnl: bigint("pnl", { mode: "number" }),
+  /** メモ（任意） */
+  note: text("note"),
+  /** エントリー時刻 */
+  entryAt: timestamp("entryAt").defaultNow().notNull(),
+  /** 決済時刻 */
+  exitAt: timestamp("exitAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PaperTrade = typeof paperTrades.$inferSelect;
+export type InsertPaperTrade = typeof paperTrades.$inferInsert;

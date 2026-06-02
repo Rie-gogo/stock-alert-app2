@@ -1,4 +1,4 @@
-import { eq, desc, gte, inArray } from "drizzle-orm";
+import { eq, desc, gte, inArray, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -7,9 +7,11 @@ import {
   stockReports,
   algorithmImprovements,
   algorithmConfig,
+  paperTrades,
   type InsertDailyReport,
   type InsertStockReport,
   type InsertAlgorithmImprovement,
+  type InsertPaperTrade,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -336,4 +338,138 @@ export async function getRecentStats(days = 30) {
   const totalProfit = reports.reduce((sum, r) => sum + Number(r.totalProfitAmount), 0);
 
   return { totalDays, avgWinRate, avgProfitRate, totalProfit, reports };
+}
+
+// ============================================================
+// Paper Trade (仮想売買) helpers
+// ============================================================
+
+/**
+ * 仮想売買の損益を計算する純粋関数（テスト可能）。
+ * long（買建）: (決済価格 - エントリー価格) × 株数
+ * short（空売り）: (エントリー価格 - 決済価格) × 株数
+ * 結果は円単位に丸める。
+ */
+export function computePaperTradePnl(params: {
+  side: "long" | "short";
+  entryPrice: number;
+  exitPrice: number;
+  quantity: number;
+}): number {
+  const { side, entryPrice, exitPrice, quantity } = params;
+  return side === "long"
+    ? Math.round((exitPrice - entryPrice) * quantity)
+    : Math.round((entryPrice - exitPrice) * quantity);
+}
+
+/**
+ * 仮想売買のエントリーを記録する。
+ */
+export async function createPaperTrade(
+  data: Omit<InsertPaperTrade, "id" | "status" | "exitPrice" | "pnl" | "exitAt" | "createdAt">
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.insert(paperTrades).values({ ...data, status: "open" });
+
+  const rows = await db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.userId, data.userId))
+    .orderBy(desc(paperTrades.id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * 仮想売買を決済する。決済価格を受け取り、損益を計算して closed に更新する。
+ * long: (決済価格 - エントリー価格) × 株数
+ * short: (エントリー価格 - 決済価格) × 株数
+ */
+export async function closePaperTrade(params: {
+  id: number;
+  userId: number;
+  exitPrice: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select()
+    .from(paperTrades)
+    .where(and(eq(paperTrades.id, params.id), eq(paperTrades.userId, params.userId)))
+    .limit(1);
+  const trade = rows[0];
+  if (!trade) throw new Error("Paper trade not found");
+  if (trade.status === "closed") throw new Error("Paper trade already closed");
+
+  const entry = parseFloat(String(trade.entryPrice));
+  const exit = params.exitPrice;
+  const qty = Number(trade.quantity);
+  const pnl = computePaperTradePnl({
+    side: trade.side,
+    entryPrice: entry,
+    exitPrice: exit,
+    quantity: qty,
+  });
+
+  await db
+    .update(paperTrades)
+    .set({
+      status: "closed",
+      exitPrice: String(exit),
+      pnl,
+      exitAt: new Date(),
+    })
+    .where(and(eq(paperTrades.id, params.id), eq(paperTrades.userId, params.userId)));
+
+  const updated = await db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.id, params.id))
+    .limit(1);
+  return updated[0] ?? null;
+}
+
+/**
+ * 指定ユーザーの仮想売買履歴を新しい順に取得する。
+ */
+export async function getPaperTrades(userId: number, limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.userId, userId))
+    .orderBy(desc(paperTrades.id))
+    .limit(limit);
+}
+
+/**
+ * 指定ユーザーの保有中（open）ポジション数を取得する。
+ * 同時保有制限のチェックに使う。
+ */
+export async function getOpenPaperTradeCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const rows = await db
+    .select()
+    .from(paperTrades)
+    .where(and(eq(paperTrades.userId, userId), eq(paperTrades.status, "open")));
+  return rows.length;
+}
+
+/**
+ * 指定の仮想売買を削除する（誤記録の取り消し用）。
+ */
+export async function deletePaperTrade(params: { id: number; userId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .delete(paperTrades)
+    .where(and(eq(paperTrades.id, params.id), eq(paperTrades.userId, params.userId)));
 }

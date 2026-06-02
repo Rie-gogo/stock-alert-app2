@@ -10,6 +10,7 @@ import BacktestModal from '../components/BacktestModal';
 import AIAdvisorPanel from '../components/AIAdvisorPanel';
 import DailyReportModal from '../components/DailyReportModal';
 import RecommendationPanel from '../components/RecommendationPanel';
+import PaperTradePanel from '../components/PaperTradePanel';
 import { diagnoseMarket } from '../lib/advisor';
 import { toast } from 'sonner';
 import {
@@ -405,6 +406,13 @@ export default function Home() {
                 toast.success(`監視銘柄を切替: ${stock.name}`, { duration: 2000 });
               }
             }}
+          />
+
+          {/* 仮想売買（ペーパートレード）パネル */}
+          <PaperTradePanel
+            symbol={selectedStock.symbol.replace('.T', '')}
+            symbolName={selectedStock.name}
+            currentPrice={marketState ? marketState.currentPrice : null}
           />
 
           <Card className="border-border bg-card/60 backdrop-blur-sm">

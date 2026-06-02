@@ -213,16 +213,13 @@ export async function simulateStockReal(
   rsiUpper = 70,
   rsiLower = 30,
   stopLossPercent = 1.5
-): Promise<StockSimResult & { isRealData: boolean }> {
+): Promise<(StockSimResult & { isRealData: boolean }) | null> {
   const candles = await fetchRealCandles(ticker);
 
-  // 実データ取得失敗時は架空データにフォールバック
+  // 実データ取得失敗時はnullを返す（架空データへのフォールバックは絶対に行わない）
   if (!candles) {
-    console.warn(`[realSimulation] Falling back to simulated data for ${ticker}`);
-    const { simulateStock } = await import("./simulation");
-    const today = new Date();
-    const dateSeed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
-    return { ...simulateStock(symbol, name, initialCapital, rsiUpper, rsiLower, stopLossPercent, dateSeed), isRealData: false };
+    console.warn(`[realSimulation] Real data unavailable for ${ticker} - skipping (NO FALLBACK)`);
+    return null;
   }
 
     // シミュレーション実行
@@ -440,7 +437,7 @@ export async function generateRealDailyReport(
   console.log(`[realSimulation] Starting real data simulation for ${dateStr}`);
 
   // APIレート制限を避けるため、並列ではなく順次取得する
-  const stockReports: Awaited<ReturnType<typeof simulateStockReal>>[] = [];
+  const allResults: ((StockSimResult & { isRealData: boolean }) | null)[] = [];
   for (const stock of REAL_TARGET_STOCKS) {
     const result = await simulateStockReal(
       stock.symbol,
@@ -451,12 +448,23 @@ export async function generateRealDailyReport(
       rsiLower,
       stopLossPercent
     );
-    stockReports.push(result);
+    allResults.push(result);
     // 各銘柄の取得後に少し待機してAPIレート制限を回避
     await new Promise(resolve => setTimeout(resolve, 300));
   }
 
-  const totalInitialCapital = 3_000_000 * REAL_TARGET_STOCKS.length;
+  // 実データを取得できた銘柄のみを使用（nullは除外）
+  const stockReports = allResults.filter((r): r is StockSimResult & { isRealData: boolean } => r !== null);
+  const realDataCount = stockReports.length;
+
+  // 実データが1銘柄も取得できなかった場合はエラーをスロー（架空データでのレポート保官は絶対に行わない）
+  if (realDataCount === 0) {
+    throw new Error(`[realSimulation] FATAL: No real data available for any stock on ${dateStr}. Yahoo Finance API may be rate-limited or unavailable. Aborting - no report will be saved.`);
+  }
+
+  console.log(`[realSimulation] Completed: ${realDataCount}/${REAL_TARGET_STOCKS.length} stocks used real data`);
+
+  const totalInitialCapital = 3_000_000 * realDataCount;
   const totalFinalBalance = stockReports.reduce((sum, r) => sum + r.finalBalance, 0);
   const totalProfitAmount = totalFinalBalance - totalInitialCapital;
   const totalProfitRate = totalProfitAmount / totalInitialCapital;
@@ -464,9 +472,6 @@ export async function generateRealDailyReport(
   const totalLossCount = stockReports.reduce((sum, r) => sum + r.lossCount, 0);
   const totalTrades = totalWinCount + totalLossCount;
   const overallWinRate = totalTrades > 0 ? totalWinCount / totalTrades : 0;
-
-  const realDataCount = stockReports.filter(r => r.isRealData).length;
-  console.log(`[realSimulation] Completed: ${realDataCount}/${REAL_TARGET_STOCKS.length} stocks used real data`);
 
   return {
     date: dateStr,
@@ -482,6 +487,6 @@ export async function generateRealDailyReport(
     stopLossPercent,
     stockReports,
     realDataCount,
-    isRealData: realDataCount > 0,
+    isRealData: true, // 常にtrue（実データのみ使用）
   };
 }

@@ -87,24 +87,18 @@ export const tradingRouter = router({
       const rsiLower = input.rsiLower ?? config?.rsiLower ?? 30;
       const stopLossPercent = input.stopLossPercent ?? parseFloat(String(config?.stopLossPercent ?? "1.5"));
 
-      // ★ 実際のYahoo Financeデータを使ったシミュレーション実行
-      // 当日データの場合は実データを試みる。過去日の場合は架空データにフォールバック
+      // ★ 実際のYahoo Financeデータのみ使用（架空データへのフォールバックは絶対に行わない）
       const todayStr = new Date().toISOString().slice(0, 10);
-      let simResult: Awaited<ReturnType<typeof generateRealDailyReport>> | ReturnType<typeof generateDailySimReport>;
-      let dataSource: string;
-
-      if (input.reportDate === todayStr) {
-        // 当日は実データを使用
-        const realResult = await generateRealDailyReport(input.reportDate, rsiUpper, rsiLower, stopLossPercent);
-        simResult = realResult;
-        dataSource = realResult.isRealData
-          ? `実際の株価データ (${realResult.realDataCount}/10銘柄)`
-          : "架空データ（市場データ取得失敗のためフォールバック）";
-      } else {
-        // 過去日は架空データ（Yahoo Financeの1分足は当日のみ取得可能）
-        simResult = generateDailySimReport(input.reportDate, rsiUpper, rsiLower, stopLossPercent);
-        dataSource = "架空データ（過去日付のため）";
+      if (input.reportDate !== todayStr) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `手動シミュレーションは当日のみ実行できます。Yahoo Financeの1分足データは当日分のみ取得可能です。過去日付の架空データシミュレーションは実施しません。`,
+        });
       }
+
+      // 実データ取得失敗時はgenerateRealDailyReportがエラーをスローするのでそのまま伝播する
+      const simResult = await generateRealDailyReport(input.reportDate, rsiUpper, rsiLower, stopLossPercent);
+      const dataSource = `実際の株価データ (${simResult.realDataCount}/${simResult.realDataCount}銘柄)`;
 
       // AI分析サマリーの生成（オプション）
       let aiSummary: string | undefined;

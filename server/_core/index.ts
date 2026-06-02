@@ -8,7 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { dailySimulationHandler } from "../scheduledHandlers";
+import { dailySimulationHandler, manualSimulationHandler } from "../scheduledHandlers";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -40,6 +40,8 @@ async function startServer() {
 
   // スケジュール実行エンドポイント（tRPCより前に登録）
   app.post("/api/scheduled/daily-simulation", dailySimulationHandler);
+  // オーナー専用手動シミュレーションエンドポイント
+  app.post("/api/admin/manual-simulation", manualSimulationHandler);
 
   // tRPC API
   app.use(

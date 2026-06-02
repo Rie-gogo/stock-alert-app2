@@ -87,6 +87,66 @@ interface RealCandle {
   rsi: number | null;
   bbUpper: number | null;
   bbLower: number | null;
+  flow: number | null;   // 売買圧力（歩み値・板の代替）: 直近10本の(終値位置 x 出来高)の合計
+  slope: number | null;  // MA25の傾き（中期トレンド方向）
+}
+
+// ============================================================
+// レジーム適応型戦略の定数（19営業日バックテストで検証済み）
+// ============================================================
+// 超ボラティリティ銘柄（材料で乱高下しやすい）はロットを大幅縮小して participate
+const HIGH_VOL_SYMBOLS = new Set(["9984", "4568", "6526"]); // SBG・第一三共・ソシオネクスト
+const LOT_NORMAL = 0.49;   // 通常銘柄の建玉比率（資金に対する割合）
+const LOT_SMALL = 0.05;    // 超ボラ銘柄の建玉比率（極小）
+const CIRCUIT_BREAKER = 20000;   // 1銘柄/日の確定損失がこの額に達したらその日は新規停止
+const MAX_TRADES_PER_DAY = 3;    // 1銘柄/日の最大取引回数
+const HIGH_VOL_DAY_THRESHOLD = 0.08; // 当日値幅がこの割合以上なら「超高ボラ日」= ショート禁止
+const WARMUP_BARS = 15;          // 寄り後この本数はエントリーしない（レジームが固まるまで様子見）
+const MARKET_REGIME_THRESHOLD = 0.004; // 市場全体の地合い判定の閾値(±0.4%)
+const SLOPE_LOOKBACK = 25;       // MA25傾きを測る基準（25本=約50分前）
+const SLOPE_THRESHOLD = 0.0003;  // トレンド方向と認定する傾きの最小値
+const FLOW_LOOKBACK = 10;        // 売買圧力を集計する直近本数
+
+// 定数をテストから参照できるようエクスポート
+export const REGIME_CONSTANTS = {
+  HIGH_VOL_SYMBOLS,
+  LOT_NORMAL,
+  LOT_SMALL,
+  CIRCUIT_BREAKER,
+  MAX_TRADES_PER_DAY,
+  HIGH_VOL_DAY_THRESHOLD,
+  WARMUP_BARS,
+  MARKET_REGIME_THRESHOLD,
+  SLOPE_THRESHOLD,
+};
+
+/** 銘柄に応じた建玉比率を返す（超ボラ銘柄は極小ロット） */
+export function getLotRatio(symbol: string): number {
+  return HIGH_VOL_SYMBOLS.has(symbol) ? LOT_SMALL : LOT_NORMAL;
+}
+
+/**
+ * レジーム方向ゲート：「その時の相場の雰囲気」に合った方向だけを許可する
+ * 二段流れ判定（中期トレンド + 直近の勢い）と市場全体の地合いを組み合わせる。
+ */
+export function evaluateRegimeGates(params: {
+  slope: number;        // MA25傾き
+  flow: number;         // 売買圧力
+  mktBias: number;      // 市場全体の地合い
+  inWarmup: boolean;    // 寄り後様子見中か
+  halted: boolean;      // サーキットブレーカー発動中か
+  isHighVolDay: boolean;// 超高ボラ日か
+}): { allowLong: boolean; allowShort: boolean } {
+  const { slope, flow, mktBias, inWarmup, halted, isHighVolDay } = params;
+  const stockTrendUp = slope > SLOPE_THRESHOLD;
+  const stockTrendDown = slope < -SLOPE_THRESHOLD;
+  const flowUp = flow > 0;
+  const flowDown = flow < 0;
+  const mktUp = mktBias > MARKET_REGIME_THRESHOLD;
+  const mktDown = mktBias < -MARKET_REGIME_THRESHOLD;
+  const allowLong = stockTrendUp && flowUp && !mktDown && !inWarmup && !halted;
+  const allowShort = stockTrendDown && flowDown && !mktUp && !inWarmup && !halted && !isHighVolDay;
+  return { allowLong, allowShort };
 }
 
 /**
@@ -175,6 +235,8 @@ async function fetchRealCandlesOnce(ticker: string): Promise<RealCandle[] | null
         rsi: null,
         bbUpper: null,
         bbLower: null,
+        flow: null,
+        slope: null,
       });
     }
 
@@ -195,6 +257,29 @@ async function fetchRealCandlesOnce(ticker: string): Promise<RealCandle[] | null
       c.bbLower = bb.lower[i];
     });
 
+    // 売買圧力（flow）: 各足の (終値位置 x 出来高) を直近FLOW_LOOKBACK本で合計
+    // 終値位置 = ((close-low)-(high-close))/(high-low) ∈ [-1,1]
+    // 価格が上げながら出来高が多い=買い圧力(プラス)、下げながら多い=売り圧力(マイナス)
+    const signedVol: number[] = rawCandles.map(c => {
+      const range = (c.high - c.low) || 1;
+      const clv = ((c.close - c.low) - (c.high - c.close)) / range;
+      return clv * c.volume;
+    });
+    rawCandles.forEach((c, i) => {
+      if (i >= FLOW_LOOKBACK - 1) {
+        let s = 0;
+        for (let k = i - FLOW_LOOKBACK + 1; k <= i; k++) s += signedVol[k];
+        c.flow = s;
+      }
+      // MA25傾き（中期トレンド方向）
+      if (i >= SLOPE_LOOKBACK && c.ma25 !== null) {
+        const prevMa = rawCandles[i - SLOPE_LOOKBACK].ma25;
+        if (prevMa !== null && prevMa !== 0) {
+          c.slope = (c.ma25 - prevMa) / prevMa;
+        }
+      }
+    });
+
     return rawCandles;
   } catch (err) {
     console.warn(`[realSimulation] Failed to fetch ${ticker}:`, err);
@@ -203,26 +288,22 @@ async function fetchRealCandlesOnce(ticker: string): Promise<RealCandle[] | null
 }
 
 /**
- * 実際の株価データを使ってシミュレーションを実行する
+ * 実際の株価データを使ってシミュレーションを実行する（レジーム適応型）
+ * @param candles 事前取得済みのローソク足（地合い計算のため呼び出し側で全銘柄を先に取得）
+ * @param marketBiasAt 進行率(0〜1)を渡すとその時点の市場全体の地合い（始値比平均）を返す関数
  */
-export async function simulateStockReal(
+export function simulateStockReal(
   symbol: string,
   ticker: string,
   name: string,
+  candles: RealCandle[],
+  marketBiasAt: (progress: number) => number,
   initialCapital = 3_000_000,
   rsiUpper = 70,
   rsiLower = 30,
   stopLossPercent = 1.5
-): Promise<(StockSimResult & { isRealData: boolean }) | null> {
-  const candles = await fetchRealCandles(ticker);
-
-  // 実データ取得失敗時はnullを返す（架空データへのフォールバックは絶対に行わない）
-  if (!candles) {
-    console.warn(`[realSimulation] Real data unavailable for ${ticker} - skipping (NO FALLBACK)`);
-    return null;
-  }
-
-    // シミュレーション実行
+): (StockSimResult & { isRealData: boolean }) | null {
+  // シミュレーション実行
   const trades: TradeRecord[] = [];
   const signals: SignalRecord[] = [];
   let capital = initialCapital;
@@ -235,8 +316,21 @@ export async function simulateStockReal(
 
   let winCount = 0;
   let lossCount = 0;
+  let realizedPnl = 0;        // 確定損益（サーキットブレーカー判定用）
+  let tradeCount = 0;         // 取引回数（決済ベース）
+  let halted = false;         // サーキットブレーカー発動フラグ
 
   const stopLossRatio = stopLossPercent / 100;
+
+  // 建玉比率（超ボラ銘柄は極小ロット）
+  const lotRatio = HIGH_VOL_SYMBOLS.has(symbol) ? LOT_SMALL : LOT_NORMAL;
+
+  // 当日値幅（超高ボラ日判定）
+  const dayOpen = candles[0]?.open ?? 0;
+  const dayHigh = Math.max(...candles.map(c => c.high));
+  const dayLow = Math.min(...candles.map(c => c.low));
+  const dayRange = dayOpen > 0 ? (dayHigh - dayLow) / dayOpen : 0;
+  const isHighVolDay = dayRange >= HIGH_VOL_DAY_THRESHOLD;
 
   for (let i = 1; i < candles.length; i++) {
     const curr = candles[i];
@@ -258,14 +352,44 @@ export async function simulateStockReal(
     const isStrongUp = curr.ma5 > curr.ma25 * 1.003 && curr.close >= curr.ma5;
 
     // ============================================================
+    // 【レジーム適応】その時点の「相場の雰囲気」を掴む
+    // ============================================================
+    // (1) 個別銘柄の中期トレンド方向（MA25傾き）
+    const slope = curr.slope ?? 0;
+    const stockTrendUp = slope > SLOPE_THRESHOLD;     // 上昇トレンド
+    const stockTrendDown = slope < -SLOPE_THRESHOLD;  // 下落トレンド
+
+    // (2) 直近の勢い（売買圧力 flow）。プラス=買い優勢、マイナス=売り優勢
+    const flow = curr.flow ?? 0;
+    const flowUp = flow > 0;
+    const flowDown = flow < 0;
+
+    // (3) 市場全体の地合い（その時点までの始値比平均）。進行率で参照しリアルタイム性を保つ
+    const progress = candles.length > 1 ? i / (candles.length - 1) : 1;
+    const mktBias = marketBiasAt(progress);
+    const mktUp = mktBias > MARKET_REGIME_THRESHOLD;     // 市場全体が上昇ムード
+    const mktDown = mktBias < -MARKET_REGIME_THRESHOLD;  // 市場全体が下落ムード
+
+    // 寄り後ウォームアップ中はエントリーしない（レジームが固まるまで様子見）
+    const inWarmup = i < WARMUP_BARS;
+
+    // 【二段流れ判定 + レジーム方向ゲート】単体テスト済みの純粋関数を使用
+    void stockTrendUp; void stockTrendDown; void flowUp; void flowDown; void mktUp; void mktDown;
+    const { allowLong: regimeAllowLong, allowShort: regimeAllowShort } = evaluateRegimeGates({
+      slope, flow, mktBias, inWarmup, halted, isHighVolDay,
+    });
+
+    // ============================================================
     // ロング（買い）ポジション管理
     // ============================================================
 
-    // ロングエントリー：ゴールデンクロス or RSI売られすぎ+BB下限
-    const shouldBuyLong = !isStrongDown && (isGoldenCross || (isRsiOversold && isBbLower));
+    // ロングエントリー：レジームがロングを許可 かつ シグナル成立
+    const shouldBuyLong = regimeAllowLong && !isStrongDown &&
+      tradeCount < MAX_TRADES_PER_DAY &&
+      (isGoldenCross || (isRsiOversold && isBbLower));
 
     if (longShares === 0 && shortShares === 0 && shouldBuyLong) {
-      const maxSpend = capital * 0.49; // 資金の半分でロング
+      const maxSpend = capital * lotRatio; // レジーム/銘柄に応じた建玉
       const shares = Math.floor(maxSpend / curr.close / 100) * 100; // 100株単位
       if (shares > 0) {
         const totalAmount = shares * curr.close;
@@ -286,6 +410,8 @@ export async function simulateStockReal(
       const profit = totalAmount - longShares * longEntryPrice;
       capital += totalAmount;
       lossCount++;
+      realizedPnl += profit; tradeCount++;
+      if (realizedPnl <= -CIRCUIT_BREAKER) halted = true; // サーキットブレーカー
       trades.push({ time: curr.time, type: "sell", price: curr.close, shares: longShares, totalAmount, profit, profitRate: profit / (longShares * longEntryPrice) });
       signals.push({ time: curr.time, type: "sell", price: curr.close, ma5: curr.ma5, ma25: curr.ma25, rsi: curr.rsi, reason: `損切り (${stopLossPercent}%下落, 入荷:${longEntryPrice.toFixed(1)}→現在:${curr.close.toFixed(1)})` });
       longShares = 0;
@@ -300,6 +426,8 @@ export async function simulateStockReal(
       const profit = totalAmount - longShares * longEntryPrice;
       capital += totalAmount;
       if (profit > 0) winCount++; else lossCount++;
+      realizedPnl += profit; tradeCount++;
+      if (realizedPnl <= -CIRCUIT_BREAKER) halted = true;
       const sellReason = isDeadCross
         ? `デッドクロス (MA5:${curr.ma5?.toFixed(1)} < MA25:${curr.ma25?.toFixed(1)})`
         : `RSI買われすぎ+BB上限 (RSI:${curr.rsi?.toFixed(1)}, BB上:${curr.bbUpper?.toFixed(1)})`;
@@ -313,11 +441,13 @@ export async function simulateStockReal(
     // ショート（空売り）ポジション管理
     // ============================================================
 
-    // ショートエントリー：デッドクロス or RSI買われすぎ+BB上限（強い上昇トレンド中は見送り）
-    const shouldEnterShort = !isStrongUp && (isDeadCross || (isRsiOverbought && isBbUpper));
+    // ショートエントリー：レジームがショートを許可（下落トレンド+売り圧力+市場上昇でない+超高ボラ日でない） かつ シグナル成立
+    const shouldEnterShort = regimeAllowShort && !isStrongUp &&
+      tradeCount < MAX_TRADES_PER_DAY &&
+      (isDeadCross || (isRsiOverbought && isBbUpper));
 
     if (shortShares === 0 && longShares === 0 && shouldEnterShort) {
-      const maxSpend = capital * 0.49;
+      const maxSpend = capital * lotRatio;
       const shares = Math.floor(maxSpend / curr.close / 100) * 100; // 100株単位
       if (shares > 0) {
         const marginRequired = shares * curr.close;
@@ -338,6 +468,8 @@ export async function simulateStockReal(
       const marginReturn = shortShares * shortEntryPrice;
       capital += marginReturn + profit;
       lossCount++;
+      realizedPnl += profit; tradeCount++;
+      if (realizedPnl <= -CIRCUIT_BREAKER) halted = true;
       trades.push({ time: curr.time, type: "cover", price: curr.close, shares: shortShares, totalAmount: shortShares * curr.close, profit, profitRate: profit / (shortShares * shortEntryPrice) });
       signals.push({ time: curr.time, type: "cover", price: curr.close, ma5: curr.ma5, ma25: curr.ma25, rsi: curr.rsi, reason: `空売り損切り (エントリー:${shortEntryPrice.toFixed(1)} → ${curr.close.toFixed(1)})` });
       shortShares = 0;
@@ -352,6 +484,8 @@ export async function simulateStockReal(
       const marginReturn = shortShares * shortEntryPrice;
       capital += marginReturn + profit;
       if (profit > 0) winCount++; else lossCount++;
+      realizedPnl += profit; tradeCount++;
+      if (realizedPnl <= -CIRCUIT_BREAKER) halted = true;
       const coverReason = isGoldenCross
         ? `空売り買い戻し: ゴールデンクロス (MA5:${curr.ma5?.toFixed(1)} > MA25:${curr.ma25?.toFixed(1)})`
         : `空売り買い戻し: RSI売られすぎ+BB下限 (RSI:${curr.rsi?.toFixed(1)})`;
@@ -436,21 +570,60 @@ export async function generateRealDailyReport(
 ) {
   console.log(`[realSimulation] Starting real data simulation for ${dateStr}`);
 
+  // ステップ1: 全銘柄のローソク足を先に取得（市場全体の地合い計算のため）
   // APIレート制限を避けるため、並列ではなく順次取得する
+  const candleMap = new Map<string, RealCandle[]>();
+  for (const stock of REAL_TARGET_STOCKS) {
+    const candles = await fetchRealCandles(stock.ticker);
+    if (candles) candleMap.set(stock.symbol, candles);
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+
+  // ステップ2: 市場全体の地合い関数を作る
+  // 「ある銘柄が始値比 r の時点」の市場全体の平均始値比を返す。
+  // 各銘柄の始値比系列を個数で揃え、同じ進行位置の平均を使う。
+  // リアルタイム性を保つため、「その銘柄の現在進行率」を代理変数として
+  // 他銘柄の同時刻帯の始値比を参照する。簡易化のため「全銘柄の最新始値比の平均」を
+  // 経過割合で補間して返す関数を生成する。
+  const symbols = Array.from(candleMap.keys());
+  // 各銘柄の「進行位置(0〜1) → 始値比」を引けるようにしておく
+  const ratioSeries: number[][] = symbols.map(sym => {
+    const cs = candleMap.get(sym)!;
+    const open = cs[0]?.open ?? 0;
+    return cs.map(c => (open > 0 ? (c.close - open) / open : 0));
+  });
+  // 進行率 p(0〜1) における市場平均始値比
+  const marketBiasByProgress = (p: number): number => {
+    let sum = 0; let cnt = 0;
+    for (const series of ratioSeries) {
+      if (series.length === 0) continue;
+      const idx = Math.min(series.length - 1, Math.max(0, Math.round(p * (series.length - 1))));
+      sum += series[idx]; cnt++;
+    }
+    return cnt > 0 ? sum / cnt : 0;
+  };
+
+  // ステップ3: 各銘柄をレジーム適応型でシミュレーション
   const allResults: ((StockSimResult & { isRealData: boolean }) | null)[] = [];
   for (const stock of REAL_TARGET_STOCKS) {
-    const result = await simulateStockReal(
+    const candles = candleMap.get(stock.symbol);
+    if (!candles) {
+      console.warn(`[realSimulation] Real data unavailable for ${stock.ticker} - skipping (NO FALLBACK)`);
+      allResults.push(null);
+      continue;
+    }
+    const result = simulateStockReal(
       stock.symbol,
       stock.ticker,
       stock.name,
+      candles,
+      marketBiasByProgress,
       3_000_000,
       rsiUpper,
       rsiLower,
       stopLossPercent
     );
     allResults.push(result);
-    // 各銘柄の取得後に少し待機してAPIレート制限を回避
-    await new Promise(resolve => setTimeout(resolve, 300));
   }
 
   // 実データを取得できた銘柄のみを使用（nullは除外）

@@ -134,3 +134,13 @@
 - [x] ホームページのポーリング間隔を1分→5分に延長済
 - [x] 市場時間外はホームページのポーリングを停止済
 - [x] テスト全通過（42テスト）・チェックポイント保存
+
+## Phase 19: 架空データフォールバック完全削除
+- [x] realSimulation.ts の simulateStockReal が架空データフォールバックを削除し null を返すよう修正
+- [x] generateRealDailyReport が実データ0銘柄の場合はエラーをスローしてレポート保存を中止
+- [x] trading.ts の runSimulation が過去日付の架空データシミュレーションを拒否するよう修正
+- [x] testRealSim.ts を新しいAPIに合わせて更新
+- [x] TypeScriptエラー0件確認
+- [x] 42テスト全通過
+- [x] 今日のDBの架空データレポートは次回の実データ実行時に上書きされる（べき等）
+- [x] チェックポイント保存（version: 3df4d6c6）

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   applyPortfolioRules,
+  computeLotMultiplier,
+  DEFAULT_PORTFOLIO_CONFIG,
   rankRecommendedSymbols,
   recommendForNextDay,
   timeToMinutes,
@@ -142,5 +144,104 @@ describe("recommendForNextDay - 事前推奨（後知恵を避ける）", () => 
 
   it("実績がなければ空配列を返す", () => {
     expect(recommendForNextDay([], 3)).toEqual([]);
+  });
+});
+
+describe("applyPortfolioRules - デイリーストップ（検証済み最適値 -1.5万/利益保護なし）", () => {
+  it("当日確定損益が-15,000円に達したら以降の新規建てを止める", () => {
+    // 8306: -16,000円の決済でデイリーストップ発動 → 以降の7011建ては不採用
+    const perStock: PerStockTrades[] = [
+      { symbol: "8306", trades: [open("09:00"), close("10:00", -16000)] }, // 銀行: 大負け→停止発動
+      { symbol: "7011", trades: [open("10:30"), close("11:30", 5000)] },   // 機械: 停止後に建て→見送り
+    ];
+    const r = applyPortfolioRules(perStock, {
+      ...DEFAULT_PORTFOLIO_CONFIG,
+      dailyLossLimit: 15000,
+      dailyProfitTarget: 0,
+    });
+    expect(r.dailyStopTriggered).toBe(true);
+    expect(r.dailyStopReason).toBe("loss_limit");
+    expect(r.acceptedProfit).toBe(-16000); // 停止後の+5000は採用されない
+  });
+
+  it("停止ライン未達なら後続の取引も通常どおり採用する", () => {
+    const perStock: PerStockTrades[] = [
+      { symbol: "8306", trades: [open("09:00"), close("10:00", -10000)] }, // -10,000円（-15,000未達）
+      { symbol: "7011", trades: [open("10:30"), close("11:30", 5000)] },
+    ];
+    const r = applyPortfolioRules(perStock, {
+      ...DEFAULT_PORTFOLIO_CONFIG,
+      dailyLossLimit: 15000,
+      dailyProfitTarget: 0,
+    });
+    expect(r.dailyStopTriggered).toBe(false);
+    expect(r.acceptedProfit).toBe(-5000);
+  });
+
+  it("利益保護=0（無効）のとき、利益が伸びても新規建ては止めない", () => {
+    // 検証で利益保護はマイナスと判明したため、既定では無効である事を保証する
+    const perStock: PerStockTrades[] = [
+      { symbol: "8306", trades: [open("09:00"), close("10:00", 40000)] },
+      { symbol: "7011", trades: [open("10:30"), close("11:30", 5000)] },
+    ];
+    const r = applyPortfolioRules(perStock, {
+      ...DEFAULT_PORTFOLIO_CONFIG,
+      dailyLossLimit: 15000,
+      dailyProfitTarget: 0,
+    });
+    expect(r.dailyStopTriggered).toBe(false);
+    expect(r.acceptedProfit).toBe(45000); // 両方採用
+  });
+
+  it("既定値(DEFAULT_PORTFOLIO_CONFIG)が検証済み最適値を維持している", () => {
+    expect(DEFAULT_PORTFOLIO_CONFIG.dailyLossLimit).toBe(15000);
+    expect(DEFAULT_PORTFOLIO_CONFIG.dailyProfitTarget).toBe(0);
+    expect(DEFAULT_PORTFOLIO_CONFIG.momentumAllocation).toBe(true);
+  });
+});
+
+describe("computeLotMultiplier - 動的資金配分（調子に応じたロット倍率）", () => {
+  it("実績が薄い（登場2日未満）銘柄は標準1.0倍に固定する", () => {
+    const m = computeLotMultiplier({
+      symbol: "6981", name: "村田製作所", appearances: 1,
+      totalProfit: 50000, totalWin: 5, totalLoss: 0, avgWinRate: 1.0,
+    });
+    expect(m).toBe(1.0);
+  });
+
+  it("好調銘柄（高い平均損益＋高勝率）はロットを厚くする（>1.0、上限1.5）", () => {
+    const m = computeLotMultiplier({
+      symbol: "6981", name: "村田製作所", appearances: 5,
+      totalProfit: 150000, totalWin: 8, totalLoss: 2, avgWinRate: 0.8,
+    });
+    expect(m).toBeGreaterThan(1.0);
+    expect(m).toBeLessThanOrEqual(1.5);
+  });
+
+  it("不調銘柄（マイナス平均損益）はロットを薄くする（<1.0、下限0.5）", () => {
+    const m = computeLotMultiplier({
+      symbol: "9107", name: "川崎汽船", appearances: 5,
+      totalProfit: -80000, totalWin: 1, totalLoss: 6, avgWinRate: 0.14,
+    });
+    expect(m).toBeLessThan(1.0);
+    expect(m).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it("倍率は常に 0.5〜1.5 の範囲にクランプされる（極端な好調でも1.5まで）", () => {
+    const m = computeLotMultiplier({
+      symbol: "3436", name: "SUMCO", appearances: 10,
+      totalProfit: 5_000_000, totalWin: 10, totalLoss: 0, avgWinRate: 1.0,
+    });
+    expect(m).toBeLessThanOrEqual(1.5);
+    expect(m).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it("平均損益ほぼ0・勝率0.5の中立銘柄は概ね1.0倍になる", () => {
+    const m = computeLotMultiplier({
+      symbol: "8306", name: "三菱UFJ", appearances: 5,
+      totalProfit: 0, totalWin: 5, totalLoss: 5, avgWinRate: 0.5,
+    });
+    expect(m).toBeGreaterThan(0.95);
+    expect(m).toBeLessThan(1.05);
   });
 });

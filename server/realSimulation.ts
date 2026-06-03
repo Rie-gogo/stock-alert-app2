@@ -365,7 +365,8 @@ export function simulateStockReal(
   rsiUpper = 70,
   rsiLower = 30,
   stopLossPercent = 2.0,
-  skipTradingRangeDay = false
+  skipTradingRangeDay = false,
+  lotMultiplier = 1.0 // 【動的資金配分】調子の良い銘柄はロットを厚く(>1)、悪い銘柄は薄く(<1)。既定1.0で従来と同一挙動。
 ): (StockSimResult & { isRealData: boolean }) | null {
   // シミュレーション実行
   const trades: TradeRecord[] = [];
@@ -388,8 +389,12 @@ export function simulateStockReal(
 
   const stopLossRatio = stopLossPercent / 100;
 
-  // 建玉比率（超ボラ銘柄は極小ロット）
-  const lotRatio = HIGH_VOL_SYMBOLS.has(symbol) ? LOT_SMALL : LOT_NORMAL;
+  // 建玉比率（超ボラ銘柄は極小ロット）。
+  // 【動的資金配分】調子スコアに応じた倍率を掛ける。暴走防止に0.5〜1.5倍へクランプし、
+  //  建玉比率の上限も0.6（資金の6割）までに制限してリスク量が膨らみすぎないようにする。
+  const safeMultiplier = Math.max(0.5, Math.min(1.5, lotMultiplier));
+  const baseLot = HIGH_VOL_SYMBOLS.has(symbol) ? LOT_SMALL : LOT_NORMAL;
+  const lotRatio = Math.min(0.6, baseLot * safeMultiplier);
 
   // 出来高配列（出来高裏付けゲート用）
   const volumes = candles.map(c => c.volume);

@@ -32,8 +32,13 @@ export interface PortfolioConfig {
 export const DEFAULT_PORTFOLIO_CONFIG: PortfolioConfig = {
   maxConcurrent: MAX_CONCURRENT_POSITIONS,
   maxPerSector: MAX_PER_SECTOR,
+  // 【検証済み最適値・2026-06-03】上昇相場5日×下落相場4日でスイープ(analysis/dailyStopSweepBoth.ts)。
+  //  停止ライン-1.5万は、上昇相場の合計(112,600円)を一切犠牲にせず(停止発動は5日中1日のみ)、
+  //  下落相場の最悪日を-23,506円→-2,638円へ約9割圧縮できる最良バランスだった。
+  //  -1万まで厳しくすると下落相場の取り逃しが増え(DOWN合計67,674→35,801円)、-2万は-1.5万と同等。
   dailyLossLimit: 15000,  // 口座全体の当日確定損益が-15,000円に達したらその日は新規建てを全停止（暴落日の保険）。
-  dailyProfitTarget: 0,   // 利益目標ストップは無効。利を伸ばすトレイリングと相性が悪く、早く止めると取り逃すため。
+  //  利益保護ストップは全条件でマイナス(利を伸ばすトレイリングと相性が悪く、伸びる利益を取り逃す)ため無効が最適。
+  dailyProfitTarget: 0,   // 利益目標ストップは無効。
   momentumAllocation: true, // 枠競合時はその日調子の良い銘柄を優先採用。
 };
 
@@ -312,6 +317,7 @@ export interface PreTradeRecommendation extends RankedSymbol {
   avgDailyProfit: number; // 1営業日あたり平均損益（円）
   avgWinRate: number; // 平均勝率（0〜1）
   appearances: number;
+  lotMultiplier: number; // 【動的資金配分】推奨ロット倍率（0.5〜1.5）。調子の良い銘柄ほど大きい。
   reason: string; // 推奨理由（人間向け説明）
 }
 
@@ -357,9 +363,17 @@ export function recommendForNextDay(
     if (cnt >= config.maxPerSector) continue;
     sectorCount.set(s.sector, cnt + 1);
 
+    // 調子スコアからロット倍率を算出（同じ履歴入力を再構成して computeLotMultiplier に渡す）
+    const histForLot: SymbolHistoryInput = {
+      symbol: s.symbol, name: s.name, appearances: s.appearances,
+      totalProfit: s.avgDailyProfit * s.appearances, totalWin: 0, totalLoss: 0, avgWinRate: s.avgWinRate,
+    };
+    const lotMultiplier = computeLotMultiplier(histForLot);
+    const lotLabel = lotMultiplier > 1.05 ? `ロット厚め(${lotMultiplier.toFixed(2)}倍)` : lotMultiplier < 0.95 ? `ロット控えめ(${lotMultiplier.toFixed(2)}倍)` : `ロット標準`;
+
     const reason =
       `直近${s.appearances}営業日で1日平均 ${Math.round(s.avgDailyProfit).toLocaleString()}円・` +
-      `勝率${(s.avgWinRate * 100).toFixed(0)}%。${s.sector}セクター。`;
+      `勝率${(s.avgWinRate * 100).toFixed(0)}%。${s.sector}セクター。${lotLabel}。`;
 
     picked.push({
       symbol: s.symbol,
@@ -371,6 +385,7 @@ export function recommendForNextDay(
       avgDailyProfit: s.avgDailyProfit,
       avgWinRate: s.avgWinRate,
       appearances: s.appearances,
+      lotMultiplier,
       score: s.score,
       rank: picked.length + 1,
       reason,
@@ -378,4 +393,31 @@ export function recommendForNextDay(
   }
 
   return picked;
+}
+
+/**
+ * 【動的資金配分】銘柄の過去実績(調子スコア)から、翌日のロット倍率(0.5〜1.5)を算出する。
+ *
+ * 設計（後知恵を避け、事前に分かる指標のみ使用）:
+ *   - 1営業日あたり平均損益(円)を主指標とし、勝率で微調整する。
+ *   - 平均損益が +20,000円/日 以上の好調銘柄 → 上限 1.5倍（資金を厚く）。
+ *   - 平均損益が 0円付近 → 1.0倍（標準）。
+ *   - 平均損益がマイナス（不調）→ 下限 0.5倍（資金を薄く。ただし完全には外さず監視継続）。
+ *   - 登場日数が少ない(<2日)銘柄は実績が不安定なので1.0倍に固定（過剰反応を防ぐ）。
+ *
+ * simulateStockReal(..., lotMultiplier) に渡して使う。
+ */
+export function computeLotMultiplier(history: SymbolHistoryInput): number {
+  if (history.appearances < 2) return 1.0; // 実績が薄い銘柄は標準ロット
+  const avgDailyProfit = history.totalProfit / history.appearances;
+
+  // 平均損益を ±20,000円/日 を ±0.5 の振れ幅に線形マッピング
+  const PROFIT_FULL_SCALE = 20000; // この損益で倍率が最大/最小に張り付く
+  const profitComponent = Math.max(-0.5, Math.min(0.5, (avgDailyProfit / PROFIT_FULL_SCALE) * 0.5));
+
+  // 勝率は微調整（0.5を基準に ±0.1 程度）
+  const winComponent = Math.max(-0.1, Math.min(0.1, (history.avgWinRate - 0.5) * 0.4));
+
+  const multiplier = 1.0 + profitComponent + winComponent;
+  return Math.max(0.5, Math.min(1.5, multiplier));
 }

@@ -31,6 +31,13 @@ interface SignalMonitorBoardProps {
 }
 
 type SignalType = 'buy' | 'sell' | 'warn';
+type SignalConfidence = 'strong' | 'medium' | 'weak';
+
+const CONFIDENCE_META: Record<SignalConfidence, { label: string; cls: string }> = {
+  strong: { label: '強', cls: 'text-amber-200 bg-amber-500/20 border-amber-400/50' },
+  medium: { label: '中', cls: 'text-sky-200 bg-sky-500/15 border-sky-400/40' },
+  weak: { label: '弱', cls: 'text-muted-foreground bg-muted border-border/50' },
+};
 
 interface ScanItem {
   symbol: string;
@@ -42,7 +49,7 @@ interface ScanItem {
   rsi: number | null;
   ma5: number | null;
   ma25: number | null;
-  latestSignal: { type: SignalType; reason: string } | null;
+  latestSignal: { type: SignalType; reason: string; confidence?: SignalConfidence } | null;
   latestSignalTime: string | null;
   error: boolean;
 }
@@ -153,8 +160,10 @@ export default function SignalMonitorBoard({
       notifiedRef.current.add(key);
 
       const meta = SIGNAL_META[it.latestSignal.type];
+      const conf = it.latestSignal.confidence ?? 'medium';
       if (soundEnabled) playBeep(meta.beepFreq);
-      toast(`${meta.label}: ${it.name}`, {
+      const confTag = conf === 'strong' ? '【信頼度強】' : conf === 'medium' ? '【信頼度中】' : '';
+      toast(`${confTag}${meta.label}: ${it.name}`, {
         description: `${it.latestSignalTime ?? ''} ${it.latestSignal.reason}（現在値 ${it.currentPrice.toFixed(1)}円）`,
         duration: 4000,
         className:
@@ -258,12 +267,22 @@ export default function SignalMonitorBoard({
                     </div>
                   </div>
                   {meta ? (
-                    <span
-                      className={`flex items-center space-x-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${meta.cls}`}
-                    >
-                      <meta.icon className="w-3 h-3" />
-                      <span>{sig!.type === 'buy' ? '買い' : sig!.type === 'sell' ? '売り' : '注意'}</span>
-                    </span>
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      {sig!.confidence && sig!.type !== 'warn' && (
+                        <span
+                          className={`text-[9px] font-bold px-1 py-0.5 rounded border ${CONFIDENCE_META[sig!.confidence].cls}`}
+                          title={`信頼度：${CONFIDENCE_META[sig!.confidence].label}（裏付け指標の一致数）`}
+                        >
+                          {CONFIDENCE_META[sig!.confidence].label}
+                        </span>
+                      )}
+                      <span
+                        className={`flex items-center space-x-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border ${meta.cls}`}
+                      >
+                        <meta.icon className="w-3 h-3" />
+                        <span>{sig!.type === 'buy' ? '買い' : sig!.type === 'sell' ? '売り' : '注意'}</span>
+                      </span>
+                    </div>
                   ) : (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground whitespace-nowrap">
                       様子見

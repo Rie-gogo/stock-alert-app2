@@ -7,6 +7,7 @@ import { callDataApi } from "./_core/dataApi";
 import type { StockSimResult, TradeRecord, SignalRecord } from "./simulation";
 import { TARGET_STOCKS } from "../shared/stocks";
 import { applyPortfolioRules, rankRecommendedSymbols, type PerStockTrades, type SymbolScoreInput } from "./portfolio";
+import { isVolumeConfirmed, trailingAvgVolume } from "./signalConfirmation";
 
 // 共有定義からインポート（client/src/hooks/useRealMarketData.ts と同一ソース）
 export const REAL_TARGET_STOCKS = TARGET_STOCKS.map((s) => ({
@@ -363,6 +364,9 @@ export function simulateStockReal(
   // 建玉比率（超ボラ銘柄は極小ロット）
   const lotRatio = HIGH_VOL_SYMBOLS.has(symbol) ? LOT_SMALL : LOT_NORMAL;
 
+  // 出来高配列（出来高裏付けゲート用）
+  const volumes = candles.map(c => c.volume);
+
   // 当日値幅（超高ボラ日判定）
   const dayOpen = candles[0]?.open ?? 0;
   const dayHigh = Math.max(...candles.map(c => c.high));
@@ -425,7 +429,10 @@ export function simulateStockReal(
     // ============================================================
 
     // ロングエントリー：レジームがロングを許可 かつ シグナル成立
-    const shouldBuyLong = regimeAllowLong && !isStrongDown &&
+    // 出来高裏付け: エントリー足の出来高が直近平均を上回っているか（薄商いのダマシを回避）
+    const volConfirmed = isVolumeConfirmed(curr.volume, trailingAvgVolume(volumes, i, 10));
+
+    const shouldBuyLong = regimeAllowLong && !isStrongDown && volConfirmed &&
       tradeCount < MAX_TRADES_PER_DAY &&
       (isGoldenCross || (isRsiOversold && isBbLower));
 
@@ -483,7 +490,7 @@ export function simulateStockReal(
     // ============================================================
 
     // ショートエントリー：レジームがショートを許可（下落トレンド+売り圧力+市場上昇でない+超高ボラ日でない） かつ シグナル成立
-    const shouldEnterShort = regimeAllowShort && !isStrongUp &&
+    const shouldEnterShort = regimeAllowShort && !isStrongUp && volConfirmed &&
       tradeCount < MAX_TRADES_PER_DAY &&
       (isDeadCross || (isRsiOverbought && isBbUpper));
 

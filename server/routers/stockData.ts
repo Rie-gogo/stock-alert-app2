@@ -8,6 +8,12 @@ import { publicProcedure, router } from "../_core/trpc";
 import { callDataApi } from "../_core/dataApi";
 import { TRPCError } from "@trpc/server";
 import { TARGET_STOCKS, getStockName, getSector, TICKER_BY_SYMBOL } from "../../shared/stocks";
+import {
+  evaluateConfirmation,
+  trailingAvgVolume,
+  priceMomentum,
+  type SignalConfidence,
+} from "../signalConfirmation";
 
 // ---- データAPI呼び出し（レート制限の自動リトライ付き） ----
 
@@ -116,11 +122,13 @@ export interface CandleWithSignal {
   bbUpper: number | null;
   bbMiddle: number | null;
   bbLower: number | null;
-  signal?: { type: "buy" | "sell" | "warn"; reason: string };
+  signal?: { type: "buy" | "sell" | "warn"; reason: string; confidence?: SignalConfidence };
 }
 
 function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLower = 30): CandleWithSignal[] {
   const result = candles.map(c => ({ ...c }));
+  const closes = result.map(c => c.close);
+  const volumes = result.map(c => c.volume);
 
   for (let i = 1; i < result.length; i++) {
     const c = result[i];
@@ -147,20 +155,45 @@ function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLower = 30
       }
     }
 
+    let candidate: { type: "buy" | "sell" | "warn"; reason: string } | null = null;
+
     // 買いシグナル
     if (!isStrongDown) {
       if (p5 <= p25 && c5 > c25) {
-        c.signal = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25})` };
+        candidate = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25})` };
       } else if (cRsi <= rsiLower && c.close <= cBbl) {
-        c.signal = { type: "buy", reason: `RSI売られすぎ(${cRsi}%) + BB下限タッチ` };
+        candidate = { type: "buy", reason: `RSI売られすぎ(${cRsi}%) + BB下限タッチ` };
       }
     }
 
-    // 売りシグナル
-    if (p5 >= p25 && c5 < c25) {
-      c.signal = { type: "sell", reason: `デッドクロス (MA5:${c5} < MA25:${c25})` };
-    } else if (cRsi >= rsiUpper && c.close >= cBbu && !isStrongUp && !gcProtection) {
-      c.signal = { type: "sell", reason: `RSI買われすぎ(${cRsi}%) + BB上限タッチ` };
+    // 売りシグナル（買い候補がない場合のみ評価）
+    if (!candidate) {
+      if (p5 >= p25 && c5 < c25) {
+        candidate = { type: "sell", reason: `デッドクロス (MA5:${c5} < MA25:${c25})` };
+      } else if (cRsi >= rsiUpper && c.close >= cBbu && !isStrongUp && !gcProtection) {
+        candidate = { type: "sell", reason: `RSI買われすぎ(${cRsi}%) + BB上限タッチ` };
+      }
+    }
+
+    if (candidate) {
+      // 確認フィルタで裏付けを評価し、信頼度を付与。弱い（裏付け不足）シグナルは抑制する。
+      const conf = evaluateConfirmation({
+        type: candidate.type,
+        close: c.close,
+        volume: c.volume,
+        avgVolume: trailingAvgVolume(volumes, i, 10),
+        ma5: c5,
+        ma25: c25,
+        momentum: priceMomentum(closes, i, 3),
+      });
+      if (conf.shouldNotify) {
+        c.signal = {
+          type: candidate.type,
+          reason: `${candidate.reason}｜${conf.summary}`,
+          confidence: conf.confidence,
+        };
+      }
+      // weak の場合はシグナルを付与しない（誤シグナル抑制）
     }
   }
 
@@ -307,7 +340,7 @@ export interface ScannedSignal {
   ma5: number | null;
   ma25: number | null;
   /** 最新足で成立しているシグナル（なければ null） */
-  latestSignal: { type: "buy" | "sell" | "warn"; reason: string } | null;
+  latestSignal: { type: "buy" | "sell" | "warn"; reason: string; confidence?: SignalConfidence } | null;
   /** 最新足の時刻文字列（"HH:MM"） */
   latestSignalTime: string | null;
   /** データ取得に失敗した場合 true */
@@ -322,7 +355,7 @@ export interface ScannedSignal {
 export function extractLatestSignal(
   candles: CandleWithSignal[],
   lookback = 2
-): { signal: { type: "buy" | "sell" | "warn"; reason: string } | null; time: string | null } {
+): { signal: { type: "buy" | "sell" | "warn"; reason: string; confidence?: SignalConfidence } | null; time: string | null } {
   if (candles.length === 0) return { signal: null, time: null };
   const start = Math.max(0, candles.length - lookback);
   for (let i = candles.length - 1; i >= start; i--) {

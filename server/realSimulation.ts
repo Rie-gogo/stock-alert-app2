@@ -16,6 +16,29 @@ export const REAL_TARGET_STOCKS = TARGET_STOCKS.map((s) => ({
   name: s.name,
 }));
 
+/**
+ * デイリーシミュレーション専用の10銘柄リスト
+ * バックテスト結果（J-Quants 60営業日）と流動性・業種分散を考慮して選定。
+ * shared/stocks.ts（監視ボード用20銘柄）とは独立して管理する。
+ *
+ * 選定基準:
+ * 1. バックテスト上位（SUMCO/太陽誘電/村田製作所）
+ * 2. 流動性最高水準（東京エレクトロン/三菱UFJ/ソニー）
+ * 3. 業種分散（半導体/電子部品/銀行/機械/通信）
+ */
+export const SIMULATION_STOCKS = [
+  { symbol: '3436', ticker: '3436.T', name: 'SUMCO' },               // バックテスト1位 +130,800円
+  { symbol: '6976', ticker: '6976.T', name: '太陽誘電' },            // バックテスト2位 +66,600円
+  { symbol: '6981', ticker: '6981.T', name: '村田製作所' },          // バックテスト3位 +47,400円
+  { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ' },      // 電機・高流動性
+  { symbol: '8306', ticker: '8306.T', name: '三菱UFJ FG' },         // 銀行・流動性最高水準
+  { symbol: '8035', ticker: '8035.T', name: '東京エレクトロン' },    // 半導体主力・高流動性
+  { symbol: '6857', ticker: '6857.T', name: 'アドバンテスト' },      // 半導体・出来高安定
+  { symbol: '6920', ticker: '6920.T', name: 'レーザーテック' },      // 半導体・高ボラ有効活用
+  { symbol: '7011', ticker: '7011.T', name: '三菱重工業' },          // 機械・業種分散
+  { symbol: '9984', ticker: '9984.T', name: 'ソフトバンクグループ' },// 通信・投資
+] as const;
+
 // ---- テクニカル指標計算（stockData.tsと同一ロジック） ----
 
 function calcMA(data: number[], period: number): (number | null)[] {
@@ -729,7 +752,7 @@ export async function generateRealDailyReport(
   // ステップ1: 全銘柄のローソク足を先に取得（市場全体の地合い計算のため）
   // APIレート制限を避けるため、並列ではなく順次取得する
   const candleMap = new Map<string, RealCandle[]>();
-  for (const stock of REAL_TARGET_STOCKS) {
+  for (const stock of SIMULATION_STOCKS) {
     const candles = await fetchRealCandles(stock.ticker);
     if (candles) candleMap.set(stock.symbol, candles);
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -777,7 +800,7 @@ export async function generateRealDailyReport(
 
   // ステップ3: 各銘柄をレジーム適応型でシミュレーション
   const allResults: ((StockSimResult & { isRealData: boolean }) | null)[] = [];
-  for (const stock of REAL_TARGET_STOCKS) {
+  for (const stock of SIMULATION_STOCKS) {
     const candles = candleMap.get(stock.symbol);
     if (!candles) {
       console.warn(`[realSimulation] Real data unavailable for ${stock.ticker} - skipping (NO FALLBACK)`);
@@ -808,7 +831,7 @@ export async function generateRealDailyReport(
     throw new Error(`[realSimulation] FATAL: No real data available for any stock on ${dateStr}. Yahoo Finance API may be rate-limited or unavailable. Aborting - no report will be saved.`);
   }
 
-  console.log(`[realSimulation] Completed: ${realDataCount}/${REAL_TARGET_STOCKS.length} stocks used real data`);
+  console.log(`[realSimulation] Completed: ${realDataCount}/${SIMULATION_STOCKS.length} stocks used real data`);
 
   const totalInitialCapital = 3_000_000 * realDataCount;
   const totalFinalBalance = stockReports.reduce((sum, r) => sum + r.finalBalance, 0);

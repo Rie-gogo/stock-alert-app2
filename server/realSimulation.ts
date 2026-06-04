@@ -453,6 +453,12 @@ export interface SimOverrides {
   shortMinRsi?: number;
   /** ショートエントリー時の最大出来高比閾値。直近20本平均に対してこの倍率以上の出来高ならショート禁止 */
   shortMaxVolRatio?: number;
+  /** 超高ボラ日の閾値（%）。当日値幅がこの値以上の日はショート禁止。省略時は HIGH_VOL_DAY_THRESHOLD(8%) を使用 */
+  highVolDayThreshold?: number;
+  /** ギャップアップ時のショート禁止閾値（%）。当日始値が前日終値よりこの値以上高い場合はショート禁止。省略時は無効 */
+  gapUpShortBlockPercent?: number;
+  /** 前日終値（ギャップアップ判定用）。バックテストスクリプトから渡す */
+  prevDayClose?: number;
 }
 
 export function simulateStockReal(
@@ -515,7 +521,8 @@ export function simulateStockReal(
   const dayHigh = Math.max(...candles.map(c => c.high));
   const dayLow = Math.min(...candles.map(c => c.low));
   const dayRange = dayOpen > 0 ? (dayHigh - dayLow) / dayOpen : 0;
-  const isHighVolDay = dayRange >= HIGH_VOL_DAY_THRESHOLD;
+  const effectiveHighVolThreshold = overrides.highVolDayThreshold !== undefined ? overrides.highVolDayThreshold / 100 : HIGH_VOL_DAY_THRESHOLD;
+  const isHighVolDay = dayRange >= effectiveHighVolThreshold;
 
   for (let i = 1; i < candles.length; i++) {
     const curr = candles[i];
@@ -748,10 +755,16 @@ export function simulateStockReal(
     const volAvg20 = volSlice.length > 0 ? volSlice.reduce((s, c) => s + c.volume, 0) / volSlice.length : 1;
     const volRatioNow = volAvg20 > 0 ? curr.volume / volAvg20 : 1;
     const suppressShortByVolRatio = overrides.shortMaxVolRatio !== undefined && volRatioNow >= overrides.shortMaxVolRatio;
+    // gapUpShortBlockPercent: 当日始値が前日終値より指定%以上高い場合はショート禁止（ギャップアップ日は上昇モメンタム強い）
+    const suppressShortByGapUp = (() => {
+      if (overrides.gapUpShortBlockPercent === undefined || overrides.prevDayClose === undefined) return false;
+      const gapRatio = (dayOpen - overrides.prevDayClose) / overrides.prevDayClose;
+      return gapRatio >= overrides.gapUpShortBlockPercent / 100;
+    })();
 
     const shouldEnterShort = regimeAllowShort && !isStrongUp && volConfirmed &&
       !suppressEntryByHour && !suppressAfternoon && !inGcCooldown && !inShortStopCooldown && !suppressShortByHour &&
-      !suppressShortByRsi && !suppressShortByVolRatio &&
+      !suppressShortByRsi && !suppressShortByVolRatio && !suppressShortByGapUp &&
       tradeCount < MAX_TRADES_PER_DAY &&
       (isPullbackShort || isBreakdownShort || (isRsiOverbought && isBbUpper));
 

@@ -19,6 +19,131 @@
 
 export type IntradayRegime = "up" | "down" | "neutral";
 
+// ---- ADX（平均方向性指数）計算 ----
+// ADXはトレンドの「強さ」を0〜100で示す指標。
+// ADX < 20: 横ばい相場（ダマシが多い）
+// ADX >= 20: トレンドあり（シグナルが有効）
+export const ADX_PERIOD = 14;
+export const ADX_TREND_THRESHOLD = 20;
+
+/**
+ * ATR（Average True Range）を計算する。
+ * 各足の真の値幅（前足終値を考慮した最大値幅）の移動平均。
+ */
+export function calcATR(
+  highs: (number | null)[],
+  lows: (number | null)[],
+  closes: (number | null)[],
+  period: number = ADX_PERIOD
+): (number | null)[] {
+  const n = highs.length;
+  const atr: (number | null)[] = new Array(n).fill(null);
+  if (n < period + 1) return atr;
+
+  const tr: number[] = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const h = highs[i], l = lows[i], pc = closes[i - 1];
+    if (h === null || l === null || pc === null) continue;
+    tr[i] = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  }
+
+  let sum = 0;
+  for (let i = 1; i <= period; i++) sum += tr[i];
+  atr[period] = sum / period;
+
+  for (let i = period + 1; i < n; i++) {
+    const prev = atr[i - 1];
+    if (prev === null) continue;
+    atr[i] = (prev * (period - 1) + tr[i]) / period;
+  }
+  return atr;
+}
+
+/**
+ * ADX（平均方向性指数）を計算する。
+ * ADX < 20: 横ばい相場（シグナル抑制推奨）
+ * ADX >= 20: トレンドあり（シグナル有効）
+ */
+export function calcADX(
+  highs: (number | null)[],
+  lows: (number | null)[],
+  closes: (number | null)[],
+  period: number = ADX_PERIOD
+): (number | null)[] {
+  const n = highs.length;
+  const adx: (number | null)[] = new Array(n).fill(null);
+  if (n < period * 2 + 1) return adx;
+
+  const atr = calcATR(highs, lows, closes, period);
+
+  const plusDM: number[] = new Array(n).fill(0);
+  const minusDM: number[] = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const h = highs[i], l = lows[i], ph = highs[i - 1], pl = lows[i - 1];
+    if (h === null || l === null || ph === null || pl === null) continue;
+    const upMove = h - ph;
+    const downMove = pl - l;
+    plusDM[i] = upMove > downMove && upMove > 0 ? upMove : 0;
+    minusDM[i] = downMove > upMove && downMove > 0 ? downMove : 0;
+  }
+
+  let smoothPlusDM = 0, smoothMinusDM = 0;
+  for (let i = 1; i <= period; i++) {
+    smoothPlusDM += plusDM[i];
+    smoothMinusDM += minusDM[i];
+  }
+
+  const dx: (number | null)[] = new Array(n).fill(null);
+  const computeDX = (i: number): number | null => {
+    const a = atr[i];
+    if (a === null || a === 0) return null;
+    const plusDI = (smoothPlusDM / a) * 100;
+    const minusDI = (smoothMinusDM / a) * 100;
+    const diSum = plusDI + minusDI;
+    if (diSum === 0) return 0;
+    return (Math.abs(plusDI - minusDI) / diSum) * 100;
+  };
+
+  dx[period] = computeDX(period);
+
+  for (let i = period + 1; i < n; i++) {
+    smoothPlusDM = smoothPlusDM - smoothPlusDM / period + plusDM[i];
+    smoothMinusDM = smoothMinusDM - smoothMinusDM / period + minusDM[i];
+    dx[i] = computeDX(i);
+  }
+
+  // ADX = DXのWilder平滑化
+  const startIdx = period * 2;
+  if (startIdx >= n) return adx;
+
+  let dxSum = 0, dxCount = 0;
+  for (let i = period; i < startIdx; i++) {
+    if (dx[i] !== null) { dxSum += dx[i] as number; dxCount++; }
+  }
+  if (dxCount === 0) return adx;
+  adx[startIdx - 1] = dxSum / dxCount;
+
+  for (let i = startIdx; i < n; i++) {
+    const prev = adx[i - 1];
+    const d = dx[i];
+    if (prev === null || d === null) continue;
+    adx[i] = (prev * (period - 1) + d) / period;
+  }
+  return adx;
+}
+
+/**
+ * ADXがトレンドありと判定できるか（ADX >= threshold）。
+ * null（計算不足）の場合は「トレンドなし」として扱う。
+ */
+export function isAdxTrending(
+  adxValue: number | null,
+  threshold: number = ADX_TREND_THRESHOLD
+): boolean {
+  if (adxValue === null) return false;
+  return adxValue >= threshold;
+}
+
 /** MA25 の傾き（変化率）がトレンドありと見なすしきい値（割合）。例: 0.0015 = 0.15% */
 export const REGIME_SLOPE_THRESHOLD = 0.0015;
 

@@ -19,6 +19,8 @@ import {
   dayChangeRatio,
   classifyIntradayRegime,
   isSignalAllowedInRegime,
+  calcADX,
+  isAdxTrending,
   type IntradayRegime,
 } from "../intradayRegime";
 
@@ -137,6 +139,11 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
   const closes = result.map(c => c.close);
   const volumes = result.map(c => c.volume);
   const ma25Series = result.map(c => c.ma25);
+  const highs = result.map(c => c.high);
+  const lows = result.map(c => c.low);
+
+  // ADX（平均方向性指数）を事前計算。ADX < 20の横ばい相場ではMAクロスシグナルを抑制する。
+  const adxSeries = calcADX(highs, lows, closes);
 
   // 各足の「当日の寄り値」を、その足と同じ営業日(dayKey)の最初の足の始値として求める。
   // dayKey が無い場合（旧データ等）は系列全体の先頭始値で代用する。
@@ -208,6 +215,27 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
     // 大局トレンドに逆らうシグナルは抑制する（下落相場のロング・上昇相場のショートを出さない）。
     if (candidate && !isSignalAllowedInRegime(candidate.type, regime)) {
       candidate = null;
+    }
+
+    // ---- ADXフィルター: 横ばい相場（ADX < 20）ではMAクロスシグナルを抑制 ----
+    // ADXがトレンドなしと判定される場合、MAクロスはダマシになりやすい。
+    // ただしRSI+BB系シグナルは逆張りのため、横ばい相場でも有効なので通す。
+    if (candidate && candidate.type !== "warn") {
+      const adxVal = adxSeries[i];
+      const isGcDcSignal = candidate.reason.includes("クロス") || candidate.reason.includes("戻り売り");
+      if (isGcDcSignal && !isAdxTrending(adxVal)) {
+        candidate = null; // 横ばい相場のMAクロスはスキップ
+      }
+    }
+
+    // ---- 確認バーフィルター: クロス後に価格がMA5方向を維持しているか確認 ----
+    // GC後に価格がMA5を下回っている、またはDC後に価格がMA5を上回っている場合はダマシの可能性。
+    if (candidate) {
+      if (candidate.reason.includes("ゴールデンクロス") && c.close < c5) {
+        candidate = null; // GC後に価格がMA5を下回っている → ダマシの可能性
+      } else if (candidate.reason.includes("デッドクロス") && c.close > c5) {
+        candidate = null; // DC後に価格がMA5を上回っている → ダマシの可能性
+      }
     }
 
     if (candidate) {

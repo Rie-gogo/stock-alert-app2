@@ -503,3 +503,12 @@
 - [x] 半年バックテストを実行し60日結果と比較分析
 - [x] 銘柄別・月別・決済理由別の詳細集計
 - [ ] 総合レポートをユーザーに報告
+
+## Phase 35: チャートシグナルのADXフィルター＋確認バーフィルター追加（2026-06-04）
+
+- [x] server/intradayRegime.ts に calcATR(), calcADX(), isAdxTrending() を追加（ADX_PERIOD=14, ADX_TREND_THRESHOLD=20）
+- [x] server/routers/stockData.ts の detectSignals() に ADX フィルターを追加（横ばい相場でMAクロス・戻り売りシグナルを抑制）
+- [x] server/routers/stockData.ts の detectSignals() に確認バーフィルターを追加（GC後にclose<MA5、DC後にclose>MA5の場合はダマシとして抑制）
+- [x] TypeScript コンパイル 0 エラー確認
+- [x] 全 180 テスト通過確認
+- [x] チェックポイント保存

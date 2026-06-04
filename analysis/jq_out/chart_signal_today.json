@@ -1,0 +1,2253 @@
+{
+  "date": "2026-06-04",
+  "results": [
+    {
+      "code": "34360",
+      "name": "SUMCO",
+      "lotRatio": 0.49,
+      "trades": [
+        {
+          "time": "09:56",
+          "type": "buy",
+          "entry": 4339,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "GCクロス RSI56"
+        },
+        {
+          "time": "10:17",
+          "type": "sell",
+          "entry": 4339,
+          "exit": 4308,
+          "shares": 300,
+          "pnl": -9300,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:17",
+          "type": "short",
+          "entry": 4308,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "DCクロス RSI38"
+        },
+        {
+          "time": "10:37",
+          "type": "cover",
+          "entry": 4308,
+          "exit": 4305,
+          "shares": 300,
+          "pnl": 900,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:37",
+          "type": "buy",
+          "entry": 4305,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "GCクロス RSI49"
+        },
+        {
+          "time": "10:58",
+          "type": "sell",
+          "entry": 4305,
+          "exit": 4277,
+          "shares": 300,
+          "pnl": -8400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:58",
+          "type": "short",
+          "entry": 4277,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "DCクロス RSI37"
+        },
+        {
+          "time": "11:27",
+          "type": "cover",
+          "entry": 4277,
+          "exit": 4238,
+          "shares": 300,
+          "pnl": 11700,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "11:27",
+          "type": "buy",
+          "entry": 4238,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "12:50",
+          "type": "sell",
+          "entry": 4238,
+          "exit": 4276,
+          "shares": 300,
+          "pnl": 11400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:50",
+          "type": "short",
+          "entry": 4276,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "DCクロス RSI49"
+        },
+        {
+          "time": "13:11",
+          "type": "cover",
+          "entry": 4276,
+          "exit": 4278,
+          "shares": 300,
+          "pnl": -600,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:11",
+          "type": "buy",
+          "entry": 4278,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "GCクロス RSI57"
+        },
+        {
+          "time": "13:37",
+          "type": "sell",
+          "entry": 4278,
+          "exit": 4287,
+          "shares": 300,
+          "pnl": 2700,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:37",
+          "type": "short",
+          "entry": 4287,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "DCクロス RSI43"
+        },
+        {
+          "time": "13:51",
+          "type": "cover",
+          "entry": 4287,
+          "exit": 4303,
+          "shares": 300,
+          "pnl": -4800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:51",
+          "type": "buy",
+          "entry": 4303,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "GCクロス RSI56"
+        },
+        {
+          "time": "14:45",
+          "type": "sell",
+          "entry": 4303,
+          "exit": 4407,
+          "shares": 300,
+          "pnl": 31200,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:45",
+          "type": "short",
+          "entry": 4407,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "DCクロス RSI51"
+        },
+        {
+          "time": "15:08",
+          "type": "cover",
+          "entry": 4407,
+          "exit": 4422,
+          "shares": 300,
+          "pnl": -4500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:08",
+          "type": "buy",
+          "entry": 4422,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "GCクロス RSI63"
+        },
+        {
+          "time": "15:16",
+          "type": "sell",
+          "entry": 4422,
+          "exit": 4386,
+          "shares": 300,
+          "pnl": -10800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "15:16",
+          "type": "short",
+          "entry": 4386,
+          "exit": null,
+          "shares": 300,
+          "pnl": null,
+          "reason": "DCクロス RSI36"
+        },
+        {
+          "time": "15:30",
+          "type": "cover",
+          "entry": 4386,
+          "exit": 4366,
+          "shares": 300,
+          "pnl": 6000,
+          "reason": "引け強制決済"
+        }
+      ],
+      "totalPnl": 25500,
+      "tradeCount": 12,
+      "winCount": 6,
+      "lossCount": 6,
+      "shares": 300,
+      "openPrice": 4361,
+      "dayHigh": 4481,
+      "dayLow": 4190,
+      "dayRange": "6.67"
+    },
+    {
+      "code": "69810",
+      "name": "村田製作所",
+      "lotRatio": 0.49,
+      "trades": [
+        {
+          "time": "09:34",
+          "type": "buy",
+          "entry": 10250,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI56"
+        },
+        {
+          "time": "09:40",
+          "type": "sell",
+          "entry": 10250,
+          "exit": 10135,
+          "shares": 100,
+          "pnl": -11500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "09:40",
+          "type": "short",
+          "entry": 10135,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI44"
+        },
+        {
+          "time": "09:45",
+          "type": "cover",
+          "entry": 10135,
+          "exit": 10160,
+          "shares": 100,
+          "pnl": -2500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "09:45",
+          "type": "buy",
+          "entry": 10160,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI47"
+        },
+        {
+          "time": "09:46",
+          "type": "sell",
+          "entry": 10160,
+          "exit": 10135,
+          "shares": 100,
+          "pnl": -2500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "09:46",
+          "type": "short",
+          "entry": 10135,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI44"
+        },
+        {
+          "time": "10:08",
+          "type": "cover",
+          "entry": 10135,
+          "exit": 10110,
+          "shares": 100,
+          "pnl": 2500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:08",
+          "type": "buy",
+          "entry": 10110,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI48"
+        },
+        {
+          "time": "10:12",
+          "type": "sell",
+          "entry": 10110,
+          "exit": 10100,
+          "shares": 100,
+          "pnl": -1000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:12",
+          "type": "short",
+          "entry": 10100,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "10:31",
+          "type": "cover",
+          "entry": 10100,
+          "exit": 10105,
+          "shares": 100,
+          "pnl": -500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:31",
+          "type": "buy",
+          "entry": 10105,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "10:56",
+          "type": "sell",
+          "entry": 10105,
+          "exit": 10100,
+          "shares": 100,
+          "pnl": -500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:56",
+          "type": "short",
+          "entry": 10100,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "12:34",
+          "type": "cover",
+          "entry": 10100,
+          "exit": 9920,
+          "shares": 100,
+          "pnl": 18000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "12:34",
+          "type": "buy",
+          "entry": 9920,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI46"
+        },
+        {
+          "time": "12:36",
+          "type": "sell",
+          "entry": 9920,
+          "exit": 9863,
+          "shares": 100,
+          "pnl": -5700,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:36",
+          "type": "short",
+          "entry": 9863,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI37"
+        },
+        {
+          "time": "12:41",
+          "type": "cover",
+          "entry": 9863,
+          "exit": 9931,
+          "shares": 100,
+          "pnl": -6800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "12:41",
+          "type": "buy",
+          "entry": 9931,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "12:56",
+          "type": "sell",
+          "entry": 9931,
+          "exit": 9898,
+          "shares": 100,
+          "pnl": -3300,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:56",
+          "type": "short",
+          "entry": 9898,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI43"
+        },
+        {
+          "time": "13:05",
+          "type": "cover",
+          "entry": 9898,
+          "exit": 9923,
+          "shares": 100,
+          "pnl": -2500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:05",
+          "type": "buy",
+          "entry": 9923,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "13:36",
+          "type": "sell",
+          "entry": 9923,
+          "exit": 10005,
+          "shares": 100,
+          "pnl": 8200,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:36",
+          "type": "short",
+          "entry": 10005,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI44"
+        },
+        {
+          "time": "13:42",
+          "type": "cover",
+          "entry": 10005,
+          "exit": 10070,
+          "shares": 100,
+          "pnl": -6500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:42",
+          "type": "buy",
+          "entry": 10070,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI58"
+        },
+        {
+          "time": "14:00",
+          "type": "sell",
+          "entry": 10070,
+          "exit": 10065,
+          "shares": 100,
+          "pnl": -500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:00",
+          "type": "short",
+          "entry": 10065,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI50"
+        },
+        {
+          "time": "14:25",
+          "type": "cover",
+          "entry": 10065,
+          "exit": 10075,
+          "shares": 100,
+          "pnl": -1000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:25",
+          "type": "buy",
+          "entry": 10075,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI61"
+        },
+        {
+          "time": "14:35",
+          "type": "sell",
+          "entry": 10075,
+          "exit": 10045,
+          "shares": 100,
+          "pnl": -3000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:35",
+          "type": "short",
+          "entry": 10045,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI44"
+        },
+        {
+          "time": "14:37",
+          "type": "cover",
+          "entry": 10045,
+          "exit": 10060,
+          "shares": 100,
+          "pnl": -1500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:37",
+          "type": "buy",
+          "entry": 10060,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "14:46",
+          "type": "sell",
+          "entry": 10060,
+          "exit": 10035,
+          "shares": 100,
+          "pnl": -2500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:46",
+          "type": "short",
+          "entry": 10035,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI39"
+        },
+        {
+          "time": "15:01",
+          "type": "cover",
+          "entry": 10035,
+          "exit": 10055,
+          "shares": 100,
+          "pnl": -2000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:01",
+          "type": "buy",
+          "entry": 10055,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI54"
+        },
+        {
+          "time": "15:15",
+          "type": "sell",
+          "entry": 10055,
+          "exit": 10030,
+          "shares": 100,
+          "pnl": -2500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "15:15",
+          "type": "short",
+          "entry": 10030,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI41"
+        },
+        {
+          "time": "15:20",
+          "type": "cover",
+          "entry": 10030,
+          "exit": 10055,
+          "shares": 100,
+          "pnl": -2500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:20",
+          "type": "buy",
+          "entry": 10055,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "GCクロス RSI52"
+        },
+        {
+          "time": "15:21",
+          "type": "sell",
+          "entry": 10055,
+          "exit": 10040,
+          "shares": 100,
+          "pnl": -1500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "15:21",
+          "type": "short",
+          "entry": 10040,
+          "exit": null,
+          "shares": 100,
+          "pnl": null,
+          "reason": "DCクロス RSI45"
+        },
+        {
+          "time": "15:30",
+          "type": "cover",
+          "entry": 10040,
+          "exit": 9904,
+          "shares": 100,
+          "pnl": 13600,
+          "reason": "引け強制決済"
+        }
+      ],
+      "totalPnl": -18000,
+      "tradeCount": 24,
+      "winCount": 4,
+      "lossCount": 20,
+      "shares": 100,
+      "openPrice": 10120,
+      "dayHigh": 10380,
+      "dayLow": 9858,
+      "dayRange": "5.16"
+    },
+    {
+      "code": "37780",
+      "name": "さくらインターネット",
+      "lotRatio": 0.49,
+      "trades": [
+        {
+          "time": "09:52",
+          "type": "short",
+          "entry": 2848,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI43"
+        },
+        {
+          "time": "10:03",
+          "type": "cover",
+          "entry": 2848,
+          "exit": 2853,
+          "shares": 500,
+          "pnl": -2500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:03",
+          "type": "buy",
+          "entry": 2853,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI51"
+        },
+        {
+          "time": "10:25",
+          "type": "sell",
+          "entry": 2853,
+          "exit": 2870,
+          "shares": 500,
+          "pnl": 8500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:25",
+          "type": "short",
+          "entry": 2870,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI50"
+        },
+        {
+          "time": "10:29",
+          "type": "cover",
+          "entry": 2870,
+          "exit": 2886,
+          "shares": 500,
+          "pnl": -8000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:29",
+          "type": "buy",
+          "entry": 2886,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI69"
+        },
+        {
+          "time": "10:42",
+          "type": "sell",
+          "entry": 2886,
+          "exit": 2872,
+          "shares": 500,
+          "pnl": -7000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:42",
+          "type": "short",
+          "entry": 2872,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI44"
+        },
+        {
+          "time": "10:49",
+          "type": "cover",
+          "entry": 2872,
+          "exit": 2883,
+          "shares": 500,
+          "pnl": -5500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:49",
+          "type": "buy",
+          "entry": 2883,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI57"
+        },
+        {
+          "time": "11:25",
+          "type": "sell",
+          "entry": 2883,
+          "exit": 2890,
+          "shares": 500,
+          "pnl": 3500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "11:25",
+          "type": "short",
+          "entry": 2890,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI49"
+        },
+        {
+          "time": "11:28",
+          "type": "cover",
+          "entry": 2890,
+          "exit": 2907,
+          "shares": 500,
+          "pnl": -8500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "11:28",
+          "type": "buy",
+          "entry": 2907,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI69"
+        },
+        {
+          "time": "12:38",
+          "type": "sell",
+          "entry": 2907,
+          "exit": 2893,
+          "shares": 500,
+          "pnl": -7000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:38",
+          "type": "short",
+          "entry": 2893,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI45"
+        },
+        {
+          "time": "12:55",
+          "type": "cover",
+          "entry": 2893,
+          "exit": 2896,
+          "shares": 500,
+          "pnl": -1500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "12:55",
+          "type": "buy",
+          "entry": 2896,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "12:57",
+          "type": "sell",
+          "entry": 2896,
+          "exit": 2889,
+          "shares": 500,
+          "pnl": -3500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:57",
+          "type": "short",
+          "entry": 2889,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI39"
+        },
+        {
+          "time": "13:09",
+          "type": "cover",
+          "entry": 2889,
+          "exit": 2900,
+          "shares": 500,
+          "pnl": -5500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:09",
+          "type": "buy",
+          "entry": 2900,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI61"
+        },
+        {
+          "time": "13:18",
+          "type": "sell",
+          "entry": 2900,
+          "exit": 2893,
+          "shares": 500,
+          "pnl": -3500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:18",
+          "type": "short",
+          "entry": 2893,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "13:21",
+          "type": "cover",
+          "entry": 2893,
+          "exit": 2897,
+          "shares": 500,
+          "pnl": -2000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:21",
+          "type": "buy",
+          "entry": 2897,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "13:29",
+          "type": "sell",
+          "entry": 2897,
+          "exit": 2895,
+          "shares": 500,
+          "pnl": -1000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:29",
+          "type": "short",
+          "entry": 2895,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI48"
+        },
+        {
+          "time": "13:42",
+          "type": "cover",
+          "entry": 2895,
+          "exit": 2899,
+          "shares": 500,
+          "pnl": -2000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:42",
+          "type": "buy",
+          "entry": 2899,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI58"
+        },
+        {
+          "time": "13:57",
+          "type": "sell",
+          "entry": 2899,
+          "exit": 2891,
+          "shares": 500,
+          "pnl": -4000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:57",
+          "type": "short",
+          "entry": 2891,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI43"
+        },
+        {
+          "time": "14:05",
+          "type": "cover",
+          "entry": 2891,
+          "exit": 2895,
+          "shares": 500,
+          "pnl": -2000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:05",
+          "type": "buy",
+          "entry": 2895,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI51"
+        },
+        {
+          "time": "14:16",
+          "type": "sell",
+          "entry": 2895,
+          "exit": 2898,
+          "shares": 500,
+          "pnl": 1500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:16",
+          "type": "short",
+          "entry": 2898,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI53"
+        },
+        {
+          "time": "14:18",
+          "type": "cover",
+          "entry": 2898,
+          "exit": 2903,
+          "shares": 500,
+          "pnl": -2500,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:18",
+          "type": "buy",
+          "entry": 2903,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI60"
+        },
+        {
+          "time": "14:34",
+          "type": "sell",
+          "entry": 2903,
+          "exit": 2903,
+          "shares": 500,
+          "pnl": 0,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:34",
+          "type": "short",
+          "entry": 2903,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI52"
+        },
+        {
+          "time": "14:39",
+          "type": "cover",
+          "entry": 2903,
+          "exit": 2907,
+          "shares": 500,
+          "pnl": -2000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:39",
+          "type": "buy",
+          "entry": 2907,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI58"
+        },
+        {
+          "time": "14:46",
+          "type": "sell",
+          "entry": 2907,
+          "exit": 2900,
+          "shares": 500,
+          "pnl": -3500,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:46",
+          "type": "short",
+          "entry": 2900,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI44"
+        },
+        {
+          "time": "14:52",
+          "type": "cover",
+          "entry": 2900,
+          "exit": 2912,
+          "shares": 500,
+          "pnl": -6000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:52",
+          "type": "buy",
+          "entry": 2912,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI65"
+        },
+        {
+          "time": "15:16",
+          "type": "sell",
+          "entry": 2912,
+          "exit": 2914,
+          "shares": 500,
+          "pnl": 1000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "15:16",
+          "type": "short",
+          "entry": 2914,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "DCクロス RSI49"
+        },
+        {
+          "time": "15:19",
+          "type": "cover",
+          "entry": 2914,
+          "exit": 2924,
+          "shares": 500,
+          "pnl": -5000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:19",
+          "type": "buy",
+          "entry": 2924,
+          "exit": null,
+          "shares": 500,
+          "pnl": null,
+          "reason": "GCクロス RSI63"
+        },
+        {
+          "time": "15:30",
+          "type": "sell",
+          "entry": 2924,
+          "exit": 2925,
+          "shares": 500,
+          "pnl": 500,
+          "reason": "引け強制決済"
+        }
+      ],
+      "totalPnl": -67500,
+      "tradeCount": 26,
+      "winCount": 5,
+      "lossCount": 21,
+      "shares": 500,
+      "openPrice": 2889,
+      "dayHigh": 2929,
+      "dayLow": 2813,
+      "dayRange": "4.02"
+    },
+    {
+      "code": "67580",
+      "name": "ソニーグループ",
+      "lotRatio": 0.49,
+      "trades": [
+        {
+          "time": "09:28",
+          "type": "buy",
+          "entry": 3563,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI43"
+        },
+        {
+          "time": "09:38",
+          "type": "sell",
+          "entry": 3563,
+          "exit": 3557,
+          "shares": 400,
+          "pnl": -2400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "09:38",
+          "type": "short",
+          "entry": 3557,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI41"
+        },
+        {
+          "time": "09:59",
+          "type": "cover",
+          "entry": 3557,
+          "exit": 3547,
+          "shares": 400,
+          "pnl": 4000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "09:59",
+          "type": "buy",
+          "entry": 3547,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI48"
+        },
+        {
+          "time": "10:06",
+          "type": "sell",
+          "entry": 3547,
+          "exit": 3538,
+          "shares": 400,
+          "pnl": -3600,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:06",
+          "type": "short",
+          "entry": 3538,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI37"
+        },
+        {
+          "time": "10:27",
+          "type": "cover",
+          "entry": 3538,
+          "exit": 3540,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:27",
+          "type": "buy",
+          "entry": 3540,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "10:32",
+          "type": "sell",
+          "entry": 3540,
+          "exit": 3531,
+          "shares": 400,
+          "pnl": -3600,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:32",
+          "type": "short",
+          "entry": 3531,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI38"
+        },
+        {
+          "time": "10:52",
+          "type": "cover",
+          "entry": 3531,
+          "exit": 3529,
+          "shares": 400,
+          "pnl": 800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:52",
+          "type": "buy",
+          "entry": 3529,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI47"
+        },
+        {
+          "time": "11:02",
+          "type": "sell",
+          "entry": 3529,
+          "exit": 3528,
+          "shares": 400,
+          "pnl": -400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "11:02",
+          "type": "short",
+          "entry": 3528,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI46"
+        },
+        {
+          "time": "11:27",
+          "type": "cover",
+          "entry": 3528,
+          "exit": 3528,
+          "shares": 400,
+          "pnl": 0,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "11:27",
+          "type": "buy",
+          "entry": 3528,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI56"
+        },
+        {
+          "time": "12:31",
+          "type": "sell",
+          "entry": 3528,
+          "exit": 3511,
+          "shares": 400,
+          "pnl": -6800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:31",
+          "type": "short",
+          "entry": 3511,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI32"
+        },
+        {
+          "time": "12:37",
+          "type": "cover",
+          "entry": 3511,
+          "exit": 3528,
+          "shares": 400,
+          "pnl": -6800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "12:37",
+          "type": "buy",
+          "entry": 3528,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI57"
+        },
+        {
+          "time": "12:45",
+          "type": "sell",
+          "entry": 3528,
+          "exit": 3523,
+          "shares": 400,
+          "pnl": -2000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:45",
+          "type": "short",
+          "entry": 3523,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI49"
+        },
+        {
+          "time": "12:48",
+          "type": "cover",
+          "entry": 3523,
+          "exit": 3526,
+          "shares": 400,
+          "pnl": -1200,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "12:48",
+          "type": "buy",
+          "entry": 3526,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI54"
+        },
+        {
+          "time": "13:20",
+          "type": "sell",
+          "entry": 3526,
+          "exit": 3532,
+          "shares": 400,
+          "pnl": 2400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:20",
+          "type": "short",
+          "entry": 3532,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "13:32",
+          "type": "cover",
+          "entry": 3532,
+          "exit": 3538,
+          "shares": 400,
+          "pnl": -2400,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:32",
+          "type": "buy",
+          "entry": 3538,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI59"
+        },
+        {
+          "time": "13:57",
+          "type": "sell",
+          "entry": 3538,
+          "exit": 3544,
+          "shares": 400,
+          "pnl": 2400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:57",
+          "type": "short",
+          "entry": 3544,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI54"
+        },
+        {
+          "time": "13:58",
+          "type": "cover",
+          "entry": 3544,
+          "exit": 3546,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:58",
+          "type": "buy",
+          "entry": 3546,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI59"
+        },
+        {
+          "time": "14:11",
+          "type": "sell",
+          "entry": 3546,
+          "exit": 3544,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:11",
+          "type": "short",
+          "entry": 3544,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "14:38",
+          "type": "cover",
+          "entry": 3544,
+          "exit": 3539,
+          "shares": 400,
+          "pnl": 2000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:38",
+          "type": "buy",
+          "entry": 3539,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "14:46",
+          "type": "sell",
+          "entry": 3539,
+          "exit": 3537,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:46",
+          "type": "short",
+          "entry": 3537,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI45"
+        },
+        {
+          "time": "15:10",
+          "type": "cover",
+          "entry": 3537,
+          "exit": 3528,
+          "shares": 400,
+          "pnl": 3600,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:10",
+          "type": "buy",
+          "entry": 3528,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI58"
+        },
+        {
+          "time": "15:22",
+          "type": "sell",
+          "entry": 3528,
+          "exit": 3522,
+          "shares": 400,
+          "pnl": -2400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "15:22",
+          "type": "short",
+          "entry": 3522,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI43"
+        },
+        {
+          "time": "15:30",
+          "type": "cover",
+          "entry": 3522,
+          "exit": 3540,
+          "shares": 400,
+          "pnl": -7200,
+          "reason": "引け強制決済"
+        },
+        {
+          "time": "15:30",
+          "type": "buy",
+          "entry": 3540,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI67"
+        },
+        {
+          "time": "15:30",
+          "type": "sell",
+          "entry": 3540,
+          "exit": 3540,
+          "shares": 400,
+          "pnl": 0,
+          "reason": "引け強制決済"
+        }
+      ],
+      "totalPnl": -26800,
+      "tradeCount": 23,
+      "winCount": 6,
+      "lossCount": 17,
+      "shares": 400,
+      "openPrice": 3589,
+      "dayHigh": 3606,
+      "dayLow": 3505,
+      "dayRange": "2.81"
+    },
+    {
+      "code": "83060",
+      "name": "三菱UFJ FG",
+      "lotRatio": 0.49,
+      "trades": [
+        {
+          "time": "09:41",
+          "type": "short",
+          "entry": 3134,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI50"
+        },
+        {
+          "time": "10:01",
+          "type": "cover",
+          "entry": 3134,
+          "exit": 3137,
+          "shares": 400,
+          "pnl": -1200,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:01",
+          "type": "buy",
+          "entry": 3137,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI61"
+        },
+        {
+          "time": "10:35",
+          "type": "sell",
+          "entry": 3137,
+          "exit": 3154,
+          "shares": 400,
+          "pnl": 6800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:35",
+          "type": "short",
+          "entry": 3154,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "11:18",
+          "type": "cover",
+          "entry": 3154,
+          "exit": 3142,
+          "shares": 400,
+          "pnl": 4800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "11:18",
+          "type": "buy",
+          "entry": 3142,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "12:31",
+          "type": "sell",
+          "entry": 3142,
+          "exit": 3139,
+          "shares": 400,
+          "pnl": -1200,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:31",
+          "type": "short",
+          "entry": 3139,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI42"
+        },
+        {
+          "time": "12:52",
+          "type": "cover",
+          "entry": 3139,
+          "exit": 3135,
+          "shares": 400,
+          "pnl": 1600,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "12:52",
+          "type": "buy",
+          "entry": 3135,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI47"
+        },
+        {
+          "time": "13:05",
+          "type": "sell",
+          "entry": 3135,
+          "exit": 3133,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:05",
+          "type": "short",
+          "entry": 3133,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI42"
+        },
+        {
+          "time": "13:14",
+          "type": "cover",
+          "entry": 3133,
+          "exit": 3137,
+          "shares": 400,
+          "pnl": -1600,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:14",
+          "type": "buy",
+          "entry": 3137,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI57"
+        },
+        {
+          "time": "14:10",
+          "type": "sell",
+          "entry": 3137,
+          "exit": 3198,
+          "shares": 400,
+          "pnl": 24400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:10",
+          "type": "short",
+          "entry": 3198,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI57"
+        },
+        {
+          "time": "14:37",
+          "type": "cover",
+          "entry": 3198,
+          "exit": 3187,
+          "shares": 400,
+          "pnl": 4400,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:37",
+          "type": "buy",
+          "entry": 3187,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI54"
+        },
+        {
+          "time": "14:42",
+          "type": "sell",
+          "entry": 3187,
+          "exit": 3179,
+          "shares": 400,
+          "pnl": -3200,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:42",
+          "type": "short",
+          "entry": 3179,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI41"
+        },
+        {
+          "time": "15:24",
+          "type": "cover",
+          "entry": 3179,
+          "exit": 3162,
+          "shares": 400,
+          "pnl": 6800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:24",
+          "type": "buy",
+          "entry": 3162,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI47"
+        },
+        {
+          "time": "15:30",
+          "type": "sell",
+          "entry": 3162,
+          "exit": 3169,
+          "shares": 400,
+          "pnl": 2800,
+          "reason": "引け強制決済"
+        }
+      ],
+      "totalPnl": 43600,
+      "tradeCount": 12,
+      "winCount": 7,
+      "lossCount": 5,
+      "shares": 400,
+      "openPrice": 3137,
+      "dayHigh": 3208,
+      "dayLow": 3081,
+      "dayRange": "4.05"
+    },
+    {
+      "code": "80350",
+      "name": "東京エレクトロン",
+      "lotRatio": 0.05,
+      "trades": [],
+      "totalPnl": 0,
+      "tradeCount": 0,
+      "winCount": 0,
+      "lossCount": 0,
+      "shares": 0,
+      "openPrice": 59900,
+      "dayHigh": 63660,
+      "dayLow": 59900,
+      "dayRange": "6.28"
+    },
+    {
+      "code": "68570",
+      "name": "アドバンテスト",
+      "lotRatio": 0.49,
+      "trades": [],
+      "totalPnl": 0,
+      "tradeCount": 0,
+      "winCount": 0,
+      "lossCount": 0,
+      "shares": 0,
+      "openPrice": 27380,
+      "dayHigh": 28435,
+      "dayLow": 27160,
+      "dayRange": "4.66"
+    },
+    {
+      "code": "69200",
+      "name": "レーザーテック",
+      "lotRatio": 0.05,
+      "trades": [],
+      "totalPnl": 0,
+      "tradeCount": 0,
+      "winCount": 0,
+      "lossCount": 0,
+      "shares": 0,
+      "openPrice": 41500,
+      "dayHigh": 43600,
+      "dayLow": 41230,
+      "dayRange": "5.71"
+    },
+    {
+      "code": "70110",
+      "name": "三菱重工業",
+      "lotRatio": 0.49,
+      "trades": [
+        {
+          "time": "09:41",
+          "type": "short",
+          "entry": 3650,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI46"
+        },
+        {
+          "time": "09:46",
+          "type": "cover",
+          "entry": 3650,
+          "exit": 3665,
+          "shares": 400,
+          "pnl": -6000,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "09:46",
+          "type": "buy",
+          "entry": 3665,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI51"
+        },
+        {
+          "time": "09:49",
+          "type": "sell",
+          "entry": 3665,
+          "exit": 3673,
+          "shares": 400,
+          "pnl": 3200,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "09:49",
+          "type": "short",
+          "entry": 3673,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI54"
+        },
+        {
+          "time": "09:50",
+          "type": "cover",
+          "entry": 3673,
+          "exit": 3689,
+          "shares": 400,
+          "pnl": -6400,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "09:50",
+          "type": "buy",
+          "entry": 3689,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI61"
+        },
+        {
+          "time": "10:19",
+          "type": "sell",
+          "entry": 3689,
+          "exit": 3711,
+          "shares": 400,
+          "pnl": 8800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:19",
+          "type": "short",
+          "entry": 3711,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI48"
+        },
+        {
+          "time": "10:24",
+          "type": "cover",
+          "entry": 3711,
+          "exit": 3725,
+          "shares": 400,
+          "pnl": -5600,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:24",
+          "type": "buy",
+          "entry": 3725,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI58"
+        },
+        {
+          "time": "10:27",
+          "type": "sell",
+          "entry": 3725,
+          "exit": 3713,
+          "shares": 400,
+          "pnl": -4800,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:27",
+          "type": "short",
+          "entry": 3713,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI47"
+        },
+        {
+          "time": "10:34",
+          "type": "cover",
+          "entry": 3713,
+          "exit": 3729,
+          "shares": 400,
+          "pnl": -6400,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "10:34",
+          "type": "buy",
+          "entry": 3729,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI60"
+        },
+        {
+          "time": "10:41",
+          "type": "sell",
+          "entry": 3729,
+          "exit": 3718,
+          "shares": 400,
+          "pnl": -4400,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "10:41",
+          "type": "short",
+          "entry": 3718,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI48"
+        },
+        {
+          "time": "11:02",
+          "type": "cover",
+          "entry": 3718,
+          "exit": 3717,
+          "shares": 400,
+          "pnl": 400,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "11:02",
+          "type": "buy",
+          "entry": 3717,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "12:42",
+          "type": "sell",
+          "entry": 3717,
+          "exit": 3747,
+          "shares": 400,
+          "pnl": 12000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "12:42",
+          "type": "short",
+          "entry": 3747,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI45"
+        },
+        {
+          "time": "13:11",
+          "type": "cover",
+          "entry": 3747,
+          "exit": 3749,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "13:11",
+          "type": "buy",
+          "entry": 3749,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "13:30",
+          "type": "sell",
+          "entry": 3749,
+          "exit": 3745,
+          "shares": 400,
+          "pnl": -1600,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "13:30",
+          "type": "short",
+          "entry": 3745,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI40"
+        },
+        {
+          "time": "14:37",
+          "type": "cover",
+          "entry": 3745,
+          "exit": 3726,
+          "shares": 400,
+          "pnl": 7600,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "14:37",
+          "type": "buy",
+          "entry": 3726,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI54"
+        },
+        {
+          "time": "14:48",
+          "type": "sell",
+          "entry": 3726,
+          "exit": 3716,
+          "shares": 400,
+          "pnl": -4000,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "14:48",
+          "type": "short",
+          "entry": 3716,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI35"
+        },
+        {
+          "time": "15:00",
+          "type": "cover",
+          "entry": 3716,
+          "exit": 3723,
+          "shares": 400,
+          "pnl": -2800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:00",
+          "type": "buy",
+          "entry": 3723,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI50"
+        },
+        {
+          "time": "15:09",
+          "type": "sell",
+          "entry": 3723,
+          "exit": 3719,
+          "shares": 400,
+          "pnl": -1600,
+          "reason": "DCクロス決済"
+        },
+        {
+          "time": "15:09",
+          "type": "short",
+          "entry": 3719,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI43"
+        },
+        {
+          "time": "15:23",
+          "type": "cover",
+          "entry": 3719,
+          "exit": 3721,
+          "shares": 400,
+          "pnl": -800,
+          "reason": "GCクロス決済"
+        },
+        {
+          "time": "15:23",
+          "type": "buy",
+          "entry": 3721,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "GCクロス RSI53"
+        },
+        {
+          "time": "15:30",
+          "type": "sell",
+          "entry": 3721,
+          "exit": 3701,
+          "shares": 400,
+          "pnl": -8000,
+          "reason": "引け強制決済"
+        },
+        {
+          "time": "15:30",
+          "type": "short",
+          "entry": 3701,
+          "exit": null,
+          "shares": 400,
+          "pnl": null,
+          "reason": "DCクロス RSI31"
+        },
+        {
+          "time": "15:30",
+          "type": "cover",
+          "entry": 3701,
+          "exit": 3701,
+          "shares": 400,
+          "pnl": 0,
+          "reason": "引け強制決済"
+        }
+      ],
+      "totalPnl": -21200,
+      "tradeCount": 19,
+      "winCount": 5,
+      "lossCount": 14,
+      "shares": 400,
+      "openPrice": 3560,
+      "dayHigh": 3772,
+      "dayLow": 3551,
+      "dayRange": "6.21"
+    },
+    {
+      "code": "99840",
+      "name": "ソフトバンクG",
+      "lotRatio": 0.05,
+      "trades": [],
+      "totalPnl": 0,
+      "tradeCount": 0,
+      "winCount": 0,
+      "lossCount": 0,
+      "shares": 0,
+      "openPrice": 8001,
+      "dayHigh": 8099,
+      "dayLow": 7363,
+      "dayRange": "9.20"
+    }
+  ],
+  "totalPnl": -64400,
+  "totalTrades": 116,
+  "totalWins": 33,
+  "totalLosses": 83
+}

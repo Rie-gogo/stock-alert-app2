@@ -3,7 +3,7 @@
  * Yahoo Finance の実際の株価データを使ったシミュレーションエンジン
  * simulation.ts の架空データ生成を置き換える
  */
-import { callDataApi } from "./_core/dataApi";
+import { ENV } from "./_core/env";
 import type { StockSimResult, TradeRecord, SignalRecord } from "./simulation";
 import { TARGET_STOCKS } from "../shared/stocks";
 import { applyPortfolioRules, rankRecommendedSymbols, type PerStockTrades, type SymbolScoreInput } from "./portfolio";
@@ -302,61 +302,57 @@ async function fetchRealCandles(ticker: string, maxRetries = 3): Promise<RealCan
 
 async function fetchRealCandlesOnce(ticker: string): Promise<RealCandle[] | null> {
   try {
-    const rawData = await callDataApi("YahooFinance/get_stock_chart", {
-      query: {
-        symbol: ticker,
-        region: "JP",
-        interval: "1m",
-        range: "1d",
-      },
+    // J-Quants API: ticker形式 "3436.T" → コード "34360"
+    const symbol = ticker.replace(/\.T$/, "");
+    const jqCode = `${symbol}0`;
+    const apiKey = ENV.jquantsApiKey;
+    if (!apiKey) {
+      throw new Error("JQUANTS_API_KEY is not configured");
+    }
+    // 当日の日付（JST）を取得
+    const now = new Date();
+    const jstOffset = 9 * 60 * 60 * 1000;
+    const jstNow = new Date(now.getTime() + jstOffset);
+    const dateStr = jstNow.toISOString().slice(0, 10);
+    const url = `https://api.jquants.com/v2/equities/bars/minute?code=${jqCode}&from=${dateStr}&to=${dateStr}`;
+    const resp = await fetch(url, {
+      headers: { "x-api-key": apiKey },
     });
-
-    const data = rawData as {
-      chart?: {
-        result?: Array<{
-          timestamp: number[];
-          indicators: {
-            quote: Array<{
-              open: (number | null)[];
-              high: (number | null)[];
-              low: (number | null)[];
-              close: (number | null)[];
-              volume: (number | null)[];
-            }>;
-          };
-        }>;
-        error?: { description: string };
-      };
-    };
-
-    if (!data?.chart?.result?.[0]) return null;
-
-    const result = data.chart.result[0];
-    const timestamps = result.timestamp ?? [];
-    const quotes = result.indicators.quote[0];
-
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`J-Quants API HTTP ${resp.status}: ${body.slice(0, 200)}`);
+    }
+    interface JqBar {
+      Date: string;
+      Time: string;
+      Code: string;
+      O: number;
+      H: number;
+      L: number;
+      C: number;
+      Vo: number;
+      Va: number;
+    }
+    const json = (await resp.json()) as { data?: JqBar[]; pagination_key?: string | null };
+    const bars: JqBar[] = json.data ?? [];
+    if (bars.length === 0) return null;
     const rawCandles: RealCandle[] = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      const o = quotes.open[i];
-      const h = quotes.high[i];
-      const l = quotes.low[i];
-      const c = quotes.close[i];
-      const v = quotes.volume[i];
-
-      if (o === null || c === null || o === undefined || c === undefined) continue;
-
-      const d = new Date(timestamps[i] * 1000);
-      const jstHour = (d.getUTCHours() + 9) % 24;
-      const timeStr = `${String(jstHour).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-
+    for (const bar of bars) {
+      const timeStr = bar.Time; // "HH:mm" 形式（JST）
+      const [hh, mm] = timeStr.split(":").map(Number);
+      // 9:00〜15:30のみ対象（前場・後場）
+      const totalMin = hh * 60 + mm;
+      if (totalMin < 9 * 60 || totalMin > 15 * 60 + 30) continue;
+      // J-Quantsのタイムスタンプ: Date + Time → UTC Unix ms
+      const jstDate = new Date(`${bar.Date}T${timeStr}:00+09:00`);
       rawCandles.push({
         time: timeStr,
-        timestamp: timestamps[i] * 1000,
-        open: o,
-        high: h ?? o,
-        low: l ?? o,
-        close: c,
-        volume: v ?? 0,
+        timestamp: jstDate.getTime(),
+        open: bar.O,
+        high: bar.H,
+        low: bar.L,
+        close: bar.C,
+        volume: bar.Vo,
         ma5: null,
         ma25: null,
         rsi: null,

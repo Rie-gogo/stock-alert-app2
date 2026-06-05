@@ -8,7 +8,6 @@ import type { StockSimResult, TradeRecord, SignalRecord } from "./simulation";
 import { TARGET_STOCKS } from "../shared/stocks";
 import { applyPortfolioRules, rankRecommendedSymbols, type PerStockTrades, type SymbolScoreInput } from "./portfolio";
 import { isVolumeConfirmed, trailingAvgVolume } from "./signalConfirmation";
-import { calcVWAP } from "./vwap";
 
 // 共有定義からインポート（client/src/hooks/useRealMarketData.ts と同一ソース）
 export const REAL_TARGET_STOCKS = TARGET_STOCKS.map((s) => ({
@@ -115,7 +114,6 @@ interface RealCandle {
   bbLower: number | null;
   flow: number | null;   // 売買圧力（歩み値・板の代替）: 直近10本の(終値位置 x 出来高)の合計
   slope: number | null;  // MA25の傾き（中期トレンド方向）
-  vwap: number | null;   // VWAP（出来高加重平均価格）: 当日の累積計算値
 }
 
 // ============================================================
@@ -368,7 +366,6 @@ async function fetchRealCandlesOnce(ticker: string, targetDateStr?: string): Pro
         bbLower: null,
         flow: null,
         slope: null,
-        vwap: null,
       });
     }
 
@@ -388,10 +385,6 @@ async function fetchRealCandlesOnce(ticker: string, targetDateStr?: string): Pro
       c.bbUpper = bb.upper[i];
       c.bbLower = bb.lower[i];
     });
-
-    // VWAP（出来高加重平均価格）を計算（当日分のみなのでdayKeyは不要）
-    const vwapSeries = calcVWAP(rawCandles);
-    rawCandles.forEach((c, i) => { c.vwap = vwapSeries[i]; });
 
     // 売買圧力（flow）: 各足の (終値位置 x 出来高) を直近FLOW_LOOKBACK本で合計
     // 終値位置 = ((close-low)-(high-close))/(high-low) ∈ [-1,1]
@@ -634,60 +627,13 @@ export function simulateStockReal(
     const nearMA25 = curr.ma25 > 0 && Math.abs(curr.close - curr.ma25) / curr.ma25 <= PULLBACK_NEAR_MA;
     const isPullbackBuy = slope > SLOPE_THRESHOLD && curr.rsi <= PULLBACK_RSI && nearMA25 && curr.close >= curr.ma25;
 
-    // ---- VWAPクロス判定 ----
-    const vwapCurr = curr.vwap;
-    const vwapPrev = prev.vwap;
-    // VWAP上抜け: 前足がVWAP以下→現足がVWAP以上（買い優勢への転換）
-    const isVwapCrossUp = vwapCurr !== null && vwapPrev !== null &&
-      prev.close < vwapPrev && curr.close >= vwapCurr;
-    // VWAP下抜け: 前足がVWAP以上→現足がVWAP以下（売り優勢への転換）
-    const isVwapCrossDown = vwapCurr !== null && vwapPrev !== null &&
-      prev.close > vwapPrev && curr.close <= vwapCurr;
-
-    // ---- ローソク足パターン判定 ----
-    // 長い下ヒゲ: 下ヒゲが実体の2倍以上 + RSI低め → 底値反転シグナル
-    const prevBodySize = Math.abs(prev.open - prev.close);
-    const prevLowerShadow = Math.min(prev.open, prev.close) - prev.low;
-    const prevUpperShadow = prev.high - Math.max(prev.open, prev.close);
-    const isLongLowerShadowPrev = prevBodySize > 0.01 &&
-      prevLowerShadow >= prevBodySize * 2 && prevUpperShadow <= prevBodySize * 0.5;
-    // 長い上ヒゲ: 上ヒゲが実体の2倍以上 + RSI高め → 天井反転シグナル
-    const isLongUpperShadowPrev = prevBodySize > 0.01 &&
-      prevUpperShadow >= prevBodySize * 2 && prevLowerShadow <= prevBodySize * 0.5;
-    // 強気はらみ: 前足大陰線 + 現足が前足実体内の陽線 → 底値反転
-    const prevBodyHigh = Math.max(prev.open, prev.close);
-    const prevBodyLow = Math.min(prev.open, prev.close);
-    const currBodyHigh = Math.max(curr.open, curr.close);
-    const currBodyLow = Math.min(curr.open, curr.close);
-    const isBullishHarami = prevBodySize > 0.01 &&
-      prev.close < prev.open && curr.close > curr.open &&
-      currBodyHigh <= prevBodyHigh && currBodyLow >= prevBodyLow;
-    // 弱気はらみ: 前足大陽線 + 現足が前足実体内の陰線 → 天井反転
-    const isBearishHarami = prevBodySize > 0.01 &&
-      prev.close > prev.open && curr.close < curr.open &&
-      currBodyHigh <= prevBodyHigh && currBodyLow >= prevBodyLow;
-
-    // VWAP上抜け買い: VWAPを上抜けた + 上昇トレンド中（下落相場では抑制）
-    const isVwapBuy = isVwapCrossUp && slope > 0 && !isStrongDown;
-    // 長い下ヒゲ買い: 前足に長い下ヒゲ + RSI売られすぎ圏（45以下）
-    const isLowerShadowBuy = isLongLowerShadowPrev && (curr.rsi ?? 50) <= 45 && !isStrongDown;
-    // 強気はらみ買い: 底値圏（RSI 45以下）での反転
-    const isBullishHaramiBuy = isBullishHarami && (curr.rsi ?? 50) <= 45 && !isStrongDown;
-
-    // VWAP下抜け売り: VWAPを下抜けた + 下落トレンド中（上昇相場では抑制）
-    const isVwapShort = isVwapCrossDown && slope < 0 && !isStrongUp;
-    // 長い上ヒゲ売り: 前足に長い上ヒゲ + RSI買われすぎ圏（55以上）
-    const isUpperShadowShort = isLongUpperShadowPrev && (curr.rsi ?? 50) >= 55 && !isStrongUp;
-    // 弱気はらみ売り: 高値圏（RSI 55以上）での反転
-    const isBearishHaramiShort = isBearishHarami && (curr.rsi ?? 50) >= 55 && !isStrongUp;
-
     // noLongAfterHour: 指定時刻以降のロングエントリーを禁止
     const suppressLongByHour = overrides.noLongAfterHour !== undefined && entryHour >= overrides.noLongAfterHour;
 
     const shouldBuyLong = regimeAllowLong && !isStrongDown && volConfirmed &&
       !suppressEntryByHour && !suppressAfternoon && !suppressLongByHour &&
       tradeCount < MAX_TRADES_PER_DAY &&
-      (isGoldenCross || (isRsiOversold && isBbLower) || isPullbackBuy || isVwapBuy || isLowerShadowBuy || isBullishHaramiBuy);
+      (isGoldenCross || (isRsiOversold && isBbLower) || isPullbackBuy);
 
     if (longShares === 0 && shortShares === 0 && shouldBuyLong) {
       const maxSpend = capital * lotRatio; // レジーム/銘柄に応じた建玉
@@ -822,7 +768,7 @@ export function simulateStockReal(
       !suppressEntryByHour && !suppressAfternoon && !inGcCooldown && !inShortStopCooldown && !suppressShortByHour &&
       !suppressShortByRsi && !suppressShortByVolRatio && !suppressShortByGapUp &&
       tradeCount < MAX_TRADES_PER_DAY &&
-      (isPullbackShort || isBreakdownShort || (isRsiOverbought && isBbUpper) || isVwapShort || isUpperShadowShort || isBearishHaramiShort);
+      (isPullbackShort || isBreakdownShort || (isRsiOverbought && isBbUpper));
 
     if (shortShares === 0 && longShares === 0 && shouldEnterShort) {
       const maxSpend = capital * lotRatio;
@@ -838,12 +784,6 @@ export function simulateStockReal(
           ? `空売りエントリー: 下落トレンド中の戻り売り (RSI:${curr.rsi?.toFixed(1)}、MA25近辺)`
           : isBreakdownShort
           ? `空売りエントリー: 下落相場ブレイク売り (市場下落ムード+MA25割れ, RSI:${curr.rsi?.toFixed(1)})`
-          : isVwapShort
-          ? `空売りエントリー: VWAP下抜け (VWAP:${vwapCurr?.toFixed(1)}, RSI:${curr.rsi?.toFixed(1)})`
-          : isUpperShadowShort
-          ? `空売りエントリー: 長い上ヒゲ (天井シグナル, RSI:${curr.rsi?.toFixed(1)})`
-          : isBearishHaramiShort
-          ? `空売りエントリー: 弱気はらみ線 (高値圏反転, RSI:${curr.rsi?.toFixed(1)})`
           : `空売りエントリー: RSI買われすぎ+BB上限 (RSI:${curr.rsi?.toFixed(1)})`;
         trades.push({ time: curr.time, type: "short", price: curr.close, shares, totalAmount: marginRequired });
         signals.push({ time: curr.time, type: "short", price: curr.close, ma5: curr.ma5, ma25: curr.ma25, rsi: curr.rsi, reason: shortReason });

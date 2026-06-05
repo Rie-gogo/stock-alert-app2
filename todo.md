@@ -521,5 +521,29 @@
 - [x] realSimulation.ts: fetchRealCandles/fetchRealCandlesOnce に targetDateStr 引数追加
 - [x] generateRealDailyReport: fetchRealCandles に dateStr を渡すよう修正
 - [x] 全180テスト通過確認
-- [ ] チェックポイント保存・デプロイ
-- [ ] ハートビートスケジュールを UTC 23:00（JST 8:00）に変更
+- [x] チェックポイント保存・デプロイ（version: 760cd965）
+- [x] ハートビートスケジュールを UTC 23:00（JST 8:00）に変更（next: 2026-06-05T23:00:00Z）
+
+## Phase 37: デイトレード戦略シグナル追加（VWAP・ダウ理論・ローソク足パターン）
+
+- [ ] 現行ロジックをベースラインとしてファイルに保存
+- [ ] VWAP計算ヘルパーを共通モジュール（server/vwap.ts）に実装
+- [ ] detectSignals()にVWAPクロス・ダウ理論高値/安値更新・長い上ヒゲ・はらみ線・大台割れシグナルを追加
+- [ ] CandleWithSignalインターフェースにvwapフィールドを追加
+- [ ] RealCandleインターフェースにvwapフィールドを追加
+- [ ] simulateStockReal()にVWAPクロスをエントリー条件として追加
+- [ ] 5営業日バックテスト：元データ vs 新ロジックを比較
+- [ ] 損益比較レポートを作成
+- [ ] テスト全件通過確認
+- [ ] チェックポイント保存
+
+## Phase 37: デイトレード戦略シグナル追加（VWAP・ローソク足パターン）
+
+- [x] ベースライン保存（server/realSimulation.ts.baseline, server/routers/stockData.ts.baseline）
+- [x] VWAP計算ヘルパー作成（server/vwap.ts）
+- [x] detectSignals()にVWAPクロス・長い上下ヒゲ・はらみ線シグナルを追加
+- [x] simulateStockReal()にVWAPクロス・長い上下ヒゲ・はらみ線エントリー条件を追加
+- [x] backtestAnalyze.tsのRealCandle/toCandlesをVWAP対応に更新
+- [x] 5営業日バックテスト実施（ベースライン+32,900円 vs 新ロジック+51,500円、+18,600円改善）
+- [x] 比較レポート作成（analysis/REPORT_5DAY_NEWLOGIC_20260605.md）
+- [x] 全180テスト通過確認

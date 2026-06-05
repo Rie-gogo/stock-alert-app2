@@ -23,14 +23,6 @@ import {
   isAdxTrending,
   type IntradayRegime,
 } from "../intradayRegime";
-import {
-  calcVWAP,
-  calcDowSwings,
-  isLongUpperShadow,
-  isLongLowerShadow,
-  detectHarami,
-  detectRoundLevel,
-} from "../vwap";
 
 // ---- データAPI呼び出し（レート制限の自動リトライ付き） ----
 
@@ -139,8 +131,6 @@ export interface CandleWithSignal {
   bbUpper: number | null;
   bbMiddle: number | null;
   bbLower: number | null;
-  /** VWAP（出来高加重平均価格）。当日の累積計算値。 */
-  vwap?: number | null;
   signal?: { type: "buy" | "sell" | "warn"; reason: string; confidence?: SignalConfidence };
 }
 
@@ -154,13 +144,6 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
 
   // ADX（平均方向性指数）を事前計算。ADX < 20の横ばい相場ではMAクロスシグナルを抑制する。
   const adxSeries = calcADX(highs, lows, closes);
-
-  // VWAP（出来高加重平均価格）を事前計算。当日の累積値。
-  const vwapSeries = calcVWAP(result);
-  result.forEach((c, i) => { c.vwap = vwapSeries[i]; });
-
-  // ダウ理論スイング高値・安値を事前計算
-  const dowSwings = calcDowSwings(result, 20);
 
   // 各足の「当日の寄り値」を、その足と同じ営業日(dayKey)の最初の足の始値として求める。
   // dayKey が無い場合（旧データ等）は系列全体の先頭始値で代用する。
@@ -207,44 +190,12 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
 
     let candidate: { type: "buy" | "sell" | "warn"; reason: string } | null = null;
 
-    // ---- VWAPクロス判定 ----
-    const vwapCurr = vwapSeries[i];
-    const vwapPrev = vwapSeries[i - 1];
-    const vwapCrossUp = vwapCurr !== null && vwapPrev !== null &&
-      prev.close < vwapPrev && c.close >= vwapCurr; // 前足がVWAP以下→現足がVWAP以上（上抜け）
-    const vwapCrossDown = vwapCurr !== null && vwapPrev !== null &&
-      prev.close > vwapPrev && c.close <= vwapCurr; // 前足がVWAP以上→現足がVWAP以下（下抜け）
-
-    // ---- ダウ理論スイング判定 ----
-    const { swingHighBreak, swingLowBreak } = dowSwings[i];
-
-    // ---- ローソク足パターン判定 ----
-    const longUpperShadow = isLongUpperShadow(c);
-    const longLowerShadow = isLongLowerShadow(c);
-    const { isBullishHarami, isBearishHarami } = detectHarami(prev, c);
-    const { crossedBelow: roundLevelBreak, crossedAbove: roundLevelBreakUp, level: roundLevel } = detectRoundLevel(prev.close, c.close);
-
     // 買いシグナル
     if (!isStrongDown) {
       if (p5 <= p25 && c5 > c25) {
         candidate = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25})` };
       } else if (cRsi <= rsiLower && c.close <= cBbl) {
         candidate = { type: "buy", reason: `RSI売られすぎ(${cRsi}%) + BB下限タッチ` };
-      } else if (vwapCrossUp && regime !== "down") {
-        // VWAPを上抜け: 買い優勢に転換（下落相場では抑制）
-        candidate = { type: "buy", reason: `VWAPクロス上抜け (VWAP:${vwapCurr?.toFixed(1)})` };
-      } else if (swingHighBreak && c5 > c25 && regime !== "down") {
-        // ダウ理論: 直近高値更新 + 上昇トレンド中 → 上昇継続シグナル
-        candidate = { type: "buy", reason: `ダウ理論: 直近高値更新 (上昇トレンド継続)` };
-      } else if (longLowerShadow && cRsi <= 45 && regime !== "down") {
-        // 長い下ヒゲ: 売り圧力を跳ね返した底値シグナル（RSI低め=売られすぎ圏）
-        candidate = { type: "buy", reason: `長い下ヒゲ (底値反転シグナル, RSI:${cRsi}%)` };
-      } else if (isBullishHarami && cRsi <= 45) {
-        // 強気はらみ: 前足大陰線の中に陽線が収まる → 底値圏での反転の兆し
-        candidate = { type: "buy", reason: `強気はらみ線 (底値反転の兆し, RSI:${cRsi}%)` };
-      } else if (roundLevelBreakUp && roundLevel !== null && regime !== "down") {
-        // 大台超え: キリ番を上抜け → 上昇加速シグナル
-        candidate = { type: "buy", reason: `大台超え (${roundLevel}円突破)` };
       }
     }
 
@@ -258,21 +209,6 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
         // 下落相場の「戻り売り」: 大局が下落の中でRSIが中値以上まで戻し、
         // 価格がMA25以下（戻り高が中期線に押さえられた）ところを売り候補とする。
         candidate = { type: "sell", reason: `下落相場の戻り売り (RSI:${cRsi}% · MA25以下)` };
-      } else if (vwapCrossDown && regime !== "up") {
-        // VWAPを下抜け: 売り優勢に転換（上昇相場では抑制）
-        candidate = { type: "sell", reason: `VWAPクロス下抜け (VWAP:${vwapCurr?.toFixed(1)})` };
-      } else if (swingLowBreak && c5 < c25 && regime !== "up") {
-        // ダウ理論: 直近安値更新 + 下落トレンド中 → 下落継続シグナル
-        candidate = { type: "sell", reason: `ダウ理論: 直近安値更新 (下落トレンド継続)` };
-      } else if (longUpperShadow && cRsi >= 55 && !gcProtection) {
-        // 長い上ヒゲ: 買い圧力を跳ね返した天井シグナル（RSI高め=買われすぎ圏）
-        candidate = { type: "sell", reason: `長い上ヒゲ (天井シグナル, RSI:${cRsi}%)` };
-      } else if (isBearishHarami && cRsi >= 55 && !gcProtection) {
-        // 弱気はらみ: 前足大陽線の中に陰線が収まる → 高値圏での反転の兆し
-        candidate = { type: "sell", reason: `弱気はらみ線 (天井反転の兆し, RSI:${cRsi}%)` };
-      } else if (roundLevelBreak && roundLevel !== null && regime !== "up") {
-        // 大台割れ: キリ番を下抜け → 下落加速シグナル
-        candidate = { type: "sell", reason: `大台割れ (${roundLevel}円割り込み)` };
       }
     }
 

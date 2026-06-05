@@ -14,6 +14,7 @@ import {
   isRangeBoundDay,
   REGIME_CONSTANTS,
 } from "../server/realSimulation";
+import { calcVWAP } from "../server/vwap";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -33,6 +34,7 @@ interface RealCandle {
   bbLower: number | null;
   flow: number | null;
   slope: number | null;
+  vwap: number | null;
 }
 
 const FLOW_LOOKBACK = 10;
@@ -137,12 +139,15 @@ async function fetch5dByDay(ticker: string): Promise<Map<string, RawBar[]>> {
 function toCandles(bars: RawBar[]): RealCandle[] {
   const candles: RealCandle[] = bars.map(b => ({
     time: b.time, timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
-    ma5: null, ma25: null, rsi: null, bbUpper: null, bbLower: null, flow: null, slope: null,
+    ma5: null, ma25: null, rsi: null, bbUpper: null, bbLower: null, flow: null, slope: null, vwap: null,
   }));
   const closes = candles.map(c => c.close);
   const ma5 = calcMA(closes, 5), ma25 = calcMA(closes, 25), rsi = calcRSI(closes, 14);
   const bb = calcBollinger(closes, 20, 2);
   candles.forEach((c, i) => { c.ma5 = ma5[i]; c.ma25 = ma25[i]; c.rsi = rsi[i]; c.bbUpper = bb.upper[i]; c.bbLower = bb.lower[i]; });
+  // VWAP（出来高加重平均価格）を計算（当日分のみなのでdayKeyは不要）
+  const vwapSeries = calcVWAP(candles);
+  candles.forEach((c, i) => { c.vwap = vwapSeries[i]; });
   const signedVol = candles.map(c => { const range = (c.high - c.low) || 1; const clv = ((c.close - c.low) - (c.high - c.close)) / range; return clv * c.volume; });
   candles.forEach((c, i) => {
     if (i >= FLOW_LOOKBACK - 1) { let s = 0; for (let k = i - FLOW_LOOKBACK + 1; k <= i; k++) s += signedVol[k]; c.flow = s; }

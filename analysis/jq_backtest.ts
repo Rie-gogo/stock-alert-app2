@@ -16,12 +16,14 @@ import {
   SHORT_STOP_LOSS_PERCENT,
   LUNCH_EXIT_ALL_MINUTE,
 } from "../server/realSimulation";
+import { calcVWAP } from "../server/vwap";
 import * as fs from "fs";
 import * as path from "path";
 
 interface RealCandle {
   time: string; timestamp: number; open: number; high: number; low: number; close: number; volume: number;
   ma5: number | null; ma25: number | null; rsi: number | null; bbUpper: number | null; bbLower: number | null; flow: number | null; slope: number | null;
+  vwap: number | null;
 }
 interface JqBar { Date: string; Time: string; Code: string; O: number; H: number; L: number; C: number; Vo: number; Va: number; }
 
@@ -69,11 +71,13 @@ function barsToCandles(bars: JqBar[]): RealCandle[] {
   const sorted = [...bars].sort((a, b) => a.Time.localeCompare(b.Time));
   const candles: RealCandle[] = sorted.map(b => ({
     time: b.Time, timestamp: toTimestamp(b.Date, b.Time), open: b.O, high: b.H, low: b.L, close: b.C, volume: b.Vo,
-    ma5: null, ma25: null, rsi: null, bbUpper: null, bbLower: null, flow: null, slope: null,
+    ma5: null, ma25: null, rsi: null, bbUpper: null, bbLower: null, flow: null, slope: null, vwap: null,
   }));
   const closes = candles.map(c => c.close);
   const ma5 = calcMA(closes, 5), ma25 = calcMA(closes, 25), rsi = calcRSI(closes, 14); const bb = calcBollinger(closes, 20, 2);
   candles.forEach((c, i) => { c.ma5 = ma5[i]; c.ma25 = ma25[i]; c.rsi = rsi[i]; c.bbUpper = bb.upper[i]; c.bbLower = bb.lower[i]; });
+  const vwapSeries = calcVWAP(candles);
+  candles.forEach((c, i) => { c.vwap = vwapSeries[i]; });
   const sv = candles.map(c => { const r = (c.high - c.low) || 1; const clv = ((c.close - c.low) - (c.high - c.close)) / r; return clv * c.volume; });
   candles.forEach((c, i) => {
     if (i >= FLOW_LOOKBACK - 1) { let s = 0; for (let k = i - FLOW_LOOKBACK + 1; k <= i; k++) s += sv[k]; c.flow = s; }

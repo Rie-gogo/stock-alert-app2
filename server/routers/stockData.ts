@@ -32,6 +32,7 @@ import {
   detectRoundLevel,
   detectVwapBounce,
   detectDoubleTopBottom,
+  detectHeadAndShoulders,
 } from "../vwap";
 
 // ---- データAPI呼び出し（レート制限の自動リトライ付き） ----
@@ -170,6 +171,9 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
   // ダブルトップ/ダブルボトムを事前計算
   const doublePatternSeries = detectDoubleTopBottom(result, 40);
 
+  // 三尊/逆三尊を事前計算
+  const hsSeries = detectHeadAndShoulders(result, 60);
+
   // 各足の「当日の寄り値」を、その足と同じ営業日(dayKey)の最初の足の始値として求める。
   // dayKey が無い場合（旧データ等）は系列全体の先頭始値で代用する。
   const dayOpenByKey = new Map<string, number>();
@@ -235,6 +239,8 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
     const { isBullishBounce: vwapBullishBounce, isBearishBounce: vwapBearishBounce } = vwapBounceSeries[i];
     // ---- ダブルトップ/ダブルボトム ----
     const { isDoubleTop, isDoubleBottom, neckline: dtNeckline } = doublePatternSeries[i];
+    // ---- 三尊/逆三尊 ----
+    const { isHeadAndShoulders: isHS, isInverseHeadAndShoulders: isIHS, neckline: hsNeckline } = hsSeries[i];
 
     // 買いシグナル
     if (!isStrongDown) {
@@ -263,6 +269,9 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
       } else if (isDoubleBottom && dtNeckline !== null && regime !== "down") {
         // ダブルボトム: 2つの谷のネックライン突破 → 底値確認・上昇転換シグナル
         candidate = { type: "buy", reason: `ダブルボトム (ネックライン:${dtNeckline.toFixed(1)}円突破)` };
+      } else if (isIHS && hsNeckline !== null && regime !== "down") {
+        // 逆三尊: ネックライン上抜け → 底値確認・上昇転換シグナル
+        candidate = { type: "buy", reason: `逆三尊（インバースH&S）(ネックライン:${hsNeckline.toFixed(1)}円突破)` };
       }
     }
 
@@ -297,6 +306,9 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
       } else if (isDoubleTop && dtNeckline !== null && regime !== "up") {
         // ダブルトップ: 2つの山のネックライン割れ → 天井確認・下落転換シグナル
         candidate = { type: "sell", reason: `ダブルトップ (ネックライン:${dtNeckline.toFixed(1)}円割れ)` };
+      } else if (isHS && hsNeckline !== null && regime !== "up") {
+        // 三尊: ネックライン下抜け → 天井確認・下落転換シグナル
+        candidate = { type: "sell", reason: `三尊（ヘッド&ショルダー）(ネックライン:${hsNeckline.toFixed(1)}円割れ)` };
       }
     }
 

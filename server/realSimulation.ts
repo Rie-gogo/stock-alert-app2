@@ -8,7 +8,7 @@ import type { StockSimResult, TradeRecord, SignalRecord } from "./simulation";
 import { TARGET_STOCKS } from "../shared/stocks";
 import { applyPortfolioRules, rankRecommendedSymbols, type PerStockTrades, type SymbolScoreInput } from "./portfolio";
 import { isVolumeConfirmed, trailingAvgVolume } from "./signalConfirmation";
-import { calcVWAP, detectDoubleTopBottom } from "./vwap";
+import { calcVWAP, detectDoubleTopBottom, detectHeadAndShoulders } from "./vwap";
 
 // 共有定義からインポート（client/src/hooks/useRealMarketData.ts と同一ソース）
 export const REAL_TARGET_STOCKS = TARGET_STOCKS.map((s) => ({
@@ -704,13 +704,19 @@ export function simulateStockReal(
     const isDoubleBottomBuy = dtbResult.isDoubleBottom && !isStrongDown;
     const isDoubleTopShort = dtbResult.isDoubleTop && !isStrongUp;
 
+    // ---- 三尊/逆三尊 ----
+    // 過去60本のデータで三尊/逆三尊を検出（最低62本必要）
+    const hsResult = i >= 62 ? detectHeadAndShoulders(candles.slice(0, i + 1), 60)[i] : { isHeadAndShoulders: false, isInverseHeadAndShoulders: false, neckline: null };
+    const isInverseHSBuy = hsResult.isInverseHeadAndShoulders && !isStrongDown;
+    const isHSShort = hsResult.isHeadAndShoulders && !isStrongUp;
+
     // noLongAfterHour: 指定時刻以降のロングエントリーを禁止
     const suppressLongByHour = overrides.noLongAfterHour !== undefined && entryHour >= overrides.noLongAfterHour;
 
     const shouldBuyLong = regimeAllowLong && !isStrongDown && volConfirmed &&
       !suppressEntryByHour && !suppressAfternoon && !suppressLongByHour &&
       tradeCount < MAX_TRADES_PER_DAY &&
-      (isGoldenCross || (isRsiOversold && isBbLower) || isPullbackBuy || isVwapBuy || isLowerShadowBuy || isBullishHaramiBuy || isVwapBullishBounce || isDoubleBottomBuy);
+      (isGoldenCross || (isRsiOversold && isBbLower) || isPullbackBuy || isVwapBuy || isLowerShadowBuy || isBullishHaramiBuy || isVwapBullishBounce || isDoubleBottomBuy || isInverseHSBuy);
 
     if (longShares === 0 && shortShares === 0 && shouldBuyLong) {
       const maxSpend = capital * lotRatio; // レジーム/銘柄に応じた建玉
@@ -845,7 +851,7 @@ export function simulateStockReal(
       !suppressEntryByHour && !suppressAfternoon && !inGcCooldown && !inShortStopCooldown && !suppressShortByHour &&
       !suppressShortByRsi && !suppressShortByVolRatio && !suppressShortByGapUp &&
       tradeCount < MAX_TRADES_PER_DAY &&
-      (isPullbackShort || isBreakdownShort || (isRsiOverbought && isBbUpper) || isVwapShort || isUpperShadowShort || isBearishHaramiShort || isVwapBearishBounce || isDoubleTopShort);
+      (isPullbackShort || isBreakdownShort || (isRsiOverbought && isBbUpper) || isVwapShort || isUpperShadowShort || isBearishHaramiShort || isVwapBearishBounce || isDoubleTopShort || isHSShort);
 
     if (shortShares === 0 && longShares === 0 && shouldEnterShort) {
       const maxSpend = capital * lotRatio;

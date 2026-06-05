@@ -286,3 +286,111 @@ export function detectRoundLevel(
   // 上方向にキリ番を超えた
   return { crossedBelow: false, crossedAbove: true, level: currLevel };
 }
+
+/**
+ * 三尊（ヘッド&ショルダー）/ 逆三尊（インバース H&S）の検出
+ *
+ * 三尊（ヘッド&ショルダー）— 売りシグナル:
+ *   - 直近 lookback 本の中に3つの山がある
+ *   - 中央の山（ヘッド）が最も高く、左右の山（ショルダー）は近い高さ（差が1.5%以内）
+ *   - ネックライン = 左ショルダー谷と右ショルダー谷の平均
+ *   - 現在足の終値がネックラインを下抜け → 売りシグナル
+ *
+ * 逆三尊（インバース H&S）— 買いシグナル:
+ *   - 直近 lookback 本の中に3つの谷がある
+ *   - 中央の谷（ヘッド）が最も深く、左右の谷（ショルダー）は近い深さ（差が1.5%以内）
+ *   - ネックライン = 左ショルダー山と右ショルダー山の平均
+ *   - 現在足の終値がネックラインを上抜け → 買いシグナル
+ */
+export function detectHeadAndShoulders(
+  candles: VwapCandle[],
+  lookback = 60
+): { isHeadAndShoulders: boolean; isInverseHeadAndShoulders: boolean; neckline: number | null }[] {
+  return candles.map((c, i) => {
+    if (i < lookback + 2) {
+      return { isHeadAndShoulders: false, isInverseHeadAndShoulders: false, neckline: null };
+    }
+
+    const window = candles.slice(i - lookback, i); // 直前lookback本（現在足は含まない）
+    const n = window.length;
+
+    // ローカル高値（山）と安値（谷）を検出（前後1本より高い/低い点）
+    const peaks: { idx: number; price: number }[] = [];
+    const troughs: { idx: number; price: number }[] = [];
+
+    for (let j = 1; j < n - 1; j++) {
+      if (window[j].high > window[j - 1].high && window[j].high > window[j + 1].high) {
+        peaks.push({ idx: j, price: window[j].high });
+      }
+      if (window[j].low < window[j - 1].low && window[j].low < window[j + 1].low) {
+        troughs.push({ idx: j, price: window[j].low });
+      }
+    }
+
+    let isHeadAndShoulders = false;
+    let isInverseHeadAndShoulders = false;
+    let neckline: number | null = null;
+
+    // ===== 三尊（ヘッド&ショルダー）=====
+    if (peaks.length >= 3) {
+      const ls = peaks[peaks.length - 3]; // 左ショルダー
+      const hd = peaks[peaks.length - 2]; // ヘッド
+      const rs = peaks[peaks.length - 1]; // 右ショルダー
+
+      // 各山が時系列順に並んでいること（最低3本間隔）
+      if (hd.idx > ls.idx + 2 && rs.idx > hd.idx + 2) {
+        // ヘッドが最も高い
+        const headIsHighest = hd.price > ls.price && hd.price > rs.price;
+
+        // 左右ショルダーの高さが近い（差が1.5%以内）
+        const shoulderDiff = Math.abs(ls.price - rs.price) / Math.max(ls.price, rs.price);
+        const shouldersSymmetric = shoulderDiff <= 0.015;
+
+        if (headIsHighest && shouldersSymmetric) {
+          // ネックライン = 左ショルダーとヘッドの間の最安値 と ヘッドと右ショルダーの間の最安値 の平均
+          const leftTrough = Math.min(...window.slice(ls.idx, hd.idx + 1).map(w => w.low));
+          const rightTrough = Math.min(...window.slice(hd.idx, rs.idx + 1).map(w => w.low));
+          const neck = (leftTrough + rightTrough) / 2;
+
+          // 現在足がネックラインを下抜け
+          if (c.close < neck) {
+            isHeadAndShoulders = true;
+            neckline = Math.round(neck * 10) / 10;
+          }
+        }
+      }
+    }
+
+    // ===== 逆三尊（インバース H&S）=====
+    if (!isHeadAndShoulders && troughs.length >= 3) {
+      const ls = troughs[troughs.length - 3]; // 左ショルダー
+      const hd = troughs[troughs.length - 2]; // ヘッド（最も深い谷）
+      const rs = troughs[troughs.length - 1]; // 右ショルダー
+
+      // 各谷が時系列順に並んでいること（最低3本間隔）
+      if (hd.idx > ls.idx + 2 && rs.idx > hd.idx + 2) {
+        // ヘッドが最も深い（安値が最も低い）
+        const headIsLowest = hd.price < ls.price && hd.price < rs.price;
+
+        // 左右ショルダーの深さが近い（差が1.5%以内）
+        const shoulderDiff = Math.abs(ls.price - rs.price) / Math.min(ls.price, rs.price);
+        const shouldersSymmetric = shoulderDiff <= 0.015;
+
+        if (headIsLowest && shouldersSymmetric) {
+          // ネックライン = 左ショルダーとヘッドの間の最高値 と ヘッドと右ショルダーの間の最高値 の平均
+          const leftPeak = Math.max(...window.slice(ls.idx, hd.idx + 1).map(w => w.high));
+          const rightPeak = Math.max(...window.slice(hd.idx, rs.idx + 1).map(w => w.high));
+          const neck = (leftPeak + rightPeak) / 2;
+
+          // 現在足がネックラインを上抜け
+          if (c.close > neck) {
+            isInverseHeadAndShoulders = true;
+            neckline = Math.round(neck * 10) / 10;
+          }
+        }
+      }
+    }
+
+    return { isHeadAndShoulders, isInverseHeadAndShoulders, neckline };
+  });
+}

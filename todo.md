@@ -556,3 +556,12 @@
 - [ ] simulateStockRealにダブルトップ/ボトムエントリー条件を追加
 - [ ] 5営業日バックテストで効果検証・レポート作成
 - [ ] チェックポイント保存・デプロイ
+
+## Phase 39: 三尊（ヘッド&ショルダー）/逆三尊シグナル追加
+
+- [x] vwap.ts に detectHeadAndShoulders / detectInverseHeadAndShoulders 関数を実装
+- [x] detectSignals() に三尊/逆三尊シグナルを追加
+- [x] simulateStockReal() に三尊/逆三尊エントリー条件を追加
+- [x] 137日バックテストでPhase38と比較検証
+- [x] テスト全通過確認（180テスト全通過）
+- [x] チェックポイント保存

@@ -512,3 +512,14 @@
 - [x] TypeScript コンパイル 0 エラー確認
 - [x] 全 180 テスト通過確認
 - [x] チェックポイント保存
+
+## Phase 36: スケジュール修正（JST 8:00 前営業日データ取得）
+
+- [x] scheduledHandlers.ts: getPreviousBusinessDay() ヘルパー追加
+- [x] dailySimulationHandler: new Date() → getPreviousBusinessDay() に変更
+- [x] dayOfWeek 参照を targetDate.getUTCDay() に修正
+- [x] realSimulation.ts: fetchRealCandles/fetchRealCandlesOnce に targetDateStr 引数追加
+- [x] generateRealDailyReport: fetchRealCandles に dateStr を渡すよう修正
+- [x] 全180テスト通過確認
+- [ ] チェックポイント保存・デプロイ
+- [ ] ハートビートスケジュールを UTC 23:00（JST 8:00）に変更

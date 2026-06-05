@@ -1,0 +1,100 @@
+{
+  "date": "2026-06-04",
+  "totalPnl": 0,
+  "totalTrades": 0,
+  "winTrades": 0,
+  "lossTrades": 0,
+  "winRate": 0,
+  "results": [
+    {
+      "symbol": "3436",
+      "name": "SUMCO",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.02)",
+      "bars": 324
+    },
+    {
+      "symbol": "3778",
+      "name": "さくらインターネット",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.06)",
+      "bars": 308
+    },
+    {
+      "symbol": "6981",
+      "name": "村田製作所",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.05)",
+      "bars": 325
+    },
+    {
+      "symbol": "6758",
+      "name": "ソニーグループ",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.06)",
+      "bars": 327
+    },
+    {
+      "symbol": "8306",
+      "name": "三菱UFJ FG",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.08)",
+      "bars": 327
+    },
+    {
+      "symbol": "8035",
+      "name": "東京エレクトロン",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.11)",
+      "bars": 327
+    },
+    {
+      "symbol": "6857",
+      "name": "アドバンテスト",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.04)",
+      "bars": 327
+    },
+    {
+      "symbol": "6920",
+      "name": "レーザーテック",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.04)",
+      "bars": 327
+    },
+    {
+      "symbol": "7011",
+      "name": "三菱重工業",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.08)",
+      "bars": 327
+    },
+    {
+      "symbol": "9984",
+      "name": "ソフトバンクグループ",
+      "pnl": 0,
+      "trades": [],
+      "skipped": true,
+      "reason": "レンジ相場 (効率=0.15)",
+      "bars": 321
+    }
+  ]
+}

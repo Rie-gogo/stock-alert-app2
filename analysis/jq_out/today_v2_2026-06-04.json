@@ -1,0 +1,394 @@
+{
+  "date": "2026-06-04",
+  "marketEfficiency": 0.5444604517369769,
+  "rangeBoundDay": false,
+  "totalPnl": -9327,
+  "totalTrades": 22,
+  "winTrades": 7,
+  "lossTrades": 15,
+  "winRate": 31.8,
+  "dayStats": [
+    {
+      "symbol": "3436",
+      "name": "SUMCO",
+      "open": 4361,
+      "high": 4481,
+      "low": 4190,
+      "close": 4366,
+      "bars": 324
+    },
+    {
+      "symbol": "3778",
+      "name": "さくらインターネット",
+      "open": 2889,
+      "high": 2929,
+      "low": 2813,
+      "close": 2925,
+      "bars": 308
+    },
+    {
+      "symbol": "6981",
+      "name": "村田製作所",
+      "open": 10120,
+      "high": 10380,
+      "low": 9858,
+      "close": 9904,
+      "bars": 325
+    },
+    {
+      "symbol": "6758",
+      "name": "ソニーグループ",
+      "open": 3589,
+      "high": 3606,
+      "low": 3505,
+      "close": 3540,
+      "bars": 327
+    },
+    {
+      "symbol": "8306",
+      "name": "三菱UFJ FG",
+      "open": 3137,
+      "high": 3208,
+      "low": 3081,
+      "close": 3169,
+      "bars": 327
+    },
+    {
+      "symbol": "8035",
+      "name": "東京エレクトロン",
+      "open": 59900,
+      "high": 63660,
+      "low": 59900,
+      "close": 63660,
+      "bars": 327
+    },
+    {
+      "symbol": "6857",
+      "name": "アドバンテスト",
+      "open": 27380,
+      "high": 28435,
+      "low": 27160,
+      "close": 28170,
+      "bars": 327
+    },
+    {
+      "symbol": "6920",
+      "name": "レーザーテック",
+      "open": 41500,
+      "high": 43600,
+      "low": 41230,
+      "close": 42750,
+      "bars": 327
+    },
+    {
+      "symbol": "7011",
+      "name": "三菱重工業",
+      "open": 3560,
+      "high": 3772,
+      "low": 3551,
+      "close": 3701,
+      "bars": 327
+    },
+    {
+      "symbol": "9984",
+      "name": "ソフトバンクグループ",
+      "open": 8001,
+      "high": 8099,
+      "low": 7363,
+      "close": 7377,
+      "bars": 321
+    }
+  ],
+  "results": [
+    {
+      "symbol": "3436",
+      "name": "SUMCO",
+      "pnl": 2829,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "09:32",
+          "exitTime": "10:06",
+          "entryPrice": 4333,
+          "exitPrice": 4354.665,
+          "shares": 339,
+          "pnl": -7344,
+          "reason": "損切り(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "10:21",
+          "exitTime": "10:38",
+          "entryPrice": 4296,
+          "exitPrice": 4317.48,
+          "shares": 342,
+          "pnl": -7346,
+          "reason": "損切り(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:00",
+          "exitTime": "11:13",
+          "entryPrice": 4272,
+          "exitPrice": 4215,
+          "shares": 344,
+          "pnl": 19608,
+          "reason": "トレイリング利確(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:19",
+          "exitTime": "11:20",
+          "entryPrice": 4215,
+          "exitPrice": 4221,
+          "shares": 348,
+          "pnl": -2088,
+          "reason": "昼休み前強制決済"
+        }
+      ]
+    },
+    {
+      "symbol": "3778",
+      "name": "さくらインターネット",
+      "pnl": -2020,
+      "trades": [
+        {
+          "type": "long",
+          "entryTime": "11:28",
+          "exitTime": "11:29",
+          "entryPrice": 2907,
+          "exitPrice": 2903,
+          "shares": 505,
+          "pnl": -2020,
+          "reason": "昼休み前強制決済"
+        }
+      ]
+    },
+    {
+      "symbol": "6981",
+      "name": "村田製作所",
+      "pnl": 4857,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "09:46",
+          "exitTime": "09:49",
+          "entryPrice": 10135,
+          "exitPrice": 10185.675,
+          "shares": 145,
+          "pnl": -7348,
+          "reason": "損切り(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:12",
+          "exitTime": "11:19",
+          "entryPrice": 9978,
+          "exitPrice": 9899,
+          "shares": 147,
+          "pnl": 11613,
+          "reason": "トレイリング利確(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:20",
+          "exitTime": "11:21",
+          "entryPrice": 9923,
+          "exitPrice": 9928,
+          "shares": 148,
+          "pnl": -740,
+          "reason": "昼休み前強制決済"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:23",
+          "exitTime": "11:24",
+          "entryPrice": 9917,
+          "exitPrice": 9908,
+          "shares": 148,
+          "pnl": 1332,
+          "reason": "昼休み前強制決済"
+        }
+      ]
+    },
+    {
+      "symbol": "6758",
+      "name": "ソニーグループ",
+      "pnl": 210,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "10:06",
+          "exitTime": "10:52",
+          "entryPrice": 3538,
+          "exitPrice": 3529,
+          "shares": 42,
+          "pnl": 378,
+          "reason": "GCカバー(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:23",
+          "exitTime": "11:24",
+          "entryPrice": 3521,
+          "exitPrice": 3525,
+          "shares": 42,
+          "pnl": -168,
+          "reason": "昼休み前強制決済"
+        }
+      ]
+    },
+    {
+      "symbol": "8306",
+      "name": "三菱UFJ FG",
+      "pnl": -1032,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "09:52",
+          "exitTime": "10:09",
+          "entryPrice": 3125,
+          "exitPrice": 3140.6249999999995,
+          "shares": 48,
+          "pnl": -750,
+          "reason": "損切り(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "10:58",
+          "exitTime": "11:20",
+          "entryPrice": 3139,
+          "exitPrice": 3145,
+          "shares": 47,
+          "pnl": -282,
+          "reason": "昼休み前強制決済"
+        }
+      ]
+    },
+    {
+      "symbol": "8035",
+      "name": "東京エレクトロン",
+      "pnl": -7051,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "10:39",
+          "exitTime": "10:47",
+          "entryPrice": 61310,
+          "exitPrice": 61616.549999999996,
+          "shares": 23,
+          "pnl": -7051,
+          "reason": "損切り(ショート)"
+        }
+      ]
+    },
+    {
+      "symbol": "6857",
+      "name": "アドバンテスト",
+      "pnl": -7309,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "09:49",
+          "exitTime": "10:22",
+          "entryPrice": 27580,
+          "exitPrice": 27717.899999999998,
+          "shares": 53,
+          "pnl": -7309,
+          "reason": "損切り(ショート)"
+        }
+      ]
+    },
+    {
+      "symbol": "6920",
+      "name": "レーザーテック",
+      "pnl": -789,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "09:57",
+          "exitTime": "10:04",
+          "entryPrice": 42620,
+          "exitPrice": 42833.1,
+          "shares": 3,
+          "pnl": -639,
+          "reason": "損切り(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:19",
+          "exitTime": "11:20",
+          "entryPrice": 42720,
+          "exitPrice": 42780,
+          "shares": 3,
+          "pnl": -180,
+          "reason": "昼休み前強制決済"
+        },
+        {
+          "type": "short",
+          "entryTime": "11:21",
+          "exitTime": "11:22",
+          "entryPrice": 42760,
+          "exitPrice": 42750,
+          "shares": 3,
+          "pnl": 30,
+          "reason": "昼休み前強制決済"
+        }
+      ]
+    },
+    {
+      "symbol": "7011",
+      "name": "三菱重工業",
+      "pnl": 1080,
+      "trades": [
+        {
+          "type": "long",
+          "entryTime": "09:50",
+          "exitTime": "10:04",
+          "entryPrice": 3689,
+          "exitPrice": 3716,
+          "shares": 40,
+          "pnl": 1080,
+          "reason": "トレイリング利確"
+        }
+      ]
+    },
+    {
+      "symbol": "9984",
+      "name": "ソフトバンクグループ",
+      "pnl": -102,
+      "trades": [
+        {
+          "type": "short",
+          "entryTime": "09:55",
+          "exitTime": "10:17",
+          "entryPrice": 7556,
+          "exitPrice": 7483,
+          "shares": 19,
+          "pnl": 1387,
+          "reason": "トレイリング利確(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "10:19",
+          "exitTime": "10:30",
+          "entryPrice": 7462,
+          "exitPrice": 7499.3099999999995,
+          "shares": 20,
+          "pnl": -746,
+          "reason": "損切り(ショート)"
+        },
+        {
+          "type": "short",
+          "entryTime": "10:35",
+          "exitTime": "10:36",
+          "entryPrice": 7429,
+          "exitPrice": 7466.1449999999995,
+          "shares": 20,
+          "pnl": -743,
+          "reason": "損切り(ショート)"
+        }
+      ]
+    }
+  ]
+}

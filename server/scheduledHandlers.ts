@@ -1,7 +1,7 @@
 /**
  * スケジュール実行ハンドラー
- * 毎平日（月〜金）に自動でシミュレーションを実行してレポートを保存する
- * ★ 実際のYahoo Financeデータを使用（架空データではない）
+ * 毎平日 JST 8:00（UTC 23:00 前日）に自動でシミュレーションを実行してレポートを保存する
+ * ★ 実際のJ-Quantsデータを使用（前営業日分を取得）
  */
 import type { Request, Response } from "express";
 import { sdk } from "./_core/sdk";
@@ -17,6 +17,26 @@ import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 
 /**
+ * 前営業日（土日祈日を除く直近の平日）を UTC 日付で返す
+ * JST 8:00（UTC 23:00 前日）に実行されるため、「実行時刻の前日」が前営業日になる
+ */
+function getPreviousBusinessDay(): Date {
+  // UTC 23:00 前日 = JST 8:00 当日なので、「実行時刻の前日」 = 前営業日
+  const now = new Date();
+  // UTC で小数点以下を切り捨てて前日に戻る
+  const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  const dow = yesterday.getUTCDay(); // 0=日, 6=土
+  if (dow === 0) {
+    // 日曜なら金曜に戻る
+    yesterday.setUTCDate(yesterday.getUTCDate() - 2);
+  } else if (dow === 6) {
+    // 土曜なら金曜に戻る
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  }
+  return yesterday;
+}
+
+/**
  * 毎平日のシミュレーション実行ハンドラー
  * POST /api/scheduled/daily-simulation
  */
@@ -28,17 +48,11 @@ export async function dailySimulationHandler(req: Request, res: Response) {
       return res.status(403).json({ error: "cron-only endpoint" });
     }
 
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0=日, 1=月, ..., 5=金, 6=土
-
-    // 土日はスキップ（UTC基準で判定）
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      console.log(`[daily-simulation] Skipping weekend (day=${dayOfWeek})`);
-      return res.json({ ok: true, skipped: "weekend" });
-    }
-
-    const dateStr = today.toISOString().slice(0, 10);
-    console.log(`[daily-simulation] Running REAL DATA simulation for ${dateStr}`);
+    // JST 8:00（UTC 23:00 前日）に実行されるため、「前営業日」のデータを取得する
+    // J-Quants の1分足は当日中には確定しないため、前営業日分を対象とする
+    const targetDate = getPreviousBusinessDay();
+    const dateStr = targetDate.toISOString().slice(0, 10);
+    console.log(`[daily-simulation] Running REAL DATA simulation for previous business day: ${dateStr}`);
 
     // 現在のアルゴリズム設定を取得
     const config = await getAlgorithmConfig();
@@ -47,7 +61,7 @@ export async function dailySimulationHandler(req: Request, res: Response) {
     const stopLossPercent = parseFloat(String(config?.stopLossPercent ?? "1.5"));
 
     // ★ 実際のYahoo Financeデータを使ったシミュレーション実行
-    console.log(`[daily-simulation] Fetching real Yahoo Finance data for ${dateStr}...`);
+    console.log(`[daily-simulation] Fetching real J-Quants data for ${dateStr}...`);
     const simResult = await generateRealDailyReport(dateStr, rsiUpper, rsiLower, stopLossPercent);
 
     const dataSource = simResult.isRealData
@@ -137,7 +151,8 @@ export async function dailySimulationHandler(req: Request, res: Response) {
     );
 
     // AIによるアルゴリズム自動改善（週に1回程度、金曜日に実行）
-    if (dayOfWeek === 5) {
+    // targetDateは前営業日なので、金曜日（UTCで判定）なら実行
+    if (targetDate.getUTCDay() === 5) {
       try {
         console.log("[daily-simulation] Running weekly algorithm improvement (Friday)");
         const stats = await getRecentStats(7);

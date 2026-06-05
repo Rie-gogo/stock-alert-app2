@@ -277,14 +277,15 @@ export function evaluateRegimeGates(params: {
 }
 
 /**
- * Yahoo Finance から1分足データを取得してローソク足配列を返す
+ * J-Quants から1分足データを取得してローソク足配列を返す
  * 失敗した場合は null を返す
  * 最大3回リトライする
+ * @param targetDateStr YYYY-MM-DD 形式の対象日付（省略時は当日JST）
  */
-async function fetchRealCandles(ticker: string, maxRetries = 3): Promise<RealCandle[] | null> {
+async function fetchRealCandles(ticker: string, maxRetries = 3, targetDateStr?: string): Promise<RealCandle[] | null> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const result = await fetchRealCandlesOnce(ticker);
+      const result = await fetchRealCandlesOnce(ticker, targetDateStr);
       if (result !== null) return result;
       // nullの場合はデータなしなのでリトライしない
       return null;
@@ -300,7 +301,7 @@ async function fetchRealCandles(ticker: string, maxRetries = 3): Promise<RealCan
   return null;
 }
 
-async function fetchRealCandlesOnce(ticker: string): Promise<RealCandle[] | null> {
+async function fetchRealCandlesOnce(ticker: string, targetDateStr?: string): Promise<RealCandle[] | null> {
   try {
     // J-Quants API: ticker形式 "3436.T" → コード "34360"
     const symbol = ticker.replace(/\.T$/, "");
@@ -309,11 +310,16 @@ async function fetchRealCandlesOnce(ticker: string): Promise<RealCandle[] | null
     if (!apiKey) {
       throw new Error("JQUANTS_API_KEY is not configured");
     }
-    // 当日の日付（JST）を取得
-    const now = new Date();
-    const jstOffset = 9 * 60 * 60 * 1000;
-    const jstNow = new Date(now.getTime() + jstOffset);
-    const dateStr = jstNow.toISOString().slice(0, 10);
+    // 対象日付: 引数で指定された場合はそれを使用、省略時は当日JST
+    let dateStr: string;
+    if (targetDateStr) {
+      dateStr = targetDateStr;
+    } else {
+      const now = new Date();
+      const jstOffset = 9 * 60 * 60 * 1000;
+      const jstNow = new Date(now.getTime() + jstOffset);
+      dateStr = jstNow.toISOString().slice(0, 10);
+    }
     const url = `https://api.jquants.com/v2/equities/bars/minute?code=${jqCode}&from=${dateStr}&to=${dateStr}`;
     const resp = await fetch(url, {
       headers: { "x-api-key": apiKey },
@@ -934,7 +940,7 @@ export async function generateRealDailyReport(
   // APIレート制限を避けるため、並列ではなく順次取得する
   const candleMap = new Map<string, RealCandle[]>();
   for (const stock of SIMULATION_STOCKS) {
-    const candles = await fetchRealCandles(stock.ticker);
+    const candles = await fetchRealCandles(stock.ticker, 3, dateStr);
     if (candles) candleMap.set(stock.symbol, candles);
     await new Promise(resolve => setTimeout(resolve, 300));
   }

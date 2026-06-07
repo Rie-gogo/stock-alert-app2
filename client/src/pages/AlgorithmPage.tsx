@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Link } from 'wouter';
 import {
@@ -12,7 +12,15 @@ import {
   Save,
   Target,
   Sliders,
+  Calendar,
+  Bell,
+  BellOff,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -22,6 +30,48 @@ export default function AlgorithmPage() {
   const { data: config, refetch: refetchConfig } = trpc.trading.getConfig.useQuery();
   const { data: improvements, isLoading: improvementsLoading } = trpc.trading.getImprovements.useQuery({ limit: 30 });
   const { data: stats } = trpc.trading.getStats.useQuery({ days: 30 });
+  const { data: kabuPlan, refetch: refetchKabuPlan } = trpc.trading.getKabuPlanSettings.useQuery();
+
+  // kabuプラン設定のローカル状態
+  const [kabuPlanType, setKabuPlanType] = useState<string>('');
+  const [kabuPlanExpires, setKabuPlanExpires] = useState<string>('');
+  const [kabuPlanNote, setKabuPlanNote] = useState<string>('');
+  const [kabuPlanEditing, setKabuPlanEditing] = useState(false);
+
+  // kabuプラン設定を取得したらローカル状態を初期化
+  useEffect(() => {
+    if (kabuPlan && !kabuPlanEditing) {
+      setKabuPlanType(kabuPlan.planType);
+      setKabuPlanExpires(kabuPlan.planExpiresAt);
+      setKabuPlanNote(kabuPlan.note ?? '');
+    }
+  }, [kabuPlan, kabuPlanEditing]);
+
+  const updateKabuPlanMutation = trpc.trading.updateKabuPlanSettings.useMutation({
+    onSuccess: () => {
+      toast.success('kabuプラン設定を更新しました');
+      refetchKabuPlan();
+      setKabuPlanEditing(false);
+    },
+    onError: (e) => toast.error(`更新エラー: ${e.message}`),
+  });
+
+  const handleKabuPlanSave = () => {
+    if (!kabuPlanExpires.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      toast.error('YYYY-MM-DD形式で入力してください');
+      return;
+    }
+    updateKabuPlanMutation.mutate({
+      planType: kabuPlanType as 'normal' | 'professional' | 'premium',
+      planExpiresAt: kabuPlanExpires,
+      note: kabuPlanNote || undefined,
+    });
+  };
+
+  // 期限までの日数を計算
+  const daysUntilExpiry = kabuPlan
+    ? Math.ceil((new Date(kabuPlan.planExpiresAt + 'T00:00:00Z').getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
 
   const [localRsiUpper, setLocalRsiUpper] = useState<number | null>(null);
   const [localRsiLower, setLocalRsiLower] = useState<number | null>(null);
@@ -220,6 +270,131 @@ export default function AlgorithmPage() {
                   変更を保存
                 </Button>
               )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* kabuステーション® プラン期限管理 */}
+        <div className="xl:col-span-4">
+          <Card className="border-border bg-card/60">
+            <CardHeader className="py-2.5 px-3 border-b border-border/50">
+              <CardTitle className="text-xs font-bold flex items-center space-x-1.5">
+                <Calendar className="w-3.5 h-3.5 text-primary" />
+                <span>kabuステーション® プラン管理</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 space-y-3">
+              {/* 現在のプラン状態表示 */}
+              {kabuPlan ? (
+                <div className={`rounded-lg p-3 border ${
+                  daysUntilExpiry !== null && daysUntilExpiry <= 0
+                    ? 'bg-destructive/10 border-destructive/30'
+                    : daysUntilExpiry !== null && daysUntilExpiry <= 7
+                    ? 'bg-yellow-500/10 border-yellow-500/30'
+                    : 'bg-green-500/10 border-green-500/30'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-1.5">
+                      {daysUntilExpiry !== null && daysUntilExpiry <= 0 ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-destructive" />
+                      ) : daysUntilExpiry !== null && daysUntilExpiry <= 7 ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                      )}
+                      <span className="text-[11px] font-bold">
+                        {kabuPlan.planType === 'premium' ? 'Premiumプラン' :
+                         kabuPlan.planType === 'professional' ? 'Professionalプラン' : '通常プラン'}
+                      </span>
+                    </div>
+                    <span className={`text-[10px] font-mono font-bold ${
+                      daysUntilExpiry !== null && daysUntilExpiry <= 0 ? 'text-destructive' :
+                      daysUntilExpiry !== null && daysUntilExpiry <= 7 ? 'text-yellow-500' : 'text-green-500'
+                    }`}>
+                      {daysUntilExpiry !== null && daysUntilExpiry <= 0 ? '期限切れ' : `残り${daysUntilExpiry}日`}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-1.5">
+                      <Clock className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-[10px] text-muted-foreground">有効期限: {kabuPlan.planExpiresAt}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      {kabuPlan.reminderSent ? (
+                        <><Bell className="w-3 h-3 text-primary" /><span className="text-[10px] text-primary">リマインド送信済み ({new Date(kabuPlan.reminderSentAt!).toLocaleDateString('ja-JP')})</span></>
+                      ) : (
+                        <><BellOff className="w-3 h-3 text-muted-foreground" /><span className="text-[10px] text-muted-foreground">期限７日前にメール通知</span></>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-xs text-muted-foreground">
+                  <Calendar className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p>プラン設定が未登録です</p>
+                </div>
+              )}
+
+              {/* 編集フォーム */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground">プラン設定を更新</p>
+                <Select value={kabuPlanType} onValueChange={(v) => { setKabuPlanType(v); setKabuPlanEditing(true); }}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder="プランを選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="premium">Premiumプラン</SelectItem>
+                    <SelectItem value="professional">Professionalプラン</SelectItem>
+                    <SelectItem value="normal">通常プラン</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="date"
+                  value={kabuPlanExpires}
+                  onChange={(e) => { setKabuPlanExpires(e.target.value); setKabuPlanEditing(true); }}
+                  className="h-7 text-xs"
+                  placeholder="YYYY-MM-DD"
+                />
+                <Input
+                  type="text"
+                  value={kabuPlanNote}
+                  onChange={(e) => { setKabuPlanNote(e.target.value); setKabuPlanEditing(true); }}
+                  className="h-7 text-xs"
+                  placeholder="メモ（任意）"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleKabuPlanSave}
+                  disabled={updateKabuPlanMutation.isPending || !kabuPlanType || !kabuPlanExpires}
+                  className="w-full text-xs h-7"
+                >
+                  {updateKabuPlanMutation.isPending ? (
+                    <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                  ) : (
+                    <Save className="w-3 h-3 mr-1" />
+                  )}
+                  保存
+                </Button>
+              </div>
+
+              {/* Premiumプラン継続条件 */}
+              <div className="bg-secondary/20 rounded-lg p-2.5 space-y-1.5">
+                <p className="text-[10px] font-bold text-foreground">Premiumプラン継続条件（いずれか1つ）</p>
+                {[
+                  '信用取引「大口優遇シルバー」以上適用',
+                  '前月の先物・オプション手数料が11万円以上',
+                  '前月の米国株手数料が11万円以上',
+                  '前月の預り資産が5,000万円以上',
+                ].map((cond, i) => (
+                  <div key={i} className="flex items-start space-x-1.5">
+                    <span className="text-[9px] text-primary mt-0.5">●</span>
+                    <span className="text-[9px] text-muted-foreground leading-relaxed">{cond}</span>
+                  </div>
+                ))}
+                <p className="text-[9px] text-muted-foreground pt-1 border-t border-border/30">
+                  条件未達成の場合、翌営業日よるProfessionalプランに自動降格（API引き続き利用可）
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -8,10 +8,12 @@ import {
   algorithmImprovements,
   algorithmConfig,
   paperTrades,
+  kabuPlanSettings,
   type InsertDailyReport,
   type InsertStockReport,
   type InsertAlgorithmImprovement,
   type InsertPaperTrade,
+  type KabuPlanSettings,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -472,4 +474,69 @@ export async function deletePaperTrade(params: { id: number; userId: number }) {
   await db
     .delete(paperTrades)
     .where(and(eq(paperTrades.id, params.id), eq(paperTrades.userId, params.userId)));
+}
+
+// ============================================================
+// kabuステーション® プラン期限管理 helpers
+// ============================================================
+
+/**
+ * 現在のプラン設定を取得（常に1レコードのみ）
+ */
+export async function getKabuPlanSettings(): Promise<KabuPlanSettings | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db.select().from(kabuPlanSettings).orderBy(desc(kabuPlanSettings.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * プラン設定を保存（初回は挿入、以降は更新）
+ */
+export async function upsertKabuPlanSettings(data: {
+  planType: "normal" | "professional" | "premium";
+  planExpiresAt: string;
+  note?: string;
+}): Promise<KabuPlanSettings> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await getKabuPlanSettings();
+  if (existing) {
+    await db
+      .update(kabuPlanSettings)
+      .set({
+        planType: data.planType,
+        planExpiresAt: data.planExpiresAt,
+        note: data.note ?? existing.note,
+        // 期限日が変わった場合はリマインドフラグをリセット
+        reminderSent: existing.planExpiresAt !== data.planExpiresAt ? false : existing.reminderSent,
+        reminderSentAt: existing.planExpiresAt !== data.planExpiresAt ? null : existing.reminderSentAt,
+      })
+      .where(eq(kabuPlanSettings.id, existing.id));
+  } else {
+    await db.insert(kabuPlanSettings).values({
+      planType: data.planType,
+      planExpiresAt: data.planExpiresAt,
+      note: data.note,
+    });
+  }
+
+  const updated = await getKabuPlanSettings();
+  if (!updated) throw new Error("Failed to upsert kabu plan settings");
+  return updated;
+}
+
+/**
+ * リマインド送信済みフラグを立てる
+ */
+export async function markKabuPlanReminderSent(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(kabuPlanSettings)
+    .set({ reminderSent: true, reminderSentAt: new Date() })
+    .where(eq(kabuPlanSettings.id, id));
 }

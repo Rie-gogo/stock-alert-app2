@@ -225,3 +225,26 @@ export const paperTrades = mysqlTable("paper_trades", {
 
 export type PaperTrade = typeof paperTrades.$inferSelect;
 export type InsertPaperTrade = typeof paperTrades.$inferInsert;
+
+/**
+ * kabuステーション® プラン期限管理
+ * Premiumプランの有効期限と継続条件の達成状況を管理する
+ */
+export const kabuPlanSettings = mysqlTable("kabu_plan_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  /** 現在のプラン種別 */
+  planType: mysqlEnum("planType", ["normal", "professional", "premium"]).notNull().default("professional"),
+  /** プラン有効期限（YYYY-MM-DD） */
+  planExpiresAt: varchar("planExpiresAt", { length: 10 }).notNull(),
+  /** リマインドメール送信済みフラグ */
+  reminderSent: boolean("reminderSent").notNull().default(false),
+  /** リマインドメール送信日時 */
+  reminderSentAt: timestamp("reminderSentAt"),
+  /** メモ（継続条件の達成状況など） */
+  note: text("note"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type KabuPlanSettings = typeof kabuPlanSettings.$inferSelect;
+export type InsertKabuPlanSettings = typeof kabuPlanSettings.$inferInsert;

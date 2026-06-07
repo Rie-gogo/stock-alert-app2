@@ -17,6 +17,8 @@ import {
   getPaperTrades,
   getOpenPaperTradeCount,
   deletePaperTrade,
+  getKabuPlanSettings,
+  upsertKabuPlanSettings,
 } from "../db";
 import { MAX_CONCURRENT_POSITIONS } from "@shared/stocks";
 import { generateDailySimReport } from "../simulation";
@@ -413,5 +415,33 @@ export const tradingRouter = router({
     .mutation(async ({ ctx, input }) => {
       await deletePaperTrade({ id: input.id, userId: ctx.user.id });
       return { success: true };
+    }),
+
+  /**
+   * kabuステーション® プラン設定を取得
+   */
+  getKabuPlanSettings: publicProcedure.query(async () => {
+    const settings = await getKabuPlanSettings();
+    return settings;
+  }),
+
+  /**
+   * kabuステーション® プラン設定を更新
+   */
+  updateKabuPlanSettings: protectedProcedure
+    .input(
+      z.object({
+        planType: z.enum(["normal", "professional", "premium"]),
+        planExpiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD形式で入力してください"),
+        note: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const updated = await upsertKabuPlanSettings({
+        planType: input.planType,
+        planExpiresAt: input.planExpiresAt,
+        note: input.note,
+      });
+      return updated;
     }),
 });

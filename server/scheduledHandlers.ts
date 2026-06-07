@@ -420,3 +420,102 @@ export async function manualSimulationHandler(req: Request, res: Response) {
     });
   }
 }
+
+/**
+ * kabuステーション® Premiumプラン期限リマインドハンドラー
+ * POST /api/scheduled/kabu-plan-reminder
+ * 毎日 JST 9:00（UTC 0:00）に実行し、期限7日前ならOutlookメールで通知する
+ */
+export async function kabuPlanReminderHandler(req: Request, res: Response) {
+  try {
+    // Heartbeat認証
+    const user = await sdk.authenticateRequest(req);
+    if (!user.isCron) {
+      return res.status(403).json({ error: "cron-only endpoint" });
+    }
+
+    const { getKabuPlanSettings, markKabuPlanReminderSent } = await import("./db");
+
+    const settings = await getKabuPlanSettings();
+    if (!settings) {
+      console.log("[kabu-plan-reminder] No plan settings found, skipping.");
+      return res.json({ ok: true, skipped: "no-settings" });
+    }
+
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const expiresDate = new Date(settings.planExpiresAt + "T00:00:00Z");
+    const daysUntilExpiry = Math.ceil((expiresDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    console.log(`[kabu-plan-reminder] Plan: ${settings.planType}, expires: ${settings.planExpiresAt}, days left: ${daysUntilExpiry}, reminderSent: ${settings.reminderSent}`);
+
+    // 期限切れ済みまたは7日より先はスキップ
+    if (daysUntilExpiry > 7) {
+      return res.json({ ok: true, skipped: "too-early", daysUntilExpiry });
+    }
+
+    // すでにリマインド送信済みかつ期限日が変わっていない場合はスキップ
+    if (settings.reminderSent) {
+      return res.json({ ok: true, skipped: "already-sent", daysUntilExpiry });
+    }
+
+    // Premiumプランの継続条件をメール本文に含める
+    const premiumConditions = `
+【Premiumプラン継続条件（いずれか1つを達成）】
+1. 当月の信用取引「大口優遇シルバープラン以上」が適用されている
+2. 前月の先物・オプション取引手数料が11万円以上（税込）
+3. 前月の米国株取引手数料が11万円以上（税込）
+4. 前月の全商品の預り資産が5,000万円以上
+
+【Professionalプランへの自動降格について】
+Premiumプランの条件を満たさない場合、翌営業日よりProfessionalプランが適用されます。
+ProfessionalプランでもkabuステーションAPIは引き続き利用可能です。
+
+【Professionalプラン継続条件】
+・信用取引口座または先物オプション取引口座を開設済み
+・前々々月〜前営業日の間に当社全取引で約定が1回以上ある
+`;
+
+    const subject = daysUntilExpiry <= 0
+      ? `⚠️ kabuステーション® Premiumプランが本日期限切れです`
+      : `⚠️ kabuステーション® Premiumプラン期限まで残り${daysUntilExpiry}日（${settings.planExpiresAt}）`;
+
+    const body = `${subject}
+
+現在のプラン: ${settings.planType === "premium" ? "Premiumプラン" : settings.planType === "professional" ? "Professionalプラン" : "通常プラン"}
+有効期限: ${settings.planExpiresAt}
+残り日数: ${daysUntilExpiry <= 0 ? "期限切れ" : `${daysUntilExpiry}日`}
+確認日: ${todayStr}
+
+${premiumConditions}
+
+${settings.note ? `【メモ】\n${settings.note}\n` : ""}
+---
+このメールはStock Alert Appの自動リマインド機能から送信されています。
+期限日の更新はアプリのアルゴリズム設定ページから行えます。
+`;
+
+    // Outlookメールで送信（MCP経由）
+    // NOTE: MCPはサーバーサイドから直接呼び出せないため、notifyOwnerで代替通知する
+    // 実際のOutlookメール送信はtRPC経由でフロントエンドから行う設計
+    await notifyOwner({
+      title: subject,
+      content: body,
+    });
+
+    // リマインド送信済みフラグを立てる
+    await markKabuPlanReminderSent(settings.id);
+
+    console.log(`[kabu-plan-reminder] Reminder sent for plan expiry: ${settings.planExpiresAt}`);
+    return res.json({ ok: true, reminderSent: true, daysUntilExpiry, planExpiresAt: settings.planExpiresAt });
+
+  } catch (error) {
+    console.error("[kabu-plan-reminder] Handler error:", error);
+    return res.status(500).json({
+      error: String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      context: { url: req.url, taskUid: "kabu-plan-reminder" },
+      timestamp: new Date().toISOString(),
+    });
+  }
+}

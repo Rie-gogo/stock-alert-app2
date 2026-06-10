@@ -32,8 +32,8 @@ const INITIAL_CAPITAL_PER_STOCK = 3_000_000;
 /** ロット計算: 元金の何%を1トレードに使うか */
 const LOT_RATIO = 0.9;
 
-/** 損切り率（%）: エントリー価格から何%下落で損切り */
-const STOP_LOSS_PERCENT = 0.5;
+/** 損切り率（%）: エントリー価格から何%下落で損切り（プランB: -0.7%/高安値トリガー） */
+const STOP_LOSS_PERCENT = 0.7;
 
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
@@ -41,8 +41,8 @@ const TAKE_PROFIT_PERCENT = 1.5;
 /** 大引け強制決済の時刻 (HH:MM) */
 const MARKET_CLOSE_TIME = "15:30";
 
-/** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない */
-const NO_ENTRY_AFTER = "14:30";
+/** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない（プランB: 15:15） */
+const NO_ENTRY_AFTER = "15:15";
 
 /** ウォームアップに必要な最低足数（MA25計算のため） */
 const MIN_CANDLES_FOR_SIGNAL = 30;
@@ -296,6 +296,16 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   const sig = latestSignal.signal;
 
+  // ---- HybridAフィルター: 地合い判定 ----
+  // 始値比±0.2%で地合いを判定
+  // BULLISH（上昇相場）: LONGのみ許可、SHORT禁止
+  // BEARISH/NEUTRAL: LONGもSHORTも両方OK
+  const firstCandle = buffer[0];
+  const openPrice = firstCandle?.open ?? candle.close;
+  const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
+  const isBullish = priceChangeRatio >= 0.2;   // 始値比+0.2%以上 → 上昇相場
+  // const isBearish = priceChangeRatio <= -0.2; // 始値比-0.2%以下 → 下落相場（LONGもSHORTもOK）
+
   // ---- 買いエントリー ----
   if (sig.type === "buy") {
     // 板情報で大口売り壁がある場合は抑制
@@ -312,6 +322,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // ---- 売り（空売り）エントリー ----
   if (sig.type === "sell") {
+    // HybridAフィルター: BULLISH相場ではSHORT禁止
+    if (isBullish) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
     // 板情報で大口買い壁がある場合は抑制
     if (hasBoardCounterWall(boardSnapshot, "short")) {
       return { symbol, tradeDate, candleTime, action: "none" };

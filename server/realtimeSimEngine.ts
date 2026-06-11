@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate } from "./db";
 import { detectSignals, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook } from "./kabuStation";
 import { getStockName } from "../shared/stocks";
@@ -88,6 +88,9 @@ let currentTradeDate = "";
 /** 当日の受信足数カウンター */
 const candleCounters = new Map<string, number>();
 
+/** 起動時バッファ復元が完了したか（複数回実行を防ぐ） */
+let bufferRestored = false;
+
 // ============================================================
 // ヘルパー関数
 // ============================================================
@@ -111,6 +114,65 @@ function resetIfNewDay(tradeDate: string): void {
     openPositions.clear();
     candleCounters.clear();
     currentTradeDate = tradeDate;
+    bufferRestored = false; // 日付変更時は復元フラグもリセット
+  }
+}
+
+/**
+ * サーバー起動時にDBから当日の1分足を読み込んでcandleBuffersを復元する
+ *
+ * サーバーが取引時間中に再起動した場合でも、既にDBに保存済みの足からシグナル判定を即座に再開できる。
+ */
+export async function restoreBuffersFromDb(): Promise<void> {
+  if (bufferRestored) return;
+
+  const today = getTodayJst();
+  try {
+    const rows = await getRtCandlesAllForDate(today);
+    if (rows.length === 0) {
+      console.log(`[RealtimeSim] バッファ復元: ${today} の足なし（初回起動）`);
+      bufferRestored = true;
+      currentTradeDate = today;
+      return;
+    }
+
+    // 銀柄ごとにグループ化してバッファに追加
+    const grouped = new Map<string, typeof rows>();
+    for (const row of rows) {
+      if (!grouped.has(row.symbol)) grouped.set(row.symbol, []);
+      grouped.get(row.symbol)!.push(row);
+    }
+
+    for (const [symbol, candles] of Array.from(grouped.entries())) {
+      const buf: CandleWithSignal[] = candles.map((c) => ({
+        time: `${c.tradeDate}T${c.candleTime}:00`,
+        dayKey: c.tradeDate,
+        timestamp: new Date(`${c.tradeDate}T${c.candleTime}:00+09:00`).getTime(),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: c.volume ?? 0,
+        ma5: null,
+        ma25: null,
+        rsi: null,
+        bbUpper: null,
+        bbMiddle: null,
+        bbLower: null,
+      }));
+
+      // detectSignalsでMA/RSI/BBを一括計算してバッファを初期化
+      const withSignals = detectSignals(buf);
+      candleBuffers.set(symbol, withSignals);
+      candleCounters.set(symbol, candles.length);
+    }
+
+    currentTradeDate = today;
+    bufferRestored = true;
+    console.log(`[RealtimeSim] バッファ復元完了: ${today} / ${grouped.size}銘柄 / 合計1分足${rows.length}本`);
+  } catch (err) {
+    console.error("[RealtimeSim] バッファ復元エラー:", err);
+    // エラー時は復元済みにしない（次回のリクエストで再試行する）
   }
 }
 

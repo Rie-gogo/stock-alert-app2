@@ -578,6 +578,19 @@ export async function getRtCandles(symbol: string, tradeDate: string) {
 }
 
 /**
+ * 指定日の全銘柄1分足を時刻順に取得する（サーバー起動時のバッファ復元用）
+ */
+export async function getRtCandlesAllForDate(tradeDate: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtCandles)
+    .where(eq(rtCandles.tradeDate, tradeDate))
+    .orderBy(rtCandles.symbol, rtCandles.candleTime);
+}
+
+/**
  * リアルタイム架空取引を記録する
  */
 export async function insertRtTrade(data: Omit<InsertRtTrade, "id" | "createdAt">) {

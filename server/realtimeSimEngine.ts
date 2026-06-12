@@ -38,6 +38,18 @@ const STOP_LOSS_PERCENT = 0.5;
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
 
+/** 証拠金（元金）: 現物300万円 */
+const MARGIN_CAPITAL = 3_000_000;
+
+/** 信用倍率: 3.3倍 */
+const MARGIN_MULTIPLIER = 3.3;
+
+/** 最大使用率: 証拠金 × 信用倍率 × この割合を超えたらエントリー停止 */
+const MARGIN_USAGE_LIMIT = 0.9; // 90% → 990万 × 90% = 891万円
+
+/** 最大投資可能額 = 300万 × 3.3倍 × 90% = 8,910,000円 */
+const MAX_TOTAL_EXPOSURE = MARGIN_CAPITAL * MARGIN_MULTIPLIER * MARGIN_USAGE_LIMIT;
+
 /** 大引け強制決済の時刻 (HH:MM) */
 const MARKET_CLOSE_TIME = "15:30";
 
@@ -190,6 +202,17 @@ export async function restoreBuffersFromDb(): Promise<void> {
     console.error("[RealtimeSim] バッファ復元エラー:", err);
     // エラー時は復元済みにしない（次回のリクエストで再試行する）
   }
+}
+
+/**
+ * 現在のオープンポジション合計投資額を計算する
+ */
+function calcCurrentExposure(): number {
+  let total = 0;
+  for (const pos of Array.from(openPositions.values())) {
+    total += pos.entryPrice * pos.shares;
+  }
+  return total;
 }
 
 /**
@@ -451,6 +474,18 @@ async function enterPosition(
   const amount = price * shares;
   const action = side === "long" ? "buy" : "short";
   const boardSignal = boardSnapshot?.signal ?? undefined;
+
+  // ---- 証拠金使用率制限チェック ----
+  // 現在のオープンポジション合計 + 今回の投資額が MAX_TOTAL_EXPOSURE を超える場合はエントリー停止
+  const currentExposure = calcCurrentExposure();
+  if (currentExposure + amount > MAX_TOTAL_EXPOSURE) {
+    console.log(
+      `[RealtimeSim] 証拠金使用率制限: ${symbol} エントリーキャンセル ` +
+      `(現在${(currentExposure / 10000).toFixed(0)}万円 + 今回${(amount / 10000).toFixed(0)}万円 = ` +
+      `${((currentExposure + amount) / 10000).toFixed(0)}万円 > 上限${(MAX_TOTAL_EXPOSURE / 10000).toFixed(0)}万円)`
+    );
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
 
   const pos: OpenPosition = {
     symbol,

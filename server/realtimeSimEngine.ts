@@ -114,6 +114,24 @@ const pullbackStates = new Map<string, PullbackState>();
 /** 押し目確認の最大待機足数 */
 const PULLBACK_MAX_WAIT = 5;
 
+/**
+ * 大台超え/割れ 確認バーステートマシン
+ * 大台シグナル発生後、N本連続してキリ番の上/下を維持したらエントリーする。
+ */
+interface RoundLevelPendingState {
+  direction: "buy" | "sell";  // エントリー方向
+  level: number;              // キリ番価格
+  confirmCount: number;       // 維持確認本数カウンター
+  reason: string;             // エントリー理由
+  boardSignal?: string;       // 板情報シグナル
+}
+
+/** 銘柄ごとの大台確認待ちステート */
+const roundLevelPendingStates = new Map<string, RoundLevelPendingState>();
+
+/** 大台確認に必要な維持本数（5本 = 5分間維持） */
+const ROUND_LEVEL_CONFIRM_BARS = 5;
+
 /** 当日の日付（日付が変わったらバッファをリセット） */
 let currentTradeDate = "";
 
@@ -146,6 +164,7 @@ function resetIfNewDay(tradeDate: string): void {
     openPositions.clear();
     candleCounters.clear();
     pullbackStates.clear(); // 日付変更時に押し目確認ステートもリセット
+    roundLevelPendingStates.clear(); // 日付変更時に大台確認待ちステートもリセット
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
   }
@@ -489,6 +508,42 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 
+  // ---- 大台確認バーステートマシン処理 ----
+  const roundPending = roundLevelPendingStates.get(symbol);
+  if (roundPending) {
+    // ポジションが入ったらキャンセル
+    if (openPositions.has(symbol)) {
+      roundLevelPendingStates.delete(symbol);
+    } else {
+      const stillValid =
+        roundPending.direction === "buy"
+          ? candle.close >= roundPending.level
+          : candle.close <= roundPending.level;
+
+      if (stillValid) {
+        roundPending.confirmCount++;
+        if (roundPending.confirmCount >= ROUND_LEVEL_CONFIRM_BARS) {
+          roundLevelPendingStates.delete(symbol);
+          // 確認完了 → エントリー
+          if (candleTime < NO_ENTRY_AFTER) {
+            console.log(`[RealtimeSim] ${symbol} 大台確認完了(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`);
+            return await enterPosition(
+              roundPending.direction === "buy" ? "long" : "short",
+              candle, tradeDate, candleTime,
+              `大台確認(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`,
+              boardSnapshot
+            );
+          }
+        }
+      } else {
+        // キリ番を維持できなかった → キャンセル
+        console.log(`[RealtimeSim] ${symbol} 大台確認キャンセル: キリ番割れ (${candle.close} vs ${roundPending.level})`);
+        roundLevelPendingStates.delete(symbol);
+      }
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+  }
+
   // ---- 買いエントリー ----
   if (sig.type === "buy") {
     // 板情報で大口売り壁がある場合は抑制
@@ -521,6 +576,21 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
+    // 大台超えシグナルは確認バーステートマシンに登録して待機
+    if (sig.reason.startsWith("大台超え")) {
+      const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
+      const level = m ? parseFloat(m[1]) : candle.close;
+      roundLevelPendingStates.set(symbol, {
+        direction: "buy",
+        level,
+        confirmCount: 0,
+        reason: sig.reason,
+        boardSignal: boardSnapshot?.signal ?? undefined,
+      });
+      console.log(`[RealtimeSim] ${symbol} 大台超え確認待機開始: ${sig.reason} (キリ番:${level}円)`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
     return await enterPosition("long", candle, tradeDate, candleTime, sig.reason, boardSnapshot);
   }
 
@@ -536,6 +606,21 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
     // 板情報が買い優勢の場合も抑制
     if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    // 大台割れシグナルは確認バーステートマシンに登録して待機
+    if (sig.reason.startsWith("大台割れ")) {
+      const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
+      const level = m ? parseFloat(m[1]) : candle.close;
+      roundLevelPendingStates.set(symbol, {
+        direction: "sell",
+        level,
+        confirmCount: 0,
+        reason: sig.reason,
+        boardSignal: boardSnapshot?.signal ?? undefined,
+      });
+      console.log(`[RealtimeSim] ${symbol} 大台割れ確認待機開始: ${sig.reason} (キリ番:${level}円)`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 

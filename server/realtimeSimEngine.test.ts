@@ -325,3 +325,69 @@ describe("ダブルトップ/ボトム ピーク間隔強化（案A）", () => {
     expect(last.neckline).not.toBeNull();
   });
 });
+
+// ============================================================
+// 大台超え/割れ 確認バーフィルター テスト
+// ============================================================
+
+describe("大台確認バーフィルター", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("大台超えシグナル発生後、5本維持するまでエントリーしない", async () => {
+    const { insertRtTrade } = await import("./db");
+
+    // ウォームアップ: 30本（MA25計算のため）
+    for (let i = 0; i < 30; i++) {
+      await processCandle(
+        makeCandle({ candleTime: `09:${String(i).padStart(2, "0")}`, close: 990 }),
+        null
+      );
+    }
+
+    // 大台超えシグナルを発生させる: 990円 → 1001円（1000円キリ番を突破）
+    // 1本目（シグナル発生）
+    await processCandle(
+      makeCandle({ candleTime: "09:30", close: 1001, open: 990, high: 1005, low: 990 }),
+      null
+    );
+    expect(insertRtTrade).not.toHaveBeenCalled();
+
+    // 2〜4本目（維持中）
+    for (let i = 1; i < 4; i++) {
+      await processCandle(
+        makeCandle({ candleTime: `09:${String(30 + i).padStart(2, "0")}`, close: 1002 }),
+        null
+      );
+    }
+    expect(insertRtTrade).not.toHaveBeenCalled();
+  });
+
+  it("大台超えシグナル後にキリ番を割り込んだらキャンセルされる", async () => {
+    const { insertRtTrade } = await import("./db");
+
+    // ウォームアップ
+    for (let i = 0; i < 30; i++) {
+      await processCandle(
+        makeCandle({ candleTime: `09:${String(i).padStart(2, "0")}`, close: 990 }),
+        null
+      );
+    }
+
+    // 大台超えシグナル（1000円突破）
+    await processCandle(
+      makeCandle({ candleTime: "09:30", close: 1001, open: 990, high: 1005, low: 990 }),
+      null
+    );
+
+    // 2本目でキリ番を割り込む（999円）
+    await processCandle(
+      makeCandle({ candleTime: "09:31", close: 999 }),
+      null
+    );
+
+    // キャンセルされたのでエントリーなし
+    expect(insertRtTrade).not.toHaveBeenCalled();
+  });
+});

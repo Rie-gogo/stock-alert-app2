@@ -628,4 +628,10 @@
 - [x] detectSignals.tsのダブルトップ/ボトム検出ロジックのピーク間隔を3→10本以上に修正
 - [x] realtimeSimEngine.test.tsにテストを追加（2件追加）
 - [x] TypeScript 0エラー確認・全テスト通過確認（191テスト全通過）
+- [x] チェックポイント保存（version: d21d44f7）
+
+## 大台超え/割れ 5本維持確認フィルター実装（2026-06-15）
+- [x] realtimeSimEngine.tsに大台シグナルの5本維持確認ステートマシンを追加
+- [x] realtimeSimEngine.test.tsにテストを追加（2件追加）
+- [x] TypeScript 0エラー確認・全テスト通過確認（193テスト全通過）
 - [ ] チェックポイント保存

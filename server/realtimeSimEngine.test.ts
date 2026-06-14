@@ -243,3 +243,85 @@ describe("realtimeSimEngine", () => {
     });
   });
 });
+
+// ===== ダブルトップ/ボトム ピーク間隔10本以上テスト =====
+describe("ダブルトップ/ボトム ピーク間隔強化（案A）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("detectDoubleTopBottom が10本未満の間隔ではダブルパターンを検出しない", async () => {
+    // vwap.ts の detectDoubleTopBottom を直接テスト
+    const { detectDoubleTopBottom } = await import("./vwap");
+
+    // 42本のローソク足を作成（lookback=40を超えるため）
+    const candles = Array.from({ length: 42 }, (_, i) => ({
+      time: `${9 + Math.floor(i / 60)}:${String(i % 60).padStart(2, "0")}`,
+      open: 3000,
+      high: 3000,
+      low: 3000,
+      close: 3000,
+      volume: 1000,
+      cumVol: 1000,
+      vwap: 3000,
+    }));
+
+    // ピーク間隔が5本（10本未満）のダブルトップパターンを作成
+    // ウィンドウ内（直前40本 = インデックス2〜41）でピークを設定
+    // p1: インデックス25（ウィンドウ内インデックス23）
+    // p2: インデックス31（ウィンドウ内インデックス29）→ 間隔6本（10本未満）
+    candles[25].high = 3100; // p1
+    candles[26].high = 3050;
+    candles[27].high = 3020;
+    candles[28].high = 3010;
+    candles[29].high = 3005;
+    candles[30].high = 3020;
+    candles[31].high = 3095; // p2（p1と1%以内）
+    candles[32].high = 3050;
+    // ネックライン（p1〜p2間の最安値）より現在値を下回らせる
+    candles[41].close = 2950; // ネックライン割れ
+
+    const result = detectDoubleTopBottom(candles as any, 40);
+    const last = result[result.length - 1];
+
+    // 間隔が6本（10本未満）なのでダブルトップは検出されないはず
+    expect(last.isDoubleTop).toBe(false);
+  });
+
+  it("detectDoubleTopBottom が10本以上の間隔ではダブルパターンを検出する", async () => {
+    const { detectDoubleTopBottom } = await import("./vwap");
+
+    // 45本のローソク足を作成
+    const candles = Array.from({ length: 45 }, (_, i) => ({
+      time: `${9 + Math.floor(i / 60)}:${String(i % 60).padStart(2, "0")}`,
+      open: 3000,
+      high: 3000,
+      low: 2990,
+      close: 3000,
+      volume: 1000,
+      cumVol: 1000,
+      vwap: 3000,
+    }));
+
+    // ピーク間隔が12本（10本以上）のダブルトップパターンを作成
+    // 最後のウィンドウ（直前40本 = インデックス5〜44）でピークを設定
+    // p1: インデックス15（ウィンドウ内インデックス10）
+    // p2: インデックス27（ウィンドウ内インデックス22）→ 間隔12本（10本以上）
+    candles[15].high = 3100; // p1
+    candles[16].high = 3050;
+    candles[17].high = 3020;
+    candles[27].high = 3098; // p2（p1と1%以内: |3100-3098|/3100 ≈ 0.06%）
+    candles[28].high = 3050;
+    // ネックライン（p1〜p2間の最安値）: candles[16..27]の最安値 = 2990
+    // 現在値をネックライン以下に設定
+    candles[44].close = 2980; // ネックライン割れ
+    candles[44].low = 2980;
+
+    const result = detectDoubleTopBottom(candles as any, 40);
+    const last = result[result.length - 1];
+
+    // 間隔が12本（10本以上）なのでダブルトップが検出されるはず
+    expect(last.isDoubleTop).toBe(true);
+    expect(last.neckline).not.toBeNull();
+  });
+});

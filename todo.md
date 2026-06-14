@@ -622,4 +622,10 @@
 - [x] realtimeSimEngine.ts のダウ理論シグナル処理に5分足フィルターを適用
 - [x] realtimeSimEngine.test.ts にフィルターのユニットテストを追加
 - [x] TypeScript 0エラー確認・全テスト通過確認（189テスト全通過）
+- [x] チェックポイント保存（version: 55ca8303）
+
+## ダブルトップ/ボトム ピーク間隔強化（案A）実装（2026-06-15）
+- [x] detectSignals.tsのダブルトップ/ボトム検出ロジックのピーク間隔を3→10本以上に修正
+- [x] realtimeSimEngine.test.tsにテストを追加（2件追加）
+- [x] TypeScript 0エラー確認・全テスト通過確認（191テスト全通過）
 - [ ] チェックポイント保存

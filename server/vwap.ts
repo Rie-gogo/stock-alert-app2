@@ -231,7 +231,7 @@ export function detectDoubleTopBottom(
       const p1 = peaks[peaks.length - 2];
       const p2 = peaks[peaks.length - 1];
       const priceDiff = Math.abs(p1.price - p2.price) / Math.max(p1.price, p2.price);
-      if (priceDiff <= 0.01 && p2.idx > p1.idx + 3) { // 2つの山が1%以内かつ3本以上離れている
+      if (priceDiff <= 0.01 && p2.idx > p1.idx + 10) { // 2つの山が1%以内かつ10本以上離れている
         // ネックライン = 2つの山の間の最安値
         const between = window.slice(p1.idx, p2.idx + 1);
         const neck = Math.min(...between.map(w => w.low));
@@ -246,7 +246,7 @@ export function detectDoubleTopBottom(
       const t1 = troughs[troughs.length - 2];
       const t2 = troughs[troughs.length - 1];
       const priceDiff = Math.abs(t1.price - t2.price) / Math.min(t1.price, t2.price);
-      if (priceDiff <= 0.01 && t2.idx > t1.idx + 3) { // 2つの谷が1%以内かつ3本以上離れている
+      if (priceDiff <= 0.01 && t2.idx > t1.idx + 10) { // 2つの谷が1%以内かつ10本以上離れている
         // ネックライン = 2つの谷の間の最高値
         const between = window.slice(t1.idx, t2.idx + 1);
         const neck = Math.max(...between.map(w => w.high));

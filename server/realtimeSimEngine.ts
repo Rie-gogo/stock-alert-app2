@@ -18,7 +18,7 @@
 
 import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
-import { getOrderBook, analyzeOrderBook } from "./kabuStation";
+import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields } from "./kabuStation";
 import { getStockName } from "../shared/stocks";
 import type { BoardSnapshot } from "../drizzle/schema";
 
@@ -53,8 +53,8 @@ const MAX_TOTAL_EXPOSURE = MARGIN_CAPITAL * MARGIN_MULTIPLIER * MARGIN_USAGE_LIM
 /** 大引け強制決済の時刻 (HH:MM) */
 const MARKET_CLOSE_TIME = "15:30";
 
-/** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない（プランB: 15:15） */
-const NO_ENTRY_AFTER = "15:15";
+/** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない */
+const NO_ENTRY_AFTER = "14:30";
 
 /** ウォームアップに必要な最低足数（MA25計算のため） */
 const MIN_CANDLES_FOR_SIGNAL = 30;
@@ -249,12 +249,16 @@ function getBoardSnapshot(symbol: string): BoardSnapshot | null {
   else if (largeSellWall) signal = "large_sell_wall";
   else if (signals.some(s => s.type === "market_order_surge")) signal = "market_surge";
 
+  // v5拡張フィールドを計算
+  const extended = calcExtendedBoardFields(book);
+
   return {
     buyPressureRatio: Math.round(buyPressureRatio * 100) / 100,
     largeBuyWall,
     largeSellWall,
     marketOrderRatio: Math.round(marketOrderRatio * 1000) / 1000,
     signal,
+    ...extended,
   };
 }
 
@@ -722,6 +726,33 @@ export async function forceCloseAllPositions(
  */
 export function getOpenPositions(): OpenPosition[] {
   return Array.from(openPositions.values());
+}
+
+/**
+ * DBから復元したエントリーレコードをメモリ上のopenPositions Mapに復元する。
+ * サーバー再起動後にスケジューラーが大引け強制決済を行う際に使用する。
+ */
+export function restoreOpenPositions(entries: Array<{
+  symbol: string;
+  side: "long" | "short";
+  price: string | number;
+  shares: number;
+  tradeTime: string;
+  reason: string;
+}>): void {
+  for (const entry of entries) {
+    if (!openPositions.has(entry.symbol)) {
+      openPositions.set(entry.symbol, {
+        symbol: entry.symbol,
+        side: entry.side,
+        entryPrice: Number(entry.price),
+        shares: entry.shares,
+        entryTime: entry.tradeTime,
+        entryReason: entry.reason,
+      });
+      console.log(`[RealtimeSim] Restored open position from DB: ${entry.symbol} ${entry.side} @${entry.price}円 ×${entry.shares}株`);
+    }
+  }
 }
 
 /**

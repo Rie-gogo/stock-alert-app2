@@ -94,8 +94,8 @@ export function getAllOrderBooks(): KabuOrderBook[] {
  *   - 買い板合計 / 売り板合計 >= 1.5 → 買い優勢
  *   - 買い板合計 / 売り板合計 <= 0.67 → 売り優勢
  *
- * シグナル2: 大口注文の壁検出
- *   - 特定価格帯に平均の3倍以上の注文 → サポート/レジスタンス
+ * シグナル2: 大口注文の壁検出（v5: 閾値を5倍に厳格化）
+ *   - 特定価格帯に平均の5倍以上の注文 → サポート/レジスタンス
  *
  * シグナル3: 成行注文の急増
  *   - 成行注文が板全体の10%超 → 強いトレンド発生中
@@ -126,27 +126,28 @@ export function analyzeOrderBook(book: KabuOrderBook): OrderBookSignal[] {
     });
   }
 
-  // シグナル2: 大口注文の壁検出
+  // シグナル2: 大口注文の壁検出（v5: 閾値を5倍に厳格化）
+  const LARGE_WALL_MULTIPLIER = 5.0;
   if (book.bids.length > 0) {
     const avgBidQty = totalBidQty / book.bids.length;
-    const largeBid = book.bids.find((b) => b.qty >= avgBidQty * 3);
+    const largeBid = book.bids.find((b) => b.qty >= avgBidQty * LARGE_WALL_MULTIPLIER);
     if (largeBid) {
       signals.push({
         type: "large_bid_wall",
-        strength: Math.min(1.0, largeBid.qty / (avgBidQty * 5)),
-        description: `${largeBid.price.toLocaleString()}円に大口買い注文（${largeBid.qty.toLocaleString()}株）`,
+        strength: Math.min(1.0, largeBid.qty / (avgBidQty * LARGE_WALL_MULTIPLIER)),
+        description: `${largeBid.price.toLocaleString()}円に大口買い注文（${largeBid.qty.toLocaleString()}株、平均の${(largeBid.qty / avgBidQty).toFixed(1)}倍）`,
       });
     }
   }
 
   if (book.asks.length > 0) {
     const avgAskQty = totalAskQty / book.asks.length;
-    const largeAsk = book.asks.find((a) => a.qty >= avgAskQty * 3);
+    const largeAsk = book.asks.find((a) => a.qty >= avgAskQty * LARGE_WALL_MULTIPLIER);
     if (largeAsk) {
       signals.push({
         type: "large_ask_wall",
-        strength: Math.min(1.0, largeAsk.qty / (avgAskQty * 5)),
-        description: `${largeAsk.price.toLocaleString()}円に大口売り注文（${largeAsk.qty.toLocaleString()}株）`,
+        strength: Math.min(1.0, largeAsk.qty / (avgAskQty * LARGE_WALL_MULTIPLIER)),
+        description: `${largeAsk.price.toLocaleString()}円に大口売り注文（${largeAsk.qty.toLocaleString()}株、平均の${(largeAsk.qty / avgAskQty).toFixed(1)}倍）`,
       });
     }
   }
@@ -168,6 +169,128 @@ export function analyzeOrderBook(book: KabuOrderBook): OrderBookSignal[] {
   }
 
   return signals;
+}
+
+/**
+ * v5拡張: 板情報からBoardSnapshotの追加フィールドを計算
+ * アイスバーグ注文・板キャンセルは前回スナップショットとの差分で検出
+ */
+const prevBoardCache = new Map<string, { askMap: Map<number, number>; bidMap: Map<number, number> }>();
+
+export function calcExtendedBoardFields(
+  book: KabuOrderBook
+): Partial<import("../drizzle/schema").BoardSnapshot> {
+  const LARGE_WALL_MULTIPLIER = 5.0;
+  const ICEBERG_DROP_RATIO = 0.5;
+  const CANCEL_DROP_RATIO = 0.7;
+
+  const totalBidQty = book.bids.reduce((sum, b) => sum + b.qty, 0) + book.underBuyQty;
+  const totalAskQty = book.asks.reduce((sum, a) => sum + a.qty, 0) + book.overSellQty;
+
+  // --- 大口注文の壁（数値として保存）---
+  let largeAskWallRatio = 0;
+  let largeAskWallPrice: number | null = null;
+  let largeBidWallRatio = 0;
+  let largeBidWallPrice: number | null = null;
+
+  if (book.asks.length > 0) {
+    const avgAsk = totalAskQty / book.asks.length;
+    for (const a of book.asks) {
+      const ratio = avgAsk > 0 ? a.qty / avgAsk : 0;
+      if (ratio > largeAskWallRatio) {
+        largeAskWallRatio = ratio;
+        largeAskWallPrice = a.price;
+      }
+    }
+    if (largeAskWallRatio < LARGE_WALL_MULTIPLIER) largeAskWallPrice = null;
+  }
+
+  if (book.bids.length > 0) {
+    const avgBid = totalBidQty / book.bids.length;
+    for (const b of book.bids) {
+      const ratio = avgBid > 0 ? b.qty / avgBid : 0;
+      if (ratio > largeBidWallRatio) {
+        largeBidWallRatio = ratio;
+        largeBidWallPrice = b.price;
+      }
+    }
+    if (largeBidWallRatio < LARGE_WALL_MULTIPLIER) largeBidWallPrice = null;
+  }
+
+  // --- 現値から大口注文までの距離 ---
+  let nearAskWallPct: number | null = null;
+  let nearBidWallPct: number | null = null;
+  if (book.currentPrice > 0) {
+    if (largeAskWallPrice != null)
+      nearAskWallPct = Math.round(((largeAskWallPrice - book.currentPrice) / book.currentPrice) * 10000) / 100;
+    if (largeBidWallPrice != null)
+      nearBidWallPct = Math.round(((book.currentPrice - largeBidWallPrice) / book.currentPrice) * 10000) / 100;
+  }
+
+  // --- 成り行き注文の方向 ---
+  let marketOrderDirection: "buy" | "sell" | "neutral" = "neutral";
+  if (book.marketOrderBuyQty > book.marketOrderSellQty * 1.5) marketOrderDirection = "buy";
+  else if (book.marketOrderSellQty > book.marketOrderBuyQty * 1.5) marketOrderDirection = "sell";
+
+  // --- アイスバーグ・キャンセル検出（前回との差分）---
+  let askCancelDetected = false;
+  let bidCancelDetected = false;
+  let icebergAskDetected = false;
+  let icebergBidDetected = false;
+
+  const prev = prevBoardCache.get(book.symbol);
+  if (prev) {
+    const currAskMap = new Map(book.asks.map((a) => [a.price, a.qty]));
+    const currBidMap = new Map(book.bids.map((b) => [b.price, b.qty]));
+    const avgAsk = book.asks.length > 0 ? totalAskQty / book.asks.length : 0;
+    const avgBid = book.bids.length > 0 ? totalBidQty / book.bids.length : 0;
+
+    for (const [price, prevQty] of Array.from(prev.askMap.entries())) {
+      const currQty = currAskMap.get(price) ?? 0;
+      if (prevQty > 0) {
+        const dropRatio = (prevQty - currQty) / prevQty;
+        if (dropRatio >= CANCEL_DROP_RATIO && prevQty >= avgAsk * LARGE_WALL_MULTIPLIER) {
+          askCancelDetected = true;
+        } else if (dropRatio >= ICEBERG_DROP_RATIO && dropRatio < CANCEL_DROP_RATIO) {
+          icebergAskDetected = true;
+        }
+      }
+    }
+
+    for (const [price, prevQty] of Array.from(prev.bidMap.entries())) {
+      const currQty = currBidMap.get(price) ?? 0;
+      if (prevQty > 0) {
+        const dropRatio = (prevQty - currQty) / prevQty;
+        if (dropRatio >= CANCEL_DROP_RATIO && prevQty >= avgBid * LARGE_WALL_MULTIPLIER) {
+          bidCancelDetected = true;
+        } else if (dropRatio >= ICEBERG_DROP_RATIO && dropRatio < CANCEL_DROP_RATIO) {
+          icebergBidDetected = true;
+        }
+      }
+    }
+  }
+
+  // 今回のスナップショットを保存
+  prevBoardCache.set(book.symbol, {
+    askMap: new Map(book.asks.map((a) => [a.price, a.qty])),
+    bidMap: new Map(book.bids.map((b) => [b.price, b.qty])),
+  });
+
+  return {
+    largeAskWallRatio: Math.round(largeAskWallRatio * 100) / 100,
+    largeBidWallRatio: Math.round(largeBidWallRatio * 100) / 100,
+    largeAskWallPrice,
+    largeBidWallPrice,
+    nearAskWallPct,
+    nearBidWallPct,
+    marketOrderDirection,
+    askCancelDetected,
+    bidCancelDetected,
+    icebergAskDetected,
+    icebergBidDetected,
+    totalAskQty,
+    totalBidQty,
+  };
 }
 
 /**

@@ -545,6 +545,8 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       getRtTradesForDate,
       getRtDailySummary,
       markRtDailySummaryReportSent,
+      getRtOpenPositionsFromDb,
+      getRtCandles,
     } = await import("./db");
 
     const {
@@ -552,13 +554,31 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       getOpenPositions,
     } = await import("./realtimeSimEngine");
 
-    // 残存ポジションを強制決済（引け値が不明なためエントリー価格で決済）
-    const openPositions = getOpenPositions();
+    // 残存ポジションを強制決済
+    // まずメモリ上のポジションを確認。メモリが空の場合（サーバー再起動等）はDBから復元する。
+    let openPositions = getOpenPositions();
+    if (openPositions.length === 0) {
+      // DBから未決済ポジションを復元
+      const dbOpenTrades = await getRtOpenPositionsFromDb(todayStr);
+      if (dbOpenTrades.length > 0) {
+        console.log(`[rt-daily-report] Memory was empty. Restoring ${dbOpenTrades.length} open positions from DB...`);
+        // realtimeSimEngineの openPositions Mapに復元する
+        const { restoreOpenPositions } = await import("./realtimeSimEngine");
+        restoreOpenPositions(dbOpenTrades);
+        openPositions = getOpenPositions();
+      }
+    }
+
     if (openPositions.length > 0) {
       console.log(`[rt-daily-report] Force closing ${openPositions.length} open positions...`);
       const closingPrices = new Map<string, number>();
       for (const pos of openPositions) {
-        closingPrices.set(pos.symbol, pos.entryPrice); // 引け値不明時はエントリー価格で決済
+        // 当日の最後の1分足の終値を引け値として使用する
+        const candles = await getRtCandles(pos.symbol, todayStr);
+        const lastCandle = candles[candles.length - 1];
+        const closePrice = lastCandle ? Number(lastCandle.close) : pos.entryPrice;
+        closingPrices.set(pos.symbol, closePrice);
+        console.log(`[rt-daily-report] ${pos.symbol}: last candle close = ${closePrice}円 (entry: ${pos.entryPrice}円)`);
       }
       await forceCloseAllPositions(todayStr, closingPrices);
     }

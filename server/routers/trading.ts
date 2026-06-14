@@ -551,6 +551,20 @@ export const tradingRouter = router({
             overSellQty: z.number().default(0),
             underBuyQty: z.number().default(0),
             vwap: z.number().default(0),
+            // v5拡張フィールド（パターン6.14対応）
+            largeAskWallRatio: z.number().optional(),
+            largeBidWallRatio: z.number().optional(),
+            largeAskWallPrice: z.number().nullable().optional(),
+            largeBidWallPrice: z.number().nullable().optional(),
+            nearAskWallPct: z.number().nullable().optional(),
+            nearBidWallPct: z.number().nullable().optional(),
+            marketOrderDirection: z.enum(["buy", "sell", "neutral"]).optional(),
+            askCancelDetected: z.boolean().optional(),
+            bidCancelDetected: z.boolean().optional(),
+            icebergAskDetected: z.boolean().optional(),
+            icebergBidDetected: z.boolean().optional(),
+            totalAskQty: z.number().optional(),
+            totalBidQty: z.number().optional(),
           })
           .nullable()
           .optional(),

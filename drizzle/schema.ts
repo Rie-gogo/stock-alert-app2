@@ -282,6 +282,20 @@ export interface BoardSnapshot {
   largeSellWall: boolean;     // 大口売り壁あり
   marketOrderRatio: number;   // 成行注文比率
   signal: "buy_pressure" | "sell_pressure" | "large_buy_wall" | "large_sell_wall" | "market_surge" | "neutral";
+  // v5拡張フィールド（パターン6.14対応）
+  largeAskWallRatio?: number;        // 売り板の最大注文 / 平均注文 の倍率
+  largeBidWallRatio?: number;        // 買い板の最大注文 / 平均注文 の倍率
+  largeAskWallPrice?: number | null; // 大口売り注文の価格
+  largeBidWallPrice?: number | null; // 大口買い注文の価格
+  nearAskWallPct?: number | null;    // 現値から大口売り注文までの距離（%）
+  nearBidWallPct?: number | null;    // 現値から大口買い注文までの距離（%）
+  marketOrderDirection?: "buy" | "sell" | "neutral"; // 成り行き注文の方向
+  askCancelDetected?: boolean;       // 売り板の大口キャンセル検出
+  bidCancelDetected?: boolean;       // 買い板の大口キャンセル検出
+  icebergAskDetected?: boolean;      // 売りアイスバーグ注文検出
+  icebergBidDetected?: boolean;      // 買いアイスバーグ注文検出
+  totalAskQty?: number;              // 売り板合計数量
+  totalBidQty?: number;              // 買い板合計数量
 }
 
 export type RtCandle = typeof rtCandles.$inferSelect;

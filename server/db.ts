@@ -701,3 +701,49 @@ export async function getRtDailySummaryList(limit = 30): Promise<RtDailySummary[
     .orderBy(desc(rtDailySummaries.tradeDate))
     .limit(limit);
 }
+
+/**
+ * 指定日のオープンポジション（エントリーのみで決済されていない銘柄）をDBから取得する。
+ * サーバー再起動等でメモリが消えた場合の大引け強制決済に使用する。
+ *
+ * 仕組み: rt_tradesを銘柄ごとにグループ化し、
+ *   - buy/shortの件数 > sell/coverの件数 → まだオープン
+ * となる銘柄のエントリーレコードを返す。
+ */
+export async function getRtOpenPositionsFromDb(tradeDate: string): Promise<RtTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // 当日の全取引を取得
+  const trades = await db
+    .select()
+    .from(rtTrades)
+    .where(eq(rtTrades.tradeDate, tradeDate))
+    .orderBy(rtTrades.id);
+
+  // 銘柄ごとにエントリー/決済をカウント
+  const entryCount = new Map<string, number>();
+  const exitCount = new Map<string, number>();
+  const lastEntry = new Map<string, RtTrade>();
+
+  for (const t of trades) {
+    if (t.action === "buy" || t.action === "short") {
+      entryCount.set(t.symbol, (entryCount.get(t.symbol) ?? 0) + 1);
+      lastEntry.set(t.symbol, t);
+    } else if (t.action === "sell" || t.action === "cover") {
+      exitCount.set(t.symbol, (exitCount.get(t.symbol) ?? 0) + 1);
+    }
+  }
+
+  // エントリー件数 > 決済件数 → オープンポジションあり
+  const openEntries: RtTrade[] = [];
+  for (const [symbol, ec] of Array.from(entryCount.entries())) {
+    const xc = exitCount.get(symbol) ?? 0;
+    if (ec > xc) {
+      const entry = lastEntry.get(symbol);
+      if (entry) openEntries.push(entry);
+    }
+  }
+
+  return openEntries;
+}

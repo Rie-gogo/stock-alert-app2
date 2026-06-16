@@ -34,7 +34,7 @@ const INITIAL_CAPITAL_PER_STOCK = 3_000_000;
 const LOT_RATIO = 0.9;
 
 /** 損切り率（%）: エントリー価格から何%下落で損切り（6/11良い結果: -0.7%/高安値トリガー） */
-const STOP_LOSS_PERCENT = 0.7;
+const STOP_LOSS_PERCENT = 0.5; // 改善③: 0.7→0.5に引き締め (2026-06-16検証済み)
 
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
@@ -56,6 +56,8 @@ const MARKET_CLOSE_TIME = "15:30";
 
 /** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない（6/11良い結果: 15:15） */
 const NO_ENTRY_AFTER = "15:15";
+/** 改善④: 09:30以前はエントリー禁止（寄り付きダマシ排除） */
+const NO_ENTRY_BEFORE = "09:30";
 
 /** ウォームアップに必要な最低足数（MA25計算のため） */
 const MIN_CANDLES_FOR_SIGNAL = 30;
@@ -457,6 +459,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     return await forceClosePosition(existingPos, candle, tradeDate, candleTime, "大引け強制決済");
   }
 
+  // ---- 改善④: 09:30以前エントリー禁止 ----
+  if (candleTime < NO_ENTRY_BEFORE) {
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
   // ---- 午後エントリー禁止 ----
   if (candleTime >= NO_ENTRY_AFTER) {
     return { symbol, tradeDate, candleTime, action: "none" };
@@ -525,6 +531,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
         return { symbol, tradeDate, candleTime, action: "none" };
       }
+      // 改善②: 押し目確認時も板情報neutral抑制
+      if (boardSnapshot && boardSnapshot.signal === "neutral") {
+        console.log(`[RealtimeSim] ${symbol} 押し目確認: 板情報neutral抑制`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       console.log(`[RealtimeSim] ${symbol} 押し目確認後エントリー: ${pullbackState.reason}`);
       return await enterPosition("long", candle, tradeDate, candleTime, `押し目確認: ${pullbackState.reason}`, boardSnapshot);
     }
@@ -577,6 +588,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
     // 板情報が売り優勢の場合も抑制
     if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+    // 改善②: 板情報がneutralの場合もエントリー抑制（buy_pressure/sell_pressureのみ許可）
+    if (boardSnapshot && boardSnapshot.signal === "neutral") {
+      console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板情報neutral抑制 (${sig.reason.substring(0, 30)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
@@ -632,6 +648,19 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // 板情報が買い優勢の場合も抑制
     if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
       return { symbol, tradeDate, candleTime, action: "none" };
+    }
+    // 改善②: 板情報がneutralの場合もエントリー抑制
+    if (boardSnapshot && boardSnapshot.signal === "neutral") {
+      console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板情報neutral抑制 (${sig.reason.substring(0, 30)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+    // 改善①: ダウ理論SHORTにも5分足フィルター追加（5分足MA5<MA25確認）
+    if (sig.reason.startsWith("ダウ理論: 直近安値更新")) {
+      const htfTrend = getHigherTfTrend(buffer, buffer.length - 1, 5);
+      if (htfTrend !== "down") {
+        console.log(`[RealtimeSim] ${symbol} ダウ理論SHORTシグナル: 5分足フィルターにより抑制 (上位足トレンド: ${htfTrend})`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
     }
 
     // 大台割れシグナルは確認バーステートマシンに登録して待機

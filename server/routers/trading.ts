@@ -625,4 +625,18 @@ export const tradingRouter = router({
       candleCounters: getCandleCounters(),
     };
   }),
+
+  /**
+   * リアルタイム運用ダッシュボード用統合ステータスを取得
+   * 接続状態・銘柄別損益・シグナル履歴・当日サマリーを一括取得
+   */
+  getRtDashboardStatus: publicProcedure.query(async () => {
+    const { getDashboardStatus, getOpenPositions } = await import("../realtimeSimEngine");
+    const status = getDashboardStatus();
+    const openPositions = getOpenPositions();
+    return {
+      ...status,
+      openPositions,
+    };
+  }),
 });

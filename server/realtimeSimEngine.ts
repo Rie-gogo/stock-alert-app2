@@ -141,6 +141,27 @@ const candleCounters = new Map<string, number>();
 /** 起動時バッファ復元が完了したか（複数回実行を防ぐ） */
 let bufferRestored = false;
 
+/** 最後に1分足を受信した時刻（ISO文字列、接続監視用） */
+let lastCandleReceivedAt: string | null = null;
+
+/** 銘柄ごとの確定損益（当日分） */
+const symbolPnlMap = new Map<string, number>();
+
+/** 当日の全シグナル履歴（最新200件まで） */
+const signalHistory: Array<{
+  time: string;       // HH:MM
+  symbol: string;
+  symbolName: string;
+  action: string;     // buy/sell/short/cover/stop_loss/take_profit/forced_close
+  price: number;
+  shares: number;
+  pnl: number | null;
+  reason: string;
+}> = [];
+
+/** シグナル履歴の最大件数 */
+const MAX_SIGNAL_HISTORY = 200;
+
 // ============================================================
 // ヘルパー関数
 // ============================================================
@@ -165,6 +186,8 @@ function resetIfNewDay(tradeDate: string): void {
     candleCounters.clear();
     pullbackStates.clear(); // 日付変更時に押し目確認ステートもリセット
     roundLevelPendingStates.clear(); // 日付変更時に大台確認待ちステートもリセット
+    symbolPnlMap.clear(); // 日付変更時に銘柄別損益もリセット
+    signalHistory.length = 0; // 日付変更時にシグナル履歴もリセット
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
   }
@@ -409,6 +432,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // カウンター更新
   candleCounters.set(symbol, (candleCounters.get(symbol) ?? 0) + 1);
+  // 最後受信時刻を更新（接続監視用）
+  lastCandleReceivedAt = new Date().toISOString();
 
   // 日次サマリーを更新（受信足数のみ）
   await updateDailySummary(tradeDate);
@@ -689,6 +714,19 @@ async function enterPosition(
 
   console.log(`[RealtimeSim] ${symbol} ${action} @${price}円 ×${shares}株 (${reason})`);
 
+  // シグナル履歴に追加（エントリー）
+  signalHistory.unshift({
+    time: candleTime,
+    symbol,
+    symbolName: getStockName(symbol),
+    action,
+    price,
+    shares,
+    pnl: null,
+    reason,
+  });
+  if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+
   return { symbol, tradeDate, candleTime, action: "entry", reason };
 }
 
@@ -820,6 +858,22 @@ async function closePosition(
 
   console.log(`[RealtimeSim] ${symbol} ${exitAction} @${exitPrice}円 ×${shares}株 損益:${pnl >= 0 ? "+" : ""}${pnl}円 (${reason})`);
 
+  // 銘柄別損益を更新
+  symbolPnlMap.set(symbol, (symbolPnlMap.get(symbol) ?? 0) + pnl);
+
+  // シグナル履歴に追加（決済エントリ）
+  signalHistory.unshift({
+    time: candleTime,
+    symbol,
+    symbolName: getStockName(symbol),
+    action: action === "stop_loss" ? "stop_loss" : action === "take_profit" ? "take_profit" : exitAction,
+    price: exitPrice,
+    shares,
+    pnl,
+    reason,
+  });
+  if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+
   // 日次サマリーを更新
   await updateDailySummary(tradeDate);
 
@@ -933,4 +987,62 @@ export function getCandleCounters(): Record<string, number> {
     result[sym] = count;
   }
   return result;
+}
+
+/**
+ * 最後に1分足を受信した時刻を返す（接続監視用）
+ */
+export function getLastCandleReceivedAt(): string | null {
+  return lastCandleReceivedAt;
+}
+
+/**
+ * 銘柄ごとの確定損益（当日分）を返す
+ */
+export function getSymbolPnlMap(): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const [sym, pnl] of Array.from(symbolPnlMap.entries())) {
+    result[sym] = pnl;
+  }
+  return result;
+}
+
+/**
+ * 当日のシグナル履歴を返す（最新N件）
+ */
+export function getSignalHistory(limit = 50): typeof signalHistory {
+  return signalHistory.slice(0, limit);
+}
+
+/**
+ * ダッシュボード用の統合ステータスを返す
+ */
+export function getDashboardStatus(): {
+  lastCandleReceivedAt: string | null;
+  currentTradeDate: string;
+  totalCandlesReceived: number;
+  openPositionCount: number;
+  symbolPnl: Record<string, number>;
+  totalPnl: number;
+  candleCounters: Record<string, number>;
+  signalHistory: typeof signalHistory;
+} {
+  const symbolPnl = getSymbolPnlMap();
+  const totalPnl = Object.values(symbolPnl).reduce((sum, v) => sum + v, 0);
+  let totalCandlesReceived = 0;
+  const counters: Record<string, number> = {};
+  for (const [sym, count] of Array.from(candleCounters.entries())) {
+    counters[sym] = count;
+    totalCandlesReceived += count;
+  }
+  return {
+    lastCandleReceivedAt,
+    currentTradeDate,
+    totalCandlesReceived,
+    openPositionCount: openPositions.size,
+    symbolPnl,
+    totalPnl,
+    candleCounters: counters,
+    signalHistory: signalHistory.slice(0, 100),
+  };
 }

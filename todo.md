@@ -635,3 +635,12 @@
 - [x] realtimeSimEngine.test.tsにテストを追加（2件追加）
 - [x] TypeScript 0エラー確認・全テスト通過確認（193テスト全通過）
 - [x] チェックポイント保存（version: a8d25243）
+
+## リアルタイム運用ダッシュボード機能追加（2026-06-16）
+- [x] realtimeSimEngine.tsに接続状態・最終受信時刻・銘柄別確定損益の状態管理を追加
+- [x] trading routerにgetRtDashboardStatus APIを追加（接続状態・銘柄別損益・当日サマリー）
+- [x] RtDashboard.tsxページを新規作成（接続状態・銘柄別リアルタイム損益・シグナル履歴・銘柄別受信足数）
+- [x] App.tsxに/rt-dashboardルートを追加
+- [x] Home.tsxにダッシュボードへのリンクを追加（青色ボタン）
+- [x] TypeScript 0エラー確認・テスト通過確認（200テスト全通過）
+- [x] チェックポイント保存

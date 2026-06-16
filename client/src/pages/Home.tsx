@@ -329,6 +329,13 @@ export default function Home() {
             </button>
           </Link>
 
+          <Link href="/rt-dashboard">
+            <button className="flex items-center space-x-1 px-3 py-1 rounded text-xs font-bold transition-all duration-200 border bg-blue-500/10 text-blue-400 border-blue-500/30 hover:bg-blue-500/20">
+              <BarChart2 className="w-3.5 h-3.5" />
+              <span>RTダッシュボード</span>
+            </button>
+          </Link>
+
           {/* バックテスト */}
           {marketState && (
             <BacktestModal

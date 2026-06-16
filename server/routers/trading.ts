@@ -639,4 +639,15 @@ export const tradingRouter = router({
       openPositions,
     };
   }),
+
+  /**
+   * 指定日のリアルタイム1分足データを取得（再シミュレーション用）
+   * KABUステーションAPIから取得したリアルタイムデータのみを返す
+   */
+  getRtCandles: publicProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getRtCandlesAllForDate } = await import("../db");
+      return getRtCandlesAllForDate(input.tradeDate);
+    }),
 });

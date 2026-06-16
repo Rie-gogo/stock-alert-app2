@@ -128,11 +128,27 @@ interface RoundLevelPendingState {
   boardSignal?: string;       // 板情報シグナル
 }
 
+/** 改善⑤: 大台確認後の押し目待ちステート */
+interface RoundPullbackState {
+  direction: "buy" | "sell";  // エントリー方向
+  level: number;              // キリ番価格
+  signalPrice: number;        // 確認完了時の価格
+  waitCount: number;          // 待機足数カウンター
+  pulledBack: boolean;        // 一度押しが入ったか
+  reason: string;             // エントリー理由
+}
+
 /** 銘柄ごとの大台確認待ちステート */
 const roundLevelPendingStates = new Map<string, RoundLevelPendingState>();
 
+/** 銘柄ごとの大台確認後押し目待ちステート */
+const roundPullbackStates = new Map<string, RoundPullbackState>();
+
 /** 大台確認に必要な維持本数（5本 = 5分間維持） */
 const ROUND_LEVEL_CONFIRM_BARS = 5;
+
+/** 大台確認後の押し目待ち最大足数 */
+const ROUND_PULLBACK_MAX_WAIT = 5;
 
 /** 当日の日付（日付が変わったらバッファをリセット） */
 let currentTradeDate = "";
@@ -188,6 +204,7 @@ function resetIfNewDay(tradeDate: string): void {
     candleCounters.clear();
     pullbackStates.clear(); // 日付変更時に押し目確認ステートもリセット
     roundLevelPendingStates.clear(); // 日付変更時に大台確認待ちステートもリセット
+    roundPullbackStates.clear(); // 日付変更時に大台押し目待ちステートもリセット
     symbolPnlMap.clear(); // 日付変更時に銘柄別損益もリセット
     signalHistory.length = 0; // 日付変更時にシグナル履歴もリセット
     currentTradeDate = tradeDate;
@@ -560,15 +577,17 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         roundPending.confirmCount++;
         if (roundPending.confirmCount >= ROUND_LEVEL_CONFIRM_BARS) {
           roundLevelPendingStates.delete(symbol);
-          // 確認完了 → エントリー
+          // 改善⑤: 確認完了 → 即エントリーせず押し目待ちステートに移行
           if (candleTime < NO_ENTRY_AFTER) {
-            console.log(`[RealtimeSim] ${symbol} 大台確認完了(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`);
-            return await enterPosition(
-              roundPending.direction === "buy" ? "long" : "short",
-              candle, tradeDate, candleTime,
-              `大台確認(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`,
-              boardSnapshot
-            );
+            console.log(`[RealtimeSim] ${symbol} 大台確認完了(${ROUND_LEVEL_CONFIRM_BARS}本維持) → 押し目待ち開始: ${roundPending.reason}`);
+            roundPullbackStates.set(symbol, {
+              direction: roundPending.direction,
+              level: roundPending.level,
+              signalPrice: candle.close,
+              waitCount: 0,
+              pulledBack: false,
+              reason: `大台確認(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`,
+            });
           }
         }
       } else {
@@ -578,6 +597,80 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       return { symbol, tradeDate, candleTime, action: "none" };
     }
+  }
+
+  // ---- 改善⑤: 大台確認後の押し目待ちステートマシン処理 ----
+  const roundPb = roundPullbackStates.get(symbol);
+  if (roundPb) {
+    roundPb.waitCount++;
+    const side: "long" | "short" = roundPb.direction === "buy" ? "long" : "short";
+
+    // キリ番を割り込んだらキャンセル
+    if (roundPb.direction === "buy" && candle.close < roundPb.level) {
+      console.log(`[RealtimeSim] ${symbol} 大台押し目待ちキャンセル: キリ番割れ (${candle.close} < ${roundPb.level})`);
+      roundPullbackStates.delete(symbol);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+    if (roundPb.direction === "sell" && candle.close > roundPb.level) {
+      console.log(`[RealtimeSim] ${symbol} 大台押し目待ちキャンセル: キリ番上拜り (${candle.close} > ${roundPb.level})`);
+      roundPullbackStates.delete(symbol);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    // タイムアウト: 押し目なし＝強トレンド → そのままエントリー
+    if (roundPb.waitCount > ROUND_PULLBACK_MAX_WAIT) {
+      roundPullbackStates.delete(symbol);
+      // 板情報チェック
+      if (boardSnapshot && boardSnapshot.signal === "neutral") {
+        console.log(`[RealtimeSim] ${symbol} 大台押し目待ちタイムアウト: 板情報neutral抑制`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+      if (hasBoardCounterWall(boardSnapshot, side)) {
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+      console.log(`[RealtimeSim] ${symbol} 大台押し目なし・強トレンドエントリー: ${roundPb.reason}`);
+      return await enterPosition(side, candle, tradeDate, candleTime, `${roundPb.reason} (押し目なし・強トレンド)`, boardSnapshot);
+    }
+
+    // 押し目判定
+    if (roundPb.direction === "buy") {
+      // 買い: 一度下がった（close < signalPrice）→ 再上昇（close > signalPrice）でエントリー
+      if (!roundPb.pulledBack && candle.close < roundPb.signalPrice) {
+        roundPb.pulledBack = true;
+      }
+      if (roundPb.pulledBack && candle.close > roundPb.signalPrice) {
+        roundPullbackStates.delete(symbol);
+        if (boardSnapshot && boardSnapshot.signal === "neutral") {
+          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板情報neutral抑制`);
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
+        if (hasBoardCounterWall(boardSnapshot, "long")) {
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
+        console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason}`);
+        return await enterPosition("long", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
+      }
+    } else {
+      // 売り: 一度上がった（close > signalPrice）→ 再下落（close < signalPrice）でエントリー
+      if (!roundPb.pulledBack && candle.close > roundPb.signalPrice) {
+        roundPb.pulledBack = true;
+      }
+      if (roundPb.pulledBack && candle.close < roundPb.signalPrice) {
+        roundPullbackStates.delete(symbol);
+        if (boardSnapshot && boardSnapshot.signal === "neutral") {
+          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板情報neutral抑制`);
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
+        if (hasBoardCounterWall(boardSnapshot, "short")) {
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
+        console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason}`);
+        return await enterPosition("short", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
+      }
+    }
+
+    // まだ待機中
+    return { symbol, tradeDate, candleTime, action: "none" };
   }
 
   // ---- 買いエントリー ----

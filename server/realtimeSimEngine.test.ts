@@ -391,3 +391,160 @@ describe("大台確認バーフィルター", () => {
     expect(insertRtTrade).not.toHaveBeenCalled();
   });
 });
+
+
+// ===== 板読みスコアv6テスト =====
+import { boardReadingScore, detectMarketMode, shouldBoardEarlyExit } from "./realtimeSimEngine";
+import type { BoardSnapshot } from "../drizzle/schema";
+
+describe("板読みスコアv6", () => {
+  describe("boardReadingScore", () => {
+    it("板情報なし(null)の場合はスコア1を返す（エントリー許可）", () => {
+      const score = boardReadingScore("TEST", "long", null);
+      expect(score).toBe(1);
+    });
+
+    it("買い方向: buyPressureRatio高い + marketOrderRatio高い → 高スコア", () => {
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 1.5,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.1,
+        signal: "buy_pressure",
+      };
+      const score = boardReadingScore("TEST_HIGH", "long", snapshot);
+      // 要素A: +2 (marketOrderRatio>=0.08, bpr>1.0)
+      // 要素E: +1 (bpr>=1.4)
+      // 要素D: +1 (active, bpr>1.2)
+      expect(score).toBeGreaterThanOrEqual(3);
+    });
+
+    it("買い方向: buyPressureRatio低い → 低スコア（エントリー抑制）", () => {
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 0.5,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.1,
+        signal: "sell_pressure",
+      };
+      const score = boardReadingScore("TEST_LOW", "long", snapshot);
+      // 要素A: -2 (marketOrderRatio>=0.08, bpr<1.0)
+      // 要素E: -1 (bpr<=0.65)
+      // 要素D: +1 (active, bpr<0.8)
+      expect(score).toBeLessThan(1);
+    });
+
+    it("売り方向: buyPressureRatio低い → 高スコア（ショートに有利）", () => {
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 0.5,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.1,
+        signal: "sell_pressure",
+      };
+      const score = boardReadingScore("TEST_SHORT", "short", snapshot);
+      // 要素A: +2 (marketOrderRatio>=0.08, bpr<1.0)
+      // 要素E: +1 (bpr<=0.65)
+      // 要素D: +1 (active, bpr<0.8)
+      expect(score).toBeGreaterThanOrEqual(3);
+    });
+
+    it("要素B: 厚い板のアノマリー（売り壁あり→ロングに+1）", () => {
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 1.5,  // activeモードにするためbpr>1.2
+        largeBuyWall: false,
+        largeSellWall: true,
+        marketOrderRatio: 0.0,
+        signal: "large_sell_wall",
+      };
+      const score = boardReadingScore("TEST_WALL2", "long", snapshot);
+      // 要素B: +1 (largeSellWall → ブレイクスルーの勢い)
+      // 要素D: +1 (active, bpr>1.2)
+      // 要素E: +1 (bpr>=1.4)
+      expect(score).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("detectMarketMode", () => {
+    it("bpr > 1.2 → active", () => {
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 1.5,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.0,
+        signal: "buy_pressure",
+      };
+      const mode = detectMarketMode("TEST_MODE", snapshot);
+      expect(mode).toBe("active");
+    });
+
+    it("bpr < 0.8 → active", () => {
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 0.6,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.0,
+        signal: "sell_pressure",
+      };
+      const mode = detectMarketMode("TEST_MODE2", snapshot);
+      expect(mode).toBe("active");
+    });
+  });
+
+  describe("shouldBoardEarlyExit", () => {
+    it("ロング保有中に売り圧力 + 利益あり → 早期利確", () => {
+      const pos = {
+        symbol: "TEST",
+        side: "long" as const,
+        entryPrice: 1000,
+        shares: 100,
+        entryTime: "09:30",
+        entryReason: "テスト",
+      };
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 0.5,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.0,
+        signal: "sell_pressure",
+      };
+      // 現在価格1005円 → 利益0.5%
+      const result = shouldBoardEarlyExit(pos, 1005, snapshot);
+      expect(result).toBe(true);
+    });
+
+    it("ロング保有中に売り圧力 + 損失あり → 早期利確しない", () => {
+      const pos = {
+        symbol: "TEST",
+        side: "long" as const,
+        entryPrice: 1000,
+        shares: 100,
+        entryTime: "09:30",
+        entryReason: "テスト",
+      };
+      const snapshot: BoardSnapshot = {
+        buyPressureRatio: 0.5,
+        largeBuyWall: false,
+        largeSellWall: false,
+        marketOrderRatio: 0.0,
+        signal: "sell_pressure",
+      };
+      // 現在価格999円 → 損失
+      const result = shouldBoardEarlyExit(pos, 999, snapshot);
+      expect(result).toBe(false);
+    });
+
+    it("板情報なし → 早期利確しない", () => {
+      const pos = {
+        symbol: "TEST",
+        side: "long" as const,
+        entryPrice: 1000,
+        shares: 100,
+        entryTime: "09:30",
+        entryReason: "テスト",
+      };
+      const result = shouldBoardEarlyExit(pos, 1010, null);
+      expect(result).toBe(false);
+    });
+  });
+});

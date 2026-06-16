@@ -652,3 +652,15 @@
 - [x] 改善④: 09:30以前エントリー禁止（寄り付きダマシ排除）
 - [x] 改善⑤: 大台超え/割れの確認バー完了後に押し目待ちを追加（ダマシ排除・強トレンドのみエントリー）
 - [x] 改善⑥: VWAPシグナル（クロス上抜け/下抜け/反発/反落）に出来高フィルター追加（直近10本平均の1.2倍以上で発火）
+
+## 板読みスコアv6実装（2026-06-16）— 閾値≧1で5要素統合
+- [x] realtimeSimEngine.tsに板読みスコア関数(boardReadingScore)を追加
+- [x] 要素C: 板圧力トレンド（直近5本のbuyPressureRatio変化量≧0.15で±1）
+- [x] 要素D: 相場モード判定（active/building→+1, trap/quiet→-2）
+- [x] 要素E: 板圧力の強さ（bpr≧1.4 or bpr≦0.65で±1）
+- [x] 板読み早期利確: 保有中に逆方向の強い板シグナル→利益確保で早期決済
+- [x] 既存のisBoardBullish/isBoardBearish/hasBoardCounterWallフィルターを板読みスコアに統合
+- [x] 閾値BOARD_SCORE_THRESHOLD=1を定数として定義
+- [x] 銀柄ごとのbuyPressureRatio履歴をメモリに保持（直近5本分）
+- [x] realtimeSimEngine.test.tsに板読みスコアのテストを追加
+- [x] TypeScript 0エラー確認・全テスト通過確認

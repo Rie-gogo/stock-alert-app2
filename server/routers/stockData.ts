@@ -245,8 +245,9 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
 
     // 買いシグナル
     if (!isStrongDown) {
-      if (p5 <= p25 && c5 > c25) {
-        candidate = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25})` };
+      const maDiv = c25 !== 0 ? Math.abs(c5 - c25) / c25 * 100 : 0; // MA乖離率(%)
+      if (p5 <= p25 && c5 > c25 && maDiv >= 0.1) {
+        candidate = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25}, 乖離:${maDiv.toFixed(2)}%)` };
       } else if (cRsi <= rsiLower && c.close <= cBbl) {
         candidate = { type: "buy", reason: `RSI売られすぎ(${cRsi}%) + BB下限タッチ` };
       } else if (vwapCrossUp && regime !== "down" && isVolumeConfirmed(volumes[i], trailingAvgVolume(volumes, i, 10))) {
@@ -278,8 +279,9 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
 
     // 売りシグナル（買い候補がない場合のみ評価）
     if (!candidate) {
-      if (p5 >= p25 && c5 < c25) {
-        candidate = { type: "sell", reason: `デッドクロス (MA5:${c5} < MA25:${c25})` };
+      const maDivSell = c25 !== 0 ? Math.abs(c5 - c25) / c25 * 100 : 0; // MA乖離率(%)
+      if (p5 >= p25 && c5 < c25 && maDivSell >= 0.1) {
+        candidate = { type: "sell", reason: `デッドクロス (MA5:${c5} < MA25:${c25}, 乖離:${maDivSell.toFixed(2)}%)` };
       } else if (cRsi >= rsiUpper && c.close >= cBbu && !isStrongUp && !gcProtection) {
         candidate = { type: "sell", reason: `RSI買われすぎ(${cRsi}%) + BB上限タッチ` };
       } else if (regime === "down" && cRsi >= 50 && c.close <= c25) {

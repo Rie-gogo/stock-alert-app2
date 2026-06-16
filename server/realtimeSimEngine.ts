@@ -150,6 +150,12 @@ const ROUND_LEVEL_CONFIRM_BARS = 5;
 /** 大台確認後の押し目待ち最大足数 */
 const ROUND_PULLBACK_MAX_WAIT = 5;
 
+/** ★v6: 板読みスコア閾値（この値以上でエントリー許可） */
+const BOARD_SCORE_THRESHOLD = 1;
+
+/** ★v6: 板読み早期利確の最低利益率（%） */
+const BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;
+
 /** 当日の日付（日付が変わったらバッファをリセット） */
 let currentTradeDate = "";
 
@@ -207,6 +213,7 @@ function resetIfNewDay(tradeDate: string): void {
     roundPullbackStates.clear(); // 日付変更時に大台押し目待ちステートもリセット
     symbolPnlMap.clear(); // 日付変更時に銘柄別損益もリセット
     signalHistory.length = 0; // 日付変更時にシグナル履歴もリセット
+    bprHistory.clear(); // ★v6: 板圧力履歴もリセット
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
   }
@@ -344,30 +351,126 @@ function getBoardSnapshot(symbol: string): BoardSnapshot | null {
   };
 }
 
+/** ★v6: 銀柄ごとのbuyPressureRatio履歴（直近5本分） */
+const bprHistory = new Map<string, number[]>();
+
 /**
- * 板情報シグナルが買いを補強するか
+ * ★v6: 板読みスコアを計算する
+ *
+ * 5要素の統合スコア:
+ * A) アグレッシブ注文検出 (±2): marketOrderRatio≧0.08で方向判定
+ * B) 厚い板のアノマリー (±1): largeBuyWall/largeSellWall
+ * C) 板圧力トレンド (±1): 直近5本のbpr変化量≧0.15
+ * D) 相場モード判定 (+1/-2): active/building→+1, trap/quiet→-2
+ * E) 板圧力の強さ (±1): bpr≧1.4(買い圧力強) or bpr≦0.65(売り圧力強)
  */
-function isBoardBullish(snapshot: BoardSnapshot | null): boolean {
-  if (!snapshot) return true; // 板情報なし → 中立（シグナルを通す）
-  return snapshot.signal === "buy_pressure" || snapshot.signal === "large_buy_wall";
+export function boardReadingScore(symbol: string, side: "long" | "short", snapshot: BoardSnapshot | null): number {
+  if (!snapshot) return 1; // 板情報なし → 中立（シグナルを通す）
+
+  let score = 0;
+  const bpr = snapshot.buyPressureRatio;
+
+  // 要素A: アグレッシブ注文検出 (±2)
+  if (snapshot.marketOrderRatio >= 0.08) {
+    if (side === "long" && bpr > 1.0) score += 2;
+    else if (side === "long" && bpr < 1.0) score -= 2;
+    else if (side === "short" && bpr < 1.0) score += 2;
+    else if (side === "short" && bpr > 1.0) score -= 2;
+  }
+
+  // 要素B: 厚い板のアノマリー (±1)
+  // 「板の厚い方に動く」→ 逆側の壁はブレイクスルーのサイン
+  if (side === "long") {
+    if (snapshot.largeSellWall) score += 1;  // 売り壁を突破する勢い
+    if (snapshot.largeBuyWall) score -= 1;   // 買い壁がサポート→過信になりやすい
+  } else {
+    if (snapshot.largeBuyWall) score += 1;   // 買い壁を突破する勢い
+    if (snapshot.largeSellWall) score -= 1;  // 売り壁がサポート→過信になりやすい
+  }
+
+  // 要素C: 板圧力トレンド (±1)
+  const history = bprHistory.get(symbol) ?? [];
+  if (history.length >= 3) {
+    const oldest = history[0];
+    const newest = history[history.length - 1];
+    const delta = newest - oldest;
+    if (side === "long" && delta >= 0.15) score += 1;
+    else if (side === "long" && delta <= -0.15) score -= 1;
+    else if (side === "short" && delta <= -0.15) score += 1;
+    else if (side === "short" && delta >= 0.15) score -= 1;
+  }
+
+  // 要素D: 相場モード判定 (+1/-2)
+  const mode = detectMarketMode(symbol, snapshot);
+  if (mode === "active" || mode === "building") {
+    score += 1;
+  } else if (mode === "trap" || mode === "quiet") {
+    score -= 2;
+  }
+
+  // 要素E: 板圧力の強さ (±1)
+  if (side === "long" && bpr >= 1.4) score += 1;
+  else if (side === "long" && bpr <= 0.65) score -= 1;
+  else if (side === "short" && bpr <= 0.65) score += 1;
+  else if (side === "short" && bpr >= 1.4) score -= 1;
+
+  return score;
 }
 
 /**
- * 板情報シグナルが売りを補強するか
+ * ★v6: 相場モード判定
+ * - active: 板圧力が明確に一方向（bpr > 1.2 or bpr < 0.8）
+ * - building: 板圧力が徐々に変化中（0.8≤bpr≤1.2でトレンドあり）
+ * - trap: 板圧力が強いのに価格が動かない（大口の罠）
+ * - quiet: 出来高が極端に少ない（様子見相場）
  */
-function isBoardBearish(snapshot: BoardSnapshot | null): boolean {
-  if (!snapshot) return true; // 板情報なし → 中立（シグナルを通す）
-  return snapshot.signal === "sell_pressure" || snapshot.signal === "large_sell_wall";
+export function detectMarketMode(symbol: string, snapshot: BoardSnapshot): "active" | "building" | "trap" | "quiet" {
+  const bpr = snapshot.buyPressureRatio;
+  const history = bprHistory.get(symbol) ?? [];
+
+  // quiet: 板圧力がほぼ1.0で変化がない
+  if (history.length >= 3) {
+    const allNeutral = history.every(h => h >= 0.85 && h <= 1.15);
+    if (allNeutral && bpr >= 0.85 && bpr <= 1.15) return "quiet";
+  }
+
+  // active: 板圧力が明確に一方向
+  if (bpr > 1.2 || bpr < 0.8) return "active";
+
+  // building: 変化トレンドがある
+  if (history.length >= 3) {
+    const oldest = history[0];
+    const newest = history[history.length - 1];
+    const delta = Math.abs(newest - oldest);
+    if (delta >= 0.1) return "building";
+  }
+
+  // trap: 板圧力はあるが変化がない（大口が板を固めている）
+  return "trap";
 }
 
 /**
- * 板情報が逆方向の大口壁を示しているか（エントリー抑制条件）
+ * ★v6: 板読み早期利確チェック
+ * 保有中に逆方向の強い板シグナルが出た場合、利益があれば早期利確する
  */
-function hasBoardCounterWall(snapshot: BoardSnapshot | null, side: "long" | "short"): boolean {
+export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, snapshot: BoardSnapshot | null): boolean {
   if (!snapshot) return false;
-  if (side === "long" && snapshot.largeSellWall) return true;  // 買いエントリーに大口売り壁
-  if (side === "short" && snapshot.largeBuyWall) return true;  // 売りエントリーに大口買い壁
-  return false;
+
+  const pnlPct = pos.side === "long"
+    ? (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+    : (pos.entryPrice - currentPrice) / pos.entryPrice * 100;
+
+  // 利益が最低利益率以上ある場合のみ
+  if (pnlPct < BOARD_EARLY_EXIT_MIN_PROFIT_PCT) return false;
+
+  // 逆方向の強い板シグナルを検出
+  if (pos.side === "long") {
+    // ロング保有中に売り圧力が強い
+    return snapshot.signal === "sell_pressure" || snapshot.signal === "large_sell_wall";
+  } else {
+    // ショート保有中に買い圧力が強い
+    return snapshot.signal === "buy_pressure" || snapshot.signal === "large_buy_wall";
+  }
 }
 
 // ============================================================
@@ -395,6 +498,15 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // 1分足をDBに保存
   const boardSnapshot = getBoardSnapshot(symbol);
+
+  // ★v6: buyPressureRatio履歴を更新（直近5本分保持）
+  if (boardSnapshot) {
+    const history = bprHistory.get(symbol) ?? [];
+    history.push(boardSnapshot.buyPressureRatio);
+    if (history.length > 5) history.shift();
+    bprHistory.set(symbol, history);
+  }
+
   await insertRtCandle({
     symbol,
     tradeDate,
@@ -541,19 +653,13 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // 押し後に再上昇した足でエントリー
     if (pullbackState.pulledBack && candle.close > pullbackState.signalPrice) {
       pullbackStates.delete(symbol);
-      // 板情報チェック
-      if (hasBoardCounterWall(boardSnapshot, "long")) {
+      // ★v6: 板読みスコアで統合判定
+      const brScore = boardReadingScore(symbol, "long", boardSnapshot);
+      if (brScore < BOARD_SCORE_THRESHOLD) {
+        console.log(`[RealtimeSim] ${symbol} 押し目確認: 板読みスコア不足(${brScore})`);
         return { symbol, tradeDate, candleTime, action: "none" };
       }
-      if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
-        return { symbol, tradeDate, candleTime, action: "none" };
-      }
-      // 改善②: 押し目確認時も板情報neutral抑制
-      if (boardSnapshot && boardSnapshot.signal === "neutral") {
-        console.log(`[RealtimeSim] ${symbol} 押し目確認: 板情報neutral抑制`);
-        return { symbol, tradeDate, candleTime, action: "none" };
-      }
-      console.log(`[RealtimeSim] ${symbol} 押し目確認後エントリー: ${pullbackState.reason}`);
+      console.log(`[RealtimeSim] ${symbol} 押し目確認後エントリー: ${pullbackState.reason} (板スコア:${brScore})`);
       return await enterPosition("long", candle, tradeDate, candleTime, `押し目確認: ${pullbackState.reason}`, boardSnapshot);
     }
 
@@ -620,15 +726,13 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // タイムアウト: 押し目なし＝強トレンド → そのままエントリー
     if (roundPb.waitCount > ROUND_PULLBACK_MAX_WAIT) {
       roundPullbackStates.delete(symbol);
-      // 板情報チェック
-      if (boardSnapshot && boardSnapshot.signal === "neutral") {
-        console.log(`[RealtimeSim] ${symbol} 大台押し目待ちタイムアウト: 板情報neutral抑制`);
+      // ★v6: 板読みスコアで統合判定
+      const brScoreTimeout = boardReadingScore(symbol, side, boardSnapshot);
+      if (brScoreTimeout < BOARD_SCORE_THRESHOLD) {
+        console.log(`[RealtimeSim] ${symbol} 大台押し目待ちタイムアウト: 板読みスコア不足(${brScoreTimeout})`);
         return { symbol, tradeDate, candleTime, action: "none" };
       }
-      if (hasBoardCounterWall(boardSnapshot, side)) {
-        return { symbol, tradeDate, candleTime, action: "none" };
-      }
-      console.log(`[RealtimeSim] ${symbol} 大台押し目なし・強トレンドエントリー: ${roundPb.reason}`);
+      console.log(`[RealtimeSim] ${symbol} 大台押し目なし・強トレンドエントリー: ${roundPb.reason} (板スコア:${brScoreTimeout})`);
       return await enterPosition(side, candle, tradeDate, candleTime, `${roundPb.reason} (押し目なし・強トレンド)`, boardSnapshot);
     }
 
@@ -640,14 +744,13 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       if (roundPb.pulledBack && candle.close > roundPb.signalPrice) {
         roundPullbackStates.delete(symbol);
-        if (boardSnapshot && boardSnapshot.signal === "neutral") {
-          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板情報neutral抑制`);
+        // ★v6: 板読みスコアで統合判定
+        const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
+        if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
+          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板読みスコア不足(${brScoreBuy})`);
           return { symbol, tradeDate, candleTime, action: "none" };
         }
-        if (hasBoardCounterWall(boardSnapshot, "long")) {
-          return { symbol, tradeDate, candleTime, action: "none" };
-        }
-        console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason}`);
+        console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason} (板スコア:${brScoreBuy})`);
         return await enterPosition("long", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
       }
     } else {
@@ -657,14 +760,13 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       if (roundPb.pulledBack && candle.close < roundPb.signalPrice) {
         roundPullbackStates.delete(symbol);
-        if (boardSnapshot && boardSnapshot.signal === "neutral") {
-          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板情報neutral抑制`);
+        // ★v6: 板読みスコアで統合判定
+        const brScoreSell = boardReadingScore(symbol, "short", boardSnapshot);
+        if (brScoreSell < BOARD_SCORE_THRESHOLD) {
+          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板読みスコア不足(${brScoreSell})`);
           return { symbol, tradeDate, candleTime, action: "none" };
         }
-        if (hasBoardCounterWall(boardSnapshot, "short")) {
-          return { symbol, tradeDate, candleTime, action: "none" };
-        }
-        console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason}`);
+        console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason} (板スコア:${brScoreSell})`);
         return await enterPosition("short", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
       }
     }
@@ -675,17 +777,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // ---- 買いエントリー ----
   if (sig.type === "buy") {
-    // 板情報で大口売り壁がある場合は抑制
-    if (hasBoardCounterWall(boardSnapshot, "long")) {
-      return { symbol, tradeDate, candleTime, action: "none" };
-    }
-    // 板情報が売り優勢の場合も抑制
-    if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
-      return { symbol, tradeDate, candleTime, action: "none" };
-    }
-    // 改善②: 板情報がneutralの場合もエントリー抑制（buy_pressure/sell_pressureのみ許可）
-    if (boardSnapshot && boardSnapshot.signal === "neutral") {
-      console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板情報neutral抑制 (${sig.reason.substring(0, 30)})`);
+    // ★v6: 板読みスコアで統合判定
+    const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
+    if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
+      console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア不足(${brScoreBuy}) (${sig.reason.substring(0, 30)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
@@ -734,17 +829,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     if (isBullish) {
       return { symbol, tradeDate, candleTime, action: "none" };
     }
-    // 板情報で大口買い壁がある場合は抑制
-    if (hasBoardCounterWall(boardSnapshot, "short")) {
-      return { symbol, tradeDate, candleTime, action: "none" };
-    }
-    // 板情報が買い優勢の場合も抑制
-    if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
-      return { symbol, tradeDate, candleTime, action: "none" };
-    }
-    // 改善②: 板情報がneutralの場合もエントリー抑制
-    if (boardSnapshot && boardSnapshot.signal === "neutral") {
-      console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板情報neutral抑制 (${sig.reason.substring(0, 30)})`);
+    // ★v6: 板読みスコアで統合判定
+    const brScoreShort = boardReadingScore(symbol, "short", boardSnapshot);
+    if (brScoreShort < BOARD_SCORE_THRESHOLD) {
+      console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板読みスコア不足(${brScoreShort}) (${sig.reason.substring(0, 30)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
     // 改善①: ダウ理論SHORTにも5分足フィルター追加（5分足MA5<MA25確認）
@@ -918,6 +1006,14 @@ async function checkExitConditions(
         }
       }
     }
+  }
+
+  // ★v6: 板読み早期利確
+  if (exitPrice === null && shouldBoardEarlyExit(pos, close, boardSnapshot)) {
+    exitPrice = close;
+    exitReason = `板読み早期利確 (逆方向板圧力検出)`;
+    action = "take_profit";
+    console.log(`[RealtimeSim] ${symbol} 板読み早期利確: @${close}円 (bpr:${boardSnapshot?.buyPressureRatio}, signal:${boardSnapshot?.signal})`);
   }
 
   if (exitPrice === null) {

@@ -20,6 +20,7 @@ import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
+import { calcATR } from "./intradayRegime";
 import { getStockName } from "../shared/stocks";
 import type { BoardSnapshot } from "../drizzle/schema";
 
@@ -152,6 +153,10 @@ const ROUND_PULLBACK_MAX_WAIT = 5;
 
 /** ★v6: 板読みスコア閾値（この値以上でエントリー許可） */
 const BOARD_SCORE_THRESHOLD = 1;
+
+/** ★ATRフィルター: 直近N本のATR率がこの値以下ならエントリーしない */
+const ATR_FILTER_PERIOD = 7;
+const ATR_FILTER_THRESHOLD = 0.0012; // 0.12%
 
 /** ★v6: 板読み早期利確の最低利益率（%） */
 const BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;
@@ -653,6 +658,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // 押し後に再上昇した足でエントリー
     if (pullbackState.pulledBack && candle.close > pullbackState.signalPrice) {
       pullbackStates.delete(symbol);
+      // ★v6b対策A: sell_pressure時のプルバック経由LONG禁止
+      if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
+        console.log(`[RealtimeSim] ${symbol} 押し目確認: sell_pressure時LONG禁止(プルバック経由)`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       // ★v6: 板読みスコアで統合判定
       const brScore = boardReadingScore(symbol, "long", boardSnapshot);
       if (brScore < BOARD_SCORE_THRESHOLD) {
@@ -726,6 +736,15 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // タイムアウト: 押し目なし＝強トレンド → そのままエントリー
     if (roundPb.waitCount > ROUND_PULLBACK_MAX_WAIT) {
       roundPullbackStates.delete(symbol);
+      // ★v6b対策A: プルバック経由の板圧力チェック
+      if (boardSnapshot && side === "long" && boardSnapshot.signal === "sell_pressure") {
+        console.log(`[RealtimeSim] ${symbol} 大台押し目タイムアウト: sell_pressure時LONG禁止(プルバック経由)`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+      if (boardSnapshot && side === "short" && boardSnapshot.signal === "buy_pressure") {
+        console.log(`[RealtimeSim] ${symbol} 大台押し目タイムアウト: buy_pressure時SHORT禁止(プルバック経由)`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       // ★v6: 板読みスコアで統合判定
       const brScoreTimeout = boardReadingScore(symbol, side, boardSnapshot);
       if (brScoreTimeout < BOARD_SCORE_THRESHOLD) {
@@ -744,6 +763,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       if (roundPb.pulledBack && candle.close > roundPb.signalPrice) {
         roundPullbackStates.delete(symbol);
+        // ★v6b対策A: sell_pressure時の大台プルバック経由LONG禁止
+        if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
+          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: sell_pressure時LONG禁止(プルバック経由)`);
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
         // ★v6: 板読みスコアで統合判定
         const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
         if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
@@ -760,6 +784,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       if (roundPb.pulledBack && candle.close < roundPb.signalPrice) {
         roundPullbackStates.delete(symbol);
+        // ★v6b対策A: buy_pressure時の大台プルバック経由SHORT禁止
+        if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
+          console.log(`[RealtimeSim] ${symbol} 大台押し目確認: buy_pressure時SHORT禁止(プルバック経由)`);
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
         // ★v6: 板読みスコアで統合判定
         const brScoreSell = boardReadingScore(symbol, "short", boardSnapshot);
         if (brScoreSell < BOARD_SCORE_THRESHOLD) {
@@ -892,6 +921,26 @@ async function enterPosition(
   const amount = price * shares;
   const action = side === "long" ? "buy" : "short";
   const boardSignal = boardSnapshot?.signal ?? undefined;
+
+  // ---- ★ATRフィルター: 低ボラティリティ銀柄のエントリーをブロック ----
+  const buffer = candleBuffers.get(symbol);
+  if (buffer && buffer.length >= ATR_FILTER_PERIOD + 1) {
+    const highs = buffer.map(c => c.high);
+    const lows = buffer.map(c => c.low);
+    const closes = buffer.map(c => c.close);
+    const atrSeries = calcATR(highs, lows, closes, ATR_FILTER_PERIOD);
+    const latestATR = atrSeries[atrSeries.length - 1];
+    if (latestATR !== null && price > 0) {
+      const atrRatio = latestATR / price;
+      if (atrRatio < ATR_FILTER_THRESHOLD) {
+        console.log(
+          `[RealtimeSim] ATRフィルター: ${symbol} エントリーブロック ` +
+          `(ATR率=${(atrRatio * 100).toFixed(4)}% < 閾値${(ATR_FILTER_THRESHOLD * 100).toFixed(2)}%)`
+        );
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+  }
 
   // ---- 証拠金使用率制限チェック ----
   // 現在のオープンポジション合計 + 今回の投資額が MAX_TOTAL_EXPOSURE を超える場合はエントリー停止

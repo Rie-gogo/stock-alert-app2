@@ -670,4 +670,16 @@
 - [x] realtimeSimEngine.tsにbuy_pressure時SHORT禁止を実装
 - [x] 本日(6/17)を含む4日間のシミュレーション結果を報告
 - [x] テスト全通過確認（210テスト全pass）
+- [x] チェックポイント保存 (d8d286fb)
+
+## 対策A + ダウ理論条件変更シミュレーション（2026-06-17）
+- [x] 対策A: プルバック経由LONGにもsell_pressureチェックをrealtimeSimEngine.tsに実装
+- [x] 対策A: プルバック経由SHORTにもbuy_pressureチェックをrealtimeSimEngine.tsに実装
+- [x] ダウ理論条件変更の複数パターンをシミュレーション（非推奨と判断）
+- [x] 結果報告
+
+## ATRフィルター実装（2026-06-17）
+- [x] realtimeSimEngine.tsにATRフィルター実装（期間=7, 閾値=0.12%）
+- [x] テスト全通過確認（212テスト全pass）
 - [ ] チェックポイント保存
+- [ ] NOTE: 今後ボラティリティが問題になった際はATRフィルターの閾値見直しを提案すること

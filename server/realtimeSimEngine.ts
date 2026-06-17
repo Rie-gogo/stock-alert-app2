@@ -777,6 +777,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // ---- 買いエントリー ----
   if (sig.type === "buy") {
+    // ★v6b: sell_pressure時のLONG禁止（板が売り圧力時に買いエントリーをブロック）
+    if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
+      console.log(`[RealtimeSim] ${symbol} BUYシグナル: sell_pressure時LONG禁止 (${sig.reason.substring(0, 30)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
     // ★v6: 板読みスコアで統合判定
     const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
     if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
@@ -827,6 +832,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   if (sig.type === "sell") {
     // HybridAフィルター: BULLISH相場ではSHORT禁止
     if (isBullish) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+    // ★v6b: buy_pressure時のSHORT禁止（板が買い圧力時に売りエントリーをブロック）
+    if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
+      console.log(`[RealtimeSim] ${symbol} SHORTシグナル: buy_pressure時SHORT禁止 (${sig.reason.substring(0, 30)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
     // ★v6: 板読みスコアで統合判定

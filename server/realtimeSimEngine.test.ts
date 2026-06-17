@@ -22,6 +22,7 @@ vi.mock("./db", () => ({
 vi.mock("./kabuStation", () => ({
   getOrderBook: vi.fn().mockReturnValue(null),
   analyzeOrderBook: vi.fn().mockReturnValue([]),
+  calcExtendedBoardFields: vi.fn().mockReturnValue({}),
 }));
 
 // shared/stocks をモック化
@@ -546,5 +547,94 @@ describe("板読みスコアv6", () => {
       const result = shouldBoardEarlyExit(pos, 1010, null);
       expect(result).toBe(false);
     });
+  });
+});
+
+// ===== v6b: sell_pressure時LONG禁止 / buy_pressure時SHORT禁止 テスト =====
+describe("★v6b: 板圧力方向フィルター", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sell_pressure時にBUYシグナルが出てもエントリーしない", async () => {
+    // 30本以上のウォームアップ足を送る
+    for (let i = 0; i < 35; i++) {
+      await processCandle(makeCandle({
+        symbol: "6976",
+        tradeDate: "2026-06-20",
+        candleTime: `09:${String(i).padStart(2, "0")}`,
+        close: 3000 + i * 10,
+        high: 3010 + i * 10,
+        low: 2990 + i * 10,
+        open: 2995 + i * 10,
+      }));
+    }
+    // sell_pressureの板情報をモック（getOrderBookは生の板データを返す）
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    (getOrderBook as any).mockReturnValue({
+      bids: [{ price: 2990, qty: 500 }, { price: 2980, qty: 300 }],
+      asks: [{ price: 3010, qty: 1500 }, { price: 3020, qty: 1200 }],
+      underBuyQty: 100,
+      overSellQty: 200,
+      marketOrderBuyQty: 10,
+      marketOrderSellQty: 20,
+    });
+    (analyzeOrderBook as any).mockReturnValue([
+      { type: "board_sell_pressure", message: "sell pressure detected" },
+    ]);
+    // ゴールデンクロス相当の足を送る（MA5 > MA25になるように急騰）
+    const result = await processCandle(makeCandle({
+      symbol: "6976",
+      tradeDate: "2026-06-20",
+      candleTime: "09:35",
+      close: 3500,
+      high: 3520,
+      low: 3480,
+      open: 3490,
+      volume: 50000,
+    }));
+    // sell_pressure時はLONGエントリーしない
+    expect(result.action).toBe("none");
+  });
+
+  it("buy_pressure時にSELLシグナルが出てもエントリーしない", async () => {
+    // 30本以上のウォームアップ足を送る
+    for (let i = 0; i < 35; i++) {
+      await processCandle(makeCandle({
+        symbol: "8035",
+        tradeDate: "2026-06-20",
+        candleTime: `09:${String(i).padStart(2, "0")}`,
+        close: 5000 - i * 10,
+        high: 5010 - i * 10,
+        low: 4990 - i * 10,
+        open: 5005 - i * 10,
+      }));
+    }
+    // buy_pressureの板情報をモック（getOrderBookは生の板データを返す）
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    (getOrderBook as any).mockReturnValue({
+      bids: [{ price: 4490, qty: 2000 }, { price: 4480, qty: 1800 }],
+      asks: [{ price: 4510, qty: 400 }, { price: 4520, qty: 300 }],
+      underBuyQty: 500,
+      overSellQty: 50,
+      marketOrderBuyQty: 30,
+      marketOrderSellQty: 5,
+    });
+    (analyzeOrderBook as any).mockReturnValue([
+      { type: "board_buy_pressure", message: "buy pressure detected" },
+    ]);
+    // デッドクロス相当の足を送る（MA5 < MA25になるように急落）
+    const result = await processCandle(makeCandle({
+      symbol: "8035",
+      tradeDate: "2026-06-20",
+      candleTime: "09:35",
+      close: 4500,
+      high: 4520,
+      low: 4480,
+      open: 4510,
+      volume: 50000,
+    }));
+    // buy_pressure時はSHORTエントリーしない
+    expect(result.action).toBe("none");
   });
 });

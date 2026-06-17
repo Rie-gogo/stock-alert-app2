@@ -664,3 +664,10 @@
 - [x] 銀柄ごとのbuyPressureRatio履歴をメモリに保持（直近5本分）
 - [x] realtimeSimEngine.test.tsに板読みスコアのテストを追加
 - [x] TypeScript 0エラー確認・全テスト通過確認
+
+## sell_pressure時LONG禁止 / buy_pressure時SHORT禁止（2026-06-17）
+- [x] realtimeSimEngine.tsにsell_pressure時LONG禁止を実装
+- [x] realtimeSimEngine.tsにbuy_pressure時SHORT禁止を実装
+- [x] 本日(6/17)を含む4日間のシミュレーション結果を報告
+- [x] テスト全通過確認（210テスト全pass）
+- [ ] チェックポイント保存

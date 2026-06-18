@@ -358,6 +358,8 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
           type: candidate.type,
           reason: `${candidate.reason}｜${conf.summary}`,
           confidence: conf.confidence,
+          recentSwingLow: candidate.recentSwingLow ?? null,
+          recentSwingHigh: candidate.recentSwingHigh ?? null,
         };
       }
       // weak の場合はシグナルを付与しない（誤シグナル抑制）

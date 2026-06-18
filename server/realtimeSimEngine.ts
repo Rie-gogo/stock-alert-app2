@@ -615,23 +615,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // バッファのMA/RSI/BB値を更新（次回以降の計算効率化）
   buffer[buffer.length - 1] = latestSignal;
 
-  if (!latestSignal.signal) {
-    return { symbol, tradeDate, candleTime, action: "none" };
-  }
-
-  const sig = latestSignal.signal;
-
-  // ---- HybridAフィルター: 地合い判定 ----
-  // 始値比±0.2%で地合いを判定
-  // BULLISH（上昇相場）: LONGのみ許可、SHORT禁止
-  // BEARISH/NEUTRAL: LONGもSHORTも両方OK
-  const firstCandle = buffer[0];
-  const openPrice = firstCandle?.open ?? candle.close;
-  const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
-  const isBullish = priceChangeRatio >= 0.2;   // 始値比+0.2%以上 → 上昇相場
-  // const isBearish = priceChangeRatio <= -0.2; // 始値比-0.2%以下 → 下落相場（LONGもSHORTもOK）
-
   // ---- 押し目確認ステートマシン処理 (ダウ理論上昇のみ) ----
+  // ★修正: pending状態のステートマシンはシグナル有無に関わらず処理する（シムと一致）
   const pullbackState = pullbackStates.get(symbol);
   if (pullbackState) {
     pullbackState.waitCount++;
@@ -803,6 +788,19 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // まだ待機中
     return { symbol, tradeDate, candleTime, action: "none" };
   }
+
+  // ---- シグナルがない場合は新規エントリー不要 ----
+  if (!latestSignal.signal) {
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
+
+  const sig = latestSignal.signal;
+
+  // ---- HybridAフィルター: 地合い判定 ----
+  const firstCandle = buffer[0];
+  const openPrice = firstCandle?.open ?? candle.close;
+  const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
+  const isBullish = priceChangeRatio >= 0.2;
 
   // ---- 買いエントリー ----
   if (sig.type === "buy") {

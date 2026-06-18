@@ -12,7 +12,6 @@ import {
   evaluateConfirmation,
   trailingAvgVolume,
   priceMomentum,
-  isVolumeConfirmed,
   type SignalConfidence,
 } from "../signalConfirmation";
 import {
@@ -245,13 +244,12 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
 
     // 買いシグナル
     if (!isStrongDown) {
-      const maDiv = c25 !== 0 ? Math.abs(c5 - c25) / c25 * 100 : 0; // MA乖離率(%)
-      if (p5 <= p25 && c5 > c25 && maDiv >= 0.1) {
-        candidate = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25}, 乖離:${maDiv.toFixed(2)}%)` };
+      if (p5 <= p25 && c5 > c25) {
+        candidate = { type: "buy", reason: `ゴールデンクロス (MA5:${c5} > MA25:${c25})` };
       } else if (cRsi <= rsiLower && c.close <= cBbl) {
         candidate = { type: "buy", reason: `RSI売られすぎ(${cRsi}%) + BB下限タッチ` };
-      } else if (vwapCrossUp && regime !== "down" && isVolumeConfirmed(volumes[i], trailingAvgVolume(volumes, i, 10))) {
-        // VWAPを上抜け + 出来高増加: 買い優勢に転換（下落相場では抑制、出来高不足は抑制）
+      } else if (vwapCrossUp && regime !== "down") {
+        // VWAPを上抜け: 買い優勢に転換（下落相場では抑制）
         candidate = { type: "buy", reason: `VWAPクロス上抜け (VWAP:${vwapCurr?.toFixed(1)})` };
       } else if (swingHighBreak && c5 > c25 && regime !== "down") {
         // ダウ理論: 直近高値更新 + 上昇トレンド中 → 上昇継続シグナル（押し目確認のためrecentSwingLowを付加）
@@ -265,8 +263,8 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
       } else if (roundLevelBreakUp && roundLevel !== null && regime !== "down") {
         // 大台超え: キリ番を上抜け → 上昇加速シグナル
         candidate = { type: "buy", reason: `大台超え (${roundLevel}円突破)` };
-      } else if (vwapBullishBounce && regime !== "down" && isVolumeConfirmed(volumes[i], trailingAvgVolume(volumes, i, 10))) {
-        // VWAP反発（押し目買い）+ 出来高増加: VWAPまで下落後に陽線で反発 → 買い継続シグナル
+      } else if (vwapBullishBounce && regime !== "down") {
+        // VWAP反発（押し目買い）: VWAPまで下落後に陽線で反発 → 買い継続シグナル
         candidate = { type: "buy", reason: `VWAP反発（押し目買い）(VWAP:${vwapSeries[i]?.toFixed(1)})` };
       } else if (isDoubleBottom && dtNeckline !== null && regime !== "down") {
         // ダブルボトム: 2つの谷のネックライン突破 → 底値確認・上昇転換シグナル
@@ -279,17 +277,16 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
 
     // 売りシグナル（買い候補がない場合のみ評価）
     if (!candidate) {
-      const maDivSell = c25 !== 0 ? Math.abs(c5 - c25) / c25 * 100 : 0; // MA乖離率(%)
-      if (p5 >= p25 && c5 < c25 && maDivSell >= 0.1) {
-        candidate = { type: "sell", reason: `デッドクロス (MA5:${c5} < MA25:${c25}, 乖離:${maDivSell.toFixed(2)}%)` };
+      if (p5 >= p25 && c5 < c25) {
+        candidate = { type: "sell", reason: `デッドクロス (MA5:${c5} < MA25:${c25})` };
       } else if (cRsi >= rsiUpper && c.close >= cBbu && !isStrongUp && !gcProtection) {
         candidate = { type: "sell", reason: `RSI買われすぎ(${cRsi}%) + BB上限タッチ` };
       } else if (regime === "down" && cRsi >= 50 && c.close <= c25) {
         // 下落相場の「戻り売り」: 大局が下落の中でRSIが中値以上まで戻し、
         // 価格がMA25以下（戻り高が中期線に押さえられた）ところを売り候補とする。
         candidate = { type: "sell", reason: `下落相場の戻り売り (RSI:${cRsi}% · MA25以下)` };
-      } else if (vwapCrossDown && regime !== "up" && isVolumeConfirmed(volumes[i], trailingAvgVolume(volumes, i, 10))) {
-        // VWAPを下抜け + 出来高増加: 売り優勢に転換（上昇相場では抑制、出来高不足は抑制）
+      } else if (vwapCrossDown && regime !== "up") {
+        // VWAPを下抜け: 売り優勢に転換（上昇相場では抑制）
         candidate = { type: "sell", reason: `VWAPクロス下抜け (VWAP:${vwapCurr?.toFixed(1)})` };
       } else if (swingLowBreak && c5 < c25 && regime !== "up") {
         // ダウ理論: 直近安値更新 + 下落トレンド中 → 下落継続シグナル
@@ -303,8 +300,8 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
       } else if (roundLevelBreak && roundLevel !== null && regime !== "up") {
         // 大台割れ: キリ番を下抜け → 下落加速シグナル
         candidate = { type: "sell", reason: `大台割れ (${roundLevel}円割り込み)` };
-      } else if (vwapBearishBounce && regime !== "up" && isVolumeConfirmed(volumes[i], trailingAvgVolume(volumes, i, 10))) {
-        // VWAP反落（戻り売り）+ 出来高増加: VWAPまで上昇後に陰線で反落 → 売り継続シグナル
+      } else if (vwapBearishBounce && regime !== "up") {
+        // VWAP反落（戻り売り）: VWAPまで上昇後に陰線で反落 → 売り継続シグナル
         candidate = { type: "sell", reason: `VWAP反落（戻り売り）(VWAP:${vwapSeries[i]?.toFixed(1)})` };
       } else if (isDoubleTop && dtNeckline !== null && regime !== "up") {
         // ダブルトップ: 2つの山のネックライン割れ → 天井確認・下落転換シグナル
@@ -358,8 +355,6 @@ export function detectSignals(candles: CandleWithSignal[], rsiUpper = 70, rsiLow
           type: candidate.type,
           reason: `${candidate.reason}｜${conf.summary}`,
           confidence: conf.confidence,
-          recentSwingLow: candidate.recentSwingLow ?? null,
-          recentSwingHigh: candidate.recentSwingHigh ?? null,
         };
       }
       // weak の場合はシグナルを付与しない（誤シグナル抑制）

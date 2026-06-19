@@ -19,7 +19,7 @@ export const TARGET_STOCKS = [
   { symbol: '8035', ticker: '8035.T', name: '東京エレクトロン',        basePrice: 24800, sector: '半導体' },
   { symbol: '7011', ticker: '7011.T', name: '三菱重工業',              basePrice: 2900,  sector: '機械' },
   { symbol: '4568', ticker: '4568.T', name: '第一三共',               basePrice: 4500,  sector: '医薬' },
-  { symbol: '3778', ticker: '3778.T', name: 'さくらインターネット',    basePrice: 4100,  sector: 'IT' },
+  // { symbol: '3778', ticker: '3778.T', name: 'さくらインターネット',    basePrice: 4100,  sector: 'IT' },  // 2026-06-19除外: 5日間で勝率16.7%・-47,501円（日足レンジ4.3%でトレンドフォロー不適合）
   // --- 追加10銘柄（出来高上位・業種分散）---
   { symbol: '285A', ticker: '285A.T', name: 'キオクシアHD',           basePrice: 70000, sector: '半導体' },
   { symbol: '6981', ticker: '6981.T', name: '村田製作所',             basePrice: 10000, sector: '電子部品' },
@@ -29,7 +29,7 @@ export const TARGET_STOCKS = [
   // { symbol: '3436', ticker: '3436.T', name: 'SUMCO',                  basePrice: 4100,  sector: '半導体材料' },  // 2026-06-19除外: 3日間で勝率20%・-46,587円
   { symbol: '8316', ticker: '8316.T', name: '三井住友FG',             basePrice: 3900,  sector: '銀行' },
   { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },
-  { symbol: '6723', ticker: '6723.T', name: 'ルネサスエレクトロニクス', basePrice: 2200,  sector: '半導体' },
+  // { symbol: '6723', ticker: '6723.T', name: 'ルネサスエレクトロニクス', basePrice: 2200,  sector: '半導体' },  // 2026-06-19除外: 5日間で勝率16.7%・-52,199円（日足レンジ4.2%でトレンドフォロー不適合）
   { symbol: '7203', ticker: '7203.T', name: 'トヨタ自動車',           basePrice: 2800,  sector: '自動車' },
 ] as const;
 

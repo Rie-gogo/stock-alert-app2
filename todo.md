@@ -683,3 +683,11 @@
 - [x] テスト全通過確認（212テスト全pass）
 - [ ] チェックポイント保存
 - [ ] NOTE: 今後ボラティリティが問題になった際はATRフィルターの閾値見直しを提案すること
+
+## 押し目深さフィルター実装（2026-06-20）
+- [x] realtimeSimEngine.tsにダウ理論LONG用の押し目深さフィルター実装（30-70%範囲外をブロック）
+- [x] realtimeSimEngine.tsにダウ理論SHORT用の押し目深さフィルター実装（30-70%範囲外をブロック）
+- [x] フィルター適用時のログ出力を追加
+- [x] テスト作成・全通過確認（realtimeSimEngine.test.ts: 30テスト全pass）
+- [x] detectSignalsのrecentSwingLow/Highがc.signalに含まれないバグを修正（stockData.ts）
+- [x] チェックポイント保存

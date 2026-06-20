@@ -158,6 +158,11 @@ const BOARD_SCORE_THRESHOLD = 1;
 const ATR_FILTER_PERIOD = 7;
 const ATR_FILTER_THRESHOLD = 0.0012; // 0.12%
 
+/** ★押し目深さフィルター: ダウ理論シグナルの押し目深さが範囲外ならブロック */
+const PULLBACK_DEPTH_MIN = 0.30; // 30% — これ以下は「浅すぎる押し目」（高値づかみリスク）
+const PULLBACK_DEPTH_MAX = 0.70; // 70% — これ以上は「深すぎる押し目」（トレンド崩壊リスク）
+const PULLBACK_DEPTH_LOOKBACK = 20; // 直近20本のスイング高値/安値を参照
+
 /** ★v6: 板読み早期利確の最低利益率（%） */
 const BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;
 
@@ -827,6 +832,24 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         console.log(`[RealtimeSim] ${symbol} ダウ理論上昇シグナル: 5分足フィルターにより抑制 (上位足トレンド: ${htfTrend})`);
         return { symbol, tradeDate, candleTime, action: "none" };
       }
+      // ---- ★押し目深さフィルター (LONG) ----
+      // 直近20本のスイング高値/安値を基準に、現在価格の押し目深さを計算
+      // 30-70%の範囲外ならブロック（浅すぎ=高値づかみ、深すぎ=トレンド崩壊）
+      if (buffer.length >= PULLBACK_DEPTH_LOOKBACK) {
+        const lookbackWindow = buffer.slice(buffer.length - PULLBACK_DEPTH_LOOKBACK, buffer.length);
+        const swingHigh = Math.max(...lookbackWindow.map(c => c.high));
+        const swingLow = Math.min(...lookbackWindow.map(c => c.low));
+        if (swingHigh > swingLow) {
+          const pullbackDepth = (swingHigh - candle.close) / (swingHigh - swingLow);
+          if (pullbackDepth < PULLBACK_DEPTH_MIN || pullbackDepth > PULLBACK_DEPTH_MAX) {
+            console.log(
+              `[RealtimeSim] ${symbol} ダウ理論LONG: 押し目深さフィルターによりブロック ` +
+              `(深さ=${(pullbackDepth * 100).toFixed(1)}%, 許可範囲=${(PULLBACK_DEPTH_MIN * 100).toFixed(0)}-${(PULLBACK_DEPTH_MAX * 100).toFixed(0)}%)`
+            );
+            return { symbol, tradeDate, candleTime, action: "none" };
+          }
+        }
+      }
       pullbackStates.set(symbol, {
         recentSwingLow: sig.recentSwingLow,
         signalPrice: candle.close,
@@ -880,6 +903,25 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       if (htfTrend !== "down") {
         console.log(`[RealtimeSim] ${symbol} ダウ理論SHORTシグナル: 5分足フィルターにより抑制 (上位足トレンド: ${htfTrend})`);
         return { symbol, tradeDate, candleTime, action: "none" };
+      }
+      // ---- ★押し目深さフィルター (SHORT) ----
+      // 直近20本のスイング高値/安値を基準に、現在価格の戻り深さを計算
+      // 30-70%の範囲外ならブロック（浅すぎ=安値圈、深すぎ=トレンド崩壊）
+      if (buffer.length >= PULLBACK_DEPTH_LOOKBACK) {
+        const lookbackWindow = buffer.slice(buffer.length - PULLBACK_DEPTH_LOOKBACK, buffer.length);
+        const swingHigh = Math.max(...lookbackWindow.map(c => c.high));
+        const swingLow = Math.min(...lookbackWindow.map(c => c.low));
+        if (swingHigh > swingLow) {
+          // SHORTの押し目深さ: 安値からどれだけ戻したか
+          const pullbackDepth = (candle.close - swingLow) / (swingHigh - swingLow);
+          if (pullbackDepth < PULLBACK_DEPTH_MIN || pullbackDepth > PULLBACK_DEPTH_MAX) {
+            console.log(
+              `[RealtimeSim] ${symbol} ダウ理論SHORT: 押し目深さフィルターによりブロック ` +
+              `(深さ=${(pullbackDepth * 100).toFixed(1)}%, 許可範囲=${(PULLBACK_DEPTH_MIN * 100).toFixed(0)}-${(PULLBACK_DEPTH_MAX * 100).toFixed(0)}%)`
+            );
+            return { symbol, tradeDate, candleTime, action: "none" };
+          }
+        }
       }
     }
 

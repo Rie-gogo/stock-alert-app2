@@ -811,6 +811,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // ---- 買いエントリー ----
   if (sig.type === "buy") {
+    // ★VWAPクロス上抜けシグナル無効化（5日間検証で0勝4敗, -69,803円のため除外）
+    if (sig.reason.includes("VWAPクロス上抜け")) {
+      console.log(`[RealtimeSim] ${symbol} VWAPクロス上抜けシグナル: 無効化によりブロック (${sig.reason.substring(0, 40)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
     // ★v6b: sell_pressure時のLONG禁止（板が売り圧力時に買いエントリーをブロック）
     if (boardSnapshot && boardSnapshot.signal === "sell_pressure") {
       console.log(`[RealtimeSim] ${symbol} BUYシグナル: sell_pressure時LONG禁止 (${sig.reason.substring(0, 30)})`);

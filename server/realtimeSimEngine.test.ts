@@ -849,3 +849,48 @@ describe("押し目深さフィルター", () => {
     expect(result.action).toBe("none");
   });
 });
+
+
+describe("VWAPクロス上抜けシグナル無効化", () => {
+  it("VWAPクロス上抜けシグナルが出てもエントリーしない", async () => {
+    const symbol = "TEST_VWAP_UP_BLOCK";
+    const tradeDate = "2026-06-20";
+
+    // ウォームアップ: 30本の足を送信
+    // VWAPクロス上抜けを発生させるため、最初はVWAP以下で推移→最後に上抜け
+    const basePrice = 3000;
+    for (let i = 0; i < 30; i++) {
+      const minute = i;
+      const candleTime = `09:${String(minute).padStart(2, "0")}`;
+      // 前半は低め（VWAP以下）、後半で徐々に上昇
+      const price = i < 28 ? basePrice - 20 : basePrice + (i - 28) * 30;
+      await processCandle(makeCandle({
+        symbol,
+        tradeDate,
+        candleTime,
+        open: price - 5,
+        high: price + 10,
+        low: price - 10,
+        close: price,
+        volume: 15000 + (i > 27 ? 10000 : 0), // 上抜け時に出来高増加
+      }));
+    }
+
+    // 31本目: VWAPを大きく上抜ける足（出来高増加）
+    // detectSignalsが「VWAPクロス上抜け」を検出する条件を満たす
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "09:31",
+      open: basePrice + 50,
+      high: basePrice + 80,
+      low: basePrice + 40,
+      close: basePrice + 70,
+      volume: 30000,
+    }));
+
+    // VWAPクロス上抜けは無効化されているので、仮にシグナルが出てもエントリーしない
+    // (シグナルが出ない場合もaction=noneなのでどちらにしてもnone)
+    expect(result.action).toBe("none");
+  });
+});

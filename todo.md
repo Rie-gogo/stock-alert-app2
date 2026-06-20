@@ -691,3 +691,9 @@
 - [x] テスト作成・全通過確認（realtimeSimEngine.test.ts: 30テスト全pass）
 - [x] detectSignalsのrecentSwingLow/Highがc.signalに含まれないバグを修正（stockData.ts）
 - [x] チェックポイント保存
+
+## VWAPクロス上抜けシグナル無効化（2026-06-20）
+- [x] VWAPクロス上抜けシグナルを無効化（エントリーをブロック）
+- [x] テスト更新・全通過確認（realtimeSimEngine.test.ts: 31テスト全pass）
+- [x] 実装後の仕様で5日間シミュレーション検証（46件・+493,409円）
+- [x] チェックポイント保存

@@ -153,8 +153,8 @@ describe('isJSTMarketOpen', () => {
 });
 
 describe('TARGET_STOCKS 銘柄リスト（共有定義）', () => {
-  it('20銘柄体制に拡張されている', () => {
-    expect(TARGET_STOCKS).toHaveLength(20);
+  it('17銘柄体制（3銘柄除外済み: 3778, 3436, 6723）', () => {
+    expect(TARGET_STOCKS).toHaveLength(17);
   });
 
   it('すべてのtickerは .T で終わる（東証銘柄）', () => {

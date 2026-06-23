@@ -21,8 +21,12 @@ import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } 
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
 import { calcATR } from "./intradayRegime";
-import { getStockName } from "../shared/stocks";
+import { getStockName, TARGET_STOCKS } from "../shared/stocks";
+
 import type { BoardSnapshot } from "../drizzle/schema";
+
+// TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
+const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
 
 // ============================================================
 // 定数
@@ -502,6 +506,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   pnl?: number;
 }> {
   const { symbol, tradeDate, candleTime } = candle;
+
+  // 除外銘柄チェック: TARGET_STOCKSに含まれない銘柄は即スキップ
+  if (!ALLOWED_SYMBOLS.has(symbol)) {
+    return { symbol, tradeDate, candleTime, action: "none" as const };
+  }
 
   // 日付変更チェック
   resetIfNewDay(tradeDate);

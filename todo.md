@@ -719,3 +719,10 @@
 - [x] restoreBuffersFromDb()で前日分のバッファ復元を廃止し、当日分のみ復元するように変更
 - [x] resetIfNewDay()でバッファを完全クリアするように変更
 - [x] テスト確認・チェックポイント保存
+
+## 改良案B・C 本番実装（2026-06-25）
+- [x] 改良案B: 歩み値方向推定（estimateTickDirection）をboardReadingScoreに追加（要素F: ±2点）
+- [x] 改良案C: 見せ板検出強化（detectFakeOrder）をboardReadingScoreに追加（要素D修正+要素G: ±1点）
+- [x] TypeScriptコンパイルエラーなし確認
+- [x] 既存テスト216件パス確認
+- [x] サーバー再起動・正常動作確認

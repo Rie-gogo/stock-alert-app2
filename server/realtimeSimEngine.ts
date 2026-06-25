@@ -447,14 +447,76 @@ function getBoardSnapshot(symbol: string): BoardSnapshot | null {
 const bprHistory = new Map<string, number[]>();
 
 /**
- * ★v6: 板読みスコアを計算する
+ * ★v7: 歩み値方向推定（改良案B）
+ * marketOrderDirectionフィールド + BPRトレンド/絶対値から約定方向を推定
+ */
+function estimateTickDirection(symbol: string, snapshot: BoardSnapshot | null): "uptick" | "downtick" | "neutral" {
+  if (!snapshot) return "neutral";
+  
+  // marketOrderDirectionが明確な場合はそれを使用
+  const mod = (snapshot as any).marketOrderDirection;
+  if (mod === "buy") return "uptick";
+  if (mod === "sell") return "downtick";
+  
+  // BPRの直近トレンドで判定
+  const history = bprHistory.get(symbol) ?? [];
+  if (history.length < 3) return "neutral";
+  const first = history[0];
+  const last = history[history.length - 1];
+  const trend = last - first;
+  
+  // BPRが明確に上昇トレンド → 買い圧力増加 → アップティック
+  if (trend >= 0.2) return "uptick";
+  if (trend <= -0.2) return "downtick";
+  
+  // BPRの絶対値で判定（強い買い圧力/売り圧力）
+  if (last >= 1.3) return "uptick";
+  if (last <= 0.7) return "downtick";
+  
+  return "neutral";
+}
+
+/**
+ * ★v7: 見せ板検出強化（改良案C）
+ * データの既存フラグ（askCancelDetected/bidCancelDetected/icebergAskDetected/icebergBidDetected）を直接活用
+ */
+function detectFakeOrder(snapshot: BoardSnapshot | null): { cancelDetected: boolean; icebergDetected: boolean; icebergSide: "buy" | "sell" | null } {
+  if (!snapshot) return { cancelDetected: false, icebergDetected: false, icebergSide: null };
+  
+  const snap = snapshot as any;
+  
+  // キャンセル検出: データの既存フラグを使用
+  const cancelDetected = !!(snap.askCancelDetected || snap.bidCancelDetected);
+  
+  // アイスバーグ検出: データの既存フラグを使用
+  let icebergDetected = false;
+  let icebergSide: "buy" | "sell" | null = null;
+  
+  if (snap.icebergAskDetected) {
+    // 売り板にアイスバーグ → 売り板が食われている → 買い方向の勢い
+    icebergDetected = true;
+    icebergSide = "buy";
+  }
+  if (snap.icebergBidDetected) {
+    // 買い板にアイスバーグ → 買い板が食われている → 売り方向の勢い
+    icebergDetected = true;
+    icebergSide = "sell";
+  }
+  
+  return { cancelDetected, icebergDetected, icebergSide };
+}
+
+/**
+ * ★v7: 板読みスコアを計算する
  *
- * 5要素の統合スコア:
- * A) アグレッシブ注文検出 (±2): marketOrderRatio≧0.08で方向判定
+ * 7要素の統合スコア:
+ * A) アグレッシブ注文検出 (±2): marketOrderRatio≧ 0.08で方向判定
  * B) 厚い板のアノマリー (±1): largeBuyWall/largeSellWall
- * C) 板圧力トレンド (±1): 直近5本のbpr変化量≧0.15
- * D) 相場モード判定 (+1/-2): active/building→+1, trap/quiet→-2
- * E) 板圧力の強さ (±1): bpr≧1.4(買い圧力強) or bpr≦0.65(売り圧力強)
+ * C) 板圧力トレンド (±1): 直近5本のbpr変化量≧ 0.15
+ * D) 相場モード判定 (+1/-2): active/building→+1, trap/quiet→-2、キャンセル検出時はtrap強制
+ * E) 板圧力の強さ (±1): bpr≧ 1.4(買い圧力強) or bpr≦ 0.65(売り圧力強)
+ * F) 歩み値方向推定 (±2): marketOrderDirection + BPRトレンドで約定方向を推定
+ * G) アイスバーグ検出 (±1): エントリー方向と一致すれば+1、逆方向なら-1
  */
 export function boardReadingScore(symbol: string, side: "long" | "short", snapshot: BoardSnapshot | null): number {
   if (!snapshot) return 1; // 板情報なし → 中立（シグナルを通す）
@@ -493,7 +555,14 @@ export function boardReadingScore(symbol: string, side: "long" | "short", snapsh
   }
 
   // 要素D: 相場モード判定 (+1/-2)
-  const mode = detectMarketMode(symbol, snapshot);
+  // ★改良案C: キャンセル検出時はtrap強制
+  const { cancelDetected, icebergDetected, icebergSide } = detectFakeOrder(snapshot);
+  let mode: "active" | "building" | "trap" | "quiet";
+  if (cancelDetected) {
+    mode = "trap"; // 見せ板検出 → 強制trap
+  } else {
+    mode = detectMarketMode(symbol, snapshot);
+  }
   if (mode === "active" || mode === "building") {
     score += 1;
   } else if (mode === "trap" || mode === "quiet") {
@@ -505,6 +574,23 @@ export function boardReadingScore(symbol: string, side: "long" | "short", snapsh
   else if (side === "long" && bpr <= 0.65) score -= 1;
   else if (side === "short" && bpr <= 0.65) score += 1;
   else if (side === "short" && bpr >= 1.4) score -= 1;
+
+  // ★要素F: 歩み値方向推定 (±2)【改良案B】
+  const tickDir = estimateTickDirection(symbol, snapshot);
+  if (tickDir === "uptick") {
+    if (side === "long") score += 2; else score -= 2;
+  } else if (tickDir === "downtick") {
+    if (side === "short") score += 2; else score -= 2;
+  }
+
+  // ★要素G: アイスバーグ検出 (±1)【改良案C】
+  if (icebergDetected && icebergSide) {
+    if (side === "long" && icebergSide === "buy") score += 1;
+    else if (side === "short" && icebergSide === "sell") score += 1;
+    // 逆方向のアイスバーグは減点
+    else if (side === "long" && icebergSide === "sell") score -= 1;
+    else if (side === "short" && icebergSide === "buy") score -= 1;
+  }
 
   return score;
 }

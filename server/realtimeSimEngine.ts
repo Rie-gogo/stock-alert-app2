@@ -576,7 +576,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 }> {
   const { symbol, tradeDate, candleTime } = candle;
 
-  // 除外銘柄チェック: TARGET_STOCKSに含まれない銘柄は即スキップ
+  // 昧休み（11:30〜12:29）の足は完全にスキップ（DB保存もしない）
+  if (candleTime >= "11:30" && candleTime < "12:30") {
+    return { symbol, tradeDate, candleTime, action: "none" as const };
+  }
+
+  // 除外銀柄チェック: TARGET_STOCKSに含まれない銀柄は即スキップ
   if (!ALLOWED_SYMBOLS.has(symbol)) {
     return { symbol, tradeDate, candleTime, action: "none" as const };
   }

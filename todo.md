@@ -710,3 +710,7 @@
 - [x] restoreBuffersFromDb()内でDBから未決済ポジションを復元するロジックを追加
 - [x] signalHistoryもDBから復元する
 - [x] テスト確認・チェックポイント保存
+
+## 昼休み（11:30〜12:30）の足をprocessCandleでスキップ
+- [x] processCandle冒頭で11:30〜12:29の足をスキップ（DBにも保存しない）
+- [x] テスト確認・チェックポイント保存

@@ -240,7 +240,7 @@ function getTodayJst(): string {
  */
 function resetIfNewDay(tradeDate: string): void {
   if (tradeDate !== currentTradeDate) {
-    console.log(`[RealtimeSim] 新しい取引日: ${tradeDate}（前日: ${currentTradeDate}）`);
+    console.log(`[RealtimeSim] 新しい取引日: ${tradeDate}（前日: ${currentTradeDate}）— 当日構築モード: 全バッファクリア`);
     candleBuffers.clear();
     openPositions.clear();
     candleCounters.clear();
@@ -257,18 +257,27 @@ function resetIfNewDay(tradeDate: string): void {
 }
 
 /**
- * サーバー起動時にDBから当日の1分足を読み込んでcandleBuffersを復元する
+ * サーバー起動時にDBから当日の1分足のみを読み込んでcandleBuffersを復元する（当日構築モード）
  *
- * サーバーが取引時間中に再起動した場合でも、既にDBに保存済みの足からシグナル判定を即座に再開できる。
+ * 前日以前のバッファは一切引き継がない。サーバーが取引時間中に再起動した場合でも、
+ * 当日分のDBに保存済みの足のみからシグナル判定を即座に再開できる。
  */
 export async function restoreBuffersFromDb(): Promise<void> {
   if (bufferRestored) return;
 
   const today = getTodayJst();
+
+  // ★当日構築モード: 前日バッファが残っていた場合は完全クリア
+  if (candleBuffers.size > 0) {
+    console.log(`[RealtimeSim] 当日構築モード: 既存バッファ${candleBuffers.size}銘柄をクリア`);
+    candleBuffers.clear();
+    candleCounters.clear();
+  }
+
   try {
     const rows = await getRtCandlesAllForDate(today);
     if (rows.length === 0) {
-      console.log(`[RealtimeSim] バッファ復元: ${today} の足なし（初回起動）`);
+      console.log(`[RealtimeSim] バッファ復元(当日構築): ${today} の足なし（初回起動）`);
       bufferRestored = true;
       currentTradeDate = today;
       return;
@@ -323,7 +332,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
 
     currentTradeDate = today;
     bufferRestored = true;
-    console.log(`[RealtimeSim] バッファ復元完了: ${today} / ${grouped.size}銀柄 / 合計1分足${rows.length}本`);
+    console.log(`[RealtimeSim] バッファ復元完了(当日構築): ${today} / ${grouped.size}銀柄 / 合計1分足${rows.length}本`);
 
     // ---- オープンポジションのDBからの復元 ----
     try {

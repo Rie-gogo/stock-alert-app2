@@ -1060,6 +1060,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
+    // ★改良策3改: medium直接エントリー禁止（ステートマシントリガー以外のmediumシグナルをブロック）
+    if (sig.confidence === "medium") {
+      console.log(`[RealtimeSim] ${symbol} BUY直接エントリーブロック: medium品質のため禁止 (${sig.reason.substring(0, 50)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
     return await enterPosition("long", candle, tradeDate, candleTime, sig.reason, boardSnapshot);
   }
 
@@ -1120,6 +1126,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         boardSignal: boardSnapshot?.signal ?? undefined,
       });
       console.log(`[RealtimeSim] ${symbol} 大台割れ確認待機開始: ${sig.reason} (キリ番:${level}円)`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    // ★改良策3改: medium直接エントリー禁止（ステートマシントリガー以外のmediumシグナルをブロック）
+    if (sig.confidence === "medium") {
+      console.log(`[RealtimeSim] ${symbol} SHORT直接エントリーブロック: medium品質のため禁止 (${sig.reason.substring(0, 50)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 

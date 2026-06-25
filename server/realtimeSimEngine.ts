@@ -69,6 +69,12 @@ const MARKET_CLOSE_TIME = "15:30";
 const NO_ENTRY_AFTER = "15:15";
 /** 改善④: 09:30以前はエントリー禁止（寄り付きダマシ排除） */
 const NO_ENTRY_BEFORE = "09:30";
+/** 改良策5: 昼休み前（11:00-11:30）エントリー禁止 */
+const NO_ENTRY_PRE_LUNCH_START = "11:00";
+const NO_ENTRY_PRE_LUNCH_END = "11:30";
+/** 改良策5: 後場序盤（12:30-13:00）エントリー禁止 */
+const NO_ENTRY_POST_LUNCH_START = "12:30";
+const NO_ENTRY_POST_LUNCH_END = "13:00";
 
 /** ウォームアップに必要な最低足数（MA25計算のため） */
 const MIN_CANDLES_FOR_SIGNAL = 30;
@@ -782,6 +788,14 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   }
   // ---- 午後エントリー禁止 ----
   if (candleTime >= NO_ENTRY_AFTER) {
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
+  // ---- 改良策5: 昼休み前（11:00-11:30）エントリー禁止 ----
+  if (candleTime >= NO_ENTRY_PRE_LUNCH_START && candleTime < NO_ENTRY_PRE_LUNCH_END) {
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
+  // ---- 改良策5: 後場序盤（12:30-13:00）エントリー禁止 ----
+  if (candleTime >= NO_ENTRY_POST_LUNCH_START && candleTime < NO_ENTRY_POST_LUNCH_END) {
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 

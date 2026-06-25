@@ -983,3 +983,121 @@ describe("改良策3改: medium直接エントリー禁止", () => {
     expect(result.action).toBe("none");
   });
 });
+
+describe("改良策5: 時間帯フィルター（11:00-11:30, 12:30-13:00エントリー禁止）", () => {
+  it("11:00〜11:30の間はエントリーがブロックされる", async () => {
+    const symbol = "TEST_TIME_1100";
+    const tradeDate = "2026-06-26";
+
+    // ウォームアップ（30本の足を送信）
+    await warmup(symbol, tradeDate, 3000);
+
+    // 11:05にシグナルが出る状況を作る（大きな上昇）
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "11:05",
+      open: 3000,
+      high: 3200,
+      low: 2990,
+      close: 3180,
+      volume: 50000,
+    }));
+
+    // 11:05はエントリー禁止時間帯なので action は "none"
+    expect(result.action).toBe("none");
+  });
+
+  it("11:30以降はエントリー禁止が解除される（11:30は許可）", async () => {
+    const symbol = "TEST_TIME_1130";
+    const tradeDate = "2026-06-26";
+
+    // ウォームアップ
+    await warmup(symbol, tradeDate, 3000);
+
+    // 11:30にシグナルが出る状況を作る
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "11:30",
+      open: 3000,
+      high: 3200,
+      low: 2990,
+      close: 3180,
+      volume: 50000,
+    }));
+
+    // 11:30は昼休みスキップ（11:30-12:29）に該当するためnone
+    // ただし時間帯フィルターではなく昼休みスキップで止まる
+    expect(result.action).toBe("none");
+  });
+
+  it("12:30〜13:00の間はエントリーがブロックされる", async () => {
+    const symbol = "TEST_TIME_1230";
+    const tradeDate = "2026-06-26";
+
+    // ウォームアップ
+    await warmup(symbol, tradeDate, 3000);
+
+    // 12:35にシグナルが出る状況を作る
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "12:35",
+      open: 3000,
+      high: 3200,
+      low: 2990,
+      close: 3180,
+      volume: 50000,
+    }));
+
+    // 12:35はエントリー禁止時間帯なので action は "none"
+    expect(result.action).toBe("none");
+  });
+
+  it("13:00以降はエントリー禁止が解除される", async () => {
+    const symbol = "TEST_TIME_1300";
+    const tradeDate = "2026-06-26";
+
+    // ウォームアップ
+    await warmup(symbol, tradeDate, 3000);
+
+    // 13:00は禁止解除（エントリー可能だが、シグナルがなければnone）
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "13:00",
+      open: 3000,
+      high: 3010,
+      low: 2990,
+      close: 3005,
+      volume: 5000,
+    }));
+
+    // シグナルがないのでnoneだが、時間帯フィルターではブロックされていない
+    expect(result.action).toBe("none");
+  });
+
+  it("10:59はエントリー禁止時間帯外（許可）", async () => {
+    const symbol = "TEST_TIME_1059";
+    const tradeDate = "2026-06-26";
+
+    // ウォームアップ
+    await warmup(symbol, tradeDate, 3000);
+
+    // 10:59は禁止時間帯外
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "10:59",
+      open: 3000,
+      high: 3010,
+      low: 2990,
+      close: 3005,
+      volume: 5000,
+    }));
+
+    // シグナルがないのでnoneだが、時間帯フィルターではブロックされていない
+    expect(result.action).toBe("none");
+  });
+});

@@ -375,6 +375,20 @@ export default function RtDashboard() {
                           >
                             {pos.side === "long" ? "LONG" : "SHORT"}
                           </Badge>
+                          {pos.confidence && (
+                            <Badge
+                              variant="outline"
+                              className={
+                                pos.confidence === "strong"
+                                  ? "border-amber-400/50 text-amber-300 bg-amber-500/10"
+                                  : pos.confidence === "medium"
+                                  ? "border-sky-400/50 text-sky-300 bg-sky-500/10"
+                                  : "border-border/50 text-muted-foreground"
+                              }
+                            >
+                              {pos.confidence === "strong" ? "信頼度：強" : pos.confidence === "medium" ? "信頼度：中" : "信頼度：弱"}
+                            </Badge>
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground">{pos.entryTime}</div>
                       </div>
@@ -423,6 +437,7 @@ export default function RtDashboard() {
                         <TableHead className="text-xs w-16">時刻</TableHead>
                         <TableHead className="text-xs w-20">銘柄</TableHead>
                         <TableHead className="text-xs w-20">アクション</TableHead>
+                        <TableHead className="text-xs w-16">信頼度</TableHead>
                         <TableHead className="text-xs text-right w-24">価格</TableHead>
                         <TableHead className="text-xs text-right w-20">株数</TableHead>
                         <TableHead className="text-xs text-right w-24">損益</TableHead>
@@ -447,6 +462,23 @@ export default function RtDashboard() {
                                 {actionFmt.icon}
                                 {actionFmt.label}
                               </span>
+                            </TableCell>
+                            <TableCell className="py-2">
+                              {sig.confidence ? (
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                    sig.confidence === "strong"
+                                      ? "text-amber-300 bg-amber-500/15 border-amber-400/50"
+                                      : sig.confidence === "medium"
+                                      ? "text-sky-300 bg-sky-500/10 border-sky-400/40"
+                                      : "text-muted-foreground bg-muted border-border/50"
+                                  }`}
+                                >
+                                  {sig.confidence === "strong" ? "強" : sig.confidence === "medium" ? "中" : "弱"}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs font-mono text-right py-2">
                               {sig.price.toLocaleString()}円

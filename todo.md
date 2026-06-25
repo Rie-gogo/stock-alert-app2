@@ -697,3 +697,11 @@
 - [x] テスト更新・全通過確認（realtimeSimEngine.test.ts: 31テスト全pass）
 - [x] 実装後の仕様で5日間シミュレーション検証（46件・+493,409円）
 - [x] チェックポイント保存
+
+## RTダッシュボードに信頼度（強/中/弱）表示を追加
+- [x] signalHistory型にconfidenceフィールドを追加（realtimeSimEngine.ts）
+- [x] OpenPosition型にconfidenceフィールドを追加（realtimeSimEngine.ts）
+- [x] enterPosition関数でsignalConfirmation.tsのevaluateConfirmationを呼び出し信頼度を計算
+- [x] RtDashboardのオープンポジションカードに信頼度バッジを表示
+- [x] RtDashboardのシグナル履歴テーブルに信頼度列を追加
+- [x] テスト確認・チェックポイント保存

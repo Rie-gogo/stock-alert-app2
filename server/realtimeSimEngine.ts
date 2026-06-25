@@ -22,6 +22,12 @@ import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields } from "./kabuS
 import { getHigherTfTrend } from "./vwap";
 import { calcATR } from "./intradayRegime";
 import { getStockName, TARGET_STOCKS } from "../shared/stocks";
+import {
+  evaluateConfirmation,
+  trailingAvgVolume,
+  priceMomentum,
+  type SignalConfidence,
+} from "./signalConfirmation";
 
 import type { BoardSnapshot } from "../drizzle/schema";
 
@@ -90,6 +96,7 @@ interface OpenPosition {
   entryTime: string;
   entryReason: string;
   boardSignal?: string;
+  confidence?: SignalConfidence;
 }
 
 // ============================================================
@@ -209,6 +216,7 @@ const signalHistory: Array<{
   shares: number;
   pnl: number | null;
   reason: string;
+  confidence?: SignalConfidence;
 }> = [];
 
 /** シグナル履歴の最大件数 */
@@ -1049,6 +1057,26 @@ async function enterPosition(
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 
+  // ---- 信頼度（confidence）を計算 ----
+  let confidence: SignalConfidence = "medium";
+  if (buffer && buffer.length > 1) {
+    const volumes = buffer.map(c => c.volume);
+    const closes = buffer.map(c => c.close);
+    const idx = buffer.length - 1;
+    const ma5Val = buffer[idx]?.ma5 ?? null;
+    const ma25Val = buffer[idx]?.ma25 ?? null;
+    const confResult = evaluateConfirmation({
+      type: side === "long" ? "buy" : "sell",
+      close: price,
+      volume: candle.volume,
+      avgVolume: trailingAvgVolume(volumes, idx, 10),
+      ma5: ma5Val,
+      ma25: ma25Val,
+      momentum: priceMomentum(closes, idx, 3),
+    });
+    confidence = confResult.confidence;
+  }
+
   const pos: OpenPosition = {
     symbol,
     side,
@@ -1057,6 +1085,7 @@ async function enterPosition(
     entryTime: candleTime,
     entryReason: reason,
     boardSignal,
+    confidence,
   };
 
   openPositions.set(symbol, pos);
@@ -1088,6 +1117,7 @@ async function enterPosition(
     shares,
     pnl: null,
     reason,
+    confidence,
   });
   if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
 

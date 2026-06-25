@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -323,7 +323,53 @@ export async function restoreBuffersFromDb(): Promise<void> {
 
     currentTradeDate = today;
     bufferRestored = true;
-    console.log(`[RealtimeSim] バッファ復元完了: ${today} / ${grouped.size}銘柄 / 合計1分足${rows.length}本`);
+    console.log(`[RealtimeSim] バッファ復元完了: ${today} / ${grouped.size}銀柄 / 合計1分足${rows.length}本`);
+
+    // ---- オープンポジションのDBからの復元 ----
+    try {
+      const dbOpenTrades = await getRtOpenPositionsFromDb(today);
+      if (dbOpenTrades.length > 0) {
+        for (const entry of dbOpenTrades) {
+          if (!openPositions.has(entry.symbol)) {
+            openPositions.set(entry.symbol, {
+              symbol: entry.symbol,
+              side: entry.side as "long" | "short",
+              entryPrice: Number(entry.price),
+              shares: entry.shares,
+              entryTime: entry.tradeTime,
+              entryReason: entry.reason,
+            });
+          }
+        }
+        console.log(`[RealtimeSim] オープンポジション復元: ${dbOpenTrades.length}件 (${dbOpenTrades.map(t => t.symbol).join(", ")})`);
+      }
+    } catch (posErr) {
+      console.error("[RealtimeSim] オープンポジション復元エラー:", posErr);
+    }
+
+    // ---- シグナル履歴のDBからの復元 ----
+    try {
+      const allTrades = await getRtTradesForDate(today);
+      if (allTrades.length > 0 && signalHistory.length === 0) {
+        for (const t of allTrades.slice().reverse()) {
+          signalHistory.push({
+            time: t.tradeTime,
+            symbol: t.symbol,
+            symbolName: t.symbolName ?? getStockName(t.symbol),
+            action: t.action,
+            price: Number(t.price),
+            shares: t.shares,
+            pnl: t.pnl !== null ? Number(t.pnl) : null,
+            reason: t.reason,
+          });
+        }
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        console.log(`[RealtimeSim] シグナル履歴復元: ${signalHistory.length}件`);
+      }
+    } catch (sigErr) {
+      console.error("[RealtimeSim] シグナル履歴復元エラー:", sigErr);
+    }
+
   } catch (err) {
     console.error("[RealtimeSim] バッファ復元エラー:", err);
     // エラー時は復元済みにしない（次回のリクエストで再試行する）

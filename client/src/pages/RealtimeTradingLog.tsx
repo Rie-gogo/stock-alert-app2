@@ -66,6 +66,17 @@ function formatAction(action: string): { label: string; variant: "default" | "se
   }
 }
 
+/** reasonテキストから信頼度を抽出し、信頼度バッジ用情報と残りテキストを返す */
+function extractConfidence(reason: string): { confidence: "strong" | "medium" | "weak" | null; reasonText: string } {
+  const match = reason.match(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\](.*)$/);
+  if (match) {
+    const level = match[1] === "強" ? "strong" : match[1] === "中" ? "medium" : "weak";
+    const reasonText = reason.replace(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\].*$/, "").trim();
+    return { confidence: level, reasonText };
+  }
+  return { confidence: null, reasonText: reason };
+}
+
 // ===== コンポーネント =====
 
 export default function RealtimeTradingLog() {
@@ -295,6 +306,7 @@ export default function RealtimeTradingLog() {
                     <TableHead className="text-xs text-muted-foreground text-right">エントリー価格</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">株数</TableHead>
                     <TableHead className="text-xs text-muted-foreground">エントリー時刻</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">信頼度</TableHead>
                     <TableHead className="text-xs text-muted-foreground">理由</TableHead>
                     <TableHead className="text-xs text-muted-foreground">板シグナル</TableHead>
                   </TableRow>
@@ -326,8 +338,23 @@ export default function RealtimeTradingLog() {
                           {pos.entryTime}
                         </span>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
-                        {pos.entryReason}
+                      <TableCell className="py-2">
+                        {(() => {
+                          const { confidence } = extractConfidence(pos.entryReason ?? "");
+                          if (!confidence) return <span className="text-muted-foreground">—</span>;
+                          return (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                              confidence === "strong" ? "text-amber-300 bg-amber-500/15 border-amber-400/50"
+                              : confidence === "medium" ? "text-sky-300 bg-sky-500/10 border-sky-400/40"
+                              : "text-muted-foreground bg-muted border-border/50"
+                            }`}>
+                              {confidence === "strong" ? "強" : confidence === "medium" ? "中" : "弱"}
+                            </span>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[300px] whitespace-normal">
+                        {extractConfidence(pos.entryReason ?? "").reasonText}
                       </TableCell>
                       <TableCell className="text-xs">
                         {pos.boardSignal ? (
@@ -380,6 +407,7 @@ export default function RealtimeTradingLog() {
                     <TableHead className="text-xs text-muted-foreground text-right">価格</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">株数</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">損益</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">信頼度</TableHead>
                     <TableHead className="text-xs text-muted-foreground">理由</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -388,6 +416,7 @@ export default function RealtimeTradingLog() {
                     const actionInfo = formatAction(trade.action);
                     const pnl = formatPnl(trade.pnl);
                     const isEntry = trade.action === "buy" || trade.action === "short";
+                    const { confidence, reasonText } = extractConfidence(trade.reason);
                     return (
                       <TableRow key={i} className={`border-border ${isEntry ? "bg-muted/10" : ""}`}>
                         <TableCell className="text-sm text-muted-foreground font-mono">
@@ -416,8 +445,21 @@ export default function RealtimeTradingLog() {
                             </span>
                           ) : pnl.text}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
-                          {trade.reason}
+                        <TableCell className="py-2">
+                          {confidence ? (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                              confidence === "strong" ? "text-amber-300 bg-amber-500/15 border-amber-400/50"
+                              : confidence === "medium" ? "text-sky-300 bg-sky-500/10 border-sky-400/40"
+                              : "text-muted-foreground bg-muted border-border/50"
+                            }`}>
+                              {confidence === "strong" ? "強" : confidence === "medium" ? "中" : "弱"}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[300px] whitespace-normal">
+                          {reasonText}
                         </TableCell>
                       </TableRow>
                     );

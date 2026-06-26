@@ -1,0 +1,19 @@
+UI Bug: 信頼度 hidden in trade table
+
+Screenshot analysis:
+- The screenshot shows the TRADE HISTORY table (bottom section), NOT the signal history table
+- The table has columns: 時刻, 銘柄, アクション, 価格, 株数, 損益, 理由
+- The "理由" column shows entries like "大台確認(5本維持): 大台割れ (50300円割り込み) | [信頼..." (truncated)
+- The confidence level text "[信頼度：強]" is being cut off by max-w-[200px] truncate on line 599
+- There is NO separate "信頼度" column in this table (unlike the signal history table which has one at line 440)
+
+Fix needed:
+1. Trade history table (line 558-607): Add a separate confidence column, or remove truncation/increase max-width
+2. The reason text includes "[信頼度：強] トレンド一致・勢い一致・出来高増" which is too long for 200px
+
+Best approach: 
+- Extract confidence from reason text and show as a separate badge column (like signal history table does)
+- OR: Remove max-w-[200px] truncate and use whitespace-normal to allow wrapping
+- OR: Show confidence as a separate column in trade history table too
+
+The user's screenshot clearly shows the trade history table. The signal history table already has a dedicated confidence column (line 440). The issue is specifically in the trade history table.

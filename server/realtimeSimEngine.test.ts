@@ -1285,3 +1285,160 @@ describe("BEストップ（+0.5%トリガー）", () => {
     expect(result.pnl).toBe(15000); // (10150 - 10000) * 100 = 15000
   });
 });
+
+
+describe("後場BPRフィルター", () => {
+  it("13:00以降のSHORTでBPR>=0.65ならエントリーブロック", async () => {
+    // enterPositionを直接呼び出してBPRフィルターをテスト
+    const { enterPosition } = await import("./realtimeSimEngine");
+    
+    // ウォームアップ: バッファを構築（ATRフィルター通過のため）
+    for (let i = 0; i < 35; i++) {
+      await processCandle(makeCandle({
+        symbol: "8035",
+        tradeDate: "2026-07-15",
+        candleTime: `12:${String(25 + Math.floor(i / 2)).padStart(2, "0")}`,
+        close: 5000 - i * 10,
+        high: 5010 - i * 10,
+        low: 4990 - i * 10,
+        open: 5005 - i * 10,
+        volume: 30000,
+      }));
+    }
+
+    // BPR=0.70 のBoardSnapshotを直接作成（enterPositionに渡す）
+    const boardSnapshot = {
+      buyPressureRatio: 0.70,
+      signal: "neutral" as const,
+      marketOrderRatio: 0.10,
+      largeBuyWall: false,
+      largeSellWall: false,
+      totalBidQty: 2800,
+      totalAskQty: 4000,
+      spreadPct: 0.02,
+    };
+
+    // 13:30のSHORTエントリーを直接呼び出し
+    const candle = makeCandle({
+      symbol: "8035",
+      tradeDate: "2026-07-15",
+      candleTime: "13:30",
+      close: 4500,
+      high: 4520,
+      low: 4480,
+      open: 4510,
+      volume: 80000,
+    });
+    const result = await enterPosition(
+      "short",
+      candle,
+      "2026-07-15",
+      "13:30",
+      "デッドクロス (MA5 < MA25)",
+      boardSnapshot as any,
+    );
+
+    // BPR>=0.65なのでブロックされるべき
+    expect(result.action).toBe("none");
+
+    // シグナル履歴にBPRブロックが記録されているか確認
+    const history = getSignalHistory();
+    const bprBlock = history.find(h => h.action === "pm_bpr_block" && h.symbol === "8035");
+    expect(bprBlock).toBeDefined();
+    expect(bprBlock!.reason).toContain("後場BPRフィルター");
+  });
+
+  it("13:00以降のSHORTでBPR<0.65ならエントリー通過", async () => {
+    // ウォームアップ: 下降トレンドを作る
+    for (let i = 0; i < 35; i++) {
+      await processCandle(makeCandle({
+        symbol: "6920",
+        tradeDate: "2026-07-15",
+        candleTime: `12:${String(25 + Math.floor(i / 2)).padStart(2, "0")}`,
+        close: 5000 - i * 10,
+        high: 5010 - i * 10,
+        low: 4990 - i * 10,
+        open: 5005 - i * 10,
+        volume: 30000,
+      }));
+    }
+    // BPR=0.50 (売り板が多い) の板情報をモック
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    (getOrderBook as any).mockReturnValue({
+      bids: [{ price: 4600, qty: 1000 }, { price: 4590, qty: 800 }],
+      asks: [{ price: 4610, qty: 2000 }, { price: 4620, qty: 1600 }],
+      underBuyQty: 100,
+      overSellQty: 200,
+      marketOrderBuyQty: 0,
+      marketOrderSellQty: 0,
+    });
+    (analyzeOrderBook as any).mockReturnValue([
+      { type: "board_sell_pressure", message: "sell pressure" },
+    ]);
+
+    // 13:30に大きな下落足を送る
+    const result = await processCandle(makeCandle({
+      symbol: "6920",
+      tradeDate: "2026-07-15",
+      candleTime: "13:30",
+      close: 4500,
+      high: 4520,
+      low: 4480,
+      open: 4510,
+      volume: 80000,
+    }));
+
+    // BPR<0.65なのでブロックされない（エントリーまたは他のフィルターで止まる）
+    // ここではBPRブロックが発動しないことを確認
+    const history = getSignalHistory();
+    const bprBlock = history.find(h => h.action === "pm_bpr_block" && h.symbol === "6920" && h.time === "13:30");
+    expect(bprBlock).toBeUndefined();
+  });
+
+  it("午前中(12:59以前)のSHORTはBPR>=0.65でもブロックしない", async () => {
+    // ウォームアップ: 下降トレンドを作る
+    for (let i = 0; i < 35; i++) {
+      await processCandle(makeCandle({
+        symbol: "6976",
+        tradeDate: "2026-07-16",
+        candleTime: `09:${String(i).padStart(2, "0")}`,
+        close: 5000 - i * 10,
+        high: 5010 - i * 10,
+        low: 4990 - i * 10,
+        open: 5005 - i * 10,
+        volume: 30000,
+      }));
+    }
+    // BPR=0.80 (非常に買い優勢) の板情報をモック
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    (getOrderBook as any).mockReturnValue({
+      bids: [{ price: 4600, qty: 4000 }, { price: 4590, qty: 3000 }],
+      asks: [{ price: 4610, qty: 800 }, { price: 4620, qty: 500 }],
+      underBuyQty: 2000,
+      overSellQty: 100,
+      marketOrderBuyQty: 0,
+      marketOrderSellQty: 0,
+    });
+    (analyzeOrderBook as any).mockReturnValue([
+      { type: "board_buy_pressure", message: "buy pressure" },
+    ]);
+
+    // 10:30に大きな下落足を送る（午前中）
+    const result = await processCandle(makeCandle({
+      symbol: "6976",
+      tradeDate: "2026-07-16",
+      candleTime: "10:30",
+      close: 4500,
+      high: 4520,
+      low: 4480,
+      open: 4510,
+      volume: 80000,
+    }));
+
+    // 午前中なのでBPRフィルターは発動しない
+    // buy_pressureフィルター(既存)でブロックされるかもしれないが、pm_bpr_blockではない
+    const history = getSignalHistory();
+    const bprBlock = history.find(h => h.action === "pm_bpr_block" && h.symbol === "6976");
+    expect(bprBlock).toBeUndefined();
+  });
+});

@@ -53,6 +53,11 @@ const TAKE_PROFIT_PERCENT = 1.5;
 /** BEストップトリガー率（%）: 含み益がこの%に到達したらSLを建値に移動 */
 const BE_TRIGGER_PERCENT = 0.5;
 
+/** 後場BPRフィルター: 13:00以降のSHORTでBPR>=この値ならエントリーブロック */
+const PM_BPR_BLOCK_THRESHOLD = 0.65;
+/** 後場BPRフィルターの開始時刻 */
+const PM_BPR_FILTER_START = "13:00";
+
 /** 証拠金（元金）: 現物300万円 */
 const MARGIN_CAPITAL = 3_000_000;
 
@@ -1165,7 +1170,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 /**
  * ポジションをエントリーする
  */
-async function enterPosition(
+export async function enterPosition(
   side: "long" | "short",
   candle: RtCandle1Min,
   tradeDate: string,
@@ -1221,6 +1226,30 @@ async function enterPosition(
         );
         return { symbol, tradeDate, candleTime, action: "none" };
       }
+    }
+  }
+
+  // ---- ★後場BPRフィルター: 13:00以降SHORTでBPR>=0.65ならブロック ----
+  if (side === "short" && candleTime >= PM_BPR_FILTER_START && boardSnapshot) {
+    const bpr = boardSnapshot.buyPressureRatio;
+    if (typeof bpr === "number" && bpr >= PM_BPR_BLOCK_THRESHOLD) {
+      console.log(
+        `[RealtimeSim] 後場BPRフィルター: ${symbol} SHORTエントリーブロック ` +
+        `(BPR=${bpr.toFixed(3)} >= 閾値${PM_BPR_BLOCK_THRESHOLD}, 時刻=${candleTime})`
+      );
+      // シグナル履歴にブロックを記録
+      signalHistory.unshift({
+        time: candleTime,
+        symbol,
+        symbolName: getStockName(symbol),
+        action: "pm_bpr_block",
+        price,
+        shares: 0,
+        pnl: null,
+        reason: `後場BPRフィルター: BPR=${bpr.toFixed(3)}>=${PM_BPR_BLOCK_THRESHOLD} → SHORTブロック (${reason.substring(0, 40)})`,
+      });
+      if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+      return { symbol, tradeDate, candleTime, action: "none" };
     }
   }
 

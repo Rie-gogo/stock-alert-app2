@@ -75,6 +75,8 @@ function formatAction(action: string): { label: string; color: string; icon: Rea
       return { label: "強制決済", color: "text-yellow-400 bg-yellow-400/10", icon: <Zap className="w-3 h-3" /> };
     case "be_trigger":
       return { label: "BE発動", color: "text-yellow-300 bg-yellow-400/10", icon: <Shield className="w-3 h-3" /> };
+    case "pm_bpr_block":
+      return { label: "BPRブロック", color: "text-orange-400 bg-orange-400/10", icon: <Shield className="w-3 h-3" /> };
     default:
       return { label: action, color: "text-muted-foreground bg-muted", icon: null };
   }

@@ -50,6 +50,9 @@ const STOP_LOSS_PERCENT = 0.5; // 改善③: 0.7→0.5に引き締め (2026-06-1
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
 
+/** BEストップトリガー率（%）: 含み益がこの%に到達したらSLを建値に移動 */
+const BE_TRIGGER_PERCENT = 0.5;
+
 /** 証拠金（元金）: 現物300万円 */
 const MARGIN_CAPITAL = 3_000_000;
 
@@ -103,6 +106,10 @@ interface OpenPosition {
   entryReason: string;
   boardSignal?: string;
   confidence?: SignalConfidence;
+  /** BEストップ: 含み益+0.5%到達でtrue */
+  beTriggered?: boolean;
+  /** BEストップ: トリガー発動時刻 (HH:MM) */
+  beTriggeredAt?: string;
 }
 
 // ============================================================
@@ -1309,17 +1316,47 @@ async function checkExitConditions(
   const { symbol, side, entryPrice, shares } = pos;
   const { high, low, close } = candle;
 
+  // ---- BEストップトリガー判定 ----
+  // 含み益が+0.5%に到達したらSLを建値に移動
+  if (!pos.beTriggered) {
+    const beTriggerLine = side === "long"
+      ? entryPrice * (1 + BE_TRIGGER_PERCENT / 100)
+      : entryPrice * (1 - BE_TRIGGER_PERCENT / 100);
+    const beHit = side === "long" ? high >= beTriggerLine : low <= beTriggerLine;
+    if (beHit) {
+      pos.beTriggered = true;
+      pos.beTriggeredAt = candleTime;
+      console.log(`[RealtimeSim] ${symbol} BEトリガー発動: 含み益+${BE_TRIGGER_PERCENT}%到達 @${candleTime} (SL→建値${entryPrice}円)`);
+      // シグナル履歴にBEトリガー発動を記録
+      signalHistory.unshift({
+        time: candleTime,
+        symbol,
+        symbolName: getStockName(symbol),
+        action: "be_trigger",
+        price: entryPrice,
+        shares,
+        pnl: null,
+        reason: `BEトリガー発動: 含み益+${BE_TRIGGER_PERCENT}%到達→SLを建値(${entryPrice}円)に移動`,
+      });
+      if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+    }
+  }
+
   let exitPrice: number | null = null;
   let exitReason = "";
   let action: "exit" | "stop_loss" | "take_profit" = "exit";
 
   if (side === "long") {
-    // 損切り: 安値が損切りラインを下回った
-    const stopLine = entryPrice * (1 - STOP_LOSS_PERCENT / 100);
+    // 損切り: BE発動済みなら建値、未発動なら通常SL
+    const stopLine = pos.beTriggered
+      ? entryPrice  // BE発動済み: SL=建値
+      : entryPrice * (1 - STOP_LOSS_PERCENT / 100);
     if (low <= stopLine) {
       exitPrice = stopLine;
-      exitReason = `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
-      action = "stop_loss";
+      exitReason = pos.beTriggered
+        ? `BE建値決済 (建値:${stopLine.toFixed(0)}円)`
+        : `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
+      action = pos.beTriggered ? "exit" : "stop_loss";
     }
     // 利確: 高値が利確ラインを上回った
     const tpLine = entryPrice * (1 + TAKE_PROFIT_PERCENT / 100);
@@ -1329,12 +1366,16 @@ async function checkExitConditions(
       action = "take_profit";
     }
   } else {
-    // 空売り: 損切り（高値が損切りラインを上回った）
-    const stopLine = entryPrice * (1 + STOP_LOSS_PERCENT / 100);
+    // 空売り: 損切り（BE発動済みなら建値、未発動なら通常SL）
+    const stopLine = pos.beTriggered
+      ? entryPrice  // BE発動済み: SL=建値
+      : entryPrice * (1 + STOP_LOSS_PERCENT / 100);
     if (high >= stopLine) {
       exitPrice = stopLine;
-      exitReason = `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
-      action = "stop_loss";
+      exitReason = pos.beTriggered
+        ? `BE建値決済 (建値:${stopLine.toFixed(0)}円)`
+        : `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
+      action = pos.beTriggered ? "exit" : "stop_loss";
     }
     // 空売り: 利確（安値が利確ラインを下回った）
     const tpLine = entryPrice * (1 - TAKE_PROFIT_PERCENT / 100);

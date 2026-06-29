@@ -1,0 +1,676 @@
+=== 2026-06-29 全取引 詳細分析（チャート・出来高・板情報） ===
+
+取引数: 10件
+
+======================================================================
+✓ 勝ち | 6526(ソシオネクスト) | short | 10:07→10:20
+エントリー: @2,469.5 | 決済: @2,432.46 | P&L: +37,043円
+理由: 大台確認(5本維持): 大台割れ (2500円割り込み)｜[信頼度：中] トレンド一致・勢い一致・出来高薄 (押し目なし・強トレンド)
+決済理由: 利確 (利確ライン:2432円)
+
+【エントリー前 チャート・出来高・板】
+  10:03 O:2476 H:2480.5 L:2473 C:2477.5 陽線 Vol:16000(0.6x)
+    板: BPR=0.630 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:04 O:2477.5 H:2481.5 L:2471 C:2471 陰線 Vol:17000(0.6x)
+    板: BPR=0.570 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:05 O:2471 H:2471 L:2463.5 C:2464.5 陰線 Vol:31000(1.1x)
+    板: BPR=0.570 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:06 O:2464.5 H:2473.5 L:2464.5 C:2470.5 陽線 Vol:15000(0.5x)
+    板: BPR=0.610 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:07 O:2470.5 H:2474 L:2468 C:2469.5 陰線 Vol:17500(0.6x)
+    板: BPR=0.540 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 10:07
+  O:2470.5 H:2474 L:2468 C:2469.5 Vol:17500
+  VWAP(計算値): 2507.6 | 価格位置: VWAP下
+  板詳細:
+    BPR: 0.540 (中立)
+    Signal: sell_pressure
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 1
+
+【保有中の推移】
+  10:08 C:2464.5 陰線 Vol:23700 BPR=0.570 Sig=sell_pressure Mode=N/A 含み:+5,000円
+  10:09 C:2470 陽線 Vol:21100 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-500円
+  10:10 C:2475.5 陽線 Vol:16200 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:-6,000円
+  10:11 C:2476 陽線 Vol:7400 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-6,500円
+  10:12 C:2472 陰線 Vol:11000 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:-2,500円
+  10:13 C:2461.5 陰線 Vol:56300 BPR=0.560 Sig=sell_pressure Mode=N/A 含み:+8,000円
+  10:14 C:2463.5 陽線 Vol:20200 BPR=0.550 Sig=sell_pressure Mode=N/A 含み:+6,000円
+  10:15 C:2461.5 陰線 Vol:12900 BPR=0.540 Sig=sell_pressure Mode=N/A 含み:+8,000円
+  10:16 C:2450.5 陰線 Vol:26400 BPR=0.500 Sig=sell_pressure Mode=N/A 含み:+19,000円
+  10:17 C:2439.5 陰線 Vol:55800 BPR=0.470 Sig=sell_pressure Mode=N/A 含み:+30,000円
+  10:18 C:2435.5 陰線 Vol:55900 BPR=0.500 Sig=sell_pressure Mode=N/A 含み:+34,000円
+  10:19 C:2436 陽線 Vol:51300 BPR=0.480 Sig=sell_pressure Mode=N/A 含み:+33,500円
+  10:20 C:2435.5 陰線 Vol:58400 BPR=0.570 Sig=sell_pressure Mode=N/A 含み:+34,000円
+
+  最大含み益: +34,000円
+  最大含み損: -6,500円
+
+【決済後の推移（もし持ち続けていたら）】
+  10:21 C:2435.5 仮想P&L:+34,000円
+  10:22 C:2437 仮想P&L:+32,500円
+  10:23 C:2435 仮想P&L:+34,500円
+  10:24 C:2432.5 仮想P&L:+37,000円
+  10:25 C:2425.5 仮想P&L:+44,000円
+
+【この取引の要約】
+  保有時間: 13分
+  リターン: 1.50%
+  最大含み益→結果: +34,000円→+37,043円 (109%回収)
+
+======================================================================
+✗ 負け | 5803(フジクラ) | short | 10:17→10:26
+エントリー: @5,795 | 決済: @5,823.97 | P&L: -11,590円
+理由: VWAPクロス下抜け (VWAP:5795.4)｜[信頼度：強] トレンド一致・勢い一致・出来高増
+決済理由: 損切り (損切りライン:5824円)
+
+【エントリー前 チャート・出来高・板】
+  10:13 O:5855 H:5856 L:5818 C:5830 陰線 Vol:224400(1.4x)
+    板: BPR=0.280 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:14 O:5830 H:5859 L:5825 C:5845 陽線 Vol:159300(1.0x)
+    板: BPR=0.280 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:15 O:5845 H:5850 L:5835 C:5842 陰線 Vol:92200(0.6x)
+    板: BPR=0.280 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:16 O:5842 H:5847 L:5821 C:5823 陰線 Vol:114400(0.7x)
+    板: BPR=0.260 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:17 O:5823 H:5830 L:5792 C:5795 陰線 Vol:258700(1.6x)
+    板: BPR=0.250 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 10:17
+  O:5823 H:5830 L:5792 C:5795 Vol:258700
+  VWAP(計算値): 5795.4 | 価格位置: VWAP下
+  板詳細:
+    BPR: 0.250 (売り優勢)
+    Signal: sell_pressure
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 2
+
+【保有中の推移】
+  10:18 C:5783 陰線 Vol:172500 BPR=0.250 Sig=sell_pressure Mode=N/A 含み:+4,800円
+  10:19 C:5794 陽線 Vol:199500 BPR=0.250 Sig=sell_pressure Mode=N/A 含み:+400円
+  10:20 C:5791 陰線 Vol:168300 BPR=0.270 Sig=sell_pressure Mode=N/A 含み:+1,600円
+  10:21 C:5774 陰線 Vol:151300 BPR=0.260 Sig=sell_pressure Mode=N/A 含み:+8,400円
+  10:22 C:5791 陽線 Vol:182000 BPR=0.280 Sig=sell_pressure Mode=N/A 含み:+1,600円
+  10:23 C:5796 陽線 Vol:100300 BPR=0.270 Sig=sell_pressure Mode=N/A 含み:-400円
+  10:24 C:5791 陰線 Vol:72900 BPR=0.280 Sig=sell_pressure Mode=N/A 含み:+1,600円
+  10:25 C:5782 陰線 Vol:192800 BPR=0.270 Sig=sell_pressure Mode=N/A 含み:+5,200円
+  10:26 C:5821 陽線 Vol:198400 BPR=0.280 Sig=sell_pressure Mode=N/A 含み:-10,400円
+
+  最大含み益: +8,400円
+  最大含み損: -10,400円
+
+【決済後の推移（もし持ち続けていたら）】
+  10:27 C:5807 仮想P&L:-4,800円
+  10:28 C:5799 仮想P&L:-1,600円
+  10:29 C:5780 仮想P&L:+6,000円
+  10:30 C:5774 仮想P&L:+8,400円
+  10:31 C:5774 仮想P&L:+8,400円
+
+【この取引の要約】
+  保有時間: 9分
+  リターン: -0.50%
+  最大含み益→結果: +8,400円→-11,590円 (-138%回収)
+
+======================================================================
+✗ 負け | 8316(三井住友FG) | short | 10:17→12:30
+エントリー: @6,339 | 決済: @6,370.7 | P&L: -12,678円
+理由: 三尊（ヘッド&ショルダー）(ネックライン:6359.5円割れ)｜[信頼度：強] トレンド一致・勢い一致・出来高増
+決済理由: 損切り (損切りライン:6371円)
+
+【エントリー前 チャート・出来高・板】
+  10:13 O:6347 H:6347 L:6338 C:6338 陰線 Vol:22300(1.1x)
+    板: BPR=0.320 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:14 O:6338 H:6342 L:6337 C:6341 陽線 Vol:6900(0.4x)
+    板: BPR=N/A Signal=N/A MktOrd=N/A(N/A) Mode=N/A
+  10:15 O:6341 H:6351 L:6340 C:6348 陽線 Vol:28400(1.4x)
+    板: BPR=0.340 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:16 O:6348 H:6352 L:6346 C:6350 陽線 Vol:19500(1.0x)
+    板: BPR=0.350 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:17 O:6350 H:6353 L:6339 C:6339 陰線 Vol:40100(2.0x)
+    板: BPR=0.320 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 10:17
+  O:6350 H:6353 L:6339 C:6339 Vol:40100
+  VWAP(計算値): 6395.5 | 価格位置: VWAP下
+  板詳細:
+    BPR: 0.320 (売り優勢)
+    Signal: sell_pressure
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 2
+
+【保有中の推移】
+  10:18 C:6342 陽線 Vol:20900 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:-1,200円
+  10:19 C:6340 陰線 Vol:25100 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:-400円
+  10:20 C:6348 陽線 Vol:7500 BPR=0.350 Sig=sell_pressure Mode=N/A 含み:-3,600円
+  10:21 C:6348 陽線 Vol:4500 BPR=0.350 Sig=sell_pressure Mode=N/A 含み:-3,600円
+  10:22 C:6351 陽線 Vol:7700 BPR=0.360 Sig=sell_pressure Mode=N/A 含み:-4,800円
+  10:23 C:6351 陽線 Vol:21900 BPR=0.360 Sig=sell_pressure Mode=N/A 含み:-4,800円
+  10:24 C:6354 陽線 Vol:5700 BPR=0.360 Sig=sell_pressure Mode=N/A 含み:-6,000円
+  10:25 C:6351 陰線 Vol:10700 BPR=0.360 Sig=sell_pressure Mode=N/A 含み:-4,800円
+  10:26 C:6355 陽線 Vol:30100 BPR=0.360 Sig=sell_pressure Mode=N/A 含み:-6,400円
+  10:27 C:6355 陰線 Vol:4700 BPR=0.370 Sig=sell_pressure Mode=N/A 含み:-6,400円
+  10:28 C:6358 陽線 Vol:5100 BPR=0.350 Sig=sell_pressure Mode=N/A 含み:-7,600円
+  10:29 C:6348 陰線 Vol:14900 BPR=0.340 Sig=sell_pressure Mode=N/A 含み:-3,600円
+  10:30 C:6344 陰線 Vol:43600 BPR=0.340 Sig=sell_pressure Mode=N/A 含み:-2,000円
+  10:31 C:6327 陰線 Vol:63400 BPR=0.320 Sig=sell_pressure Mode=N/A 含み:+4,800円
+  10:32 C:6333 陽線 Vol:15600 BPR=0.320 Sig=sell_pressure Mode=N/A 含み:+2,400円
+  10:33 C:6320 陰線 Vol:48400 BPR=0.320 Sig=sell_pressure Mode=N/A 含み:+7,600円
+  10:34 C:6321 陽線 Vol:23600 BPR=0.340 Sig=sell_pressure Mode=N/A 含み:+7,200円
+  10:35 C:6323 陽線 Vol:21900 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:+6,400円
+  10:36 C:6327 陽線 Vol:23000 BPR=0.340 Sig=sell_pressure Mode=N/A 含み:+4,800円
+  10:37 C:6324 陰線 Vol:37800 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:+6,000円
+  10:38 C:6331 陽線 Vol:8600 BPR=0.350 Sig=sell_pressure Mode=N/A 含み:+3,200円
+  10:39 C:6333 陽線 Vol:20600 BPR=0.350 Sig=sell_pressure Mode=N/A 含み:+2,400円
+  10:40 C:6329 陰線 Vol:11100 BPR=N/A Sig=N/A Mode=N/A 含み:+4,000円
+  10:41 C:6335 陽線 Vol:9900 BPR=0.350 Sig=sell_pressure Mode=N/A 含み:+1,600円
+  10:42 C:6331 陰線 Vol:19800 BPR=0.340 Sig=sell_pressure Mode=N/A 含み:+3,200円
+  10:43 C:6327 陰線 Vol:15200 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:+4,800円
+  10:44 C:6323 陰線 Vol:10700 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:+6,400円
+  10:45 C:6311 陰線 Vol:50200 BPR=0.320 Sig=sell_pressure Mode=N/A 含み:+11,200円
+  10:46 C:6313 陽線 Vol:12300 BPR=0.310 Sig=sell_pressure Mode=N/A 含み:+10,400円
+  10:47 C:6310 陰線 Vol:8000 BPR=0.330 Sig=sell_pressure Mode=N/A 含み:+11,600円
+
+  最大含み益: +11,600円
+  最大含み損: -7,600円
+
+【決済後の推移（もし持ち続けていたら）】
+  12:31 C:6362 仮想P&L:-9,200円
+  12:32 C:6365 仮想P&L:-10,400円
+  12:33 C:6358 仮想P&L:-7,600円
+  12:34 C:6360 仮想P&L:-8,400円
+  12:35 C:6357 仮想P&L:-7,200円
+
+【この取引の要約】
+  保有時間: 133分
+  リターン: -0.50%
+  最大含み益→結果: +11,600円→-12,678円 (-109%回収)
+
+======================================================================
+✗ 負け | 7011(三菱重工業) | short | 10:32→10:41
+エントリー: @3,629 | 決済: @3,647.14 | P&L: -12,701円
+理由: 三尊（ヘッド&ショルダー）(ネックライン:3644.0円割れ)｜[信頼度：強] トレンド一致・勢い一致・出来高増
+決済理由: 損切り (損切りライン:3647円)
+
+【エントリー前 チャート・出来高・板】
+  10:28 O:3648 H:3653 L:3648 C:3653 陽線 Vol:27500(0.7x)
+    板: BPR=0.660 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:29 O:3653 H:3653 L:3643 C:3644 陰線 Vol:36000(1.0x)
+    板: BPR=0.650 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:30 O:3644 H:3644 L:3636 C:3639 陰線 Vol:62900(1.7x)
+    板: BPR=0.660 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:31 O:3639 H:3640 L:3632 C:3633 陰線 Vol:38500(1.0x)
+    板: BPR=0.650 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  10:32 O:3633 H:3635 L:3629 C:3629 陰線 Vol:55500(1.5x)
+    板: BPR=0.640 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 10:32
+  O:3633 H:3635 L:3629 C:3629 Vol:55500
+  VWAP(計算値): 3687.2 | 価格位置: VWAP下
+  板詳細:
+    BPR: 0.640 (買い優勢)
+    Signal: sell_pressure
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=true
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 0
+
+【保有中の推移】
+  10:33 C:3627 陰線 Vol:56600 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:+1,400円
+  10:34 C:3626 陰線 Vol:45700 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:+2,100円
+  10:35 C:3633 陽線 Vol:53700 BPR=0.680 Sig=neutral Mode=N/A 含み:-2,800円
+  10:36 C:3642 陽線 Vol:68100 BPR=0.670 Sig=sell_pressure Mode=N/A 含み:-9,100円
+  10:37 C:3638 陰線 Vol:48400 BPR=0.660 Sig=sell_pressure Mode=N/A 含み:-6,300円
+  10:38 C:3641 陽線 Vol:25100 BPR=0.680 Sig=neutral Mode=N/A 含み:-8,400円
+  10:39 C:3645 陽線 Vol:29400 BPR=0.710 Sig=neutral Mode=N/A 含み:-11,200円
+  10:40 C:3642 陰線 Vol:37400 BPR=N/A Sig=N/A Mode=N/A 含み:-9,100円
+  10:41 C:3647 陽線 Vol:17400 BPR=0.710 Sig=neutral Mode=N/A 含み:-12,600円
+
+  最大含み益: +2,100円
+  最大含み損: -12,600円
+
+【決済後の推移（もし持ち続けていたら）】
+  10:42 C:3649 仮想P&L:-14,000円
+  10:43 C:3648 仮想P&L:-13,300円
+  10:44 C:3650 仮想P&L:-14,700円
+  10:45 C:3648 仮想P&L:-13,300円
+  10:46 C:3650 仮想P&L:-14,700円
+
+【この取引の要約】
+  保有時間: 9分
+  リターン: -0.50%
+  最大含み益→結果: +2,100円→-12,701円 (-605%回収)
+
+======================================================================
+✗ 負け | 6976(太陽誘電) | long | 10:36→10:38
+エントリー: @18,600 | 決済: @18,507 | P&L: -9,300円
+理由: ゴールデンクロス (MA5:18350 > MA25:18259.4, 乖離:0.50%)｜[信頼度：強] トレンド一致・勢い一致・出来高増
+決済理由: 損切り (損切りライン:18507円)
+
+【エントリー前 チャート・出来高・板】
+  10:32 O:17985 H:18200 L:17970 C:18190 陽線 Vol:83400(0.8x)
+    板: BPR=0.700 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  10:33 O:18190 H:18250 L:18145 C:18250 陽線 Vol:62700(0.6x)
+    板: BPR=0.820 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  10:34 O:18250 H:18335 L:18230 C:18290 陽線 Vol:95800(0.9x)
+    板: BPR=0.870 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  10:35 O:18290 H:18435 L:18280 C:18420 陽線 Vol:95300(0.9x)
+    板: BPR=0.960 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  10:36 O:18420 H:18610 L:18420 C:18600 陽線 Vol:211000(2.1x)
+    板: BPR=1.110 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 10:36
+  O:18420 H:18610 L:18420 C:18600 Vol:211000
+  VWAP(計算値): 17831.7 | 価格位置: VWAP上
+  板詳細:
+    BPR: 1.110 (買い優勢)
+    Signal: neutral
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 1
+
+【保有中の推移】
+  10:37 C:18545 陰線 Vol:104400 BPR=0.980 Sig=neutral Mode=N/A 含み:-5,500円
+  10:38 C:18505 陰線 Vol:70400 BPR=1.030 Sig=neutral Mode=N/A 含み:-9,500円
+
+  最大含み益: +0円
+  最大含み損: -9,500円
+
+【決済後の推移（もし持ち続けていたら）】
+  10:39 C:18575 仮想P&L:-2,500円
+  10:40 C:18605 仮想P&L:+500円
+  10:41 C:18630 仮想P&L:+3,000円
+  10:42 C:18585 仮想P&L:-1,500円
+  10:43 C:18600 仮想P&L:+0円
+
+【この取引の要約】
+  保有時間: 2分
+  リターン: -0.50%
+  最大含み益→結果: なし
+
+======================================================================
+✗ 負け | 9984(ソフトバンクグループ) | short | 13:39→14:39
+エントリー: @5,845 | 決済: @5,874.22 | P&L: -11,690円
+理由: 大台確認(5本維持): 大台割れ (5900円割り込み)｜[信頼度：中] トレンド一致・勢い一致・出来高薄 (押し目なし・強トレンド)
+決済理由: 損切り (損切りライン:5874円)
+
+【エントリー前 チャート・出来高・板】
+  13:35 O:5859 H:5859 L:5855 C:5858 陰線 Vol:66100(0.7x)
+    板: BPR=0.680 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:36 O:5858 H:5859 L:5855 C:5857 陰線 Vol:52000(0.5x)
+    板: BPR=0.680 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:37 O:5857 H:5861 L:5856 C:5861 陽線 Vol:55500(0.5x)
+    板: BPR=N/A Signal=N/A MktOrd=N/A(N/A) Mode=N/A
+  13:38 O:5861 H:5863 L:5858 C:5859 陰線 Vol:61500(0.6x)
+    板: BPR=0.600 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  13:39 O:5859 H:5859 L:5844 C:5845 陰線 Vol:346500(3.4x)
+    板: BPR=0.610 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 13:39
+  O:5859 H:5859 L:5844 C:5845 Vol:346500
+  VWAP(計算値): 5945.0 | 価格位置: VWAP下
+  板詳細:
+    BPR: 0.610 (買い優勢)
+    Signal: sell_pressure
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 1
+
+【保有中の推移】
+  13:40 C:5848 陽線 Vol:124500 BPR=0.610 Sig=sell_pressure Mode=N/A 含み:-1,200円
+  13:41 C:5845 陰線 Vol:83600 BPR=0.610 Sig=sell_pressure Mode=N/A 含み:+0円
+  13:42 C:5845 陽線 Vol:57700 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+0円
+  13:43 C:5850 陽線 Vol:72600 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:-2,000円
+  13:44 C:5848 陰線 Vol:73200 BPR=0.610 Sig=sell_pressure Mode=N/A 含み:-1,200円
+  13:45 C:5845 陰線 Vol:80600 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+0円
+  13:46 C:5848 陽線 Vol:85700 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:-1,200円
+  13:47 C:5848 陽線 Vol:88700 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:-1,200円
+  13:48 C:5856 陽線 Vol:73800 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-4,400円
+  13:49 C:5864 陽線 Vol:115800 BPR=0.660 Sig=sell_pressure Mode=N/A 含み:-7,600円
+  13:50 C:5859 陰線 Vol:103800 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-5,600円
+  13:51 C:5854 陰線 Vol:146800 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:-3,600円
+  13:52 C:5855 陽線 Vol:132800 BPR=0.640 Sig=sell_pressure Mode=N/A 含み:-4,000円
+  13:53 C:5853 陰線 Vol:55400 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-3,200円
+  13:54 C:5851 陰線 Vol:72200 BPR=0.640 Sig=sell_pressure Mode=N/A 含み:-2,400円
+  13:55 C:5842 陰線 Vol:128700 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+1,200円
+  13:56 C:5844 陽線 Vol:79900 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+400円
+  13:57 C:5843 陰線 Vol:59400 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+800円
+  13:58 C:5840 陰線 Vol:134300 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:+2,000円
+  13:59 C:5838 陰線 Vol:113200 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:+2,800円
+  14:00 C:5835 陰線 Vol:74300 BPR=0.590 Sig=sell_pressure Mode=N/A 含み:+4,000円
+  14:01 C:5837 陽線 Vol:113000 BPR=0.610 Sig=sell_pressure Mode=N/A 含み:+3,200円
+  14:02 C:5836 陰線 Vol:72700 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:+3,600円
+  14:03 C:5839 陽線 Vol:74300 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:+2,400円
+  14:04 C:5840 陽線 Vol:59400 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:+2,000円
+  14:05 C:5843 陽線 Vol:102400 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:+800円
+  14:06 C:5845 陽線 Vol:92800 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+0円
+  14:07 C:5844 陰線 Vol:112800 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+400円
+  14:08 C:5850 陽線 Vol:101700 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:-2,000円
+  14:09 C:5843 陰線 Vol:48600 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+800円
+
+  最大含み益: +4,000円
+  最大含み損: -7,600円
+
+【決済後の推移（もし持ち続けていたら）】
+  14:40 C:5873 仮想P&L:-11,200円
+  14:41 C:5888 仮想P&L:-17,200円
+  14:42 C:5890 仮想P&L:-18,000円
+  14:43 C:5902 仮想P&L:-22,800円
+  14:44 C:5896 仮想P&L:-20,400円
+
+【この取引の要約】
+  保有時間: 60分
+  リターン: -0.50%
+  最大含み益→結果: +4,000円→-11,690円 (-292%回収)
+
+======================================================================
+✗ 負け | 6857(アドバンテスト) | short | 13:42→13:53
+エントリー: @31,090 | 決済: @31,245.45 | P&L: -15,545円
+理由: 大台確認(5本維持): 大台割れ (31400円割り込み)｜[信頼度：中] トレンド逆行・勢い一致・出来高増 (押し目なし・強トレンド)
+決済理由: 損切り (損切りライン:31245円)
+
+【エントリー前 チャート・出来高・板】
+  13:38 O:31210 H:31260 L:31210 C:31230 陽線 Vol:8600(0.9x)
+    板: BPR=0.740 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:39 O:31230 H:31230 L:31180 C:31190 陰線 Vol:4300(0.4x)
+    板: BPR=0.730 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:40 O:31190 H:31190 L:31080 C:31100 陰線 Vol:41900(4.2x)
+    板: BPR=0.690 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:41 O:31100 H:31120 L:31100 C:31100 陽線 Vol:6400(0.6x)
+    板: BPR=0.700 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:42 O:31100 H:31120 L:31090 C:31090 陰線 Vol:4900(0.5x)
+    板: BPR=0.700 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 13:42
+  O:31100 H:31120 L:31090 C:31090 Vol:4900
+  VWAP(計算値): 31210.9 | 価格位置: VWAP下
+  板詳細:
+    BPR: 0.700 (買い優勢)
+    Signal: neutral
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: -1
+
+【保有中の推移】
+  13:43 C:31140 陽線 Vol:8900 BPR=0.720 Sig=neutral Mode=N/A 含み:-5,000円
+  13:44 C:31150 陽線 Vol:5800 BPR=0.690 Sig=neutral Mode=N/A 含み:-6,000円
+  13:45 C:31090 陰線 Vol:14900 BPR=0.700 Sig=neutral Mode=N/A 含み:+0円
+  13:46 C:31130 陽線 Vol:5600 BPR=0.720 Sig=neutral Mode=N/A 含み:-4,000円
+  13:47 C:31130 陽線 Vol:4800 BPR=0.710 Sig=neutral Mode=N/A 含み:-4,000円
+  13:48 C:31170 陽線 Vol:13000 BPR=0.730 Sig=neutral Mode=N/A 含み:-8,000円
+  13:49 C:31200 陽線 Vol:9800 BPR=0.740 Sig=neutral Mode=N/A 含み:-11,000円
+  13:50 C:31190 陰線 Vol:12200 BPR=0.710 Sig=neutral Mode=N/A 含み:-10,000円
+  13:51 C:31210 陽線 Vol:11800 BPR=0.730 Sig=neutral Mode=N/A 含み:-12,000円
+  13:52 C:31240 陽線 Vol:8500 BPR=0.730 Sig=neutral Mode=N/A 含み:-15,000円
+  13:53 C:31250 陽線 Vol:9300 BPR=0.740 Sig=neutral Mode=N/A 含み:-16,000円
+
+  最大含み益: +0円
+  最大含み損: -16,000円
+
+【決済後の推移（もし持ち続けていたら）】
+  13:54 C:31240 仮想P&L:-15,000円
+  13:55 C:31150 仮想P&L:-6,000円
+  13:56 C:31160 仮想P&L:-7,000円
+  13:57 C:31170 仮想P&L:-8,000円
+  13:58 C:31160 仮想P&L:-7,000円
+
+【この取引の要約】
+  保有時間: 11分
+  リターン: -0.50%
+  最大含み益→結果: なし
+
+======================================================================
+✗ 負け | 6920(レーザーテック) | short | 13:55→14:33
+エントリー: @48,190 | 決済: @48,430.95 | P&L: -24,095円
+理由: 大台確認(5本維持): 大台割れ (48400円割り込み)｜[信頼度：中] トレンド一致・勢い一致・出来高薄 (押し目確認後)
+決済理由: 損切り (損切りライン:48431円)
+
+【エントリー前 チャート・出来高・板】
+  13:51 O:48340 H:48360 L:48300 C:48360 陽線 Vol:2100(0.6x)
+    板: BPR=0.710 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:52 O:48360 H:48380 L:48340 C:48380 陽線 Vol:900(0.3x)
+    板: BPR=0.710 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:53 O:48380 H:48410 L:48360 C:48410 陽線 Vol:2700(0.8x)
+    板: BPR=0.730 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:54 O:48410 H:48420 L:48330 C:48340 陰線 Vol:2400(0.7x)
+    板: BPR=0.690 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  13:55 O:48340 H:48340 L:48180 C:48190 陰線 Vol:9400(2.9x)
+    板: BPR=0.650 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 13:55
+  O:48340 H:48340 L:48180 C:48190 Vol:9400
+  VWAP(計算値): 48021.9 | 価格位置: VWAP上
+  板詳細:
+    BPR: 0.650 (買い優勢)
+    Signal: sell_pressure
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 0
+
+【保有中の推移】
+  13:56 C:48200 陽線 Vol:2400 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:-1,000円
+  13:57 C:48210 陽線 Vol:3500 BPR=0.640 Sig=sell_pressure Mode=N/A 含み:-2,000円
+  13:58 C:48200 陰線 Vol:1800 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-1,000円
+  13:59 C:48200 陽線 Vol:3200 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:-1,000円
+  14:00 C:48070 陰線 Vol:7500 BPR=0.600 Sig=sell_pressure Mode=N/A 含み:+12,000円
+  14:01 C:48060 陰線 Vol:8300 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:+13,000円
+  14:02 C:48080 陽線 Vol:5100 BPR=0.620 Sig=sell_pressure Mode=N/A 含み:+11,000円
+  14:03 C:48080 陽線 Vol:2900 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:+11,000円
+  14:04 C:48130 陽線 Vol:2800 BPR=0.650 Sig=sell_pressure Mode=N/A 含み:+6,000円
+  14:05 C:48220 陽線 Vol:5200 BPR=0.700 Sig=neutral Mode=N/A 含み:-3,000円
+  14:06 C:48250 陽線 Vol:5400 BPR=0.700 Sig=neutral Mode=N/A 含み:-6,000円
+  14:07 C:48280 陽線 Vol:4000 BPR=0.680 Sig=neutral Mode=N/A 含み:-9,000円
+  14:08 C:48290 陽線 Vol:1700 BPR=0.670 Sig=neutral Mode=N/A 含み:-10,000円
+  14:09 C:48260 陰線 Vol:2700 BPR=0.670 Sig=sell_pressure Mode=N/A 含み:-7,000円
+  14:10 C:48250 陰線 Vol:4200 BPR=0.680 Sig=neutral Mode=N/A 含み:-6,000円
+  14:11 C:48230 陰線 Vol:2000 BPR=0.660 Sig=sell_pressure Mode=N/A 含み:-4,000円
+  14:12 C:48110 陰線 Vol:7400 BPR=0.630 Sig=sell_pressure Mode=N/A 含み:+8,000円
+  14:13 C:48180 陽線 Vol:3600 BPR=0.660 Sig=sell_pressure Mode=N/A 含み:+1,000円
+  14:14 C:48250 陽線 Vol:3000 BPR=0.700 Sig=neutral Mode=N/A 含み:-6,000円
+  14:15 C:48330 陽線 Vol:5200 BPR=0.690 Sig=neutral Mode=N/A 含み:-14,000円
+  14:16 C:48310 陰線 Vol:2800 BPR=0.680 Sig=neutral Mode=N/A 含み:-12,000円
+  14:17 C:48280 陰線 Vol:3000 BPR=0.680 Sig=neutral Mode=N/A 含み:-9,000円
+  14:18 C:48190 陰線 Vol:2900 BPR=0.660 Sig=sell_pressure Mode=N/A 含み:+0円
+  14:19 C:48200 陽線 Vol:2200 BPR=0.690 Sig=neutral Mode=N/A 含み:-1,000円
+  14:20 C:48320 陽線 Vol:4500 BPR=0.710 Sig=neutral Mode=N/A 含み:-13,000円
+  14:21 C:48300 陰線 Vol:4800 BPR=0.690 Sig=neutral Mode=N/A 含み:-11,000円
+  14:22 C:48330 陽線 Vol:1600 BPR=0.700 Sig=neutral Mode=N/A 含み:-14,000円
+  14:23 C:48370 陽線 Vol:1600 BPR=0.710 Sig=neutral Mode=N/A 含み:-18,000円
+  14:24 C:48340 陰線 Vol:4900 BPR=0.730 Sig=neutral Mode=N/A 含み:-15,000円
+  14:25 C:48370 陽線 Vol:4100 BPR=0.730 Sig=neutral Mode=N/A 含み:-18,000円
+
+  最大含み益: +13,000円
+  最大含み損: -18,000円
+
+【決済後の推移（もし持ち続けていたら）】
+  14:34 C:48600 仮想P&L:-41,000円
+  14:35 C:48600 仮想P&L:-41,000円
+  14:36 C:48620 仮想P&L:-43,000円
+  14:37 C:48540 仮想P&L:-35,000円
+  14:38 C:48600 仮想P&L:-41,000円
+
+【この取引の要約】
+  保有時間: 38分
+  リターン: -0.50%
+  最大含み益→結果: +13,000円→-24,095円 (-185%回収)
+
+======================================================================
+✓ 勝ち | 6976(太陽誘電) | long | 14:54→15:30
+エントリー: @18,520 | 決済: @18,610 | P&L: +9,000円
+理由: 大台確認(5本維持): 大台超え (18200円突破)｜[信頼度：強] トレンド一致・勢い一致・出来高増 (押し目なし・強トレンド)
+決済理由: 大引け強制決済
+
+【エントリー前 チャート・出来高・板】
+  14:50 O:18375 H:18415 L:18375 C:18410 陽線 Vol:62300(1.5x)
+    板: BPR=0.660 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  14:51 O:18410 H:18445 L:18405 C:18440 陽線 Vol:34500(0.8x)
+    板: BPR=0.650 Signal=sell_pressure MktOrd=neutral(0.000) Mode=N/A
+  14:52 O:18435 H:18440 L:18410 C:18440 陽線 Vol:24000(0.6x)
+    板: BPR=0.690 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  14:53 O:18440 H:18490 L:18430 C:18475 陽線 Vol:61800(1.4x)
+    板: BPR=0.700 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  14:54 O:18475 H:18530 L:18465 C:18520 陽線 Vol:65700(1.5x)
+    板: BPR=0.720 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 14:54
+  O:18475 H:18530 L:18465 C:18520 Vol:65700
+  VWAP(計算値): 18023.5 | 価格位置: VWAP上
+  板詳細:
+    BPR: 0.720 (買い優勢)
+    Signal: neutral
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=true, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 0
+
+【保有中の推移】
+  14:55 C:18495 陰線 Vol:40800 BPR=0.720 Sig=neutral Mode=N/A 含み:-2,500円
+  14:56 C:18525 陽線 Vol:33900 BPR=0.730 Sig=neutral Mode=N/A 含み:+500円
+  14:57 C:18520 陽線 Vol:42300 BPR=0.720 Sig=neutral Mode=N/A 含み:+0円
+  14:58 C:18545 陽線 Vol:29500 BPR=0.730 Sig=neutral Mode=N/A 含み:+2,500円
+  14:59 C:18560 陽線 Vol:36900 BPR=0.760 Sig=neutral Mode=N/A 含み:+4,000円
+  15:00 C:18575 陽線 Vol:22300 BPR=0.780 Sig=neutral Mode=N/A 含み:+5,500円
+  15:01 C:18590 陽線 Vol:58800 BPR=0.740 Sig=neutral Mode=N/A 含み:+7,000円
+  15:02 C:18585 陰線 Vol:63600 BPR=0.720 Sig=neutral Mode=N/A 含み:+6,500円
+  15:03 C:18535 陰線 Vol:38800 BPR=0.710 Sig=neutral Mode=N/A 含み:+1,500円
+  15:04 C:18565 陽線 Vol:35700 BPR=0.710 Sig=neutral Mode=N/A 含み:+4,500円
+  15:05 C:18500 陰線 Vol:34100 BPR=N/A Sig=N/A Mode=N/A 含み:-2,000円
+  15:06 C:18520 陽線 Vol:43100 BPR=0.690 Sig=neutral Mode=N/A 含み:+0円
+  15:07 C:18505 陰線 Vol:19700 BPR=0.720 Sig=neutral Mode=N/A 含み:-1,500円
+  15:08 C:18520 陽線 Vol:49100 BPR=0.710 Sig=neutral Mode=N/A 含み:+0円
+  15:09 C:18560 陽線 Vol:25700 BPR=0.730 Sig=neutral Mode=N/A 含み:+4,000円
+  15:10 C:18555 陰線 Vol:21400 BPR=0.730 Sig=neutral Mode=N/A 含み:+3,500円
+  15:11 C:18585 陽線 Vol:57000 BPR=0.770 Sig=neutral Mode=N/A 含み:+6,500円
+  15:12 C:18570 陰線 Vol:36500 BPR=0.720 Sig=neutral Mode=N/A 含み:+5,000円
+  15:13 C:18565 陰線 Vol:30100 BPR=0.770 Sig=neutral Mode=N/A 含み:+4,500円
+  15:14 C:18545 陰線 Vol:37000 BPR=0.770 Sig=neutral Mode=N/A 含み:+2,500円
+  15:15 C:18540 陰線 Vol:25400 BPR=0.680 Sig=neutral Mode=N/A 含み:+2,000円
+  15:16 C:18470 陰線 Vol:73600 BPR=0.660 Sig=sell_pressure Mode=N/A 含み:-5,000円
+  15:17 C:18490 陽線 Vol:32100 BPR=0.670 Sig=sell_pressure Mode=N/A 含み:-3,000円
+  15:18 C:18480 陰線 Vol:52100 BPR=0.670 Sig=neutral Mode=N/A 含み:-4,000円
+  15:19 C:18470 陰線 Vol:35700 BPR=0.680 Sig=neutral Mode=N/A 含み:-5,000円
+  15:20 C:18525 陽線 Vol:47200 BPR=0.700 Sig=neutral Mode=N/A 含み:+500円
+  15:21 C:18545 陽線 Vol:36400 BPR=0.750 Sig=neutral Mode=N/A 含み:+2,500円
+  15:22 C:18600 陽線 Vol:55000 BPR=0.770 Sig=neutral Mode=N/A 含み:+8,000円
+  15:23 C:18625 陽線 Vol:51100 BPR=0.720 Sig=neutral Mode=N/A 含み:+10,500円
+  15:24 C:18600 陰線 Vol:67500 BPR=1.120 Sig=market_surge Mode=N/A 含み:+8,000円
+
+  最大含み益: +10,500円
+  最大含み損: -5,000円
+
+【決済後の推移（もし持ち続けていたら）】
+  15:31 C:18610 仮想P&L:+9,000円
+  15:32 C:18610 仮想P&L:+9,000円
+  15:33 C:18610 仮想P&L:+9,000円
+  15:34 C:18610 仮想P&L:+9,000円
+
+【この取引の要約】
+  保有時間: 36分
+  リターン: 0.49%
+  最大含み益→結果: +10,500円→+9,000円 (86%回収)
+
+======================================================================
+✗ 負け | 6920(レーザーテック) | long | 15:03→15:06
+エントリー: @49,050 | 決済: @48,804.75 | P&L: -24,525円
+理由: 大台確認(5本維持): 大台超え (48600円突破)｜[信頼度：中] トレンド一致・勢い一致・出来高薄 (押し目なし・強トレンド)
+決済理由: 損切り (損切りライン:48805円)
+
+【エントリー前 チャート・出来高・板】
+  14:59 O:49130 H:49170 L:49110 C:49170 陽線 Vol:4800(0.6x)
+    板: BPR=0.880 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  15:00 O:49160 H:49200 L:49130 C:49200 陽線 Vol:4600(0.5x)
+    板: BPR=0.910 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  15:01 O:49200 H:49330 L:49200 C:49320 陽線 Vol:9400(1.1x)
+    板: BPR=0.870 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  15:02 O:49310 H:49310 L:49130 C:49200 陰線 Vol:12100(1.4x)
+    板: BPR=0.810 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+  15:03 O:49200 H:49200 L:48940 C:49050 陰線 Vol:13200(1.5x)
+    板: BPR=0.770 Signal=neutral MktOrd=neutral(0.000) Mode=N/A
+
+【エントリー足】 15:03
+  O:49200 H:49200 L:48940 C:49050 Vol:13200
+  VWAP(計算値): 48106.7 | 価格位置: VWAP上
+  板詳細:
+    BPR: 0.770 (買い優勢)
+    Signal: neutral
+    MarketOrder: neutral (比率:0.000)
+    Mode: undefined
+    Iceberg: Ask=false, Bid=false
+    LargeWall: Buy=false, Sell=false
+    BPR Trend: undefined
+    → 板スコア: 1
+
+【保有中の推移】
+  15:04 C:49050 陽線 Vol:3400 BPR=0.790 Sig=neutral Mode=N/A 含み:+0円
+  15:05 C:48860 陰線 Vol:8900 BPR=0.740 Sig=neutral Mode=N/A 含み:-19,000円
+  15:06 C:48770 陰線 Vol:9000 BPR=0.720 Sig=neutral Mode=N/A 含み:-28,000円
+
+  最大含み益: +0円
+  最大含み損: -28,000円
+
+【決済後の推移（もし持ち続けていたら）】
+  15:07 C:48810 仮想P&L:-24,000円
+  15:08 C:48780 仮想P&L:-27,000円
+  15:09 C:48860 仮想P&L:-19,000円
+  15:10 C:48820 仮想P&L:-23,000円
+  15:11 C:48850 仮想P&L:-20,000円
+
+【この取引の要約】
+  保有時間: 3分
+  リターン: -0.50%
+  最大含み益→結果: なし
+
+
+======================================================================
+=== 全体サマリー ===
+
+総取引数: 10
+勝敗: 2W 8L (勝率: 20.0%)
+総損益: -76,081円
+平均利益: +23,022円
+平均損失: -15,265円
+
+【シグナル別成績】
+  大台割れ: 1W3L P&L=-14,287円
+  VWAPクロス: 0W1L P&L=-11,590円
+  三尊H&S: 0W2L P&L=-25,379円
+  ゴールデンクロス: 0W1L P&L=-9,300円
+  大台超え: 1W1L P&L=-15,525円
+
+【時間帯別】
+  前場: 5件 → -9,226円
+  後場: 5件 → -66,855円
+
+【板スコア別成績（エントリー時点）】
+  Score=-1: 0W1L P&L=-15,545円
+  Score=0: 1W2L P&L=-27,796円
+  Score=1: 1W3L P&L=-8,472円
+  Score=2: 0W2L P&L=-24,268円

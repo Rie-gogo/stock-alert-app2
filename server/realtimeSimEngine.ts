@@ -84,6 +84,12 @@ const NO_ENTRY_PRE_LUNCH_END = "11:30";
 const NO_ENTRY_POST_LUNCH_START = "12:30";
 const NO_ENTRY_POST_LUNCH_END = "13:00";
 
+/** ★改善2: VWAPクロス下抜けSHORT急落フィルター */
+/** 直近5本の下落率がこの値以下ならVWAPクロス下抜けSHORTをブロック */
+const VWAP_DROP_FILTER_5BARS = -0.8; // -0.8%
+/** 直近3本の下落率がこの値以下でもブロック */
+const VWAP_DROP_FILTER_3BARS = -0.6; // -0.6%
+
 /** ウォームアップに必要な最低足数（MA25計算のため） */
 const MIN_CANDLES_FOR_SIGNAL = 30;
 
@@ -1106,6 +1112,38 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       console.log(`[RealtimeSim] ${symbol} SHORTシグナル: buy_pressure時SHORT禁止 (${sig.reason.substring(0, 30)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
+
+    // ★改善2: VWAPクロス下抜けSHORTの急落フィルター
+    // 直近数本で急落している場合は底値SHORTを避けるためエントリー禁止
+    if (sig.reason.includes("VWAPクロス下抜け") && buffer && buffer.length >= 5) {
+      const len = buffer.length;
+      const close5ago = buffer[len - 5].close;
+      const close3ago = buffer[len - 3].close;
+      const currentClose = candle.close;
+      const recentDropRate5 = ((currentClose - close5ago) / close5ago) * 100;
+      const recentDropRate3 = ((currentClose - close3ago) / close3ago) * 100;
+      if (recentDropRate5 <= VWAP_DROP_FILTER_5BARS || recentDropRate3 <= VWAP_DROP_FILTER_3BARS) {
+        console.log(
+          `[RealtimeSim] ★改善2 VWAP急落フィルター: ${symbol} SHORTブロック ` +
+          `(drop5=${recentDropRate5.toFixed(2)}% [閾値${VWAP_DROP_FILTER_5BARS}%], ` +
+          `drop3=${recentDropRate3.toFixed(2)}% [閾値${VWAP_DROP_FILTER_3BARS}%])`
+        );
+        // シグナル履歴にブロックを記録
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "vwap_drop_block",
+          price: currentClose,
+          shares: 0,
+          pnl: null,
+          reason: `VWAP急落フィルター: drop5=${recentDropRate5.toFixed(2)}%/drop3=${recentDropRate3.toFixed(2)}% → SHORTブロック (${sig.reason.substring(0, 40)})`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+
     // ★v6: 板読みスコアで統合判定
     const brScoreShort = boardReadingScore(symbol, "short", boardSnapshot);
     if (brScoreShort < BOARD_SCORE_THRESHOLD) {

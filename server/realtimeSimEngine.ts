@@ -212,6 +212,11 @@ const NO_REENTRY_AFTER_STOPLOSS_MIN = 30;
 const NO_ENTRY_LUNCH_START = "12:00";
 const NO_ENTRY_LUNCH_END = "12:59";
 
+/** B2方式: 9:30時点の市場全体方向性判定結果（前場のみ適用） */
+let b2MarketDirection: "bullish" | "bearish" | "neutral" = "neutral";
+/** B2方式: 判定が確定したか（9:30の足が揃った時点でtrue） */
+let b2DirectionDetermined = false;
+
 /** 当日の日付（日付が変わったらバッファをリセット） */
 let currentTradeDate = "";
 
@@ -275,6 +280,8 @@ function resetIfNewDay(tradeDate: string): void {
     signalHistory.length = 0; // 日付変更時にシグナル履歴もリセット
     bprHistory.clear(); // ★v6: 板圧力履歴もリセット
     lastStopLossTime.clear(); // ★v5.5応急: 損切り時刻記録もリセット
+    b2MarketDirection = "neutral"; // B2方式: 方向性判定リセット
+    b2DirectionDetermined = false; // B2方式: 判定フラグリセット
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
   }
@@ -836,15 +843,38 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   const sig = latestSignal.signal;
 
-  // ---- HybridAフィルター: 地合い判定 ----
-  // 始値比±0.2%で地合いを判定
-  // BULLISH（上昇相場）: LONGのみ許可、SHORT禁止
-  // BEARISH/NEUTRAL: LONGもSHORTも両方OK
-  const firstCandle = buffer[0];
-  const openPrice = firstCandle?.open ?? candle.close;
-  const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
-  const isBullish = priceChangeRatio >= 0.2;   // 始値比+0.2%以上 → 上昇相場
-  // const isBearish = priceChangeRatio <= -0.2; // 始値比-0.2%以下 → 下落相場（LONGもSHORTもOK）
+  // ---- B2方式: 市場全体方向性判定（9:30時点で確定、前場のみ適用） ----
+  // 全銘柄の9:30時点の始値比変動率の平均で市場方向を判定
+  // bullish: 前場SHORT mediumブロック / 後場は無条件許可
+  if (!b2DirectionDetermined && candleTime >= "09:30") {
+    // 9:30の足が来たら全銘柄の始値比を計算して方向性を判定
+    let totalChangeRatio = 0;
+    let symbolCount = 0;
+    for (const [sym, buf] of Array.from(candleBuffers.entries())) {
+      if (buf.length >= 2) {
+        const firstC = buf[0];
+        const latestC = buf[buf.length - 1];
+        const changeRatio = (latestC.close - firstC.open) / firstC.open * 100;
+        totalChangeRatio += changeRatio;
+        symbolCount++;
+      }
+    }
+    if (symbolCount >= 3) { // 最低3銘柄のデータが揃ったら判定
+      const avgChange = totalChangeRatio / symbolCount;
+      if (avgChange >= 0.2) {
+        b2MarketDirection = "bullish";
+      } else if (avgChange <= -0.2) {
+        b2MarketDirection = "bearish";
+      } else {
+        b2MarketDirection = "neutral";
+      }
+      b2DirectionDetermined = true;
+      console.log(`[RealtimeSim] B2方式: 市場方向性確定 → ${b2MarketDirection} (平均変動率: ${avgChange.toFixed(3)}%, ${symbolCount}銘柄)`);
+    }
+  }
+
+  // B2方式: 前場かどうかの判定
+  const isAMSession = candleTime < "11:30";
 
   // ---- 押し目確認ステートマシン処理 (ダウ理論上昇のみ) ----
   const pullbackState = pullbackStates.get(symbol);
@@ -1103,10 +1133,6 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // ---- 売り（空売り）エントリー ----
   if (sig.type === "sell") {
-    // HybridAフィルター: BULLISH相場ではSHORT禁止
-    if (isBullish) {
-      return { symbol, tradeDate, candleTime, action: "none" };
-    }
     // ★v6b: buy_pressure時のSHORT禁止（板が買い圧力時に売りエントリーをブロック）
     if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
       console.log(`[RealtimeSim] ${symbol} SHORTシグナル: buy_pressure時SHORT禁止 (${sig.reason.substring(0, 30)})`);
@@ -1193,10 +1219,15 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
-    // ★改良策3改: medium直接エントリー禁止（ステートマシントリガー以外のmediumシグナルをブロック）
+    // ★B2方式: SHORT medium条件付き許可
+    // 前場 + bullish判定時のみSHORT mediumをブロック、それ以外は許可
     if (sig.confidence === "medium") {
-      console.log(`[RealtimeSim] ${symbol} SHORT直接エントリーブロック: medium品質のため禁止 (${sig.reason.substring(0, 50)})`);
-      return { symbol, tradeDate, candleTime, action: "none" };
+      if (isAMSession && b2MarketDirection === "bullish") {
+        console.log(`[RealtimeSim] ${symbol} SHORT mediumブロック: B2方式 前場bullish (${sig.reason.substring(0, 50)})`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+      // B2方式: 前場bullish以外はSHORT medium許可（後場は常に許可）
+      console.log(`[RealtimeSim] ${symbol} SHORT medium許可: B2方式 (方向=${b2MarketDirection}, 前場=${isAMSession}) (${sig.reason.substring(0, 50)})`);
     }
 
     return await enterPosition("short", candle, tradeDate, candleTime, sig.reason, boardSnapshot);

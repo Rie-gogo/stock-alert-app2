@@ -769,3 +769,13 @@
 - [x] 実施3: 今日の対象銘柄別分析（7銘柄）
 - [x] 実施4: sell_pressure時LONGブロック妥当性検証（A/B比較）
 - [x] 実施5: 最終レポート作成
+
+## パターンC+10銘柄方式 実装（2026-07-01）
+- [x] shared/stocks.ts: TARGET_STOCKSを17銘柄→10銘柄に限定（追加7銘柄を除外: 9107,8306,4568,285A,5016,6758,7203）
+- [x] realtimeSimEngine.ts: isBullish（始値比+0.2%）方式を廃止
+- [x] realtimeSimEngine.ts: B2方式（9:30市場全体方向性判定、前場のみ適用）を実装
+- [x] realtimeSimEngine.ts: SHORT medium全ブロック → 前場bullish時のみブロック、それ以外は許可に変更
+- [x] realtimeSimEngine.ts: 後場全SHORT BPR>=0.65ブロックは維持
+- [x] realMarketData.test.ts: TARGET_STOCKS長さアサーションを17→10に更新
+- [x] TypeScriptコンパイルエラー0件確認
+- [x] テスト233件パス（J-Quants APIキー未設定の2件のみ失敗 — 環境依存）

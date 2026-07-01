@@ -1,0 +1,92 @@
+Source: /home/ubuntu/upload/後場SHORTBPR=0.65ブロック検証レポート.pdf
+Viewed on: 2026-07-01
+
+Key findings extracted from the PDF:
+
+1. Report title and scope
+- Title: 後場SHORT BPR>=0.65ブロック 検証レポート
+- Verification date: 2026-06-30
+- Test period: 2026-06-17 to 2026-06-30 (10営業日)
+- Base pattern: B2（前場のみブロック）+ 10銘柄
+- Target filter: For all PM (13:00以降) SHORT entries, apply BPR (Buy Pressure Ratio) filter.
+
+2. Exact comparison patterns
+- Pattern A: BPR blockなし / all PM SHORT entries allowed.
+- Pattern B: Only block PM round-number-break SHORT signals when BPR>=0.65.
+- Pattern C: Block ALL PM SHORT entries when BPR>=0.65. This is described as matching production behavior.
+
+3. Common conditions applied to all patterns
+- B2 method: when 9:30 bullish judgment is true, AM SHORT medium is blocked.
+- VWAP急落フィルター
+- 固定0.5%BEストップ
+- SL 0.5%
+- TP 1.5%
+- 時間帯フィルター
+
+4. Overall comparison results shown in PDF
+- A: 547 trades, win rate 21.8%, total +530,082円, PF 1.213, maxDD 229,421円, expectancy +969円/trade.
+- B: 544 trades, win rate 21.9%, total +529,680円, PF 1.213, maxDD 229,421円, expectancy +974円/trade.
+- C: 515 trades, win rate 21.9%, total +555,491円, PF 1.237, maxDD 239,707円, expectancy +1,079円/trade.
+
+5. Session × direction matrix for Pattern C in PDF
+- LONG前場: 102 trades, win rate 12%, -170,844円, PF 0.68
+- SHORT前場: 233 trades, win rate 18%, +209,300円, PF 1.19
+- LONG後場: 56 trades, win rate 29%, +216,076円, PF 2.25
+- SHORT後場: 124 trades, win rate 34%, +300,959円, PF 1.53
+
+6. Blocked-trade analysis for Pattern C
+- Total blocked trades: 49
+- Winning trades blocked: 13, +299,056円 forgone profit
+- Losing trades blocked: 23, -227,934円 avoided loss
+- Draw trades blocked: 13, ±0円
+- Net effect: +71,122円 loss avoided
+
+7. PDF notes on frequently blocked signals / symbols
+- Frequently blocked signals: ダマシ鬼, 大台割れ各種, 三尊パターン, VWAPクロス下抜け, デッドクロス
+- High-frequency blocked symbols: 6976 太陽誘電, 6526 ソシオネクスト, 8035 東京エレクトロン, 6857 アドバンテスト
+
+8. Day-by-day comparison remarks in PDF
+- Improvement especially visible on decline days such as 6/17, 6/25, 6/30.
+- On strong downward-trend days such as 6/22 and 6/29, some profitable trades are also blocked, but effect is limited (around -10,000円/day).
+
+9. Symbol-level notes in PDF
+- 6526 ソシオネクスト showed the clearest improvement: PF 1.03 -> 1.37, PnL -8,468円 -> +68,409円.
+- 8035 東京エレクトロン also showed PF improvement.
+- 6857 アドバンテスト PF improvement noted.
+
+10. BPR threshold sweep in PDF
+- 0.55: 474 trades, +357,157円, PF 1.166, maxDD 239,449円, 73 blocked
+- 0.60: 489 trades, +445,531円, PF 1.201, maxDD 218,871円, 58 blocked
+- 0.65: 498 trades, +458,960円, PF 1.203, maxDD 226,460円, 49 blocked
+- 0.70: 509 trades, +409,731円, PF 1.177, maxDD 236,308円, 38 blocked
+- 0.75: 523 trades, +462,416円, PF 1.194, maxDD 219,430円, 24 blocked
+- 0.80: 529 trades, +472,235円, PF 1.197, maxDD 222,090円, 18 blocked
+- PDF conclusion: threshold 0.65 is near-optimal overall; 0.60 minimizes DD.
+
+11. Final recommendation in PDF
+- Adopt / maintain Pattern C: 後場全SHORT BPR>=0.65ブロック.
+
+Important implication for today's re-simulation:
+- Pattern C is NOT just a PM SHORT BPR filter in isolation; it must be simulated on top of the B2 base conditions and the same common filters listed above.
+- It also applies to ALL PM SHORT entries, not only round-number-break SHORT signals.
+- The PDF discusses symbol-level effects, but there is no extra symbol exclusion rule stated as part of Pattern C itself. Symbol references are analysis results, not additional gating rules.
+
+End of notes.
+
+12. Page 6 - Final verdict table
+- PF改善: 1.213 → 1.237 (+0.024) → 合格
+- 総損益改善: +530,082 → +555,491円 (+25,409) → 合格
+- 期待値改善: +969 → +1,079円/回 (+11.4%) → 合格
+- 後場SHORT PF: 1.39 → 1.53 (+0.14) → 大幅改善
+- 最大DD: 229,421 → 239,707円 (+10,286) → 許容範囲内
+- 閾値最適性: 0.65がPF最高 → 最適
+
+13. Final conclusion in PDF
+- 本番コードの設定（後場全SHORT BPR>=0.65ブロック）は、バックテストにより有効性が確認された。PF、総損益、期待値の全てが改善し、最大DDの悪化も10,286円と限定的である。閾値0.65は最適に近く、変更の必要はない。
+
+14. Supplement: Pattern B vs Pattern C
+- Pattern B only blocks 大台割れSHORT (3 trades blocked), effect nearly zero (difference from A: -402円).
+- Pattern C blocks all 49 PM SHORT trades with BPR>=0.65, net improvement of +25,409円.
+- Conclusion: No reason to limit to 大台割れ only; apply to ALL SHORT.
+
+15. Data source: KABUステーション リアルタイム5分足データ

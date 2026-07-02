@@ -18,7 +18,7 @@
 
 import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
-import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields } from "./kabuStation";
+import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
 import { calcATR } from "./intradayRegime";
 import { getStockName, TARGET_STOCKS } from "../shared/stocks";
@@ -279,6 +279,7 @@ function resetIfNewDay(tradeDate: string): void {
     symbolPnlMap.clear(); // 日付変更時に銘柄別損益もリセット
     signalHistory.length = 0; // 日付変更時にシグナル履歴もリセット
     bprHistory.clear(); // ★v6: 板圧力履歴もリセット
+    clearBoardRingBuffer(); // ★v8: 10秒リングバッファもリセット
     lastStopLossTime.clear(); // ★v5.5応急: 損切り時刻記録もリセット
     b2MarketDirection = "neutral"; // B2方式: 方向性判定リセット
     b2DirectionDetermined = false; // B2方式: 判定フラグリセット
@@ -464,6 +465,19 @@ function getBoardSnapshot(symbol: string): BoardSnapshot | null {
   // v5拡張フィールドを計算
   const extended = calcExtendedBoardFields(book);
 
+  // v8: 10秒リングバッファの集約結果を追加
+  const aggregated = getAggregatedBoardStats(symbol);
+  const aggregatedFields = aggregated ? {
+    icebergAskCount: aggregated.icebergAskCount,
+    icebergBidCount: aggregated.icebergBidCount,
+    cancelAskCount: aggregated.cancelAskCount,
+    cancelBidCount: aggregated.cancelBidCount,
+    avgBprIn10s: aggregated.avgBpr,
+    bprDeltaIn10s: aggregated.bprDelta,
+    largeTradeDirection: aggregated.largeTradeDirection,
+    boardSampleCount: aggregated.sampleCount,
+  } : {};
+
   return {
     buyPressureRatio: Math.round(buyPressureRatio * 100) / 100,
     largeBuyWall,
@@ -471,6 +485,7 @@ function getBoardSnapshot(symbol: string): BoardSnapshot | null {
     marketOrderRatio: Math.round(marketOrderRatio * 1000) / 1000,
     signal,
     ...extended,
+    ...aggregatedFields,
   };
 }
 
@@ -621,6 +636,30 @@ export function boardReadingScore(symbol: string, side: "long" | "short", snapsh
     // 逆方向のアイスバーグは減点
     else if (side === "long" && icebergSide === "sell") score -= 1;
     else if (side === "short" && icebergSide === "buy") score -= 1;
+  }
+
+  // ★要素H: 10秒集約アイスバーグ強化 (±2)【v8】
+  // 直近1分間で2回以上のアイスバーグ検出 = 強い大口の意囷
+  const snap = snapshot as any;
+  const iceAskCount = snap.icebergAskCount ?? 0;
+  const iceBidCount = snap.icebergBidCount ?? 0;
+  if (iceAskCount >= 2) {
+    // ask側アイスバーグ複数回 = 売り板が食われても補充される = 大口は売りたい
+    if (side === "short") score += 2;
+    else score -= 2;
+  }
+  if (iceBidCount >= 2) {
+    // bid側アイスバーグ複数回 = 買い板が食われても補充される = 大口は買いたい
+    if (side === "long") score += 2;
+    else score -= 2;
+  }
+
+  // ★要素I: 10秒集約大口約定方向 (±1)【v8】
+  const ltDir = snap.largeTradeDirection;
+  if (ltDir === "buy") {
+    if (side === "long") score += 1; else score -= 1;
+  } else if (ltDir === "sell") {
+    if (side === "short") score += 1; else score -= 1;
   }
 
   return score;

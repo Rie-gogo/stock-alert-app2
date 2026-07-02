@@ -296,6 +296,15 @@ export interface BoardSnapshot {
   icebergBidDetected?: boolean;      // 買いアイスバーグ注文検出
   totalAskQty?: number;              // 売り板合計数量
   totalBidQty?: number;              // 買い板合計数量
+  // v8拡張: 10秒リングバッファ集約結果
+  icebergAskCount?: number;          // 直近1分間のアイスバーグ検出回数（ask側）
+  icebergBidCount?: number;          // 直近1分間のアイスバーグ検出回数（bid側）
+  cancelAskCount?: number;           // 直近1分間のキャンセル検出回数（ask側）
+  cancelBidCount?: number;           // 直近1分間のキャンセル検出回数（bid側）
+  avgBprIn10s?: number;              // 直近1分間のBPR平均（10秒間隔集約）
+  bprDeltaIn10s?: number;            // 直近1分間のBPR変化幅
+  largeTradeDirection?: "buy" | "sell" | "neutral"; // 大口約定方向推定（10秒集約）
+  boardSampleCount?: number;         // 集約サンプル数
 }
 
 export type RtCandle = typeof rtCandles.$inferSelect;

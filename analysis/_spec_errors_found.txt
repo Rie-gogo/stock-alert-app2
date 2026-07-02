@@ -1,0 +1,56 @@
+== 仕様書PDF 誤り一覧 (ページ1-3) ==
+
+Page 1:
+- 対象銘柄: OK (10銘柄)
+- ポートフォリオ制約: 「最大同時保有ポジション: 3」「同一セクター最大: 2」
+  → コードを確認必要。MAX_CONCURRENT_POSITIONSの値は?
+
+Page 2:
+- LOT_SIZE_AMOUNT: 1,000,000円 → 誤り! 実際は INITIAL_CAPITAL_PER_STOCK=3,000,000 × LOT_RATIO=0.9 = 2,700,000円
+- MAX_TOTAL_EXPOSURE: 3,300,000円 → 誤り! 実際は 3,000,000 × 3.3 × 0.9 = 8,910,000円
+- NO_ENTRY_START: "09:00" → 誤り! 実際は NO_ENTRY_BEFORE = "09:30"
+- NO_ENTRY_END: "09:04" → 誤り! 意味不明。実際は NO_ENTRY_AFTER = "15:15"
+- NO_ENTRY_LUNCH_START: "12:25" → 誤り! 実際は NO_ENTRY_PRE_LUNCH_START="11:00", NO_ENTRY_POST_LUNCH_START="12:30"
+- NO_ENTRY_LUNCH_END: "12:35" → 誤り! 実際は NO_ENTRY_PRE_LUNCH_END="11:30", NO_ENTRY_POST_LUNCH_END="13:00"
+- FORCE_CLOSE_TIME: "15:20" → 誤り! 実際は MARKET_CLOSE_TIME = "15:30"
+
+Page 3:
+- VWAP_DROP_FILTER_5BARS: -0.5% → 誤り! 実際は -0.8%
+- VWAP_DROP_FILTER_3BARS: -0.4% → 誤り! 実際は -0.6%
+- ATR_FILTER_THRESHOLD: 0.05% → 確認必要
+- PULLBACK_DEPTH_LOOKBACK: 20 → 確認必要
+- PULLBACK_DEPTH_MIN: 0.30 → 確認必要
+- PULLBACK_DEPTH_MAX: 0.70 → 確認必要
+
+== 仕様書PDF 誤り一覧 (ページ4-9) ==
+
+Page 4:
+- B2判定ロジックの閾値「bullish/bearishともに6銘柄以上」はコード再確認必要。
+- 適用ルール表のうち「前場LONG medium / 後場SHORT medium」の説明は、BUY medium全ブロック・SHORT mediumの条件付き許可という方向性自体は概ね合っているが、実際の適用条件はコード照合が必要。
+
+Page 5:
+- BUYシグナル一覧に「VWAPクロス上抜け（無効化済み）」が載っているが、detectSignals内の実装有無を再確認必要。
+- BUY/SELL各シグナルの信頼度表記（medium/strong）は evaluateConfirmation の結果と一致するかコード再確認必要。
+
+Page 6:
+- 時間帯フィルターの記載「09:00-09:04」「12:25-12:35」「15:20以降」は誤り。実コードの時間条件で全面修正必要。
+- 板読みスコア閾値「スコア<2でブロック」はコード照合必要。
+
+Page 7:
+- VWAP急落フィルター閾値「5本<=-0.5%, 3本<=-0.4%」は誤り。実コード値で修正必要。
+- 5分足上位足フィルター、押し目深さフィルター、ATRフィルター閾値、昼休み前後の条件、証拠金使用率制限「3,300,000円」はコードと照合して修正必要。
+- B2方式SHORT mediumブロックの時間帯表記「09:00-11:30」は誤り。実際の前場範囲はコード確認ベースで修正必要。
+
+Page 8:
+- ステートマシンの待機本数（最大5バー、最大3バー）や処理フローは実コード照合必要。
+- 「板圧力チェック」「板読みスコアチェック」がステートマシン経由エントリーにも適用されるかはコード確認ベースで正確化必要。
+
+Page 9:
+- boardReadingScore の閾値（BPR 0.6/0.4、大口買い/売り壁、成行注文比率>5%、見せ玉、氷山注文）が実コードと一致するか確認必要。
+- 初期スコア2・スコア<2ブロックはコード再確認必要。
+- board early exit の発動条件（LONG: BPR<0.35 or sell_pressure / SHORT: BPR>0.65 or buy_pressure）はコード照合必要。
+- 早期利確の発動条件に含み益 pnl>0 が必要という記載はコード確認必要。
+
+総評:
+- 旧仕様書は、定数値・時間帯・証拠金上限・ロットサイズ・一部フィルター閾値に複数の誤記がある。
+- 新仕様書は PDF 記載を流用せず、realtimeSimEngine.ts / stockData.ts / signalConfirmation.ts / shared/stocks.ts の実コードから再構成すること。

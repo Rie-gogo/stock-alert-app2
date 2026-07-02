@@ -779,3 +779,9 @@
 - [x] realMarketData.test.ts: TARGET_STOCKS長さアサーションを17→10に更新
 - [x] TypeScriptコンパイルエラー0件確認
 - [x] テスト233件パス（J-Quants APIキー未設定の2件のみ失敗 — 環境依存）
+
+## 板スナップショット10秒間隔ポーリング＋アイスバーグ検出精度向上（2026-07-02）
+- [x] 10秒間隔の板ポーリング＋メモリリングバッファ実装
+- [x] 1分足確定時にアイスバーグ検出回数・大口約定方向・10秒BPR平均を集約してDB保存
+- [x] boardReadingScoreを新フィールド（icebergCount, largeTradeDirection, avgBprIn10s）対応に更新
+- [x] テスト・動作確認

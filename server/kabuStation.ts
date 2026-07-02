@@ -51,6 +51,8 @@ export function updateOrderBook(data: KabuOrderBook): void {
     ...data,
     receivedAt: Date.now(),
   });
+  // 10秒リングバッファに追記（高頻度ポーリング対応）
+  appendToRingBuffer(data);
 }
 
 /**
@@ -291,6 +293,145 @@ export function calcExtendedBoardFields(
     totalAskQty,
     totalBidQty,
   };
+}
+
+// ============================================================
+// 10秒リングバッファ: 高頻度板ポーリング対応
+// ============================================================
+
+/** 10秒スナップショットの型 */
+export interface BoardMicroSnapshot {
+  timestamp: number; // Unix ms
+  buyPressureRatio: number;
+  icebergAskDetected: boolean;
+  icebergBidDetected: boolean;
+  askCancelDetected: boolean;
+  bidCancelDetected: boolean;
+  marketOrderDirection: "buy" | "sell" | "neutral";
+  totalBidQty: number;
+  totalAskQty: number;
+  currentPrice: number;
+  volume: number; // 累積出来高（差分計算用）
+}
+
+/** 銘柄ごとのリングバッファ（直近6回 = 約1分分） */
+const boardRingBuffer = new Map<string, BoardMicroSnapshot[]>();
+const RING_BUFFER_SIZE = 6;
+
+/** 前回の累積出来高（大口約定方向推定用） */
+const prevVolumeCache = new Map<string, number>();
+
+/**
+ * 板情報をリングバッファに追記する（updateOrderBookから自動呼び出し）
+ * 10秒ごとにpushBoardが呼ばれる前提で、差分検出結果をバッファに蓄積
+ */
+function appendToRingBuffer(book: KabuOrderBook): void {
+  const extended = calcExtendedBoardFields(book);
+  
+  const totalBidQty = book.bids.reduce((s, b) => s + b.qty, 0) + book.underBuyQty;
+  const totalAskQty = book.asks.reduce((s, a) => s + a.qty, 0) + book.overSellQty;
+  const bpr = totalAskQty > 0 ? totalBidQty / totalAskQty : 1.0;
+
+  const micro: BoardMicroSnapshot = {
+    timestamp: Date.now(),
+    buyPressureRatio: Math.round(bpr * 100) / 100,
+    icebergAskDetected: !!extended.icebergAskDetected,
+    icebergBidDetected: !!extended.icebergBidDetected,
+    askCancelDetected: !!extended.askCancelDetected,
+    bidCancelDetected: !!extended.bidCancelDetected,
+    marketOrderDirection: extended.marketOrderDirection ?? "neutral",
+    totalBidQty,
+    totalAskQty,
+    currentPrice: book.currentPrice,
+    volume: 0, // 将来の出来高差分用
+  };
+
+  const buffer = boardRingBuffer.get(book.symbol) ?? [];
+  buffer.push(micro);
+  if (buffer.length > RING_BUFFER_SIZE) buffer.shift();
+  boardRingBuffer.set(book.symbol, buffer);
+}
+
+/** 集約結果の型 */
+export interface AggregatedBoardStats {
+  /** 直近1分間のアイスバーグ検出回数（ask側） */
+  icebergAskCount: number;
+  /** 直近1分間のアイスバーグ検出回数（bid側） */
+  icebergBidCount: number;
+  /** 直近1分間のキャンセル検出回数（ask側） */
+  cancelAskCount: number;
+  /** 直近1分間のキャンセル検出回数（bid側） */
+  cancelBidCount: number;
+  /** 直近1分間のBPR平均 */
+  avgBpr: number;
+  /** 直近1分間のBPR最大値 */
+  maxBpr: number;
+  /** 直近1分間のBPR最小値 */
+  minBpr: number;
+  /** 大口約定方向の推定（多数決） */
+  largeTradeDirection: "buy" | "sell" | "neutral";
+  /** サンプル数（何回の板スナップショットから集約したか） */
+  sampleCount: number;
+  /** BPRの変化幅（最初と最後の差） */
+  bprDelta: number;
+}
+
+/**
+ * 直近1分間（リングバッファ内）の板情報を集約して返す
+ */
+export function getAggregatedBoardStats(symbol: string): AggregatedBoardStats | null {
+  const buffer = boardRingBuffer.get(symbol);
+  if (!buffer || buffer.length === 0) return null;
+
+  let icebergAskCount = 0;
+  let icebergBidCount = 0;
+  let cancelAskCount = 0;
+  let cancelBidCount = 0;
+  let bprSum = 0;
+  let maxBpr = -Infinity;
+  let minBpr = Infinity;
+  let buyDirCount = 0;
+  let sellDirCount = 0;
+
+  for (const snap of buffer) {
+    if (snap.icebergAskDetected) icebergAskCount++;
+    if (snap.icebergBidDetected) icebergBidCount++;
+    if (snap.askCancelDetected) cancelAskCount++;
+    if (snap.bidCancelDetected) cancelBidCount++;
+    bprSum += snap.buyPressureRatio;
+    if (snap.buyPressureRatio > maxBpr) maxBpr = snap.buyPressureRatio;
+    if (snap.buyPressureRatio < minBpr) minBpr = snap.buyPressureRatio;
+    if (snap.marketOrderDirection === "buy") buyDirCount++;
+    else if (snap.marketOrderDirection === "sell") sellDirCount++;
+  }
+
+  const avgBpr = Math.round((bprSum / buffer.length) * 100) / 100;
+  const bprDelta = Math.round((buffer[buffer.length - 1].buyPressureRatio - buffer[0].buyPressureRatio) * 100) / 100;
+
+  let largeTradeDirection: "buy" | "sell" | "neutral" = "neutral";
+  if (buyDirCount > sellDirCount && buyDirCount >= 2) largeTradeDirection = "buy";
+  else if (sellDirCount > buyDirCount && sellDirCount >= 2) largeTradeDirection = "sell";
+
+  return {
+    icebergAskCount,
+    icebergBidCount,
+    cancelAskCount,
+    cancelBidCount,
+    avgBpr,
+    maxBpr: maxBpr === -Infinity ? avgBpr : Math.round(maxBpr * 100) / 100,
+    minBpr: minBpr === Infinity ? avgBpr : Math.round(minBpr * 100) / 100,
+    largeTradeDirection,
+    sampleCount: buffer.length,
+    bprDelta,
+  };
+}
+
+/**
+ * リングバッファをクリアする（日付変更時に呼び出し）
+ */
+export function clearBoardRingBuffer(): void {
+  boardRingBuffer.clear();
+  prevVolumeCache.clear();
 }
 
 /**

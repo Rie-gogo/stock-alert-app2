@@ -23,6 +23,8 @@ vi.mock("./kabuStation", () => ({
   getOrderBook: vi.fn().mockReturnValue(null),
   analyzeOrderBook: vi.fn().mockReturnValue([]),
   calcExtendedBoardFields: vi.fn().mockReturnValue({}),
+  getAggregatedBoardStats: vi.fn().mockReturnValue(null),
+  clearBoardRingBuffer: vi.fn(),
 }));
 
 // shared/stocks をモック化

@@ -5,11 +5,11 @@
  * 選定方針: 出来高（売買代金）が大きく流動性の高い主力銘柄に限定する。
  * デイトレでは約定しやすさ（流動性）が最優先のため、低出来高銘柄は採用しない。
  *
- * 2026-07-01: パターンC+10銘柄方式に移行。
- * バックテスト結果（6/17-6/30, 10日間）:
- *   17銘柄: -211,469円, PF 0.89, 最大DD 405,177円
- *   10銘柄: +513,026円, PF 1.24, 最大DD 214,225円
- * 追加7銘柄（9107, 8306, 4568, 285A, 5016, 6758, 7203）は合計-330,196円の損失のため除外。
+ * 2026-07-03: +D構成（6/26版回帰+後場BPRフィルター）に移行。
+ * アブレーションテスト結果（6/19-7/3, 11日間）:
+ *   17銘柄+PM_BPR: +659,337円, PF 3.20, 勝率47.9%
+ *   10銘柄（現行版）: +325,026円, PF 1.66, 勝率27.5%
+ * 17銘柄復活。BEストップ撤廃、isBullish方式回帰、SHORT medium全ブロック、VWAP急落フィルター撤廃。
  */
 export const TARGET_STOCKS = [
   // --- パターンC+10銘柄（2026-07-01採用） ---
@@ -23,14 +23,15 @@ export const TARGET_STOCKS = [
   { symbol: '7011', ticker: '7011.T', name: '三菱重工業',              basePrice: 2900,  sector: '機械' },
   { symbol: '5803', ticker: '5803.T', name: 'フジクラ',               basePrice: 4400,  sector: '電線' },
   { symbol: '6981', ticker: '6981.T', name: '村田製作所',             basePrice: 10000, sector: '電子部品' },
-  // --- 除外銘柄（2026-07-01パターンC+10移行により除外） ---
-  // { symbol: '9107', ticker: '9107.T', name: '川崎汽船',               basePrice: 2100,  sector: '海運' },    // -45,720円
-  // { symbol: '8306', ticker: '8306.T', name: '三菱UFJ FG',             basePrice: 1650,  sector: '銀行' },    // -44,558円
-  // { symbol: '4568', ticker: '4568.T', name: '第一三共',               basePrice: 4500,  sector: '医薬' },    // +10,847円
-  // { symbol: '285A', ticker: '285A.T', name: 'キオクシアHD',           basePrice: 70000, sector: '半導体' },   // -83,820円
-  // { symbol: '5016', ticker: '5016.T', name: 'JX金属',                 basePrice: 3600,  sector: '非鉄' },    // -93,608円
-  // { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },    // -66,623円
-  // { symbol: '7203', ticker: '7203.T', name: 'トヨタ自動車',           basePrice: 2800,  sector: '自動車' },   // -6,714円
+  // --- 復活銘柄（2026-07-03 +D構成回帰により復活） ---
+  // アブレーションテストでは17銘柄+PM_BPRが最良結果（+659,337円）
+  { symbol: '9107', ticker: '9107.T', name: '川崎汽船',               basePrice: 2100,  sector: '海運' },
+  { symbol: '8306', ticker: '8306.T', name: '三菱UFJ FG',             basePrice: 1650,  sector: '銀行' },
+  { symbol: '4568', ticker: '4568.T', name: '第一三共',               basePrice: 4500,  sector: '医薬' },
+  { symbol: '285A', ticker: '285A.T', name: 'キオクシアHD',           basePrice: 70000, sector: '半導体' },
+  { symbol: '5016', ticker: '5016.T', name: 'JX金属',                 basePrice: 3600,  sector: '非鉄' },
+  { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },
+  { symbol: '7203', ticker: '7203.T', name: 'トヨタ自動車',           basePrice: 2800,  sector: '自動車' },
   // --- 過去除外銘柄 ---
   // { symbol: '3778', ticker: '3778.T', name: 'さくらインターネット',    basePrice: 4100,  sector: 'IT' },      // 2026-06-19除外
   // { symbol: '3436', ticker: '3436.T', name: 'SUMCO',                  basePrice: 4100,  sector: '半導体材料' },  // 2026-06-19除外

@@ -153,8 +153,8 @@ describe('isJSTMarketOpen', () => {
 });
 
 describe('TARGET_STOCKS 銘柄リスト（共有定義）', () => {
-  it('10銘柄体制（パターンC+10: 2026-07-01移行）', () => {
-    expect(TARGET_STOCKS).toHaveLength(10);
+  it('17銘柄体制（+D構成: 2026-07-03回帰）', () => {
+    expect(TARGET_STOCKS).toHaveLength(17);
   });
 
   it('すべてのtickerは .T で終わる（東証銘柄）', () => {

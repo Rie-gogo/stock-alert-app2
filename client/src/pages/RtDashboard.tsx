@@ -393,21 +393,7 @@ export default function RtDashboard() {
                               {pos.confidence === "strong" ? "信頼度：強" : pos.confidence === "medium" ? "信頼度：中" : "信頼度：弱"}
                             </Badge>
                           )}
-                          {pos.beTriggered ? (
-                            <Badge
-                              variant="outline"
-                              className="border-yellow-400/50 text-yellow-300 bg-yellow-500/10 animate-pulse"
-                            >
-                              BE発動済 ({pos.beTriggeredAt})
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="border-border/30 text-muted-foreground/60"
-                            >
-                              BE待機
-                            </Badge>
-                          )}
+
                         </div>
                         <div className="text-xs text-muted-foreground">{pos.entryTime}</div>
                       </div>

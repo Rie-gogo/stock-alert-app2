@@ -50,8 +50,8 @@ const STOP_LOSS_PERCENT = 0.5; // 改善③: 0.7→0.5に引き締め (2026-06-1
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
 
-/** BEストップトリガー率（%）: 含み益がこの%に到達したらSLを建値に移動 */
-const BE_TRIGGER_PERCENT = 0.5;
+/** isBullish方式: 銘柄別始値比がこの%以上なら上昇相場と判定しSHORT禁止 */
+const IS_BULLISH_THRESHOLD = 0.2;
 
 /** 後場BPRフィルター: 13:00以降のSHORTでBPR>=この値ならエントリーブロック */
 const PM_BPR_BLOCK_THRESHOLD = 0.65;
@@ -84,11 +84,8 @@ const NO_ENTRY_PRE_LUNCH_END = "11:30";
 const NO_ENTRY_POST_LUNCH_START = "12:30";
 const NO_ENTRY_POST_LUNCH_END = "13:00";
 
-/** ★改善2: VWAPクロス下抜けSHORT急落フィルター */
-/** 直近5本の下落率がこの値以下ならVWAPクロス下抜けSHORTをブロック */
-const VWAP_DROP_FILTER_5BARS = -0.8; // -0.8%
-/** 直近3本の下落率がこの値以下でもブロック */
-const VWAP_DROP_FILTER_3BARS = -0.6; // -0.6%
+// ★VWAP急落フィルター: 撤廃（+D構成: 6/26版回帰）
+// アブレーションテストで-19.6%のマイナス影響が確認されたため撤廃
 
 /** ウォームアップに必要な最低足数（MA25計算のため） */
 const MIN_CANDLES_FOR_SIGNAL = 30;
@@ -117,10 +114,7 @@ interface OpenPosition {
   entryReason: string;
   boardSignal?: string;
   confidence?: SignalConfidence;
-  /** BEストップ: 含み益+0.5%到達でtrue */
-  beTriggered?: boolean;
-  /** BEストップ: トリガー発動時刻 (HH:MM) */
-  beTriggeredAt?: string;
+  // BEストップ撤廃済み（+D構成）
 }
 
 // ============================================================
@@ -212,10 +206,8 @@ const NO_REENTRY_AFTER_STOPLOSS_MIN = 30;
 const NO_ENTRY_LUNCH_START = "12:00";
 const NO_ENTRY_LUNCH_END = "12:59";
 
-/** B2方式: 9:30時点の市場全体方向性判定結果（前場のみ適用） */
-let b2MarketDirection: "bullish" | "bearish" | "neutral" = "neutral";
-/** B2方式: 判定が確定したか（9:30の足が揃った時点でtrue） */
-let b2DirectionDetermined = false;
+// B2方式: 撤廃（+D構成: isBullish方式に回帰）
+// アブレーションテストで-7.1%のマイナス影響が確認されたため撤廃
 
 /** 当日の日付（日付が変わったらバッファをリセット） */
 let currentTradeDate = "";
@@ -281,8 +273,7 @@ function resetIfNewDay(tradeDate: string): void {
     bprHistory.clear(); // ★v6: 板圧力履歴もリセット
     clearBoardRingBuffer(); // ★v8: 10秒リングバッファもリセット
     lastStopLossTime.clear(); // ★v5.5応急: 損切り時刻記録もリセット
-    b2MarketDirection = "neutral"; // B2方式: 方向性判定リセット
-    b2DirectionDetermined = false; // B2方式: 判定フラグリセット
+    // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
   }
@@ -882,38 +873,15 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   const sig = latestSignal.signal;
 
-  // ---- B2方式: 市場全体方向性判定（9:30時点で確定、前場のみ適用） ----
-  // 全銘柄の9:30時点の始値比変動率の平均で市場方向を判定
-  // bullish: 前場SHORT mediumブロック / 後場は無条件許可
-  if (!b2DirectionDetermined && candleTime >= "09:30") {
-    // 9:30の足が来たら全銘柄の始値比を計算して方向性を判定
-    let totalChangeRatio = 0;
-    let symbolCount = 0;
-    for (const [sym, buf] of Array.from(candleBuffers.entries())) {
-      if (buf.length >= 2) {
-        const firstC = buf[0];
-        const latestC = buf[buf.length - 1];
-        const changeRatio = (latestC.close - firstC.open) / firstC.open * 100;
-        totalChangeRatio += changeRatio;
-        symbolCount++;
-      }
-    }
-    if (symbolCount >= 3) { // 最低3銘柄のデータが揃ったら判定
-      const avgChange = totalChangeRatio / symbolCount;
-      if (avgChange >= 0.2) {
-        b2MarketDirection = "bullish";
-      } else if (avgChange <= -0.2) {
-        b2MarketDirection = "bearish";
-      } else {
-        b2MarketDirection = "neutral";
-      }
-      b2DirectionDetermined = true;
-      console.log(`[RealtimeSim] B2方式: 市場方向性確定 → ${b2MarketDirection} (平均変動率: ${avgChange.toFixed(3)}%, ${symbolCount}銘柄)`);
-    }
-  }
-
-  // B2方式: 前場かどうかの判定
-  const isAMSession = candleTime < "11:30";
+  // ---- isBullish方式: 鋘柄別の上昇相場判定（+D構成） ----
+  // 各鋘柄の始値比+0.2%以上ならその鋘柄は上昇相場と判定しSHORT禁止
+  const isBullish = (() => {
+    if (buffer.length < 2) return false;
+    const firstCandle = buffer[0];
+    const openPrice = firstCandle.open;
+    const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
+    return priceChangeRatio >= IS_BULLISH_THRESHOLD;
+  })();
 
   // ---- 押し目確認ステートマシン処理 (ダウ理論上昇のみ) ----
   const pullbackState = pullbackStates.get(symbol);
@@ -1178,35 +1146,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
-    // ★改善2: VWAPクロス下抜けSHORTの急落フィルター
-    // 直近数本で急落している場合は底値SHORTを避けるためエントリー禁止
-    if (sig.reason.includes("VWAPクロス下抜け") && buffer && buffer.length >= 5) {
-      const len = buffer.length;
-      const close5ago = buffer[len - 5].close;
-      const close3ago = buffer[len - 3].close;
-      const currentClose = candle.close;
-      const recentDropRate5 = ((currentClose - close5ago) / close5ago) * 100;
-      const recentDropRate3 = ((currentClose - close3ago) / close3ago) * 100;
-      if (recentDropRate5 <= VWAP_DROP_FILTER_5BARS || recentDropRate3 <= VWAP_DROP_FILTER_3BARS) {
-        console.log(
-          `[RealtimeSim] ★改善2 VWAP急落フィルター: ${symbol} SHORTブロック ` +
-          `(drop5=${recentDropRate5.toFixed(2)}% [閾値${VWAP_DROP_FILTER_5BARS}%], ` +
-          `drop3=${recentDropRate3.toFixed(2)}% [閾値${VWAP_DROP_FILTER_3BARS}%])`
-        );
-        // シグナル履歴にブロックを記録
-        signalHistory.unshift({
-          time: candleTime,
-          symbol,
-          symbolName: getStockName(symbol),
-          action: "vwap_drop_block",
-          price: currentClose,
-          shares: 0,
-          pnl: null,
-          reason: `VWAP急落フィルター: drop5=${recentDropRate5.toFixed(2)}%/drop3=${recentDropRate3.toFixed(2)}% → SHORTブロック (${sig.reason.substring(0, 40)})`,
-        });
-        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
-        return { symbol, tradeDate, candleTime, action: "none" };
-      }
+    // ★+D構成: isBullish方式によるSHORT全面禁止
+    // その鋘柄が始値比+0.2%以上の上昇相場ならSHORTエントリー禁止
+    if (isBullish) {
+      console.log(`[RealtimeSim] ${symbol} SHORTブロック: isBullish方式 上昇相場判定 (${sig.reason.substring(0, 50)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
     }
 
     // ★v6: 板読みスコアで統合判定
@@ -1258,15 +1202,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
-    // ★B2方式: SHORT medium条件付き許可
-    // 前場 + bullish判定時のみSHORT mediumをブロック、それ以外は許可
+    // ★+D構成: SHORT medium全ブロック（6/26版回帰）
+    // アブレーションテストでmedium許可は-18.3%のマイナス影響が確認されたため全ブロック
     if (sig.confidence === "medium") {
-      if (isAMSession && b2MarketDirection === "bullish") {
-        console.log(`[RealtimeSim] ${symbol} SHORT mediumブロック: B2方式 前場bullish (${sig.reason.substring(0, 50)})`);
-        return { symbol, tradeDate, candleTime, action: "none" };
-      }
-      // B2方式: 前場bullish以外はSHORT medium許可（後場は常に許可）
-      console.log(`[RealtimeSim] ${symbol} SHORT medium許可: B2方式 (方向=${b2MarketDirection}, 前場=${isAMSession}) (${sig.reason.substring(0, 50)})`);
+      console.log(`[RealtimeSim] ${symbol} SHORT mediumブロック: 全ブロック方式 (${sig.reason.substring(0, 50)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
     }
 
     return await enterPosition("short", candle, tradeDate, candleTime, sig.reason, boardSnapshot);
@@ -1453,47 +1393,20 @@ async function checkExitConditions(
   const { symbol, side, entryPrice, shares } = pos;
   const { high, low, close } = candle;
 
-  // ---- BEストップトリガー判定 ----
-  // 含み益が+0.5%に到達したらSLを建値に移動
-  if (!pos.beTriggered) {
-    const beTriggerLine = side === "long"
-      ? entryPrice * (1 + BE_TRIGGER_PERCENT / 100)
-      : entryPrice * (1 - BE_TRIGGER_PERCENT / 100);
-    const beHit = side === "long" ? high >= beTriggerLine : low <= beTriggerLine;
-    if (beHit) {
-      pos.beTriggered = true;
-      pos.beTriggeredAt = candleTime;
-      console.log(`[RealtimeSim] ${symbol} BEトリガー発動: 含み益+${BE_TRIGGER_PERCENT}%到達 @${candleTime} (SL→建値${entryPrice}円)`);
-      // シグナル履歴にBEトリガー発動を記録
-      signalHistory.unshift({
-        time: candleTime,
-        symbol,
-        symbolName: getStockName(symbol),
-        action: "be_trigger",
-        price: entryPrice,
-        shares,
-        pnl: null,
-        reason: `BEトリガー発動: 含み益+${BE_TRIGGER_PERCENT}%到達→SLを建値(${entryPrice}円)に移動`,
-      });
-      if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
-    }
-  }
+  // ---- +D構成: BEストップ撤廃、純粋SL/TPのみ ----
+  // アブレーションテストでBEストップは-15.4%のマイナス影響が確認されたため撤廃
 
   let exitPrice: number | null = null;
   let exitReason = "";
   let action: "exit" | "stop_loss" | "take_profit" = "exit";
 
   if (side === "long") {
-    // 損切り: BE発動済みなら建値、未発動なら通常SL
-    const stopLine = pos.beTriggered
-      ? entryPrice  // BE発動済み: SL=建値
-      : entryPrice * (1 - STOP_LOSS_PERCENT / 100);
+    // 損切り: 通常SLのみ
+    const stopLine = entryPrice * (1 - STOP_LOSS_PERCENT / 100);
     if (low <= stopLine) {
       exitPrice = stopLine;
-      exitReason = pos.beTriggered
-        ? `BE建値決済 (建値:${stopLine.toFixed(0)}円)`
-        : `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
-      action = pos.beTriggered ? "exit" : "stop_loss";
+      exitReason = `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
+      action = "stop_loss";
     }
     // 利確: 高値が利確ラインを上回った
     const tpLine = entryPrice * (1 + TAKE_PROFIT_PERCENT / 100);
@@ -1503,16 +1416,12 @@ async function checkExitConditions(
       action = "take_profit";
     }
   } else {
-    // 空売り: 損切り（BE発動済みなら建値、未発動なら通常SL）
-    const stopLine = pos.beTriggered
-      ? entryPrice  // BE発動済み: SL=建値
-      : entryPrice * (1 + STOP_LOSS_PERCENT / 100);
+    // 空売り: 損切り（通常SLのみ）
+    const stopLine = entryPrice * (1 + STOP_LOSS_PERCENT / 100);
     if (high >= stopLine) {
       exitPrice = stopLine;
-      exitReason = pos.beTriggered
-        ? `BE建値決済 (建値:${stopLine.toFixed(0)}円)`
-        : `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
-      action = pos.beTriggered ? "exit" : "stop_loss";
+      exitReason = `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
+      action = "stop_loss";
     }
     // 空売り: 利確（安値が利確ラインを下回った）
     const tpLine = entryPrice * (1 - TAKE_PROFIT_PERCENT / 100);

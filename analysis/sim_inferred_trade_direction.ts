@@ -1,30 +1,18 @@
 /**
- * sim_faithful_10days.ts
+ * sim_inferred_trade_direction.ts
  *
- * 本番エンジン（realtimeSimEngine.ts）に完全準拠したバックテスト。
- * 
- * 本番との一致点:
- * - 全銘柄を時系列順にインターリーブ処理（銘柄別独立ではない）
- * - 1銘柄1ポジション制限（openPositions Map）
- * - MAX_TOTAL_EXPOSURE制限（891万円）
- * - ステートマシン3種（pullbackStates, roundLevelPendingStates, roundPullbackStates）
- * - 板読みスコア（BPR履歴ベースの簡易再現）
- * - 板読み早期利確（shouldBoardEarlyExit）
- * - シグナル反転決済
- * - sell_pressure/buy_pressureブロック
- * - ATRフィルター（7期間, 0.12%閾値）
- * - 出来高取得不可フィルター（90%以上volume=0）
- * - 5分足上位足フィルター（ダウ理論のみ）
- * - 押し目深さフィルター（30-70%範囲）
- * - VWAPクロス上抜け無効化
- * - VWAP急落フィルター
- * - BUY medium全ブロック
- * - SHORT medium: B2方式（前場bullish時のみブロック）
- * - 後場BPRフィルター（13:00以降SHORT, BPR>=0.65ブロック）
- * - 時間帯制限（09:30前禁止, 11:00-11:30禁止, 11:30-12:30スキップ, 12:30-13:00禁止, 15:15以降禁止）
- * - 大引け強制決済（15:30）
- * - BE/SL/TP（0.5%/0.5%/1.5%）
- * - 損切り後30分再エントリー禁止（出来高不可時のみ）
+ * 歩み値推定（出来高差分 × 価格方向）による大口約定方向判定を
+ * アイスバーグ解釈に活用した場合のシミュレーション
+ *
+ * 提案A: 現行（ベースライン）
+ * 提案B: アイスバーグ + 推定大口方向の一致で加点（±2）
+ *   - icebergAsk検出 + 推定大口方向=sell → SHORT加点+2
+ *   - icebergBid検出 + 推定大口方向=buy → LONG加点+2
+ *   - 不一致時は減点-1
+ * 提案C: 推定大口方向のみでスコア付与（±2）
+ *   - 推定大口方向=buy → LONG+2, SHORT-2
+ *   - 推定大口方向=sell → SHORT+2, LONG-2
+ * 提案D: B+C統合
  */
 
 import { getDb } from "../server/db";
@@ -71,6 +59,10 @@ const VOLUME_UNAVAILABLE_RATIO = 0.9;
 const NO_REENTRY_AFTER_STOPLOSS_MIN = 30;
 const B2_THRESHOLD = 0.2;
 
+// 推定大口方向の閾値
+const LARGE_TRADE_VOLUME_MULTIPLIER = 2.0; // 平均出来高の2倍以上で「大口」
+const INFERRED_DIR_LOOKBACK = 5; // 直近5本の大口約定方向を集計
+
 const TEN_SYMBOLS = TARGET_STOCKS.map(s => s.symbol);
 
 // ============================================================
@@ -116,7 +108,27 @@ interface Trade {
   entryTime: string; entryPrice: number; exitTime: string; exitPrice: number;
   pnl: number; exitReason: string; signalReason: string; confidence: string;
   beTriggered: boolean; session: "am" | "pm"; shares: number;
+  inferredDir?: string; // 推定大口方向（デバッグ用）
 }
+
+// ============================================================
+// 提案モード設定
+// ============================================================
+type ProposalMode = "baseline" | "proposalB" | "proposalC" | "proposalD";
+
+interface ProposalConfig {
+  /** 提案B: アイスバーグ+推定大口方向の一致で加点 */
+  useIcebergWithInferred: boolean;
+  /** 提案C: 推定大口方向のみでスコア付与 */
+  useInferredDirOnly: boolean;
+}
+
+const CONFIGS: Record<ProposalMode, ProposalConfig> = {
+  baseline: { useIcebergWithInferred: false, useInferredDirOnly: false },
+  proposalB: { useIcebergWithInferred: true, useInferredDirOnly: false },
+  proposalC: { useIcebergWithInferred: false, useInferredDirOnly: true },
+  proposalD: { useIcebergWithInferred: true, useInferredDirOnly: true },
+};
 
 // ============================================================
 // ヘルパー関数
@@ -140,10 +152,8 @@ function checkVolumeUnavailable(buffer: CandleWithSignal[]): boolean {
   return (zeroCount / lookback) >= VOLUME_UNAVAILABLE_RATIO;
 }
 
-/** 5分足上位足トレンド判定（本番getHigherTfTrendの再現） */
 function getHigherTfTrend(buffer: CandleWithSignal[], currentIdx: number): "up" | "down" | "neutral" {
   const candlesSoFar = buffer.slice(0, currentIdx + 1);
-  // 5分足に合成
   const htf: { close: number }[] = [];
   let group: CandleWithSignal[] = [];
   let currentBarIdx = -1;
@@ -172,9 +182,7 @@ function getHigherTfTrend(buffer: CandleWithSignal[], currentIdx: number): "up" 
   if (htf.length < 25) return "neutral";
   
   const closes = htf.map(c => c.close);
-  // MA5
   const fast5 = closes.slice(closes.length - 5).reduce((s, v) => s + v, 0) / 5;
-  // MA25
   const slow25 = closes.slice(closes.length - 25).reduce((s, v) => s + v, 0) / 25;
   
   if (fast5 > slow25) return "up";
@@ -182,13 +190,73 @@ function getHigherTfTrend(buffer: CandleWithSignal[], currentIdx: number): "up" 
   return "neutral";
 }
 
-/** 板読みスコア完全版（7要素）— DBのboardSnapshotを直接使用 */
+// ============================================================
+// 推定大口約定方向の計算
+// ============================================================
+/**
+ * 出来高差分 × 価格方向から大口約定方向を推定
+ * - 出来高が平均の2倍以上 かつ 陽線 → buy
+ * - 出来高が平均の2倍以上 かつ 陰線 → sell
+ * - それ以外 → neutral
+ * 
+ * 直近N本の大口約定方向を集計し、多数決で判定
+ */
+function inferLargeTradeDirection(
+  buffer: CandleWithSignal[],
+  lookback: number = INFERRED_DIR_LOOKBACK
+): "buy" | "sell" | "neutral" {
+  if (buffer.length < lookback + 5) return "neutral";
+  
+  // 平均出来高を計算（直近20本）
+  const volWindow = Math.min(buffer.length, 20);
+  const recentVols = buffer.slice(buffer.length - volWindow).map(c => c.volume);
+  const avgVol = recentVols.reduce((s, v) => s + v, 0) / volWindow;
+  
+  if (avgVol <= 0) return "neutral";
+  
+  // 直近lookback本を分析
+  let buyCount = 0;
+  let sellCount = 0;
+  let buyVolume = 0;
+  let sellVolume = 0;
+  
+  const startIdx = buffer.length - lookback;
+  for (let i = startIdx; i < buffer.length; i++) {
+    const c = buffer[i];
+    if (c.volume >= avgVol * LARGE_TRADE_VOLUME_MULTIPLIER) {
+      // 大口約定と判定
+      if (c.close > c.open) {
+        // 陽線 = 買い約定が支配的
+        buyCount++;
+        buyVolume += c.volume;
+      } else if (c.close < c.open) {
+        // 陰線 = 売り約定が支配的
+        sellCount++;
+        sellVolume += c.volume;
+      }
+    }
+  }
+  
+  // 多数決（出来高加重）
+  if (buyCount === 0 && sellCount === 0) return "neutral";
+  if (buyVolume > sellVolume * 1.5) return "buy";
+  if (sellVolume > buyVolume * 1.5) return "sell";
+  if (buyCount > sellCount) return "buy";
+  if (sellCount > buyCount) return "sell";
+  return "neutral";
+}
+
+// ============================================================
+// 板読みスコア（推定大口方向対応版）
+// ============================================================
 function boardReadingScore(
   side: "long" | "short",
   snapshot: any | null,
-  bprHistory: number[]
+  bprHistory: number[],
+  config: ProposalConfig,
+  inferredDir: "buy" | "sell" | "neutral"
 ): number {
-  if (!snapshot) return 1; // 板情報なし → 中立（シグナルを通す）
+  if (!snapshot) return 1;
   
   const bpr = snapshot.buyPressureRatio ?? 1.0;
   let score = 0;
@@ -244,8 +312,12 @@ function boardReadingScore(
   } else {
     mode = (bpr > 1.2 || bpr < 0.8) ? "active" : "trap";
   }
-  if (mode === "active" || mode === "building") score += 1;
-  else if (mode === "trap" || mode === "quiet") score -= 2;
+  
+  if (mode === "active" || mode === "building") {
+    score += 1;
+  } else if (mode === "trap" || mode === "quiet") {
+    score += -2;
+  }
   
   // 要素E: 板圧力の強さ (±1)
   if (side === "long" && bpr >= 1.4) score += 1;
@@ -253,7 +325,7 @@ function boardReadingScore(
   else if (side === "short" && bpr <= 0.65) score += 1;
   else if (side === "short" && bpr >= 1.4) score -= 1;
   
-  // 要素F: 歩み値方向推定 (±2)
+  // 要素F: 歩み値方向推定 (±2) — 現行ロジック
   let tickDir: "uptick" | "downtick" | "neutral" = "neutral";
   const mod = snapshot.marketOrderDirection;
   if (mod === "buy") tickDir = "uptick";
@@ -273,21 +345,60 @@ function boardReadingScore(
     if (side === "short") score += 2; else score -= 2;
   }
   
-  // 要素G: アイスバーグ検出 (±1)
-  let icebergSide: "buy" | "sell" | null = null;
-  if (snapshot.icebergAskDetected) icebergSide = "buy";
-  if (snapshot.icebergBidDetected) icebergSide = "sell";
-  if (icebergSide) {
-    if (side === "long" && icebergSide === "buy") score += 1;
-    else if (side === "short" && icebergSide === "sell") score += 1;
-    else if (side === "long" && icebergSide === "sell") score -= 1;
-    else if (side === "short" && icebergSide === "buy") score -= 1;
+  // 要素G: アイスバーグ検出 — 提案に応じて変更
+  if (config.useIcebergWithInferred) {
+    // 提案B: アイスバーグ + 推定大口方向の一致で強い加点
+    let icebergSide: "buy" | "sell" | null = null;
+    if (snapshot.icebergAskDetected) icebergSide = "buy"; // 売り板が食われている = 買い仕掛け
+    if (snapshot.icebergBidDetected) icebergSide = "sell"; // 買い板が食われている = 売り仕掛け
+    
+    if (icebergSide && inferredDir !== "neutral") {
+      if (icebergSide === inferredDir) {
+        // アイスバーグと推定大口方向が一致 → 強い確信
+        if (side === "long" && inferredDir === "buy") score += 2;
+        else if (side === "short" && inferredDir === "sell") score += 2;
+        else if (side === "long" && inferredDir === "sell") score -= 2;
+        else if (side === "short" && inferredDir === "buy") score -= 2;
+      } else {
+        // 不一致 → 見せ板の可能性、軽い減点
+        if (side === "long") score -= 1;
+        else score -= 1;
+      }
+    } else if (icebergSide) {
+      // 推定方向なし → 現行ロジック
+      if (side === "long" && icebergSide === "buy") score += 1;
+      else if (side === "short" && icebergSide === "sell") score += 1;
+      else if (side === "long" && icebergSide === "sell") score -= 1;
+      else if (side === "short" && icebergSide === "buy") score -= 1;
+    }
+  } else {
+    // 現行ロジック (±1)
+    let icebergSide: "buy" | "sell" | null = null;
+    if (snapshot.icebergAskDetected) icebergSide = "buy";
+    if (snapshot.icebergBidDetected) icebergSide = "sell";
+    if (icebergSide) {
+      if (side === "long" && icebergSide === "buy") score += 1;
+      else if (side === "short" && icebergSide === "sell") score += 1;
+      else if (side === "long" && icebergSide === "sell") score -= 1;
+      else if (side === "short" && icebergSide === "buy") score -= 1;
+    }
+  }
+  
+  // 要素H: 推定大口方向（提案C/D）
+  if (config.useInferredDirOnly && inferredDir !== "neutral") {
+    if (inferredDir === "buy") {
+      if (side === "long") score += 2; else score -= 2;
+    } else {
+      if (side === "short") score += 2; else score -= 2;
+    }
   }
   
   return score;
 }
 
-/** 板シグナル判定（DBのsnapshot.signalを直接使用） */
+// ============================================================
+// その他のヘルパー
+// ============================================================
 function getBoardSignal(snapshot: any | null): "buy_pressure" | "sell_pressure" | "neutral" {
   if (!snapshot) return "neutral";
   const sig = snapshot.signal;
@@ -296,20 +407,16 @@ function getBoardSignal(snapshot: any | null): "buy_pressure" | "sell_pressure" 
   return "neutral";
 }
 
-/** 板読み早期利確チェック（本番準拠: snapshot.signalを使用） */
 function shouldBoardEarlyExit(
   pos: OpenPosition,
   currentPrice: number,
   snapshot: any | null
 ): boolean {
   if (!snapshot) return false;
-  
   const pnlPct = pos.side === "long"
     ? (currentPrice - pos.entryPrice) / pos.entryPrice * 100
     : (pos.entryPrice - currentPrice) / pos.entryPrice * 100;
-  
   if (pnlPct < BOARD_EARLY_EXIT_MIN_PROFIT_PCT) return false;
-  
   if (pos.side === "long") {
     return snapshot.signal === "sell_pressure" || snapshot.signal === "large_sell_wall";
   } else {
@@ -318,24 +425,14 @@ function shouldBoardEarlyExit(
 }
 
 // ============================================================
-// メインシミュレーション
+// シミュレーション実行
 // ============================================================
-async function main() {
-  const db = await getDb();
-  
-  // 直近10営業日を取得
-  const [dateRows] = await db.execute(
-    `SELECT DISTINCT tradeDate FROM rt_candles 
-     WHERE tradeDate >= '2026-06-19' AND tradeDate <= '2026-07-03'
-     ORDER BY tradeDate`
-  ) as any;
-  const dates = (dateRows as any[]).map((r: any) => r.tradeDate);
-  console.log(`=== 本番準拠シミュレーション（${dates.length}日間: ${dates[0]}〜${dates[dates.length - 1]}） ===\n`);
-  
+async function runSimulation(mode: ProposalMode, db: any, dates: string[]): Promise<{ trades: Trade[], inferredStats: { total: number, buy: number, sell: number, neutral: number } }> {
+  const config = CONFIGS[mode];
   const allTrades: Trade[] = [];
+  let inferredStats = { total: 0, buy: 0, sell: 0, neutral: 0 };
   
   for (const date of dates) {
-    // ---- 日次状態リセット ----
     const openPositions = new Map<string, OpenPosition>();
     const pullbackStates = new Map<string, PullbackState>();
     const roundLevelPendingStates = new Map<string, RoundLevelPendingState>();
@@ -346,7 +443,6 @@ async function main() {
     let b2Direction: "bullish" | "bearish" | "neutral" = "neutral";
     let b2Determined = false;
     
-    // ---- 全銘柄の1分足を時系列順に取得 ----
     const [candles] = await db.execute(
       `SELECT symbol, tradeDate, candleTime, open, high, low, close, volume, boardSnapshot
        FROM rt_candles
@@ -356,10 +452,8 @@ async function main() {
     
     if (candles.length === 0) continue;
     
-    // processCandle呼び出しカウンター（09:30以降の足のみカウント）
     const processCandleCount = new Map<string, number>();
     
-    // ---- 時系列順にインターリーブ処理 ----
     for (const row of candles) {
       const symbol = row.symbol;
       const candleTime = row.candleTime;
@@ -369,13 +463,9 @@ async function main() {
       const close = Number(row.close);
       const volume = row.volume ?? 0;
       
-      // 対象銘柄チェック
       if (!TEN_SYMBOLS.includes(symbol)) continue;
-      
-      // 昼休みスキップ
       if (candleTime >= "11:30" && candleTime < "12:30") continue;
       
-      // 板情報取得
       let bpr: number | null = null;
       let boardSnap: any | null = null;
       if (row.boardSnapshot) {
@@ -385,7 +475,6 @@ async function main() {
         } catch {}
       }
       
-      // BPR履歴更新
       if (bpr !== null) {
         const hist = bprHistories.get(symbol) ?? [];
         hist.push(bpr);
@@ -393,7 +482,6 @@ async function main() {
         bprHistories.set(symbol, hist);
       }
       
-      // バッファに追加
       if (!candleBuffers.has(symbol)) candleBuffers.set(symbol, []);
       const buffer = candleBuffers.get(symbol)!;
       
@@ -407,7 +495,6 @@ async function main() {
       };
       buffer.push(candleForSignal);
       
-      // MA/RSI/BB計算
       const closes = buffer.map(c => c.close);
       const ma5Series = calcMA(closes, 5);
       const ma25Series = calcMA(closes, 25);
@@ -421,14 +508,10 @@ async function main() {
       buffer[lastIdx].bbMiddle = bbSeries.middle[lastIdx];
       buffer[lastIdx].bbLower = bbSeries.lower[lastIdx];
       
-      // 09:30以前の足はバッファ蓄積のみ（本番のrestoreBuffersFromDb相当）
       if (candleTime < "09:30") continue;
       
-      // processCandle呼び出しカウント（09:30以降からカウント開始）
       const pcCount = (processCandleCount.get(symbol) ?? 0) + 1;
       processCandleCount.set(symbol, pcCount);
-      
-      // ウォームアップチェック: processCandle 30回呼ばれるまでシグナル検出しない
       if (pcCount < MIN_CANDLES_FOR_SIGNAL) continue;
       
       const timeMin = timeToMinutes(candleTime);
@@ -436,14 +519,19 @@ async function main() {
       const boardSignal = getBoardSignal(boardSnap);
       const bprHist = bprHistories.get(symbol) ?? [];
       
+      // 推定大口約定方向を計算
+      const inferredDir = inferLargeTradeDirection(buffer);
+      inferredStats.total++;
+      if (inferredDir === "buy") inferredStats.buy++;
+      else if (inferredDir === "sell") inferredStats.sell++;
+      else inferredStats.neutral++;
+      
       // ---- 既存ポジションの決済チェック ----
       const existingPos = openPositions.get(symbol);
       if (existingPos) {
         let exitPrice: number | null = null;
         let exitReason = "";
-        let exitAction = "";
         
-        // BEトリガー
         if (!existingPos.beTriggered) {
           const beLine = existingPos.side === "long"
             ? existingPos.entryPrice * (1 + BE_TRIGGER_PERCENT / 100)
@@ -452,92 +540,49 @@ async function main() {
           if (beHit) existingPos.beTriggered = true;
         }
         
-        // SL/BE決済
         if (existingPos.side === "long") {
           const stopLine = existingPos.beTriggered ? existingPos.entryPrice : existingPos.entryPrice * (1 - STOP_LOSS_PERCENT / 100);
-          if (low <= stopLine) {
-            exitPrice = stopLine;
-            exitReason = existingPos.beTriggered ? "BE" : "SL";
-            exitAction = existingPos.beTriggered ? "exit" : "stop_loss";
-          }
-          // TP
+          if (low <= stopLine) { exitPrice = stopLine; exitReason = existingPos.beTriggered ? "BE" : "SL"; }
           const tpLine = existingPos.entryPrice * (1 + TAKE_PROFIT_PERCENT / 100);
-          if (high >= tpLine && exitPrice === null) {
-            exitPrice = tpLine;
-            exitReason = "TP";
-            exitAction = "take_profit";
-          }
+          if (high >= tpLine && exitPrice === null) { exitPrice = tpLine; exitReason = "TP"; }
         } else {
           const stopLine = existingPos.beTriggered ? existingPos.entryPrice : existingPos.entryPrice * (1 + STOP_LOSS_PERCENT / 100);
-          if (high >= stopLine) {
-            exitPrice = stopLine;
-            exitReason = existingPos.beTriggered ? "BE" : "SL";
-            exitAction = existingPos.beTriggered ? "exit" : "stop_loss";
-          }
-          // TP
+          if (high >= stopLine) { exitPrice = stopLine; exitReason = existingPos.beTriggered ? "BE" : "SL"; }
           const tpLine = existingPos.entryPrice * (1 - TAKE_PROFIT_PERCENT / 100);
-          if (low <= tpLine && exitPrice === null) {
-            exitPrice = tpLine;
-            exitReason = "TP";
-            exitAction = "take_profit";
-          }
+          if (low <= tpLine && exitPrice === null) { exitPrice = tpLine; exitReason = "TP"; }
         }
         
-        // シグナル反転決済（本番準拠: 前の足のシグナルを参照）
-        // 本番では buffer[buffer.length - 1].signal は前回processCandle時に検出されたもの
-        // シミュでは前の足（buffer.length - 2）のシグナルを使う
         if (exitPrice === null && buffer.length >= 2) {
           const prevCandle = buffer[buffer.length - 2];
           if (prevCandle.signal) {
-            if (existingPos.side === "long" && prevCandle.signal.type === "sell") {
-              exitPrice = close;
-              exitReason = "REVERSAL";
-            } else if (existingPos.side === "short" && prevCandle.signal.type === "buy") {
-              exitPrice = close;
-              exitReason = "REVERSAL";
-            }
+            if (existingPos.side === "long" && prevCandle.signal.type === "sell") { exitPrice = close; exitReason = "REVERSAL"; }
+            else if (existingPos.side === "short" && prevCandle.signal.type === "buy") { exitPrice = close; exitReason = "REVERSAL"; }
           }
         }
         
-        // 板読み早期利確
-        if (exitPrice === null && shouldBoardEarlyExit(existingPos, close, boardSnap)) {
-          exitPrice = close;
-          exitReason = "BOARD_EXIT";
-        }
-        
-        // 大引け強制決済
-        if (exitPrice === null && candleTime >= MARKET_CLOSE_TIME) {
-          exitPrice = close;
-          exitReason = "EOD";
-        }
+        if (exitPrice === null && shouldBoardEarlyExit(existingPos, close, boardSnap)) { exitPrice = close; exitReason = "BOARD_EXIT"; }
+        if (exitPrice === null && candleTime >= MARKET_CLOSE_TIME) { exitPrice = close; exitReason = "EOD"; }
         
         if (exitPrice !== null) {
           const pnl = existingPos.side === "long"
             ? Math.round((exitPrice - existingPos.entryPrice) * existingPos.shares)
             : Math.round((existingPos.entryPrice - exitPrice) * existingPos.shares);
-          
           allTrades.push({
             date, symbol, side: existingPos.side,
             entryTime: existingPos.entryTime, entryPrice: existingPos.entryPrice,
-            exitTime: candleTime, exitPrice,
-            pnl, exitReason,
-            signalReason: existingPos.entryReason,
-            confidence: existingPos.confidence,
+            exitTime: candleTime, exitPrice, pnl, exitReason,
+            signalReason: existingPos.entryReason, confidence: existingPos.confidence,
             beTriggered: existingPos.beTriggered,
             session: timeToMinutes(existingPos.entryTime) < 12 * 60 + 30 ? "am" : "pm",
             shares: existingPos.shares,
+            inferredDir,
           });
-          
           openPositions.delete(symbol);
           if (exitReason === "SL") lastStopLossTime.set(symbol, candleTime);
-          continue; // 決済した足ではエントリーしない
+          continue;
         }
-        
-        // ポジションあり → 新規エントリーしない
         continue;
       }
-      
-      // ---- 大引け強制決済チェック（ポジションなしの場合はスキップ） ----
       
       // ---- 時間帯制限 ----
       if (candleTime < NO_ENTRY_BEFORE) continue;
@@ -545,7 +590,7 @@ async function main() {
       if (candleTime >= NO_ENTRY_PRE_LUNCH_START && candleTime < NO_ENTRY_PRE_LUNCH_END) continue;
       if (candleTime >= NO_ENTRY_POST_LUNCH_START && candleTime < NO_ENTRY_POST_LUNCH_END) continue;
       
-      // ---- B2方式: 9:30時点の市場方向性判定 ----
+      // ---- B2方式 ----
       if (!b2Determined && candleTime >= "09:30") {
         let totalChange = 0, count = 0;
         for (const [sym, buf] of Array.from(candleBuffers.entries())) {
@@ -566,120 +611,79 @@ async function main() {
         }
       }
       
-      // ---- ステートマシン処理: 押し目確認（ダウ理論上昇） ----
+      // ---- ステートマシン: 押し目確認 ----
       const pullbackState = pullbackStates.get(symbol);
       if (pullbackState) {
         pullbackState.waitCount++;
-        
-        if (low < pullbackState.recentSwingLow) {
-          pullbackStates.delete(symbol);
-          continue;
-        }
-        if (pullbackState.waitCount > PULLBACK_MAX_WAIT) {
-          pullbackStates.delete(symbol);
-          continue;
-        }
-        if (!pullbackState.pulledBack && close < pullbackState.signalPrice) {
-          pullbackState.pulledBack = true;
-        }
+        if (low < pullbackState.recentSwingLow) { pullbackStates.delete(symbol); continue; }
+        if (pullbackState.waitCount > PULLBACK_MAX_WAIT) { pullbackStates.delete(symbol); continue; }
+        if (!pullbackState.pulledBack && close < pullbackState.signalPrice) pullbackState.pulledBack = true;
         if (pullbackState.pulledBack && close > pullbackState.signalPrice) {
           pullbackStates.delete(symbol);
-          // sell_pressure時LONG禁止
           if (boardSignal === "sell_pressure") continue;
-          // 板読みスコア
-          const brScore = boardReadingScore("long", boardSnap, bprHist);
+          const brScore = boardReadingScore("long", boardSnap, bprHist, config, inferredDir);
           if (brScore < BOARD_SCORE_THRESHOLD) continue;
-          // エントリー実行（後述のenterPositionロジックへ）
-          const entryResult = tryEnterPosition(
-            "long", symbol, close, candleTime, date,
-            `押し目確認: ${pullbackState.reason}`,
-            buffer, bpr, bprHist, openPositions, lastStopLossTime
-          );
-          if (entryResult) {
-            openPositions.set(symbol, entryResult);
-          }
+          const entryResult = tryEnterPosition("long", symbol, close, candleTime, date,
+            `押し目確認: ${pullbackState.reason}`, buffer, bpr, bprHist, openPositions, lastStopLossTime);
+          if (entryResult) openPositions.set(symbol, entryResult);
           continue;
         }
-        continue; // 待機中
+        continue;
       }
       
-      // ---- ステートマシン処理: 大台確認バー ----
+      // ---- ステートマシン: 大台確認バー ----
       const roundPending = roundLevelPendingStates.get(symbol);
       if (roundPending) {
-        if (openPositions.has(symbol)) {
-          roundLevelPendingStates.delete(symbol);
-        } else {
-          const stillValid = roundPending.direction === "buy"
-            ? close >= roundPending.level
-            : close <= roundPending.level;
-          
+        if (openPositions.has(symbol)) { roundLevelPendingStates.delete(symbol); }
+        else {
+          const stillValid = roundPending.direction === "buy" ? close >= roundPending.level : close <= roundPending.level;
           if (stillValid) {
             roundPending.confirmCount++;
             if (roundPending.confirmCount >= ROUND_LEVEL_CONFIRM_BARS) {
               roundLevelPendingStates.delete(symbol);
               if (candleTime < NO_ENTRY_AFTER) {
                 roundPullbackStates.set(symbol, {
-                  direction: roundPending.direction,
-                  level: roundPending.level,
-                  signalPrice: close,
-                  waitCount: 0,
-                  pulledBack: false,
+                  direction: roundPending.direction, level: roundPending.level,
+                  signalPrice: close, waitCount: 0, pulledBack: false,
                   reason: `大台確認(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`,
                 });
               }
             }
-          } else {
-            roundLevelPendingStates.delete(symbol);
-          }
+          } else { roundLevelPendingStates.delete(symbol); }
           continue;
         }
       }
       
-      // ---- ステートマシン処理: 大台確認後の押し目待ち ----
+      // ---- ステートマシン: 大台押し目待ち ----
       const roundPb = roundPullbackStates.get(symbol);
       if (roundPb) {
         roundPb.waitCount++;
         const side: "long" | "short" = roundPb.direction === "buy" ? "long" : "short";
         
-        // キリ番割れチェック
-        if (roundPb.direction === "buy" && close < roundPb.level) {
-          roundPullbackStates.delete(symbol);
-          continue;
-        }
-        if (roundPb.direction === "sell" && close > roundPb.level) {
-          roundPullbackStates.delete(symbol);
-          continue;
-        }
+        if (roundPb.direction === "buy" && close < roundPb.level) { roundPullbackStates.delete(symbol); continue; }
+        if (roundPb.direction === "sell" && close > roundPb.level) { roundPullbackStates.delete(symbol); continue; }
         
-        // タイムアウト → 強トレンドエントリー
         if (roundPb.waitCount > ROUND_PULLBACK_MAX_WAIT) {
           roundPullbackStates.delete(symbol);
           if (side === "long" && boardSignal === "sell_pressure") continue;
           if (side === "short" && boardSignal === "buy_pressure") continue;
-          const brScore = boardReadingScore(side, boardSnap, bprHist);
+          const brScore = boardReadingScore(side, boardSnap, bprHist, config, inferredDir);
           if (brScore < BOARD_SCORE_THRESHOLD) continue;
-          const entryResult = tryEnterPosition(
-            side, symbol, close, candleTime, date,
-            `${roundPb.reason} (押し目なし・強トレンド)`,
-            buffer, bpr, bprHist, openPositions, lastStopLossTime
-          );
+          const entryResult = tryEnterPosition(side, symbol, close, candleTime, date,
+            `${roundPb.reason} (押し目なし・強トレンド)`, buffer, bpr, bprHist, openPositions, lastStopLossTime);
           if (entryResult) openPositions.set(symbol, entryResult);
           continue;
         }
         
-        // 押し目判定
         if (roundPb.direction === "buy") {
           if (!roundPb.pulledBack && close < roundPb.signalPrice) roundPb.pulledBack = true;
           if (roundPb.pulledBack && close > roundPb.signalPrice) {
             roundPullbackStates.delete(symbol);
             if (boardSignal === "sell_pressure") continue;
-            const brScore = boardReadingScore("long", boardSnap, bprHist);
+            const brScore = boardReadingScore("long", boardSnap, bprHist, config, inferredDir);
             if (brScore < BOARD_SCORE_THRESHOLD) continue;
-            const entryResult = tryEnterPosition(
-              "long", symbol, close, candleTime, date,
-              `${roundPb.reason} (押し目確認後)`,
-              buffer, bpr, bprHist, openPositions, lastStopLossTime
-            );
+            const entryResult = tryEnterPosition("long", symbol, close, candleTime, date,
+              `${roundPb.reason} (押し目確認後)`, buffer, bpr, bprHist, openPositions, lastStopLossTime);
             if (entryResult) openPositions.set(symbol, entryResult);
             continue;
           }
@@ -688,18 +692,15 @@ async function main() {
           if (roundPb.pulledBack && close < roundPb.signalPrice) {
             roundPullbackStates.delete(symbol);
             if (boardSignal === "buy_pressure") continue;
-            const brScore = boardReadingScore("short", boardSnap, bprHist);
+            const brScore = boardReadingScore("short", boardSnap, bprHist, config, inferredDir);
             if (brScore < BOARD_SCORE_THRESHOLD) continue;
-            const entryResult = tryEnterPosition(
-              "short", symbol, close, candleTime, date,
-              `${roundPb.reason} (押し目確認後)`,
-              buffer, bpr, bprHist, openPositions, lastStopLossTime
-            );
+            const entryResult = tryEnterPosition("short", symbol, close, candleTime, date,
+              `${roundPb.reason} (押し目確認後)`, buffer, bpr, bprHist, openPositions, lastStopLossTime);
             if (entryResult) openPositions.set(symbol, entryResult);
             continue;
           }
         }
-        continue; // 待機中
+        continue;
       }
       
       // ---- シグナル検出 ----
@@ -712,20 +713,14 @@ async function main() {
       
       // ---- 買いエントリー ----
       if (sig.type === "buy") {
-        // VWAPクロス上抜け無効化
         if (sig.reason.includes("VWAPクロス上抜け")) continue;
-        // sell_pressure時LONG禁止
         if (boardSignal === "sell_pressure") continue;
-        // 板読みスコア
-        const brScore = boardReadingScore("long", boardSnap, bprHist);
+        const brScore = boardReadingScore("long", boardSnap, bprHist, config, inferredDir);
         if (brScore < BOARD_SCORE_THRESHOLD) continue;
         
-        // ダウ理論上昇 → 押し目確認ステートマシンへ
         if (sig.reason.startsWith("ダウ理論: 直近高値更新") && sig.recentSwingLow != null) {
-          // 5分足上位足フィルター
           const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
           if (htfTrend !== "up") continue;
-          // 押し目深さフィルター
           if (buffer.length >= PULLBACK_DEPTH_LOOKBACK) {
             const window = buffer.slice(buffer.length - PULLBACK_DEPTH_LOOKBACK);
             const swingHigh = Math.max(...window.map(c => c.high));
@@ -736,43 +731,31 @@ async function main() {
             }
           }
           pullbackStates.set(symbol, {
-            recentSwingLow: sig.recentSwingLow,
-            signalPrice: close,
-            waitCount: 0,
-            pulledBack: false,
-            reason: sig.reason,
+            recentSwingLow: sig.recentSwingLow, signalPrice: close,
+            waitCount: 0, pulledBack: false, reason: sig.reason,
           });
           continue;
         }
         
-        // 大台超え → 確認バーステートマシンへ
         if (sig.reason.startsWith("大台超え")) {
           const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
           const level = m ? parseFloat(m[1]) : close;
-          roundLevelPendingStates.set(symbol, {
-            direction: "buy", level, confirmCount: 0, reason: sig.reason,
-          });
+          roundLevelPendingStates.set(symbol, { direction: "buy", level, confirmCount: 0, reason: sig.reason });
           continue;
         }
         
-        // BUY medium全ブロック
         if (sig.confidence === "medium") continue;
         
-        // strong直接エントリー
-        const entryResult = tryEnterPosition(
-          "long", symbol, close, candleTime, date, sig.reason,
-          buffer, bpr, bprHist, openPositions, lastStopLossTime
-        );
+        const entryResult = tryEnterPosition("long", symbol, close, candleTime, date, sig.reason,
+          buffer, bpr, bprHist, openPositions, lastStopLossTime);
         if (entryResult) openPositions.set(symbol, entryResult);
         continue;
       }
       
       // ---- 売りエントリー ----
       if (sig.type === "sell") {
-        // buy_pressure時SHORT禁止
         if (boardSignal === "buy_pressure") continue;
         
-        // VWAP急落フィルター
         if (sig.reason.includes("VWAPクロス下抜け") && buffer.length >= 5) {
           const len = buffer.length;
           const close5ago = buffer[len - 5].close;
@@ -782,11 +765,9 @@ async function main() {
           if (drop5 <= VWAP_DROP_FILTER_5BARS || drop3 <= VWAP_DROP_FILTER_3BARS) continue;
         }
         
-        // 板読みスコア
-        const brScore = boardReadingScore("short", boardSnap, bprHist);
+        const brScore = boardReadingScore("short", boardSnap, bprHist, config, inferredDir);
         if (brScore < BOARD_SCORE_THRESHOLD) continue;
         
-        // ダウ理論SHORT: 5分足フィルター + 押し目深さフィルター
         if (sig.reason.startsWith("ダウ理論: 直近安値更新")) {
           const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
           if (htfTrend !== "down") continue;
@@ -801,30 +782,21 @@ async function main() {
           }
         }
         
-        // 大台割れ → 確認バーステートマシンへ
         if (sig.reason.startsWith("大台割れ")) {
           const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
           const level = m ? parseFloat(m[1]) : close;
-          roundLevelPendingStates.set(symbol, {
-            direction: "sell", level, confirmCount: 0, reason: sig.reason,
-          });
+          roundLevelPendingStates.set(symbol, { direction: "sell", level, confirmCount: 0, reason: sig.reason });
           continue;
         }
         
-        // SHORT medium: B2方式
         if (sig.confidence === "medium") {
           if (isAM && b2Direction === "bullish") continue;
-          // それ以外は許可
         }
         
-        // 後場BPRフィルター
         if (candleTime >= PM_BPR_FILTER_START && bpr !== null && bpr >= PM_BPR_BLOCK_THRESHOLD) continue;
         
-        // エントリー
-        const entryResult = tryEnterPosition(
-          "short", symbol, close, candleTime, date, sig.reason,
-          buffer, bpr, bprHist, openPositions, lastStopLossTime
-        );
+        const entryResult = tryEnterPosition("short", symbol, close, candleTime, date, sig.reason,
+          buffer, bpr, bprHist, openPositions, lastStopLossTime);
         if (entryResult) openPositions.set(symbol, entryResult);
         continue;
       }
@@ -849,126 +821,11 @@ async function main() {
         shares: pos.shares,
       });
     }
-    
-    // 日別サマリー出力
-    const dayTrades = allTrades.filter(t => t.date === date);
-    const dayPnl = dayTrades.reduce((s, t) => s + t.pnl, 0);
-    const dayWins = dayTrades.filter(t => t.pnl > 0).length;
-    console.log(`${date} | B2=${b2Direction.padEnd(7)} | 取引${dayTrades.length.toString().padStart(3)}件 | ` +
-      `勝率${dayTrades.length > 0 ? ((dayWins / dayTrades.length) * 100).toFixed(1) : "0.0"}% | ` +
-      `損益${dayPnl >= 0 ? "+" : ""}${dayPnl.toLocaleString()}円`);
   }
   
-  // ============================================================
-  // 集計
-  // ============================================================
-  console.log("\n" + "=".repeat(80));
-  console.log("=== 総合パフォーマンス ===\n");
-  
-  const totalPnl = allTrades.reduce((s, t) => s + t.pnl, 0);
-  const wins = allTrades.filter(t => t.pnl > 0);
-  const losses = allTrades.filter(t => t.pnl < 0);
-  const bes = allTrades.filter(t => t.pnl === 0);
-  const grossProfit = wins.reduce((s, t) => s + t.pnl, 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-  const pf = grossLoss > 0 ? grossProfit / grossLoss : Infinity;
-  
-  console.log(`取引数: ${allTrades.length}件 (1日平均: ${(allTrades.length / dates.length).toFixed(1)}件)`);
-  console.log(`勝率: ${((wins.length / allTrades.length) * 100).toFixed(1)}% (${wins.length}勝${losses.length}敗${bes.length}引分)`);
-  console.log(`総損益: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString()}円`);
-  console.log(`1日平均: ${(totalPnl / dates.length) >= 0 ? "+" : ""}${Math.round(totalPnl / dates.length).toLocaleString()}円`);
-  console.log(`PF: ${pf.toFixed(2)}`);
-  console.log(`期待値: ${(totalPnl / allTrades.length) >= 0 ? "+" : ""}${Math.round(totalPnl / allTrades.length).toLocaleString()}円/回`);
-  console.log(`平均利益: +${Math.round(grossProfit / wins.length).toLocaleString()}円`);
-  console.log(`平均損失: -${Math.round(grossLoss / losses.length).toLocaleString()}円`);
-  
-  // LONG/SHORT別
-  console.log("\n--- LONG/SHORT別 ---");
-  const longs = allTrades.filter(t => t.side === "long");
-  const shorts = allTrades.filter(t => t.side === "short");
-  const longPnl = longs.reduce((s, t) => s + t.pnl, 0);
-  const shortPnl = shorts.reduce((s, t) => s + t.pnl, 0);
-  const longWins = longs.filter(t => t.pnl > 0).length;
-  const shortWins = shorts.filter(t => t.pnl > 0).length;
-  console.log(`LONG:  ${longs.length}件 | ${longPnl >= 0 ? "+" : ""}${longPnl.toLocaleString()}円 | 勝率${longs.length > 0 ? ((longWins / longs.length) * 100).toFixed(1) : "0"}%`);
-  console.log(`SHORT: ${shorts.length}件 | ${shortPnl >= 0 ? "+" : ""}${shortPnl.toLocaleString()}円 | 勝率${shorts.length > 0 ? ((shortWins / shorts.length) * 100).toFixed(1) : "0"}%`);
-  
-  // 前場/後場別
-  console.log("\n--- 前場/後場別 ---");
-  const amTrades = allTrades.filter(t => t.session === "am");
-  const pmTrades = allTrades.filter(t => t.session === "pm");
-  const amPnl = amTrades.reduce((s, t) => s + t.pnl, 0);
-  const pmPnl = pmTrades.reduce((s, t) => s + t.pnl, 0);
-  console.log(`前場: ${amTrades.length}件 | ${amPnl >= 0 ? "+" : ""}${amPnl.toLocaleString()}円 | 勝率${amTrades.length > 0 ? ((amTrades.filter(t => t.pnl > 0).length / amTrades.length) * 100).toFixed(1) : "0"}%`);
-  console.log(`後場: ${pmTrades.length}件 | ${pmPnl >= 0 ? "+" : ""}${pmPnl.toLocaleString()}円 | 勝率${pmTrades.length > 0 ? ((pmTrades.filter(t => t.pnl > 0).length / pmTrades.length) * 100).toFixed(1) : "0"}%`);
-  
-  // 決済理由別
-  console.log("\n--- 決済理由別 ---");
-  const reasons = ["SL", "BE", "TP", "REVERSAL", "BOARD_EXIT", "EOD"];
-  for (const r of reasons) {
-    const rTrades = allTrades.filter(t => t.exitReason === r);
-    if (rTrades.length === 0) continue;
-    const rPnl = rTrades.reduce((s, t) => s + t.pnl, 0);
-    console.log(`${r.padEnd(12)} | ${rTrades.length.toString().padStart(3)}件 | ${rPnl >= 0 ? "+" : ""}${rPnl.toLocaleString()}円`);
-  }
-  
-  // 銘柄別
-  console.log("\n--- 銘柄別 ---");
-  for (const sym of TEN_SYMBOLS) {
-    const symTrades = allTrades.filter(t => t.symbol === sym);
-    if (symTrades.length === 0) continue;
-    const symPnl = symTrades.reduce((s, t) => s + t.pnl, 0);
-    const symWins = symTrades.filter(t => t.pnl > 0).length;
-    console.log(`${sym} ${getStockName(sym).padEnd(12)} | ${symTrades.length.toString().padStart(3)}件 | ` +
-      `${symPnl >= 0 ? "+" : ""}${symPnl.toLocaleString().padStart(10)}円 | ` +
-      `勝率${((symWins / symTrades.length) * 100).toFixed(1)}%`);
-  }
-  
-  // 日別累計
-  console.log("\n--- 日別累計 ---");
-  let cumPnl = 0;
-  for (const date of dates) {
-    const dayTrades = allTrades.filter(t => t.date === date);
-    const dayPnl = dayTrades.reduce((s, t) => s + t.pnl, 0);
-    cumPnl += dayPnl;
-    console.log(`${date} | ${dayTrades.length.toString().padStart(3)}件 | ${dayPnl >= 0 ? "+" : ""}${dayPnl.toLocaleString().padStart(10)}円 | 累計${cumPnl >= 0 ? "+" : ""}${cumPnl.toLocaleString()}円`);
-  }
-  
-  // リアルタイム結果との比較
-  console.log("\n--- リアルタイム結果との比較（7/3） ---");
-  const jul3Trades = allTrades.filter(t => t.date === "2026-07-03");
-  console.log("\n--- 7/3 シミュレーション取引詳細 ---");
-  for (const t of jul3Trades) {
-    const pnlStr = (t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString() + "円";
-    console.log(
-      `${t.entryTime}→${t.exitTime} | ${getStockName(t.symbol).padEnd(10)} | ${t.side.padEnd(5)} | ` +
-      `@${t.entryPrice}→${t.exitPrice} | ${pnlStr.padStart(12)} | ${t.exitReason} | ${t.signalReason?.substring(0, 50) || ""}`
-    );
-  }
-  console.log(`シミュ: ${jul3Trades.length}件, ${jul3Trades.reduce((s, t) => s + t.pnl, 0).toLocaleString()}円`);
-  console.log(`本番:   6件, -57,856円 (全敗)`);
-
-  console.log("\n--- リアルタイム結果との比較（7/2） ---");
-  const jul2Trades = allTrades.filter(t => t.date === "2026-07-02");
-  
-  // 7/2の個別取引詳細
-  console.log("\n--- 7/2 シミュレーション取引詳細 ---");
-  for (const t of jul2Trades) {
-    const pnlStr = (t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString() + "円";
-    console.log(
-      `${t.entryTime}→${t.exitTime} | ${getStockName(t.symbol).padEnd(10)} | ${t.side.padEnd(5)} | ` +
-      `@${t.entryPrice}→${t.exitPrice} | ${pnlStr.padStart(12)} | ${t.exitReason} | ${t.signalReason?.substring(0, 30) || ""}`
-    );
-  }
-  console.log(`シミュ: ${jul2Trades.length}件, ${jul2Trades.reduce((s, t) => s + t.pnl, 0).toLocaleString()}円`);
-  console.log(`本番:   10件, +1,029円`);
-  
-  process.exit(0);
+  return { trades: allTrades, inferredStats };
 }
 
-// ============================================================
-// enterPosition相当（フィルター適用）
-// ============================================================
 function tryEnterPosition(
   side: "long" | "short",
   symbol: string,
@@ -985,7 +842,6 @@ function tryEnterPosition(
   const shares = calcShares(price);
   const amount = price * shares;
   
-  // 出来高取得不可フィルター
   const isVolumeUnavailable = checkVolumeUnavailable(buffer);
   if (isVolumeUnavailable) {
     if (candleTime >= "12:00" && candleTime <= "12:59") return null;
@@ -996,7 +852,6 @@ function tryEnterPosition(
     }
   }
   
-  // ATRフィルター
   if (buffer.length >= ATR_FILTER_PERIOD + 1) {
     const highs = buffer.map(c => c.high);
     const lows = buffer.map(c => c.low);
@@ -1009,19 +864,14 @@ function tryEnterPosition(
     }
   }
   
-  // 後場BPRフィルター（SHORTのみ、enterPosition内でも再チェック）
-  if (side === "short" && candleTime >= PM_BPR_FILTER_START && bpr !== null && bpr >= PM_BPR_BLOCK_THRESHOLD) {
-    return null;
-  }
+  if (side === "short" && candleTime >= PM_BPR_FILTER_START && bpr !== null && bpr >= PM_BPR_BLOCK_THRESHOLD) return null;
   
-  // エクスポージャー制限
   let currentExposure = 0;
   for (const pos of Array.from(openPositions.values())) {
     currentExposure += pos.entryPrice * pos.shares;
   }
   if (currentExposure + amount > MAX_TOTAL_EXPOSURE) return null;
   
-  // 信頼度計算
   let confidence: SignalConfidence = "medium";
   if (buffer.length > 1) {
     const volumes = buffer.map(c => c.volume);
@@ -1031,21 +881,180 @@ function tryEnterPosition(
     const ma25Val = buffer[idx]?.ma25 ?? null;
     const confResult = evaluateConfirmation({
       type: side === "long" ? "buy" : "sell",
-      close: price,
-      volume: buffer[idx].volume,
+      close: price, volume: buffer[idx].volume,
       avgVolume: trailingAvgVolume(volumes, idx, 10),
-      ma5: ma5Val,
-      ma25: ma25Val,
+      ma5: ma5Val, ma25: ma25Val,
       momentum: priceMomentum(closes, idx, 3),
     });
     confidence = confResult.confidence;
   }
   
-  return {
-    symbol, side, entryPrice: price, shares,
-    entryTime: candleTime, entryReason: reason,
-    confidence, beTriggered: false,
-  };
+  return { symbol, side, entryPrice: price, shares, entryTime: candleTime, entryReason: reason, confidence, beTriggered: false };
 }
 
-main().catch(console.error);
+// ============================================================
+// メイン
+// ============================================================
+async function main() {
+  const db = await getDb();
+  
+  const [dateRows] = await db.execute(
+    `SELECT DISTINCT tradeDate FROM rt_candles 
+     WHERE tradeDate >= '2026-06-19' AND tradeDate <= '2026-07-02'
+     ORDER BY tradeDate`
+  ) as any;
+  const dates = (dateRows as any[]).map((r: any) => r.tradeDate);
+  console.log(`対象期間: ${dates[0]} 〜 ${dates[dates.length - 1]}（${dates.length}日間）`);
+  console.log("=" .repeat(100));
+  console.log("【比較結果】歩み値推定（出来高差分×価格方向）による大口約定方向判定");
+  console.log("=" .repeat(100));
+  
+  const modes: ProposalMode[] = ["baseline", "proposalB", "proposalC", "proposalD"];
+  const labels: Record<ProposalMode, string> = {
+    baseline: "A) 現行（ベースライン）",
+    proposalB: "B) アイスバーグ+推定大口方向",
+    proposalC: "C) 推定大口方向のみ（±2）",
+    proposalD: "D) B+C統合",
+  };
+  
+  const results: Record<string, { trades: Trade[], totalPnl: number, winRate: number, pf: number, count: number, inferredStats: any }> = {};
+  
+  for (const mode of modes) {
+    console.log(`--- ${labels[mode]} を実行中... ---`);
+    const { trades, inferredStats } = await runSimulation(mode, db, dates);
+    const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+    const wins = trades.filter(t => t.pnl > 0);
+    const losses = trades.filter(t => t.pnl < 0);
+    const grossProfit = wins.reduce((s, t) => s + t.pnl, 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+    const pf = grossLoss > 0 ? grossProfit / grossLoss : Infinity;
+    const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
+    
+    results[mode] = { trades, totalPnl, winRate, pf, count: trades.length, inferredStats };
+    console.log(`  完了: ${trades.length}件, ${totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString()}円, PF=${pf.toFixed(2)}, 勝率${winRate.toFixed(1)}%`);
+  }
+  
+  // ============================================================
+  // 比較テーブル
+  // ============================================================
+  console.log("\n" + "=".repeat(100));
+  console.log("【比較テーブル】\n");
+  console.log("| パターン | 取引数 | 勝率 | 総損益 | PF | 期待値/回 | 現行比 |");
+  console.log("|----------|--------|------|--------|------|-----------|--------|");
+  
+  const baselinePnl = results["baseline"].totalPnl;
+  for (const mode of modes) {
+    const r = results[mode];
+    const diff = r.totalPnl - baselinePnl;
+    const diffStr = mode === "baseline" ? "—" : `${diff >= 0 ? "+" : ""}${diff.toLocaleString()}円`;
+    const expectation = r.count > 0 ? Math.round(r.totalPnl / r.count) : 0;
+    console.log(
+      `| ${labels[mode].padEnd(30)} | ${r.count.toString().padStart(4)}件 | ${r.winRate.toFixed(1).padStart(5)}% | ` +
+      `${(r.totalPnl >= 0 ? "+" : "") + r.totalPnl.toLocaleString().padStart(10)}円 | ${r.pf.toFixed(2).padStart(4)} | ` +
+      `${(expectation >= 0 ? "+" : "") + expectation.toLocaleString().padStart(7)}円 | ${diffStr.padStart(12)} |`
+    );
+  }
+  
+  // ============================================================
+  // 推定大口方向の統計
+  // ============================================================
+  console.log("\n【推定大口約定方向の統計（提案B適用時）】");
+  const stats = results["proposalB"].inferredStats;
+  console.log(`  判定回数: ${stats.total}回`);
+  console.log(`  buy: ${stats.buy}回 (${(stats.buy / stats.total * 100).toFixed(1)}%)`);
+  console.log(`  sell: ${stats.sell}回 (${(stats.sell / stats.total * 100).toFixed(1)}%)`);
+  console.log(`  neutral: ${stats.neutral}回 (${(stats.neutral / stats.total * 100).toFixed(1)}%)`);
+  
+  // ============================================================
+  // 日別比較
+  // ============================================================
+  console.log("\n【日別損益比較】\n");
+  console.log("| 日付 | 現行 | B)アイスバーグ+推定 | C)推定のみ | D)統合 |");
+  console.log("|------|------|---------------------|-----------|--------|");
+  
+  for (const date of dates) {
+    const cols: string[] = [date];
+    for (const mode of modes) {
+      const dayTrades = results[mode].trades.filter(t => t.date === date);
+      const dayPnl = dayTrades.reduce((s, t) => s + t.pnl, 0);
+      cols.push(`${dayPnl >= 0 ? "+" : ""}${dayPnl.toLocaleString()}円`);
+    }
+    console.log(`| ${cols.join(" | ")} |`);
+  }
+  
+  // ============================================================
+  // 差分分析
+  // ============================================================
+  console.log("\n【差分分析: 現行 vs 提案B】\n");
+  
+  const baselineTrades = results["baseline"].trades;
+  const bTrades = results["proposalB"].trades;
+  
+  const baselineKeys = new Set(baselineTrades.map(t => `${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  const bKeys = new Set(bTrades.map(t => `${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  
+  const blockedByB = baselineTrades.filter(t => !bKeys.has(`${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  const addedByB = bTrades.filter(t => !baselineKeys.has(`${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  
+  console.log(`提案Bでブロックされた取引: ${blockedByB.length}件`);
+  const blockedPnl = blockedByB.reduce((s, t) => s + t.pnl, 0);
+  console.log(`  合計損益: ${blockedPnl >= 0 ? "+" : ""}${blockedPnl.toLocaleString()}円`);
+  for (const t of blockedByB) {
+    console.log(`  ${t.date} ${t.entryTime} ${getStockName(t.symbol).padEnd(10)} ${t.side.padEnd(5)} ${(t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString()}円 (${t.signalReason?.substring(0, 35)})`);
+  }
+  
+  console.log(`\n提案Bで新たに通過した取引: ${addedByB.length}件`);
+  const addedPnl = addedByB.reduce((s, t) => s + t.pnl, 0);
+  console.log(`  合計損益: ${addedPnl >= 0 ? "+" : ""}${addedPnl.toLocaleString()}円`);
+  for (const t of addedByB) {
+    console.log(`  ${t.date} ${t.entryTime} ${getStockName(t.symbol).padEnd(10)} ${t.side.padEnd(5)} ${(t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString()}円 (${t.signalReason?.substring(0, 35)})`);
+  }
+  
+  // ============================================================
+  // 差分分析: 現行 vs 提案C
+  // ============================================================
+  console.log("\n【差分分析: 現行 vs 提案C】\n");
+  
+  const cTrades = results["proposalC"].trades;
+  const cKeys = new Set(cTrades.map(t => `${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  
+  const blockedByC = baselineTrades.filter(t => !cKeys.has(`${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  const addedByC = cTrades.filter(t => !baselineKeys.has(`${t.date}_${t.symbol}_${t.entryTime}_${t.side}`));
+  
+  console.log(`提案Cでブロックされた取引: ${blockedByC.length}件`);
+  const blockedPnlC = blockedByC.reduce((s, t) => s + t.pnl, 0);
+  console.log(`  合計損益: ${blockedPnlC >= 0 ? "+" : ""}${blockedPnlC.toLocaleString()}円`);
+  for (const t of blockedByC.slice(0, 15)) {
+    console.log(`  ${t.date} ${t.entryTime} ${getStockName(t.symbol).padEnd(10)} ${t.side.padEnd(5)} ${(t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString()}円 (${t.signalReason?.substring(0, 35)})`);
+  }
+  if (blockedByC.length > 15) console.log(`  ... 他${blockedByC.length - 15}件`);
+  
+  console.log(`\n提案Cで新たに通過した取引: ${addedByC.length}件`);
+  const addedPnlC = addedByC.reduce((s, t) => s + t.pnl, 0);
+  console.log(`  合計損益: ${addedPnlC >= 0 ? "+" : ""}${addedPnlC.toLocaleString()}円`);
+  for (const t of addedByC.slice(0, 15)) {
+    console.log(`  ${t.date} ${t.entryTime} ${getStockName(t.symbol).padEnd(10)} ${t.side.padEnd(5)} ${(t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString()}円 (${t.signalReason?.substring(0, 35)})`);
+  }
+  if (addedByC.length > 15) console.log(`  ... 他${addedByC.length - 15}件`);
+  
+  // ============================================================
+  // 7/2の詳細比較
+  // ============================================================
+  console.log("\n【7/2 取引詳細比較】\n");
+  for (const mode of modes) {
+    const jul2 = results[mode].trades.filter(t => t.date === "2026-07-02");
+    const jul2Pnl = jul2.reduce((s, t) => s + t.pnl, 0);
+    console.log(`\n--- ${labels[mode]} (${jul2.length}件, ${jul2Pnl >= 0 ? "+" : ""}${jul2Pnl.toLocaleString()}円) ---`);
+    for (const t of jul2) {
+      const pnlStr = (t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString() + "円";
+      console.log(
+        `  ${t.entryTime}→${t.exitTime} | ${getStockName(t.symbol).padEnd(10)} | ${t.side.padEnd(5)} | ` +
+        `@${t.entryPrice}→${t.exitPrice} | ${pnlStr.padStart(12)} | ${t.exitReason} | ${t.signalReason?.substring(0, 35) || ""}`
+      );
+    }
+  }
+  
+  process.exit(0);
+}
+
+main().catch(e => { console.error(e); process.exit(1); });

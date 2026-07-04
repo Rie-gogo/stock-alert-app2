@@ -202,19 +202,15 @@ describe("realtimeSimEngine", () => {
     });
   });
 
-  describe("5分足上位足フィルター（ダウ理論シグナル専用）", () => {
+  describe("3分足HTFフィルター（全シグナル適用・neutral通過）", () => {
     /**
-     * 5分足 MA5 < MA25（下落トレンド）の状態でダウ理論上昇シグナルが発生した場合、
-     * フィルターによりエントリーが抑制されること（action=none）を確認する。
-     *
-     * 注: このテストではダウ理論シグナルを確実に発火させるのが困難なため、
-     * フィルター関数（getHigherTfTrend）が正しく呼び出せることを確認する
-     * 統合的なスモークテストとして実装する。
+     * 3分足HTFフィルター（neutral通過版）が全シグナルに適用され、
+     * フラット相場（neutral）ではブロックされずに通過することを確認する。
      */
-    it("ウォームアップ後のprocessCandleはaction=noneまたはentryを返す（5分足フィルター統合確認）", async () => {
+    it("ウォームアップ後のprocessCandleはaction=noneまたはentryを返す（3分足HTFフィルター統合確認・neutral通過）", async () => {
       const symbol = "TEST_HTF_FILTER";
       const tradeDate = "2026-02-01";
-      // 30本ウォームアップ（フラットな価格 → MA5≒MA25 → neutral → フィルター通過しない）
+      // 30本ウォームアップ（フラットな価格 → MA5≒MA25 → neutral → フィルター通過）
       await warmup(symbol, tradeDate, 5000);
 
       // ウォームアップ後の1本目
@@ -229,8 +225,8 @@ describe("realtimeSimEngine", () => {
         volume: 8000,
       }));
 
-      // フラット相場ではダウ理論シグナルが出ないか、出ても5分足フィルターで抑制される
-      // いずれにせよ action は "none" または "entry" のいずれかであること
+      // フラット相場ではHTF=neutralなのでブロックされない
+      // action は "none" または "entry" のいずれかであること
       expect(["none", "entry"]).toContain(result.action);
     });
 

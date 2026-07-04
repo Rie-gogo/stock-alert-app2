@@ -1,31 +1,22 @@
 /**
- * sim_faithful_10days.ts
+ * sim_3min_htf_all_signals.ts
  *
- * 本番エンジン（realtimeSimEngine.ts）に完全準拠したバックテスト。
+ * +D構成ベースに「3分足HTFフィルターを全シグナルに適用」した検証シミュレーション。
  * 
- * +D構成（6/26版回帰 + 後場BPRフィルター）:
- * - 全銘柄を時系列順にインターリーブ処理（銘柄別独立ではない）
- * - 1銘柄１ポジション制限（openPositions Map）
- * - MAX_TOTAL_EXPOSURE制限（891万円）
- * - ステートマシン３種（pullbackStates, roundLevelPendingStates, roundPullbackStates）
- * - 板読みスコア（BPR履歴ベースの簡易再現）
- * - 板読み早期利確（shouldBoardEarlyExit）
- * - シグナル反転決済
- * - sell_pressure/buy_pressureブロック
- * - ATRフィルター（7期間, 0.12%閾値）
- * - 出来高取得不可フィルター（90%以上volume=0）
- * - 5分足上位足フィルター（ダウ理論のみ）
- * - 押し目深さフィルター（30-70%範囲）
- * - VWAPクロス上抜け無効化
- * - BUY medium全ブロック
- * - SHORT medium全ブロック（+D構成）
+ * 変更点（sim_faithful_10days.tsとの差分）:
+ * - getHigherTfTrend: 5分足 → 3分足に変更（Math.floor(totalMin / 3)）
+ * - BUYシグナル: 全シグナル（ダウ理論・大台超え・strong直接含む）にHTFフィルター適用
+ * - SELLシグナル: 全シグナル（ダウ理論・大台割れ・strong直接含む）にHTFフィルター適用
+ * - ステートマシン経由エントリー: 押し目確認・大台確認後の実エントリー時にもHTFフィルター適用
+ * - ロジック: 明確に逆方向の場合のみブロック（BUY時にdown→ブロック、SELL時にup→ブロック）
+ * - "neutral"は通す（取引機会を維持しつつ明確な逆張りをカット）
+ *
+ * それ以外は+D構成と完全同一:
+ * - SL: 0.5%, TP: 1.5%, BEストップ撤廃
  * - isBullish方式（銘柄別始値比+0.2%でSHORT禁止）
+ * - SHORT medium全ブロック / BUY medium全ブロック
  * - 後場BPRフィルター（13:00以降SHORT, BPR>=0.65ブロック）
- * - 時間帯制限（09:30前禁止, 11:00-11:30禁止, 11:30-12:30スキップ, 12:30-13:00禁止, 15:15以降禁止）
- * - 大引け強制決済（15:30）
- * - SL/TP（0.5%/1.5%）— BEストップ撤廃
- * - VWAP急落フィルター撤廃
- * - 損切り後30分再エントリー禁止（出来高不可時のみ）
+ * - 17銘柄
  */
 
 import { getDb } from "../server/db";
@@ -55,7 +46,6 @@ const NO_ENTRY_PRE_LUNCH_START = "11:00";
 const NO_ENTRY_PRE_LUNCH_END = "11:30";
 const NO_ENTRY_POST_LUNCH_START = "12:30";
 const NO_ENTRY_POST_LUNCH_END = "13:00";
-// VWAP急落フィルター撤廃（+D構成）
 const MIN_CANDLES_FOR_SIGNAL = 30;
 const PULLBACK_MAX_WAIT = 5;
 const ROUND_LEVEL_CONFIRM_BARS = 5;
@@ -69,7 +59,9 @@ const PULLBACK_DEPTH_LOOKBACK = 20;
 const BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;
 const VOLUME_UNAVAILABLE_RATIO = 0.9;
 const NO_REENTRY_AFTER_STOPLOSS_MIN = 30;
-// B2方式撤廃 → isBullish方式に回帰（+D構成）
+
+// ★ 3分足HTFフィルター定数
+const HTF_TIMEFRAME_MINUTES = 3;
 
 const TEN_SYMBOLS = TARGET_STOCKS.map(s => s.symbol);
 
@@ -139,10 +131,10 @@ function checkVolumeUnavailable(buffer: CandleWithSignal[]): boolean {
   return (zeroCount / lookback) >= VOLUME_UNAVAILABLE_RATIO;
 }
 
-/** 5分足上位足トレンド判定（本番getHigherTfTrendの再現） */
+/** ★ 3分足上位足トレンド判定（5分→3分に変更） */
 function getHigherTfTrend(buffer: CandleWithSignal[], currentIdx: number): "up" | "down" | "neutral" {
   const candlesSoFar = buffer.slice(0, currentIdx + 1);
-  // 5分足に合成
+  // 3分足に合成
   const htf: { close: number }[] = [];
   let group: CandleWithSignal[] = [];
   let currentBarIdx = -1;
@@ -155,7 +147,7 @@ function getHigherTfTrend(buffer: CandleWithSignal[], currentIdx: number): "up" 
       const timePart = parts.length > 1 ? parts[1] : parts[0];
       const [hStr, mStr] = timePart.split(":");
       const totalMin = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
-      barIdx = Math.floor(totalMin / 5);
+      barIdx = Math.floor(totalMin / HTF_TIMEFRAME_MINUTES); // ★ 3分足
     }
     if (group.length > 0 && barIdx !== currentBarIdx) {
       htf.push({ close: group[group.length - 1].close });
@@ -187,7 +179,7 @@ function boardReadingScore(
   snapshot: any | null,
   bprHistory: number[]
 ): number {
-  if (!snapshot) return 1; // 板情報なし → 中立（シグナルを通す）
+  if (!snapshot) return 1;
   
   const bpr = snapshot.buyPressureRatio ?? 1.0;
   let score = 0;
@@ -317,19 +309,27 @@ function shouldBoardEarlyExit(
 }
 
 // ============================================================
+// HTFフィルターブロック統計
+// ============================================================
+let htfBlockCount = { buy: 0, sell: 0, stateMachineBuy: 0, stateMachineSell: 0 };
+
+// ============================================================
 // メインシミュレーション
 // ============================================================
 async function main() {
   const db = await getDb();
   
-  // 直近10営業日を取得
+  // 直近11営業日を取得（6/19〜7/3）
   const [dateRows] = await db.execute(
     `SELECT DISTINCT tradeDate FROM rt_candles 
      WHERE tradeDate >= '2026-06-19' AND tradeDate <= '2026-07-03'
      ORDER BY tradeDate`
   ) as any;
   const dates = (dateRows as any[]).map((r: any) => r.tradeDate);
-  console.log(`=== 本番準拠シミュレーション（${dates.length}日間: ${dates[0]}〜${dates[dates.length - 1]}） ===\n`);
+  console.log(`=== 3分足HTF全シグナルフィルター検証（${dates.length}日間: ${dates[0]}〜${dates[dates.length - 1]}） ===`);
+  console.log(`  HTFタイムフレーム: ${HTF_TIMEFRAME_MINUTES}分足`);
+  console.log(`  適用対象: 全シグナル（BUY時"down"ブロック, SELL時"up"ブロック, neutral=通過）`);
+  console.log(`  ステートマシンエントリー: HTFフィルター適用\n`);
   
   const allTrades: Trade[] = [];
   
@@ -342,7 +342,6 @@ async function main() {
     const candleBuffers = new Map<string, CandleWithSignal[]>();
     const bprHistories = new Map<string, number[]>();
     const lastStopLossTime = new Map<string, string>();
-    // isBullish方式: 銘柄別に始値を記録し、+0.2%以上で上昇判定
     const symbolOpenPrices = new Map<string, number>();
     
     // ---- 全銘柄の1分足を時系列順に取得 ----
@@ -355,7 +354,6 @@ async function main() {
     
     if (candles.length === 0) continue;
     
-    // processCandle呼び出しカウンター（09:30以降の足のみカウント）
     const processCandleCount = new Map<string, number>();
     
     // ---- 時系列順にインターリーブ処理 ----
@@ -368,13 +366,9 @@ async function main() {
       const close = Number(row.close);
       const volume = row.volume ?? 0;
       
-      // 対象銘柄チェック
       if (!TEN_SYMBOLS.includes(symbol)) continue;
-      
-      // 昼休みスキップ
       if (candleTime >= "11:30" && candleTime < "12:30") continue;
       
-      // 板情報取得
       let bpr: number | null = null;
       let boardSnap: any | null = null;
       if (row.boardSnapshot) {
@@ -384,7 +378,6 @@ async function main() {
         } catch {}
       }
       
-      // BPR履歴更新
       if (bpr !== null) {
         const hist = bprHistories.get(symbol) ?? [];
         hist.push(bpr);
@@ -392,7 +385,6 @@ async function main() {
         bprHistories.set(symbol, hist);
       }
       
-      // バッファに追加
       if (!candleBuffers.has(symbol)) candleBuffers.set(symbol, []);
       const buffer = candleBuffers.get(symbol)!;
       
@@ -406,7 +398,6 @@ async function main() {
       };
       buffer.push(candleForSignal);
       
-      // MA/RSI/BB計算
       const closes = buffer.map(c => c.close);
       const ma5Series = calcMA(closes, 5);
       const ma25Series = calcMA(closes, 25);
@@ -420,14 +411,11 @@ async function main() {
       buffer[lastIdx].bbMiddle = bbSeries.middle[lastIdx];
       buffer[lastIdx].bbLower = bbSeries.lower[lastIdx];
       
-      // 09:30以前の足はバッファ蓄積のみ（本番のrestoreBuffersFromDb相当）
       if (candleTime < "09:30") continue;
       
-      // processCandle呼び出しカウント（09:30以降からカウント開始）
       const pcCount = (processCandleCount.get(symbol) ?? 0) + 1;
       processCandleCount.set(symbol, pcCount);
       
-      // ウォームアップチェック: processCandle 30回呼ばれるまでシグナル検出しない
       if (pcCount < MIN_CANDLES_FOR_SIGNAL) continue;
       
       const timeMin = timeToMinutes(candleTime);
@@ -435,7 +423,6 @@ async function main() {
       const boardSignal = getBoardSignal(boardSnap);
       const bprHist = bprHistories.get(symbol) ?? [];
       
-      // isBullish: 銘柄別始値記録（最初の09:30以降の足）
       if (!symbolOpenPrices.has(symbol) && candleTime >= "09:30") {
         symbolOpenPrices.set(symbol, open);
       }
@@ -447,7 +434,6 @@ async function main() {
         let exitReason = "";
         let exitAction = "";
         
-        // 純粋SL/TP（BEストップ撤廃）
         if (existingPos.side === "long") {
           const stopLine = existingPos.entryPrice * (1 - STOP_LOSS_PERCENT / 100);
           if (low <= stopLine) {
@@ -476,9 +462,6 @@ async function main() {
           }
         }
         
-        // シグナル反転決済（本番準拠: 前の足のシグナルを参照）
-        // 本番では buffer[buffer.length - 1].signal は前回processCandle時に検出されたもの
-        // シミュでは前の足（buffer.length - 2）のシグナルを使う
         if (exitPrice === null && buffer.length >= 2) {
           const prevCandle = buffer[buffer.length - 2];
           if (prevCandle.signal) {
@@ -492,13 +475,11 @@ async function main() {
           }
         }
         
-        // 板読み早期利確
         if (exitPrice === null && shouldBoardEarlyExit(existingPos, close, boardSnap)) {
           exitPrice = close;
           exitReason = "BOARD_EXIT";
         }
         
-        // 大引け強制決済
         if (exitPrice === null && candleTime >= MARKET_CLOSE_TIME) {
           exitPrice = close;
           exitReason = "EOD";
@@ -522,22 +503,17 @@ async function main() {
           
           openPositions.delete(symbol);
           if (exitReason === "SL") lastStopLossTime.set(symbol, candleTime);
-          continue; // 決済した足ではエントリーしない
+          continue;
         }
         
-        // ポジションあり → 新規エントリーしない
         continue;
       }
-      
-      // ---- 大引け強制決済チェック（ポジションなしの場合はスキップ） ----
       
       // ---- 時間帯制限 ----
       if (candleTime < NO_ENTRY_BEFORE) continue;
       if (candleTime >= NO_ENTRY_AFTER) continue;
       if (candleTime >= NO_ENTRY_PRE_LUNCH_START && candleTime < NO_ENTRY_PRE_LUNCH_END) continue;
       if (candleTime >= NO_ENTRY_POST_LUNCH_START && candleTime < NO_ENTRY_POST_LUNCH_END) continue;
-      
-      // isBullish方式: 銘柄別に始値比で判定（symbolOpenPricesで管理）
       
       // ---- ステートマシン処理: 押し目確認（ダウ理論上昇） ----
       const pullbackState = pullbackStates.get(symbol);
@@ -557,12 +533,15 @@ async function main() {
         }
         if (pullbackState.pulledBack && close > pullbackState.signalPrice) {
           pullbackStates.delete(symbol);
-          // sell_pressure時LONG禁止
+          // ★ 3分足HTFフィルター（ステートマシンエントリー時）: 逆方向のみブロック
+          const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
+          if (htfTrend === "down") {
+            htfBlockCount.stateMachineBuy++;
+            continue;
+          }
           if (boardSignal === "sell_pressure") continue;
-          // 板読みスコア
           const brScore = boardReadingScore("long", boardSnap, bprHist);
           if (brScore < BOARD_SCORE_THRESHOLD) continue;
-          // エントリー実行（後述のenterPositionロジックへ）
           const entryResult = tryEnterPosition(
             "long", symbol, close, candleTime, date,
             `押し目確認: ${pullbackState.reason}`,
@@ -573,7 +552,7 @@ async function main() {
           }
           continue;
         }
-        continue; // 待機中
+        continue;
       }
       
       // ---- ステートマシン処理: 大台確認バー ----
@@ -614,7 +593,6 @@ async function main() {
         roundPb.waitCount++;
         const side: "long" | "short" = roundPb.direction === "buy" ? "long" : "short";
         
-        // キリ番割れチェック
         if (roundPb.direction === "buy" && close < roundPb.level) {
           roundPullbackStates.delete(symbol);
           continue;
@@ -627,6 +605,16 @@ async function main() {
         // タイムアウト → 強トレンドエントリー
         if (roundPb.waitCount > ROUND_PULLBACK_MAX_WAIT) {
           roundPullbackStates.delete(symbol);
+          // ★ 3分足HTFフィルター（ステートマシンエントリー時）: 逆方向のみブロック
+          const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
+          if (side === "long" && htfTrend === "down") {
+            htfBlockCount.stateMachineBuy++;
+            continue;
+          }
+          if (side === "short" && htfTrend === "up") {
+            htfBlockCount.stateMachineSell++;
+            continue;
+          }
           if (side === "long" && boardSignal === "sell_pressure") continue;
           if (side === "short" && boardSignal === "buy_pressure") continue;
           const brScore = boardReadingScore(side, boardSnap, bprHist);
@@ -645,6 +633,12 @@ async function main() {
           if (!roundPb.pulledBack && close < roundPb.signalPrice) roundPb.pulledBack = true;
           if (roundPb.pulledBack && close > roundPb.signalPrice) {
             roundPullbackStates.delete(symbol);
+            // ★ 3分足HTFフィルター（ステートマシンエントリー時）: 逆方向のみブロック
+            const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
+            if (htfTrend === "down") {
+              htfBlockCount.stateMachineBuy++;
+              continue;
+            }
             if (boardSignal === "sell_pressure") continue;
             const brScore = boardReadingScore("long", boardSnap, bprHist);
             if (brScore < BOARD_SCORE_THRESHOLD) continue;
@@ -660,6 +654,12 @@ async function main() {
           if (!roundPb.pulledBack && close > roundPb.signalPrice) roundPb.pulledBack = true;
           if (roundPb.pulledBack && close < roundPb.signalPrice) {
             roundPullbackStates.delete(symbol);
+            // ★ 3分足HTFフィルター（ステートマシンエントリー時）: 逆方向のみブロック
+            const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
+            if (htfTrend === "up") {
+              htfBlockCount.stateMachineSell++;
+              continue;
+            }
             if (boardSignal === "buy_pressure") continue;
             const brScore = boardReadingScore("short", boardSnap, bprHist);
             if (brScore < BOARD_SCORE_THRESHOLD) continue;
@@ -672,7 +672,7 @@ async function main() {
             continue;
           }
         }
-        continue; // 待機中
+        continue;
       }
       
       // ---- シグナル検出 ----
@@ -693,11 +693,15 @@ async function main() {
         const brScore = boardReadingScore("long", boardSnap, bprHist);
         if (brScore < BOARD_SCORE_THRESHOLD) continue;
         
+        // ★ 3分足HTFフィルター: 全BUYシグナルに適用（逆方向のみブロック）
+        const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
+        if (htfTrend === "down") {
+          htfBlockCount.buy++;
+          continue;
+        }
+        
         // ダウ理論上昇 → 押し目確認ステートマシンへ
         if (sig.reason.startsWith("ダウ理論: 直近高値更新") && sig.recentSwingLow != null) {
-          // 5分足上位足フィルター
-          const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
-          if (htfTrend !== "up") continue;
           // 押し目深さフィルター
           if (buffer.length >= PULLBACK_DEPTH_LOOKBACK) {
             const window = buffer.slice(buffer.length - PULLBACK_DEPTH_LOOKBACK);
@@ -745,9 +749,7 @@ async function main() {
         // buy_pressure時SHORT禁止
         if (boardSignal === "buy_pressure") continue;
         
-        // VWAP急落フィルター撤廃（+D構成）
-        
-        // isBullish方式: 銘柄別に始値比+0.2%以上なSHORT禁止
+        // isBullish方式: 銘柄別に始値比+0.2%以上ならSHORT禁止
         const symOpen = symbolOpenPrices.get(symbol);
         if (symOpen && close > symOpen * (1 + IS_BULLISH_THRESHOLD / 100)) continue;
         
@@ -755,10 +757,15 @@ async function main() {
         const brScore = boardReadingScore("short", boardSnap, bprHist);
         if (brScore < BOARD_SCORE_THRESHOLD) continue;
         
-        // ダウ理論SHORT: 5分足フィルター + 押し目深さフィルター
+        // ★ 3分足HTFフィルター: 全SELLシグナルに適用（逆方向のみブロック）
+        const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
+        if (htfTrend === "up") {
+          htfBlockCount.sell++;
+          continue;
+        }
+        
+        // ダウ理論SHORT: 押し目深さフィルター（HTFは上で既に通過）
         if (sig.reason.startsWith("ダウ理論: 直近安値更新")) {
-          const htfTrend = getHigherTfTrend(buffer, buffer.length - 1);
-          if (htfTrend !== "down") continue;
           if (buffer.length >= PULLBACK_DEPTH_LOOKBACK) {
             const window = buffer.slice(buffer.length - PULLBACK_DEPTH_LOOKBACK);
             const swingHigh = Math.max(...window.map(c => c.high));
@@ -839,13 +846,15 @@ async function main() {
   const pf = grossLoss > 0 ? grossProfit / grossLoss : Infinity;
   
   console.log(`取引数: ${allTrades.length}件 (1日平均: ${(allTrades.length / dates.length).toFixed(1)}件)`);
-  console.log(`勝率: ${((wins.length / allTrades.length) * 100).toFixed(1)}% (${wins.length}勝${losses.length}敗${bes.length}引分)`);
+  console.log(`勝率: ${allTrades.length > 0 ? ((wins.length / allTrades.length) * 100).toFixed(1) : "0"}% (${wins.length}勝${losses.length}敗${bes.length}引分)`);
   console.log(`総損益: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString()}円`);
   console.log(`1日平均: ${(totalPnl / dates.length) >= 0 ? "+" : ""}${Math.round(totalPnl / dates.length).toLocaleString()}円`);
   console.log(`PF: ${pf.toFixed(2)}`);
-  console.log(`期待値: ${(totalPnl / allTrades.length) >= 0 ? "+" : ""}${Math.round(totalPnl / allTrades.length).toLocaleString()}円/回`);
-  console.log(`平均利益: +${Math.round(grossProfit / wins.length).toLocaleString()}円`);
-  console.log(`平均損失: -${Math.round(grossLoss / losses.length).toLocaleString()}円`);
+  if (allTrades.length > 0) {
+    console.log(`期待値: ${(totalPnl / allTrades.length) >= 0 ? "+" : ""}${Math.round(totalPnl / allTrades.length).toLocaleString()}円/回`);
+  }
+  if (wins.length > 0) console.log(`平均利益: +${Math.round(grossProfit / wins.length).toLocaleString()}円`);
+  if (losses.length > 0) console.log(`平均損失: -${Math.round(grossLoss / losses.length).toLocaleString()}円`);
   
   // LONG/SHORT別
   console.log("\n--- LONG/SHORT別 ---");
@@ -899,35 +908,34 @@ async function main() {
     console.log(`${date} | ${dayTrades.length.toString().padStart(3)}件 | ${dayPnl >= 0 ? "+" : ""}${dayPnl.toLocaleString().padStart(10)}円 | 累計${cumPnl >= 0 ? "+" : ""}${cumPnl.toLocaleString()}円`);
   }
   
-  // リアルタイム結果との比較
-  console.log("\n--- リアルタイム結果との比較（7/3） ---");
-  const jul3Trades = allTrades.filter(t => t.date === "2026-07-03");
-  console.log("\n--- 7/3 シミュレーション取引詳細 ---");
-  for (const t of jul3Trades) {
+  // ★ HTFフィルターブロック統計
+  console.log("\n--- 3分足HTFフィルター ブロック統計 ---");
+  console.log(`BUYシグナル ブロック数: ${htfBlockCount.buy}件`);
+  console.log(`SELLシグナル ブロック数: ${htfBlockCount.sell}件`);
+  console.log(`ステートマシンBUY ブロック数: ${htfBlockCount.stateMachineBuy}件`);
+  console.log(`ステートマシンSELL ブロック数: ${htfBlockCount.stateMachineSell}件`);
+  console.log(`合計ブロック数: ${htfBlockCount.buy + htfBlockCount.sell + htfBlockCount.stateMachineBuy + htfBlockCount.stateMachineSell}件`);
+  
+  // ベースラインとの比較
+  console.log("\n" + "=".repeat(80));
+  console.log("=== +Dベースラインとの比較 ===\n");
+  console.log("| 指標 | +Dベースライン | 3分HTF全適用 | 差分 |");
+  console.log("|------|--------------|-------------|------|");
+  console.log(`| 総損益 | +564,535円 | ${totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString()}円 | ${(totalPnl - 564535) >= 0 ? "+" : ""}${(totalPnl - 564535).toLocaleString()}円 |`);
+  console.log(`| 取引数 | 51件 | ${allTrades.length}件 | ${allTrades.length - 51}件 |`);
+  console.log(`| PF | 2.58 | ${pf.toFixed(2)} | ${(pf - 2.58) >= 0 ? "+" : ""}${(pf - 2.58).toFixed(2)} |`);
+  console.log(`| 勝率 | 41.2% | ${allTrades.length > 0 ? ((wins.length / allTrades.length) * 100).toFixed(1) : "0"}% | ${allTrades.length > 0 ? ((wins.length / allTrades.length * 100) - 41.2).toFixed(1) : "-41.2"}pp |`);
+  
+  // 取引詳細
+  console.log("\n--- 全取引詳細 ---");
+  for (const t of allTrades) {
     const pnlStr = (t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString() + "円";
     console.log(
-      `${t.entryTime}→${t.exitTime} | ${getStockName(t.symbol).padEnd(10)} | ${t.side.padEnd(5)} | ` +
+      `${t.date} ${t.entryTime}→${t.exitTime} | ${getStockName(t.symbol).padEnd(10)} | ${t.side.padEnd(5)} | ` +
       `@${t.entryPrice}→${t.exitPrice} | ${pnlStr.padStart(12)} | ${t.exitReason} | ${t.signalReason?.substring(0, 50) || ""}`
     );
   }
-  console.log(`シミュ: ${jul3Trades.length}件, ${jul3Trades.reduce((s, t) => s + t.pnl, 0).toLocaleString()}円`);
-  console.log(`本番:   6件, -57,856円 (全敗)`);
 
-  console.log("\n--- リアルタイム結果との比較（7/2） ---");
-  const jul2Trades = allTrades.filter(t => t.date === "2026-07-02");
-  
-  // 7/2の個別取引詳細
-  console.log("\n--- 7/2 シミュレーション取引詳細 ---");
-  for (const t of jul2Trades) {
-    const pnlStr = (t.pnl >= 0 ? "+" : "") + t.pnl.toLocaleString() + "円";
-    console.log(
-      `${t.entryTime}→${t.exitTime} | ${getStockName(t.symbol).padEnd(10)} | ${t.side.padEnd(5)} | ` +
-      `@${t.entryPrice}→${t.exitPrice} | ${pnlStr.padStart(12)} | ${t.exitReason} | ${t.signalReason?.substring(0, 30) || ""}`
-    );
-  }
-  console.log(`シミュ: ${jul2Trades.length}件, ${jul2Trades.reduce((s, t) => s + t.pnl, 0).toLocaleString()}円`);
-  console.log(`本番:   10件, +1,029円`);
-  
   process.exit(0);
 }
 

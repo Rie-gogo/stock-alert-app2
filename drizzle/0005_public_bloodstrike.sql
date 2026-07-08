@@ -1,0 +1,40 @@
+CREATE TABLE `auto_trade_daily` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`tradeDate` varchar(10) NOT NULL,
+	`realizedPnl` bigint NOT NULL DEFAULT 0,
+	`tradeCount` int NOT NULL DEFAULT 0,
+	`dailyLossLimit` bigint NOT NULL DEFAULT -50000,
+	`tradingEnabled` boolean NOT NULL DEFAULT true,
+	`emergencyStop` boolean NOT NULL DEFAULT false,
+	`emergencyStopReason` text,
+	`isDryRun` boolean NOT NULL DEFAULT true,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `auto_trade_daily_id` PRIMARY KEY(`id`),
+	CONSTRAINT `auto_trade_daily_tradeDate_unique` UNIQUE(`tradeDate`)
+);
+--> statement-breakpoint
+CREATE TABLE `order_instructions` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`tradeDate` varchar(10) NOT NULL,
+	`symbol` varchar(10) NOT NULL,
+	`symbolName` varchar(50) NOT NULL,
+	`oi_side` enum('buy','sell','short','cover') NOT NULL,
+	`oi_instruction_type` enum('entry','exit','force_close') NOT NULL,
+	`qty` int NOT NULL DEFAULT 100,
+	`oi_status` enum('pending','sent','executed','failed','expired','cancelled') NOT NULL DEFAULT 'pending',
+	`reason` text NOT NULL,
+	`referencePrice` decimal(12,2) NOT NULL,
+	`expiresAt` timestamp,
+	`kabuOrderId` varchar(30),
+	`executedPrice` decimal(12,2),
+	`executedAt` timestamp,
+	`pnl` bigint,
+	`rtTradeId` int,
+	`errorMessage` text,
+	`isDryRun` boolean NOT NULL DEFAULT true,
+	`executorLog` json,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `order_instructions_id` PRIMARY KEY(`id`)
+);

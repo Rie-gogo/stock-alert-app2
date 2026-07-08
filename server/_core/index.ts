@@ -79,6 +79,12 @@ async function startServer() {
     restoreBuffersFromDb().catch((err) =>
       console.error("[Startup] バッファ復元失敗:", err)
     );
+    // 自動売買ブリッジの初期化（最後に処理したrt_trade IDを復元）
+    import("../orderBridge").then(({ initOrderBridge }) =>
+      initOrderBridge().catch((err) =>
+        console.error("[Startup] OrderBridge初期化失敗:", err)
+      )
+    );
   });
 }
 

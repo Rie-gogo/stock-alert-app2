@@ -71,10 +71,10 @@ const MARGIN_USAGE_LIMIT = 0.9; // 90% → 990万 × 90% = 891万円
 const MAX_TOTAL_EXPOSURE = MARGIN_CAPITAL * MARGIN_MULTIPLIER * MARGIN_USAGE_LIMIT;
 
 /** 大引け強制決済の時刻 (HH:MM) */
-const MARKET_CLOSE_TIME = "15:30";
+const MARKET_CLOSE_TIME = "15:25";
 
-/** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない（6/11良い結果: 15:15） */
-const NO_ENTRY_AFTER = "15:15";
+/** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない */
+const NO_ENTRY_AFTER = "15:05";
 /** 改善④: 09:30以前はエントリー禁止（寄り付きダマシ排除） */
 const NO_ENTRY_BEFORE = "09:30";
 /** 改良策5: 昼休み前（11:00-11:30）エントリー禁止 */

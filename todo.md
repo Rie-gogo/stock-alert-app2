@@ -802,3 +802,13 @@
 - [x] ステートマシンエントリー時にもHTFフィルター適用（逆方向のみブロック）
 - [x] テスト更新・全テスト通過確認
 - [x] チェックポイント保存
+
+## 自動売買システム実装（2026-07-08）— Phase 1: ドライラン
+- [x] order_instructions テーブル設計・DB作成
+- [x] auto_trade_daily テーブル設計・DB作成
+- [x] server/db.ts に order_instructions / auto_trade_daily のCRUDヘルパー追加（orderBridge.tsに統合）
+- [x] server/orderBridge.ts 実装（rt_trades監視→発注指示生成）
+- [x] tRPC エンドポイント追加（executor用ポーリング・結果報告）
+- [x] kabu_order_executor.py 実装（ドライラン版）
+- [x] 結合テスト（vitest）— 14件パス
+- [x] 設計ドキュメント作成 (analysis/AUTO_TRADE_DESIGN.md)

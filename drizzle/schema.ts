@@ -376,3 +376,134 @@ export const rtDailySummaries = mysqlTable("rt_daily_summaries", {
 
 export type RtDailySummary = typeof rtDailySummaries.$inferSelect;
 export type InsertRtDailySummary = typeof rtDailySummaries.$inferInsert;
+
+/**
+ * 自動売買: 発注指示テーブル
+ * クラウド（orderBridge）がrt_tradesの新規エントリー/決済を検知して生成し、
+ * ローカルPC（kabu_order_executor.py）がポーリングして実行する。
+ *
+ * ライフサイクル:
+ *   pending → sent → executed/failed
+ *   pending → expired (60秒超過、entryのみ)
+ *   pending → cancelled (緊急停止時)
+ */
+export const orderInstructions = mysqlTable("order_instructions", {
+  id: int("id").autoincrement().primaryKey(),
+
+  /** 対象日 (YYYY-MM-DD) */
+  tradeDate: varchar("tradeDate", { length: 10 }).notNull(),
+
+  /** 銘柄コード（例: 9984） */
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+
+  /** 銘柄名 */
+  symbolName: varchar("symbolName", { length: 50 }).notNull(),
+
+  /**
+   * 売買方向
+   * buy: 信用新規買い (Side="2", CashMargin=2)
+   * sell: 信用返済売り (Side="1", CashMargin=3) — LONG決済
+   * short: 信用新規売り (Side="1", CashMargin=2)
+   * cover: 信用返済買い (Side="2", CashMargin=3) — SHORT決済
+   */
+  side: mysqlEnum("oi_side", ["buy", "sell", "short", "cover"]).notNull(),
+
+  /**
+   * 指示種別
+   * entry: 新規建て（60秒で期限切れ）
+   * exit: 決済（期限なし、必ず実行）
+   * force_close: 大引け強制決済（期限なし、必ず実行）
+   */
+  instructionType: mysqlEnum("oi_instruction_type", ["entry", "exit", "force_close"]).notNull(),
+
+  /** 注文数量（株） */
+  qty: int("qty").notNull().default(100),
+
+  /**
+   * ステータス
+   * pending: 未実行（executorがポーリングで取得する対象）
+   * sent: KABU APIに送信済み（約定待ち）
+   * executed: 約定完了
+   * failed: 発注失敗（APIエラー等）
+   * expired: 期限切れ（entryのみ、60秒超過）
+   * cancelled: 緊急停止等でキャンセル
+   */
+  status: mysqlEnum("oi_status", ["pending", "sent", "executed", "failed", "expired", "cancelled"]).notNull().default("pending"),
+
+  /** シグナル理由（realtimeSimEngineのreason） */
+  reason: text("reason").notNull(),
+
+  /** 参照価格（シグナル発生時の価格、実際の約定価格ではない） */
+  referencePrice: decimal("referencePrice", { precision: 12, scale: 2 }).notNull(),
+
+  /** 期限切れ日時（entryのみ: createdAt + 60秒、exit/force_closeはnull） */
+  expiresAt: timestamp("expiresAt"),
+
+  /** KABU Station APIから返されたOrderId */
+  kabuOrderId: varchar("kabuOrderId", { length: 30 }),
+
+  /** 実約定価格（約定確認後に記録） */
+  executedPrice: decimal("executedPrice", { precision: 12, scale: 2 }),
+
+  /** 約定日時 */
+  executedAt: timestamp("executedAt"),
+
+  /** 損益（決済時のみ、円） */
+  pnl: bigint("pnl", { mode: "number" }),
+
+  /** 対応するrt_tradesのID（FK参照用、外部キー制約なし） */
+  rtTradeId: int("rtTradeId"),
+
+  /** エラーメッセージ（failed時） */
+  errorMessage: text("errorMessage"),
+
+  /** ドライランモードで生成されたか */
+  isDryRun: boolean("isDryRun").notNull().default(true),
+
+  /** executor側のログ（JSON形式、デバッグ用） */
+  executorLog: json("executorLog").$type<Record<string, unknown> | null>(),
+
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type OrderInstruction = typeof orderInstructions.$inferSelect;
+export type InsertOrderInstruction = typeof orderInstructions.$inferInsert;
+
+/**
+ * 自動売買: 日次リスク管理テーブル
+ * 1日1レコード。日次の損益上限・緊急停止状態を管理する。
+ */
+export const autoTradeDaily = mysqlTable("auto_trade_daily", {
+  id: int("id").autoincrement().primaryKey(),
+
+  /** 対象日 (YYYY-MM-DD) */
+  tradeDate: varchar("tradeDate", { length: 10 }).notNull().unique(),
+
+  /** 当日の実現損益合計（円） */
+  realizedPnl: bigint("realizedPnl", { mode: "number" }).notNull().default(0),
+
+  /** 当日の取引回数 */
+  tradeCount: int("tradeCount").notNull().default(0),
+
+  /** 日次損失上限（円、負の値）- これを超えたら新規エントリー停止 */
+  dailyLossLimit: bigint("dailyLossLimit", { mode: "number" }).notNull().default(-50000),
+
+  /** 取引有効フラグ（falseで全発注停止） */
+  tradingEnabled: boolean("tradingEnabled").notNull().default(true),
+
+  /** 緊急停止フラグ（手動またはリスク管理で停止） */
+  emergencyStop: boolean("emergencyStop").notNull().default(false),
+
+  /** 緊急停止理由 */
+  emergencyStopReason: text("emergencyStopReason"),
+
+  /** ドライランモード（true=実際の発注を行わない） */
+  isDryRun: boolean("isDryRun").notNull().default(true),
+
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AutoTradeDaily = typeof autoTradeDaily.$inferSelect;
+export type InsertAutoTradeDaily = typeof autoTradeDaily.$inferInsert;

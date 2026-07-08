@@ -594,6 +594,16 @@ export const tradingRouter = router({
         close: input.close,
         volume: input.volume,
       });
+
+      // 自動売買ブリッジ: rt_tradesの新規レコードを検知して発注指示を生成
+      try {
+        const { checkAndGenerateInstructions } = await import("../orderBridge");
+        await checkAndGenerateInstructions();
+      } catch (e) {
+        // orderBridgeのエラーはシグナルエンジンに影響させない
+        console.error("[OrderBridge] 発注指示生成エラー:", e);
+      }
+
       return result;
     }),
 
@@ -649,5 +659,92 @@ export const tradingRouter = router({
     .query(async ({ input }) => {
       const { getRtCandlesAllForDate } = await import("../db");
       return getRtCandlesAllForDate(input.tradeDate);
+    }),
+
+  // ============================================================
+  // 自動売買: executor向けエンドポイント
+  // ============================================================
+
+  /**
+   * ポーリング: pending状態の発注指示を取得する
+   * ローカルPCのkabu_order_executor.pyが1秒ごとに呼び出す
+   */
+  getOrderInstructions: publicProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getPendingInstructions } = await import("../orderBridge");
+      return getPendingInstructions(input.tradeDate);
+    }),
+
+  /**
+   * executorからの実行結果報告
+   * 発注指示のステータスを更新する
+   */
+  reportOrderExecution: publicProcedure
+    .input(
+      z.object({
+        instructionId: z.number(),
+        status: z.enum(["sent", "executed", "failed", "cancelled"]),
+        kabuOrderId: z.string().optional(),
+        executedPrice: z.number().optional(),
+        executedAt: z.string().optional(), // ISO string
+        pnl: z.number().optional(),
+        errorMessage: z.string().optional(),
+        executorLog: z.record(z.string(), z.unknown()).optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { updateInstructionStatus, updateAutoTradeDailyPnl } = await import("../orderBridge");
+
+      const updated = await updateInstructionStatus(input.instructionId, {
+        status: input.status,
+        kabuOrderId: input.kabuOrderId,
+        executedPrice: input.executedPrice?.toString(),
+        executedAt: input.executedAt ? new Date(input.executedAt) : undefined,
+        pnl: input.pnl,
+        errorMessage: input.errorMessage,
+        executorLog: input.executorLog as Record<string, unknown> | undefined,
+      });
+
+      // 約定完了時に日次損益を更新
+      if (input.status === "executed" && input.pnl !== undefined && updated) {
+        await updateAutoTradeDailyPnl(updated.tradeDate, input.pnl);
+      }
+
+      return updated;
+    }),
+
+  /**
+   * 指定日の全発注指示を取得（ダッシュボード用）
+   */
+  getOrderInstructionHistory: publicProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getOrderInstructionsForDate } = await import("../orderBridge");
+      return getOrderInstructionsForDate(input.tradeDate);
+    }),
+
+  /**
+   * 日次リスク管理ステータスを取得
+   */
+  getAutoTradeStatus: publicProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getOrCreateAutoTradeDaily } = await import("../orderBridge");
+      return getOrCreateAutoTradeDaily(input.tradeDate);
+    }),
+
+  /**
+   * 緊急停止を設定する
+   */
+  setEmergencyStop: publicProcedure
+    .input(z.object({
+      tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      reason: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const { setEmergencyStop } = await import("../orderBridge");
+      await setEmergencyStop(input.tradeDate, input.reason);
+      return { success: true };
     }),
 });

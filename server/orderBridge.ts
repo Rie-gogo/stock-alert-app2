@@ -196,7 +196,7 @@ export async function getOrCreateAutoTradeDaily(tradeDate: string): Promise<Auto
     tradeDate,
     realizedPnl: 0,
     tradeCount: 0,
-    dailyLossLimit: -50000,
+    dailyLossLimit: -100000,
     tradingEnabled: true,
     emergencyStop: false,
     isDryRun: true,

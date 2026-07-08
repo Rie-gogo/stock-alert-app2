@@ -220,9 +220,9 @@ describe("orderBridge", () => {
   });
 
   describe("リスク管理", () => {
-    it("日次損失上限のデフォルト値は-50000円", () => {
-      const DEFAULT_DAILY_LOSS_LIMIT = -50000;
-      expect(DEFAULT_DAILY_LOSS_LIMIT).toBe(-50000);
+    it("日次損失上限のデフォルト値は-100000円", () => {
+      const DEFAULT_DAILY_LOSS_LIMIT = -100000;
+      expect(DEFAULT_DAILY_LOSS_LIMIT).toBe(-100000);
     });
 
     it("損失上限到達で新規エントリーが停止される", () => {

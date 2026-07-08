@@ -487,7 +487,7 @@ export const autoTradeDaily = mysqlTable("auto_trade_daily", {
   tradeCount: int("tradeCount").notNull().default(0),
 
   /** 日次損失上限（円、負の値）- これを超えたら新規エントリー停止 */
-  dailyLossLimit: bigint("dailyLossLimit", { mode: "number" }).notNull().default(-50000),
+  dailyLossLimit: bigint("dailyLossLimit", { mode: "number" }).notNull().default(-100000),
 
   /** 取引有効フラグ（falseで全発注停止） */
   tradingEnabled: boolean("tradingEnabled").notNull().default(true),

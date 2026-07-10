@@ -812,3 +812,4 @@
 - [x] kabu_order_executor.py 実装（ドライラン版）
 - [x] 結合テスト（vitest）— 14件パス
 - [x] 設計ドキュメント作成 (analysis/AUTO_TRADE_DESIGN.md)
+- [x] JX金属(5016)をTARGET_STOCKSから除外（SHORT 0勝8敗、16日間-71,086円）

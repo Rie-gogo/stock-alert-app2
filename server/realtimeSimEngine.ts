@@ -50,6 +50,11 @@ const STOP_LOSS_PERCENT = 0.5; // 改善③: 0.7→0.5に引き締め (2026-06-1
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
 
+/** 銘柄別TP/SLオーバーライド（デフォルトと異なる銘柄のみ指定） */
+const SYMBOL_TP_SL_OVERRIDE: Record<string, { tp: number; sl: number }> = {
+  "285A": { tp: 3.0, sl: 1.0 }, // キオクシアHD: ボラ高のためTP/SL拡大
+};
+
 /** isBullish方式: 銘柄別始値比がこの%以上なら上昇相場と判定しSHORT禁止 */
 const IS_BULLISH_THRESHOLD = 0.2;
 
@@ -1470,16 +1475,21 @@ async function checkExitConditions(
   let exitReason = "";
   let action: "exit" | "stop_loss" | "take_profit" = "exit";
 
+  // 銘柄別TP/SLオーバーライド適用
+  const override = SYMBOL_TP_SL_OVERRIDE[symbol];
+  const tpPct = override ? override.tp : TAKE_PROFIT_PERCENT;
+  const slPct = override ? override.sl : STOP_LOSS_PERCENT;
+
   if (side === "long") {
     // 損切り: 通常SLのみ
-    const stopLine = entryPrice * (1 - STOP_LOSS_PERCENT / 100);
+    const stopLine = entryPrice * (1 - slPct / 100);
     if (low <= stopLine) {
       exitPrice = stopLine;
       exitReason = `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
       action = "stop_loss";
     }
     // 利確: 高値が利確ラインを上回った
-    const tpLine = entryPrice * (1 + TAKE_PROFIT_PERCENT / 100);
+    const tpLine = entryPrice * (1 + tpPct / 100);
     if (high >= tpLine && exitPrice === null) {
       exitPrice = tpLine;
       exitReason = `利確 (利確ライン:${tpLine.toFixed(0)}円)`;
@@ -1487,14 +1497,14 @@ async function checkExitConditions(
     }
   } else {
     // 空売り: 損切り（通常SLのみ）
-    const stopLine = entryPrice * (1 + STOP_LOSS_PERCENT / 100);
+    const stopLine = entryPrice * (1 + slPct / 100);
     if (high >= stopLine) {
       exitPrice = stopLine;
       exitReason = `損切り (損切りライン:${stopLine.toFixed(0)}円)`;
       action = "stop_loss";
     }
     // 空売り: 利確（安値が利確ラインを下回った）
-    const tpLine = entryPrice * (1 - TAKE_PROFIT_PERCENT / 100);
+    const tpLine = entryPrice * (1 - tpPct / 100);
     if (low <= tpLine && exitPrice === null) {
       exitPrice = tpLine;
       exitReason = `利確 (利確ライン:${tpLine.toFixed(0)}円)`;

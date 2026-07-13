@@ -1345,6 +1345,32 @@ export async function enterPosition(
     }
   }
 
+  // ---- ★午後安値圏フィルター: 13:00以降SHORTで始値比-3%以上下落済みならブロック ----
+  if (side === "short" && candleTime >= "13:00" && buffer && buffer.length > 0) {
+    const openPrice = buffer[0].open; // 当日始値（バッファ先頭 = 09:00台の最初の足）
+    if (openPrice > 0) {
+      const dropFromOpen = (price - openPrice) / openPrice;
+      if (dropFromOpen <= -0.03) {
+        console.log(
+          `[RealtimeSim] 午後安値圏フィルター: ${symbol} SHORTブロック ` +
+          `(始値${openPrice}→現在${price}, 始値比${(dropFromOpen * 100).toFixed(1)}% <= -3%)`
+        );
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "pm_lowzone_block",
+          price,
+          shares: 0,
+          pnl: null,
+          reason: `午後安値圏フィルター: 始値比${(dropFromOpen * 100).toFixed(1)}% <= -3% → SHORTブロック (${reason.substring(0, 40)})`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+  }
+
   // ---- 証拠金使用率制限チェック ----
   // 現在のオープンポジション合計 + 今回の投資額が MAX_TOTAL_EXPOSURE を超える場合はエントリー停止
   const currentExposure = calcCurrentExposure();

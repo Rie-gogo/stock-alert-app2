@@ -18,9 +18,9 @@ export const TARGET_STOCKS = [
   { symbol: '6857', ticker: '6857.T', name: 'アドバンテスト',          basePrice: 8800,  sector: '半導体' },
   { symbol: '6976', ticker: '6976.T', name: '太陽誘電',               basePrice: 14500, sector: '電子部品' },
   { symbol: '6526', ticker: '6526.T', name: 'ソシオネクスト',         basePrice: 3250,  sector: '半導体' },
-  { symbol: '9984', ticker: '9984.T', name: 'ソフトバンクグループ',    basePrice: 8420,  sector: '通信・投資' },
+  // { symbol: '9984', ticker: '9984.T', name: 'ソフトバンクグループ',    basePrice: 8420,  sector: '通信・投資' }, // 除外: 7/1以降0勝5敗、-61,758円
   { symbol: '8316', ticker: '8316.T', name: '三井住友FG',             basePrice: 3900,  sector: '銀行' },
-  { symbol: '7011', ticker: '7011.T', name: '三菱重工業',              basePrice: 2900,  sector: '機械' },
+  // { symbol: '7011', ticker: '7011.T', name: '三菱重工業',              basePrice: 2900,  sector: '機械' }, // 除外: 7/1以降0勝2敗、-26,670円
   { symbol: '5803', ticker: '5803.T', name: 'フジクラ',               basePrice: 4400,  sector: '電線' },
   { symbol: '6981', ticker: '6981.T', name: '村田製作所',             basePrice: 10000, sector: '電子部品' },
   // --- 復活銘柄（2026-07-03 +D構成回帰により復活） ---
@@ -30,7 +30,7 @@ export const TARGET_STOCKS = [
   { symbol: '4568', ticker: '4568.T', name: '第一三共',               basePrice: 4500,  sector: '医薬' },
   { symbol: '285A', ticker: '285A.T', name: 'キオクシアHD',           basePrice: 70000, sector: '半導体' },
   // { symbol: '5016', ticker: '5016.T', name: 'JX金属',                 basePrice: 3600,  sector: '非鉄' }, // 除外: SHORT 0勝8敗、16日間-71,086円
-  { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },
+  // { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' }, // 除外: 7/1以降0勝1敗、-13,236円
   { symbol: '7203', ticker: '7203.T', name: 'トヨタ自動車',           basePrice: 2800,  sector: '自動車' },
   // --- 過去除外銘柄 ---
   // { symbol: '3778', ticker: '3778.T', name: 'さくらインターネット',    basePrice: 4100,  sector: 'IT' },      // 2026-06-19除外

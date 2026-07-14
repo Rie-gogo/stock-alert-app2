@@ -817,3 +817,7 @@
 - [x] キオクシア(285A)のみTP3.0%/SL1.0%に変更（他銘柄は変更なし）
 - [x] ソニーグループ(6758)、SBG(9984)、三菱重工業(7011)をTARGET_STOCKSから除外
 - [x] 8316三井住友FG、9107川崎汽船、8306三菱UFJ、4568第一三共、7203トヨタをTARGET_STOCKSから除外
+
+## 午後高値圏フィルター追加
+- [x] realtimeSimEngine.ts に PM_HIGHZONE_THRESHOLD 定数追加 (0.04 = 4%)
+- [x] enterPosition内に午後高値圏フィルター実装（13:00以降 + 始値比+4%以上でLONGブロック）

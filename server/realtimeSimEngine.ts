@@ -63,6 +63,9 @@ const PM_BPR_BLOCK_THRESHOLD = 0.65;
 /** 後場BPRフィルターの開始時刻 */
 const PM_BPR_FILTER_START = "13:00";
 
+/** 午後高値圏フィルター: 13:00以降のLONGで始値比+この%以上ならエントリーブロック */
+const PM_HIGHZONE_THRESHOLD = 0.04;
+
 /** 証拠金（元金）: 現物300万円 */
 const MARGIN_CAPITAL = 3_000_000;
 
@@ -1369,6 +1372,32 @@ export async function enterPosition(
           shares: 0,
           pnl: null,
           reason: `午後安値圏フィルター: 始値比${(dropFromOpen * 100).toFixed(1)}% <= -3% → SHORTブロック (${reason.substring(0, 40)})`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+  }
+
+  // ---- ★午後高値圏フィルター: 13:00以降LONGで始値比+4%以上上昇済みならブロック ----
+  if (side === "long" && candleTime >= "13:00" && buffer && buffer.length > 0) {
+    const openPrice = buffer[0].open;
+    if (openPrice > 0) {
+      const riseFromOpen = (price - openPrice) / openPrice;
+      if (riseFromOpen >= PM_HIGHZONE_THRESHOLD) {
+        console.log(
+          `[RealtimeSim] 午後高値圏フィルター: ${symbol} LONGブロック ` +
+          `(始値${openPrice}→現在${price}, 始値比+${(riseFromOpen * 100).toFixed(1)}% >= +${(PM_HIGHZONE_THRESHOLD * 100).toFixed(0)}%)`
+        );
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "pm_highzone_block",
+          price,
+          shares: 0,
+          pnl: null,
+          reason: `午後高値圏フィルター: 始値比+${(riseFromOpen * 100).toFixed(1)}% >= +${(PM_HIGHZONE_THRESHOLD * 100).toFixed(0)}% → LONGブロック (${reason.substring(0, 40)})`,
         });
         if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
         return { symbol, tradeDate, candleTime, action: "none" };

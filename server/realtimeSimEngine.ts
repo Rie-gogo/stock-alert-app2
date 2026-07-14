@@ -1353,15 +1353,15 @@ export async function enterPosition(
     }
   }
 
-  // ---- ★午後安値圏フィルター: 13:00以降SHORTで始値比-3%以上下落済みならブロック ----
+  // ---- ★午後安値圏フィルター: 13:00以降SHORTで始値比-5%以上下落済みならブロック ----
   if (side === "short" && candleTime >= "13:00" && buffer && buffer.length > 0) {
     const openPrice = buffer[0].open; // 当日始値（バッファ先頭 = 09:00台の最初の足）
     if (openPrice > 0) {
       const dropFromOpen = (price - openPrice) / openPrice;
-      if (dropFromOpen <= -0.03) {
+      if (dropFromOpen <= -0.05) {
         console.log(
           `[RealtimeSim] 午後安値圏フィルター: ${symbol} SHORTブロック ` +
-          `(始値${openPrice}→現在${price}, 始値比${(dropFromOpen * 100).toFixed(1)}% <= -3%)`
+          `(始値${openPrice}→現在${price}, 始値比${(dropFromOpen * 100).toFixed(1)}% <= -5%)`
         );
         signalHistory.unshift({
           time: candleTime,
@@ -1371,7 +1371,7 @@ export async function enterPosition(
           price,
           shares: 0,
           pnl: null,
-          reason: `午後安値圏フィルター: 始値比${(dropFromOpen * 100).toFixed(1)}% <= -3% → SHORTブロック (${reason.substring(0, 40)})`,
+          reason: `午後安値圏フィルター: 始値比${(dropFromOpen * 100).toFixed(1)}% <= -5% → SHORTブロック (${reason.substring(0, 40)})`,
         });
         if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
         return { symbol, tradeDate, candleTime, action: "none" };

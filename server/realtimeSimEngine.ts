@@ -1411,28 +1411,6 @@ export async function enterPosition(
     }
   }
 
-  // ---- ★日次利益上限フィルター: 確定利益が20万円を超えたら新規エントリー禁止 ----
-  const DAILY_PROFIT_CAP = 200000; // 20万円
-  const currentDailyPnl = Array.from(symbolPnlMap.values()).reduce((sum, v) => sum + v, 0);
-  if (currentDailyPnl > DAILY_PROFIT_CAP) {
-    console.log(
-      `[RealtimeSim] 日次利益上限フィルター: ${symbol} エントリーブロック ` +
-      `(当日確定利益: +${currentDailyPnl.toLocaleString()}円 > 上限${(DAILY_PROFIT_CAP / 10000).toFixed(0)}万円)`
-    );
-    signalHistory.unshift({
-      time: candleTime,
-      symbol,
-      symbolName: getStockName(symbol),
-      action: "daily_profit_cap_block",
-      price,
-      shares: 0,
-      pnl: null,
-      reason: `日次利益上限フィルター: 確定利益+${(currentDailyPnl / 10000).toFixed(1)}万円 > 上限20万円 → エントリーブロック (${reason.substring(0, 40)})`,
-    });
-    if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
-    return { symbol, tradeDate, candleTime, action: "none" };
-  }
-
   // ---- 証拠金使用率制限チェック ----
   // 現在のオープンポジション合計 + 今回の投資額が MAX_TOTAL_EXPOSURE を超える場合はエントリー停止
   const currentExposure = calcCurrentExposure();

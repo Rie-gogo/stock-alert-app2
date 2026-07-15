@@ -722,3 +722,120 @@ export async function serverWarmupHandler(req: Request, res: Response) {
     });
   }
 }
+
+
+// ============================================================
+// 3山v2シグナル日次レポート（毎平日 JST 16:00 = UTC 07:00）
+// 当日の3山v2シグナル（LONG/SHORT）の仮想取引結果を通知する
+// ============================================================
+export async function threePeakDailyReportHandler(req: Request, res: Response) {
+  try {
+    // Heartbeat認証
+    const user = await sdk.authenticateRequest(req);
+    if (!user.isCron) {
+      return res.status(403).json({ error: "cron-only endpoint" });
+    }
+
+    // 当日の日付（JST）を取得
+    const now = new Date();
+    const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const todayStr = jstNow.toISOString().slice(0, 10);
+
+    console.log(`[3peak-report] Running 3-peak v2 daily report for: ${todayStr}`);
+
+    const { getThreePeakSignalsForDate } = await import("./threePeakDetector");
+
+    const signals = await getThreePeakSignalsForDate(todayStr);
+
+    // シグナルがない場合も通知（「本日はシグナルなし」）
+    const shortSignals = signals.filter(s => s.direction === "short");
+    const longSignals = signals.filter(s => s.direction === "long");
+
+    const totalSignals = signals.length;
+    const completedSignals = signals.filter(s => s.exitReason !== "pending");
+    const totalPnl = completedSignals.reduce((sum, s) => sum + (s.virtualPnl ?? 0), 0);
+    const winSignals = completedSignals.filter(s => (s.virtualPnl ?? 0) > 0);
+    const lossSignals = completedSignals.filter(s => (s.virtualPnl ?? 0) <= 0);
+    const winRate = completedSignals.length > 0
+      ? (winSignals.length / completedSignals.length * 100).toFixed(1)
+      : "N/A";
+
+    const pnlSign = totalPnl >= 0 ? "+" : "";
+    const subject = totalSignals > 0
+      ? `🔺 3山v2シグナルレポート ${todayStr} (${totalSignals}件, ${pnlSign}${totalPnl.toLocaleString()}円)`
+      : `🔺 3山v2シグナルレポート ${todayStr} (シグナルなし)`;
+
+    // シグナル詳細
+    const signalLines = signals.map(s => {
+      const dir = s.direction === "short" ? "SHORT" : "LONG";
+      const pnlStr = s.virtualPnl !== null
+        ? (s.virtualPnl >= 0 ? `+${s.virtualPnl.toLocaleString()}` : s.virtualPnl.toLocaleString())
+        : "未決済";
+      const exitStr = s.exitReason === "pending"
+        ? "保有中"
+        : `${s.exitReason.toUpperCase()} @${s.exitPrice?.toLocaleString() ?? "-"}円 (${s.exitTime ?? "-"})`;
+      return `  [${s.signalTime}] ${dir} @${s.entryPrice.toLocaleString()}円 ×${s.shares}株 → ${exitStr} 損益:${pnlStr}円 [${s.holdBars ?? "-"}本]`;
+    }).join("\n");
+
+    const body = `${subject}
+
+【3山v2シグナル サマリー】
+対象日: ${todayStr}
+対象銘柄: 6981（村田製作所）
+シグナル数: ${totalSignals}件（SHORT: ${shortSignals.length} / LONG: ${longSignals.length}）
+決済済み: ${completedSignals.length}件
+仮想損益: ${pnlSign}${totalPnl.toLocaleString()}円
+勝率: ${winRate}%（勝: ${winSignals.length} / 負: ${lossSignals.length}）
+
+【シグナル詳細】
+${signalLines || "  （本日シグナルなし）"}
+
+---
+※ これは3山v2ロジックのフォワードテスト（ログ記録のみ）です。
+※ 実際のエントリーには使用されていません。
+※ TP: 1.5% / SL: 0.5% / 仮想投資額: 100万円/件
+`;
+
+    await notifyOwner({
+      title: subject,
+      content: body,
+    });
+
+    // レポート送信済みフラグを立てる
+    try {
+      const db = await getDb();
+      if (db) {
+        const { rt3peakSignals } = await import("../drizzle/schema");
+        const { eq, and: andOp } = await import("drizzle-orm");
+        await db.update(rt3peakSignals)
+          .set({ reportSent: true })
+          .where(
+            andOp(
+              eq(rt3peakSignals.tradeDate, todayStr),
+              eq(rt3peakSignals.symbol, "6981"),
+            )
+          );
+      }
+    } catch (flagErr) {
+      console.warn("[3peak-report] Failed to set reportSent flag:", flagErr);
+    }
+
+    console.log(`[3peak-report] Report sent for ${todayStr}: signals=${totalSignals}, pnl=${totalPnl}`);
+    return res.json({
+      ok: true,
+      tradeDate: todayStr,
+      signalCount: totalSignals,
+      totalPnl,
+      winRate,
+    });
+
+  } catch (error) {
+    console.error("[3peak-report] Handler error:", error);
+    return res.status(500).json({
+      error: String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      context: { url: req.url, taskUid: "3peak-daily-report" },
+      timestamp: new Date().toISOString(),
+    });
+  }
+}

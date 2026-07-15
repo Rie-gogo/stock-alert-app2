@@ -507,3 +507,45 @@ export const autoTradeDaily = mysqlTable("auto_trade_daily", {
 
 export type AutoTradeDaily = typeof autoTradeDaily.$inferSelect;
 export type InsertAutoTradeDaily = typeof autoTradeDaily.$inferInsert;
+
+/**
+ * 3山v2シグナルログ（観測のみ、実エントリーなし）
+ * 3山切り下げ(SHORT) / 3谷切り上げ(LONG) のシグナルを検出した際にログ記録し、
+ * 仮想的にTP/SL/EODの結果を追跡する。
+ */
+export const rt3peakSignals = mysqlTable("rt_3peak_signals", {
+  id: int("id").autoincrement().primaryKey(),
+  /** 対象日 (YYYY-MM-DD) */
+  tradeDate: varchar("tradeDate", { length: 10 }).notNull(),
+  /** 銘柄コード */
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  /** シグナル方向: short=3山切り下げ / long=3谷切り上げ */
+  direction: mysqlEnum("direction_3peak", ["short", "long"]).notNull(),
+  /** シグナル検出時刻 (HH:MM) */
+  signalTime: varchar("signalTime", { length: 5 }).notNull(),
+  /** 仮想エントリー価格（次足close） */
+  entryPrice: decimal("entryPrice", { precision: 12, scale: 2 }).notNull(),
+  /** 仮想決済価格（TP/SL/EOD時） */
+  exitPrice: decimal("exitPrice", { precision: 12, scale: 2 }),
+  /** 決済時刻 (HH:MM) */
+  exitTime: varchar("exitTime", { length: 5 }),
+  /** 決済理由: tp/sl/eod/pending */
+  exitReason: mysqlEnum("exit_reason_3peak", ["tp", "sl", "eod", "pending"]).notNull().default("pending"),
+  /** 仮想損益（円） */
+  virtualPnl: bigint("virtualPnl", { mode: "number" }),
+  /** 仮想株数 */
+  shares: int("shares").notNull(),
+  /** 保有足数 */
+  holdBars: int("holdBars"),
+  /** 連続切り下げ/切り上げ回数 */
+  consecutiveCount: int("consecutiveCount").notNull(),
+  /** シグナル詳細（デバッグ用） */
+  details: text("details"),
+  /** レポート通知済みフラグ */
+  reportSent: boolean("reportSent").notNull().default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Rt3peakSignal = typeof rt3peakSignals.$inferSelect;
+export type InsertRt3peakSignal = typeof rt3peakSignals.$inferInsert;

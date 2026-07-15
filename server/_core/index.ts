@@ -8,7 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { dailySimulationHandler, manualSimulationHandler, kabuPlanReminderHandler, rtDailyReportHandler, serverWarmupHandler } from "../scheduledHandlers";
+import { dailySimulationHandler, manualSimulationHandler, kabuPlanReminderHandler, rtDailyReportHandler, serverWarmupHandler, threePeakDailyReportHandler } from "../scheduledHandlers";
 import { restoreBuffersFromDb } from "../realtimeSimEngine";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -49,6 +49,8 @@ async function startServer() {
   app.post("/api/scheduled/rt-daily-report", rtDailyReportHandler);
   // サーバーウォームアップ（毎平日JST 8:44実行）
   app.post("/api/scheduled/server-warmup", serverWarmupHandler);
+  // 3山v2シグナル日次レポート（毎平日JST 16:00実行）
+  app.post("/api/scheduled/3peak-daily-report", threePeakDailyReportHandler);
 
   // tRPC API
   app.use(

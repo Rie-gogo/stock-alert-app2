@@ -30,6 +30,7 @@ import {
 } from "./signalConfirmation";
 
 import type { BoardSnapshot } from "../drizzle/schema";
+import { processThreePeakCandle, resetThreePeakState, forceCloseThreePeakPosition } from "./threePeakDetector";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -284,6 +285,7 @@ function resetIfNewDay(tradeDate: string): void {
     bprHistory.clear(); // ★v6: 板圧力履歴もリセット
     clearBoardRingBuffer(); // ★v8: 10秒リングバッファもリセット
     lastStopLossTime.clear(); // ★v5.5応急: 損切り時刻記録もリセット
+    resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
@@ -828,6 +830,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   // 日次サマリーを更新（受信足数のみ）
   await updateDailySummary(tradeDate);
+
+  // ★3山v2シグナル検出（ログ記録のみ、エントリーなし）
+  // 6981のみ対象。現行エンジンの動作には一切影響しない。
+  await processThreePeakCandle(symbol, tradeDate, candleTime, candle.open, candle.high, candle.low, candle.close, candle.volume);
 
   // ウォームアップ期間中はシグナル判定しない
   if (buffer.length < MIN_CANDLES_FOR_SIGNAL) {
@@ -1716,6 +1722,12 @@ export async function forceCloseAllPositions(
       volume: 0,
     };
     await forceClosePosition(pos, fakeCandle, tradeDate, closeTime, "大引け強制決済（スケジューラー）");
+  }
+
+  // ★3山v2: 仮想ポジションも強制決済
+  const price6981 = closingPrices.get("6981");
+  if (price6981) {
+    await forceCloseThreePeakPosition(tradeDate, price6981);
   }
 }
 

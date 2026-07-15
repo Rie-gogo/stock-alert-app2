@@ -822,3 +822,9 @@
 - [x] realtimeSimEngine.ts に PM_HIGHZONE_THRESHOLD 定数追加 (0.04 = 4%)
 - [x] enterPosition内に午後高値圏フィルター実装（13:00以降 + 始値比+4%以上でLONGブロック）
 - [x] 午後安値圏フィルター閾値を-3%から-5%に変更（再検証で-5%が最適と確定: ネット+188,044円、-5%以下は勝率0-25%の明確な負け領域）
+
+## 3山v2シグナルログ記録 & 毎平日通知
+- [x] 3山v2シグナル検出ロジックをrealtimeSimEngineに追加（ログ記録のみ、エントリーなし）
+- [x] 3山v2シグナルログ用DBテーブル(rt_3peak_signals)作成
+- [x] 3山v2シグナルの仮想損益追跡（TP/SL/EOD判定）
+- [x] 毎平日の3山v2シグナル結果通知（Heartbeat + notifyOwner）

@@ -834,3 +834,9 @@
 - [ ] 緊急停止ボタン: サーバー側tRPCプロシージャ（エントリー禁止+即時決済指示生成）
 - [ ] 緊急停止ボタン: フロントエンドUI（RTダッシュボードに配置）
 - [ ] 緊急停止ボタン: 解除機能
+- [x] kabu_order_executor_v2.py: クラウド通信断時の新規エントリー停止
+- [x] kabu_order_executor_v2.py: 起動時の建玉同期（/positions）
+- [x] kabu_order_executor_v2.py: 発注後の約定確認（/orders照会）
+- [x] kabu_order_executor_v2.py: ローカル大引け強制決済（15:25〜15:29ループ）
+- [x] kabu_order_executor_v2.py: 建玉保有中の通信バックオフ短縮（30秒→2秒）
+- [x] kabu_order_executor_v2.py: DRY_RUN=Trueで全機能テスト可能な状態

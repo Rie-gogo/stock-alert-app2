@@ -29,10 +29,23 @@ import {
   Zap,
   Target,
   Shield,
+  OctagonX,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -151,10 +164,42 @@ export default function RtDashboard() {
     { refetchInterval: autoRefresh ? 10_000 : false },
   );
 
+  // 自動売買ステータス（緊急停止状態確認用）
+  const autoTradeStatusQuery = trpc.trading.getAutoTradeStatus.useQuery(
+    { tradeDate: today },
+    { refetchInterval: autoRefresh ? 5_000 : false },
+  );
+  const isEmergencyStopped = autoTradeStatusQuery.data?.emergencyStop ?? false;
+
+  // 緊急停止ミューテーション
+  const emergencyStopMutation = trpc.trading.emergencyStopWithForceClose.useMutation({
+    onSuccess: (result) => {
+      alert(result.message);
+      utils.trading.getRtDashboardStatus.invalidate();
+      utils.trading.getRtTrades.invalidate();
+      utils.trading.getAutoTradeStatus.invalidate();
+    },
+    onError: (err) => {
+      alert(`緊急停止失敗: ${err.message}`);
+    },
+  });
+
+  // 緊急停止解除ミューテーション
+  const clearEmergencyStopMutation = trpc.trading.clearEmergencyStop.useMutation({
+    onSuccess: (result) => {
+      alert(result.message);
+      utils.trading.getAutoTradeStatus.invalidate();
+    },
+    onError: (err) => {
+      alert(`解除失敗: ${err.message}`);
+    },
+  });
+
   const utils = trpc.useUtils();
   const handleRefresh = useCallback(() => {
     utils.trading.getRtDashboardStatus.invalidate();
     utils.trading.getRtTrades.invalidate();
+    utils.trading.getAutoTradeStatus.invalidate();
   }, [utils]);
 
   const data = dashboardQuery.data;
@@ -228,9 +273,97 @@ export default function RtDashboard() {
               <RefreshCw className="w-4 h-4" />
               更新
             </Button>
+            {/* 緊急停止ボタン */}
+            {!isEmergencyStopped ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                  >
+                    <OctagonX className="w-4 h-4" />
+                    緊急停止
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-card border-red-500/30">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-red-400 flex items-center gap-2">
+                      <OctagonX className="w-5 h-5" />
+                      緊急停止を実行しますか？
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="space-y-2">
+                      <p>以下の操作が実行されます：</p>
+                      <ul className="list-disc pl-5 space-y-1">
+                        <li>新規エントリーを全面禁止</li>
+                        <li>保有中の全ポジションを即時決済</li>
+                      </ul>
+                      <p className="text-yellow-400 text-xs mt-2">※ この操作は取り消しできません。解除は別途行えます。</p>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => emergencyStopMutation.mutate()}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      disabled={emergencyStopMutation.isPending}
+                    >
+                      {emergencyStopMutation.isPending ? "実行中..." : "緊急停止を実行"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    停止解除
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-card border-emerald-500/30">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-emerald-400 flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5" />
+                      緊急停止を解除しますか？
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      新規エントリーが再開されます。決済済みのポジションは復元されません。
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => clearEmergencyStopMutation.mutate({ tradeDate: today })}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      disabled={clearEmergencyStopMutation.isPending}
+                    >
+                      {clearEmergencyStopMutation.isPending ? "解除中..." : "停止を解除"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
       </div>
+
+      {/* 緊急停止中バナー */}
+      {isEmergencyStopped && (
+        <div className="bg-red-500/10 border-b border-red-500/30 px-4 py-2">
+          <div className="max-w-7xl mx-auto flex items-center gap-2 text-red-400 text-sm font-medium">
+            <OctagonX className="w-4 h-4 animate-pulse" />
+            <span>緊急停止中 — 新規エントリーは全面禁止されています</span>
+            {autoTradeStatusQuery.data?.emergencyStopReason && (
+              <span className="text-red-400/70">({autoTradeStatusQuery.data.emergencyStopReason})</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* 当日サマリー（上段） */}

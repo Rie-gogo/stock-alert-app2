@@ -747,4 +747,76 @@ export const tradingRouter = router({
       await setEmergencyStop(input.tradeDate, input.reason);
       return { success: true };
     }),
+
+  /**
+   * 緊急停止（エントリー禁止 + 全ポジション即時決済）
+   * UIの緊急停止ボタンから呼ばれる
+   */
+  emergencyStopWithForceClose: publicProcedure
+    .mutation(async () => {
+      const { setEmergencyStop } = await import("../orderBridge");
+      const { getOpenPositions, forceCloseAllPositions, getDashboardStatus } = await import("../realtimeSimEngine");
+
+      // 1. 当日の日付を取得
+      const status = getDashboardStatus();
+      const tradeDate = status.currentTradeDate || (() => {
+        const now = new Date();
+        const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+        return jst.toISOString().slice(0, 10);
+      })();
+
+      // 2. 緊急停止フラグを設定（以降エントリー禁止）
+      await setEmergencyStop(tradeDate, "手動緊急停止（UIボタン）");
+
+      // 3. オープンポジションを取得
+      const openPositions = getOpenPositions();
+      const closedCount = openPositions.length;
+
+      // 4. 全ポジションを即時決済
+      if (closedCount > 0) {
+        // 最新のバッファから各銘柄の直近価格を取得して強制決済
+        const closingPrices = new Map<string, number>();
+        for (const pos of openPositions) {
+          // エントリー価格をフォールバックとして使用（実際にはバッファの最新close値が使われる）
+          closingPrices.set(pos.symbol, pos.entryPrice);
+        }
+        await forceCloseAllPositions(tradeDate, closingPrices);
+      }
+
+      console.log(`[EmergencyStop] 🚨 手動緊急停止実行: エントリー禁止 + ${closedCount}件ポジション強制決済`);
+
+      return {
+        success: true,
+        tradeDate,
+        closedPositions: closedCount,
+        message: `緊急停止完了: 新規エントリー禁止 + ${closedCount}件のポジションを即時決済しました`,
+      };
+    }),
+
+  /**
+   * 緊急停止を解除する
+   */
+  clearEmergencyStop: publicProcedure
+    .input(z.object({
+      tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }))
+    .mutation(async ({ input }) => {
+      const { getOrCreateAutoTradeDaily } = await import("../orderBridge");
+      const { getDb } = await import("../db");
+      const { autoTradeDaily } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return { success: false, message: "DB接続エラー" };
+      const daily = await getOrCreateAutoTradeDaily(input.tradeDate);
+      await db
+        .update(autoTradeDaily)
+        .set({
+          tradingEnabled: true,
+          emergencyStop: false,
+          emergencyStopReason: null,
+        })
+        .where(eq(autoTradeDaily.id, daily.id));
+      console.log(`[EmergencyStop] ✅ 緊急停止解除: ${input.tradeDate}`);
+      return { success: true, message: "緊急停止を解除しました。新規エントリーが再開されます。" };
+    }),
 });

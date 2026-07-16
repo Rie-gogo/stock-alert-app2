@@ -53,7 +53,7 @@ const TAKE_PROFIT_PERCENT = 1.5;
 
 /** 銘柄別TP/SLオーバーライド（デフォルトと異なる銘柄のみ指定） */
 const SYMBOL_TP_SL_OVERRIDE: Record<string, { tp: number; sl: number }> = {
-  "285A": { tp: 3.0, sl: 1.0 }, // キオクシアHD: ボラ高のためTP/SL拡大
+  // 全銘柄共通: SL=0.5%, TP=1.5%（285Aの拡大設定を廃止 2026-07-16）
 };
 
 /** isBullish方式: 銘柄別始値比がこの%以上なら上昇相場と判定しSHORT禁止 */

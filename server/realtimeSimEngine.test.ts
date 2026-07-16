@@ -29,12 +29,12 @@ vi.mock("./kabuStation", () => ({
 
 // shared/stocks をモック化
 vi.mock("../shared/stocks", () => ({
-  getStockName: vi.fn().mockReturnValue("テスト銘柄"),
+  getStockName: vi.fn().mockReturnValue("テスト銀柄"),
   TARGET_STOCKS: [
     { symbol: "6920", ticker: "6920.T", name: "レーザーテック", basePrice: 22400, sector: "半導体" },
     { symbol: "6976", ticker: "6976.T", name: "太陽誘電", basePrice: 14500, sector: "電子部品" },
     { symbol: "8035", ticker: "8035.T", name: "東京エレクトロン", basePrice: 24800, sector: "半導体" },
-    { symbol: "TEST", ticker: "TEST.T", name: "テスト銘柄", basePrice: 1000, sector: "テスト" },
+    { symbol: "TEST", ticker: "TEST.T", name: "テスト銀柄", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_WARMUP", ticker: "TEST_WARMUP.T", name: "テスト", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_DB", ticker: "TEST_DB.T", name: "テスト", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_NOENTRY", ticker: "TEST_NOENTRY.T", name: "テスト", basePrice: 1000, sector: "テスト" },
@@ -43,6 +43,7 @@ vi.mock("../shared/stocks", () => ({
     { symbol: "TEST_PNL", ticker: "TEST_PNL.T", name: "テスト", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_HTF_FILTER", ticker: "TEST_HTF_FILTER.T", name: "テスト", basePrice: 1000, sector: "テスト" },
   ],
+  TRADE_EXCLUDED_SYMBOLS: new Set([]),
 }));
 
 // ===== テスト対象をインポート =====

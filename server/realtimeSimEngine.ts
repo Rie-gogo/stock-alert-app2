@@ -21,7 +21,7 @@ import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } 
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
 import { calcATR } from "./intradayRegime";
-import { getStockName, TARGET_STOCKS } from "../shared/stocks";
+import { getStockName, TARGET_STOCKS, TRADE_EXCLUDED_SYMBOLS } from "../shared/stocks";
 import {
   evaluateConfirmation,
   trailingAvgVolume,
@@ -782,15 +782,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     return { symbol, tradeDate, candleTime, action: "none" as const };
   }
 
-  // 除外銀柄チェック: TARGET_STOCKSに含まれない銀柄は即スキップ
-  if (!ALLOWED_SYMBOLS.has(symbol)) {
-    return { symbol, tradeDate, candleTime, action: "none" as const };
-  }
-
   // 日付変更チェック
   resetIfNewDay(tradeDate);
 
-  // 1分足をDBに保存
+  // 1分足をDBに保存（取引除外銀柄でもデータは蓄積する）
   const boardSnapshot = getBoardSnapshot(symbol);
 
   // ★v6: buyPressureRatio履歴を更新（直近5本分保持）
@@ -812,6 +807,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     volume: candle.volume,
     boardSnapshot,
   });
+
+  // 取引除外銀柄チェック: TARGET_STOCKSに含まれない銀柄またはTRADE_EXCLUDEDの銀柄はデータ保存後にスキップ
+  if (!ALLOWED_SYMBOLS.has(symbol) || TRADE_EXCLUDED_SYMBOLS.has(symbol)) {
+    return { symbol, tradeDate, candleTime, action: "none" as const };
+  }
 
   // バッファに追加
   if (!candleBuffers.has(symbol)) {

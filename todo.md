@@ -848,3 +848,11 @@
 - [x] vitest単体テスト作成
 - [x] バックテスト再現確認（204件→131件、+373,696円）
 - [x] チェックポイント保存
+
+## データ受信と取引除外の分離
+- [x] shared/stocks.ts: 除外銘柄をTARGET_STOCKSに復活（コメントアウト解除）
+- [x] shared/stocks.ts: TRADE_EXCLUDED_SYMBOLSセット追加
+- [x] realtimeSimEngine.ts: insertRtCandleをALLOWED_SYMBOLSチェックの前に移動
+- [x] realtimeSimEngine.ts: TRADE_EXCLUDED_SYMBOLSで取引除外判定
+- [x] TypeScriptチェック・vitestテスト通過
+- [x] チェックポイント保存

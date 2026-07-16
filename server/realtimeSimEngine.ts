@@ -189,6 +189,9 @@ const ROUND_LEVEL_CONFIRM_BARS = 5;
 /** 大台確認後の押し目待ち最大足数 */
 const ROUND_PULLBACK_MAX_WAIT = 5;
 
+/** ★大台乖離率0.8%フィルター: エントリー価格がキリ番からこの%以上乖離していたらブロック */
+const ROUND_DISTANCE_BLOCK_THRESHOLD_PCT = 0.8;
+
 /** ★v6: 板読みスコア閾値（この値以上でエントリー許可） */
 const BOARD_SCORE_THRESHOLD = 1;
 
@@ -258,6 +261,35 @@ const MAX_SIGNAL_HISTORY = 200;
 // ============================================================
 // ヘルパー関数
 // ============================================================
+
+/**
+ * 大台乖離率を計算する。
+ * エントリー価格がキリ番価格から何%乖離しているかを返す。
+ * @param entryPrice エントリー価格
+ * @param roundLevel キリ番価格
+ * @returns 乖離率（%、絶対値）
+ */
+export function calculateRoundDistancePct(entryPrice: number, roundLevel: number): number {
+  if (roundLevel <= 0) return 0;
+  return Math.abs(entryPrice - roundLevel) / roundLevel * 100;
+}
+
+/**
+ * 大台乖離率フィルター: エントリー価格がキリ番から閾値以上乖離していたらブロックすべきかを判定する。
+ * @param entryPrice エントリー価格
+ * @param roundLevel キリ番価格
+ * @param threshold 閾値（%、デフォルト ROUND_DISTANCE_BLOCK_THRESHOLD_PCT）
+ * @returns true = ブロックすべき
+ */
+export function shouldBlockRoundDistance(
+  entryPrice: number,
+  roundLevel: number,
+  threshold: number = ROUND_DISTANCE_BLOCK_THRESHOLD_PCT
+): boolean {
+  if (roundLevel <= 0) return false; // 異常値時はフィルタースキップ
+  const distancePct = calculateRoundDistancePct(entryPrice, roundLevel);
+  return distancePct > threshold;
+}
 
 /**
  * 現在の日本時間の日付を YYYY-MM-DD 形式で返す
@@ -1040,6 +1072,27 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         console.log(`[RealtimeSim] ${symbol} 大台押し目待ちタイムアウト: 板読みスコア不足(${brScoreTimeout})`);
         return { symbol, tradeDate, candleTime, action: "none" };
       }
+      // ★大台乖離率0.8%フィルター
+      if (shouldBlockRoundDistance(candle.close, roundPb.level)) {
+        const distPct = calculateRoundDistancePct(candle.close, roundPb.level);
+        console.log(
+          `[RealtimeSim] 大台乖離率フィルター: ${symbol} エントリーブロック ` +
+          `(乖離率=${distPct.toFixed(2)}% > 閾値${ROUND_DISTANCE_BLOCK_THRESHOLD_PCT}%, ` +
+          `エントリー価格=${candle.close}, キリ番=${roundPb.level})`
+        );
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "round_distance_block",
+          price: candle.close,
+          shares: 0,
+          pnl: null,
+          reason: `大台乖離率フィルター: 乖離${distPct.toFixed(2)}%>${ROUND_DISTANCE_BLOCK_THRESHOLD_PCT}% → ブロック (キリ番${roundPb.level}円, ${roundPb.reason.substring(0, 40)})`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       console.log(`[RealtimeSim] ${symbol} 大台押し目なし・強トレンドエントリー: ${roundPb.reason} (板スコア:${brScoreTimeout})`);
       return await enterPosition(side, candle, tradeDate, candleTime, `${roundPb.reason} (押し目なし・強トレンド)`, boardSnapshot);
     }
@@ -1071,6 +1124,27 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板読みスコア不足(${brScoreBuy})`);
           return { symbol, tradeDate, candleTime, action: "none" };
         }
+        // ★大台乖離率0.8%フィルター
+        if (shouldBlockRoundDistance(candle.close, roundPb.level)) {
+          const distPct = calculateRoundDistancePct(candle.close, roundPb.level);
+          console.log(
+            `[RealtimeSim] 大台乖離率フィルター: ${symbol} LONGエントリーブロック ` +
+            `(乖離率=${distPct.toFixed(2)}% > 閾値${ROUND_DISTANCE_BLOCK_THRESHOLD_PCT}%, ` +
+            `エントリー価格=${candle.close}, キリ番=${roundPb.level})`
+          );
+          signalHistory.unshift({
+            time: candleTime,
+            symbol,
+            symbolName: getStockName(symbol),
+            action: "round_distance_block",
+            price: candle.close,
+            shares: 0,
+            pnl: null,
+            reason: `大台乖離率フィルター: 乖離${distPct.toFixed(2)}%>${ROUND_DISTANCE_BLOCK_THRESHOLD_PCT}% → LONGブロック (キリ番${roundPb.level}円, ${roundPb.reason.substring(0, 40)})`,
+          });
+          if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
         console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason} (板スコア:${brScoreBuy})`);
         return await enterPosition("long", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
       }
@@ -1098,6 +1172,27 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const brScoreSell = boardReadingScore(symbol, "short", boardSnapshot);
         if (brScoreSell < BOARD_SCORE_THRESHOLD) {
           console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板読みスコア不足(${brScoreSell})`);
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
+        // ★大台乖離率0.8%フィルター
+        if (shouldBlockRoundDistance(candle.close, roundPb.level)) {
+          const distPct = calculateRoundDistancePct(candle.close, roundPb.level);
+          console.log(
+            `[RealtimeSim] 大台乖離率フィルター: ${symbol} SHORTエントリーブロック ` +
+            `(乖離率=${distPct.toFixed(2)}% > 閾値${ROUND_DISTANCE_BLOCK_THRESHOLD_PCT}%, ` +
+            `エントリー価格=${candle.close}, キリ番=${roundPb.level})`
+          );
+          signalHistory.unshift({
+            time: candleTime,
+            symbol,
+            symbolName: getStockName(symbol),
+            action: "round_distance_block",
+            price: candle.close,
+            shares: 0,
+            pnl: null,
+            reason: `大台乖離率フィルター: 乖離${distPct.toFixed(2)}%>${ROUND_DISTANCE_BLOCK_THRESHOLD_PCT}% → SHORTブロック (キリ番${roundPb.level}円, ${roundPb.reason.substring(0, 40)})`,
+          });
+          if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
           return { symbol, tradeDate, candleTime, action: "none" };
         }
         console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason} (板スコア:${brScoreSell})`);

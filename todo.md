@@ -840,3 +840,11 @@
 - [x] kabu_order_executor_v2.py: ローカル大引け強制決済（15:25〜15:29ループ）
 - [x] kabu_order_executor_v2.py: 建玉保有中の通信バックオフ短縮（30秒→2秒）
 - [x] kabu_order_executor_v2.py: DRY_RUN=Trueで全機能テスト可能な状態
+
+## 大台乖離率0.8%フィルター実装
+- [x] ヘルパー関数追加（calculateRoundDistancePct, shouldBlockRoundDistance）
+- [x] 3箇所のenterPosition呼び出し直前にフィルター挿入
+- [x] ブロック時signalHistory記録
+- [x] vitest単体テスト作成
+- [x] バックテスト再現確認（204件→131件、+373,696円）
+- [x] チェックポイント保存

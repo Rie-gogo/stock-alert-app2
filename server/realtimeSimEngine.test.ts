@@ -47,7 +47,7 @@ vi.mock("../shared/stocks", () => ({
 
 // ===== テスト対象をインポート =====
 // モック設定後にインポートする
-import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory } from "./realtimeSimEngine";
+import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockRoundDistance } from "./realtimeSimEngine";
 import type { RtCandle1Min } from "./realtimeSimEngine";
 
 // ===== ヘルパー =====
@@ -1546,5 +1546,76 @@ describe("改善2: VWAPクロス下抜けSHORT急落フィルター", () => {
     const history = getSignalHistory(20);
     const dropBlock = history.find(h => h.action === "vwap_drop_block" && h.symbol === symbol);
     expect(dropBlock).toBeUndefined();
+  });
+});
+
+// ===== 大台乖離率0.8%フィルター テスト =====
+describe("大台乖離率0.8%フィルター", () => {
+  describe("calculateRoundDistancePct", () => {
+    it("エントリー価格がキリ番と一致する場合は0%を返す", () => {
+      expect(calculateRoundDistancePct(3000, 3000)).toBe(0);
+    });
+
+    it("エントリー価格がキリ番から0.5%乖離している場合", () => {
+      // 3000 * 1.005 = 3015
+      const result = calculateRoundDistancePct(3015, 3000);
+      expect(result).toBeCloseTo(0.5, 2);
+    });
+
+    it("エントリー価格がキリ番から1.0%乖離している場合", () => {
+      // 3000 * 1.01 = 3030
+      const result = calculateRoundDistancePct(3030, 3000);
+      expect(result).toBeCloseTo(1.0, 2);
+    });
+
+    it("エントリー価格がキリ番より下に乖離している場合も絶対値で返す", () => {
+      // 3000 * 0.99 = 2970
+      const result = calculateRoundDistancePct(2970, 3000);
+      expect(result).toBeCloseTo(1.0, 2);
+    });
+
+    it("roundLevelが0以下の場合は0を返す（防御的）", () => {
+      expect(calculateRoundDistancePct(3000, 0)).toBe(0);
+      expect(calculateRoundDistancePct(3000, -100)).toBe(0);
+    });
+
+    it("高額株（20000円台）で0.8%乖離の計算", () => {
+      // 20000 * 1.008 = 20160
+      const result = calculateRoundDistancePct(20160, 20000);
+      expect(result).toBeCloseTo(0.8, 2);
+    });
+  });
+
+  describe("shouldBlockRoundDistance", () => {
+    it("乖離率が閾値以下の場合はブロックしない（false）", () => {
+      // 3000から0.5%乖離 = 3015
+      expect(shouldBlockRoundDistance(3015, 3000)).toBe(false);
+    });
+
+    it("乖離率がちょうど0.8%の場合はブロックしない（<=判定）", () => {
+      // 3000 * 1.008 = 3024
+      expect(shouldBlockRoundDistance(3024, 3000)).toBe(false);
+    });
+
+    it("乖離率が0.8%を超える場合はブロックする（true）", () => {
+      // 3000 * 1.009 = 3027
+      expect(shouldBlockRoundDistance(3027, 3000)).toBe(true);
+    });
+
+    it("roundLevelが0以下の場合はブロックしない（防御的スキップ）", () => {
+      expect(shouldBlockRoundDistance(3000, 0)).toBe(false);
+      expect(shouldBlockRoundDistance(3000, -100)).toBe(false);
+    });
+
+    it("カスタム閾値を指定できる", () => {
+      // 3000から1.5%乖離 = 3045
+      expect(shouldBlockRoundDistance(3045, 3000, 1.0)).toBe(true);
+      expect(shouldBlockRoundDistance(3045, 3000, 2.0)).toBe(false);
+    });
+
+    it("下方乖離でもブロックする", () => {
+      // 3000から-1.0%乖離 = 2970
+      expect(shouldBlockRoundDistance(2970, 3000)).toBe(true);
+    });
   });
 });

@@ -632,6 +632,27 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       })
       .join("\n");
 
+    // ★CB v2 SHORTシミュレーション実行
+    let cbV2Section = "";
+    try {
+      const { getRtCandlesAllForDate } = await import("./db");
+      const { getSignalHistory } = await import("./realtimeSimEngine");
+      const { runCBv2DailySimulation, formatCBv2Report } = await import("./cbV2Simulation");
+
+      const allCandles = await getRtCandlesAllForDate(todayStr);
+      // signalHistoryからround_distance_block SHORTを抽出
+      const signalBlocks = getSignalHistory(200)
+        .filter(s => s.action === "round_distance_block" && s.reason.includes("SHORTブロック"))
+        .map(s => ({ time: s.time, symbol: s.symbol, price: s.price, reason: s.reason }));
+
+      const cbV2Result = runCBv2DailySimulation(todayStr, allCandles, signalBlocks);
+      cbV2Section = formatCBv2Report(cbV2Result);
+      console.log(`[rt-daily-report] CB v2 simulation: candidates=${cbV2Result.candidates}, entries=${cbV2Result.entries}, pnl=${cbV2Result.totalPnl}`);
+    } catch (cbErr) {
+      console.error("[rt-daily-report] CB v2 simulation error:", cbErr);
+      cbV2Section = "\n【CB v2 SHORTシミュレーション】\n  エラーが発生しました\n";
+    }
+
     const body = `${subject}
 
 【当日サマリー】
@@ -646,7 +667,7 @@ ${symbolLines || "  （取引なし）"}
 
 【取引詳細（最大20件）】
 ${tradeLines || "  （取引なし）"}
-
+${cbV2Section}
 ---
 このメールはStock Alert Appのリアルタイムシミュレーション機能から自動送信されています。
 `;

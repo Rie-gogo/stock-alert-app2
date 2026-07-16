@@ -856,3 +856,10 @@
 - [x] realtimeSimEngine.ts: TRADE_EXCLUDED_SYMBOLSで取引除外判定
 - [x] TypeScriptチェック・vitestテスト通過
 - [x] チェックポイント保存
+
+## CB v2 SHORT 日次シミュレーション（7/17〜5営業日）
+- [x] 既存日次レポート処理の構造確認
+- [x] CB v2 SHORTシミュレーション関数実装（当日1分足から仮想取引計算）
+- [x] 日次レポートにCB v2結果セクション統合
+- [x] テスト・動作確認
+- [x] チェックポイント保存

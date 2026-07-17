@@ -482,6 +482,274 @@ export function formatCBv2Report(result: CBv2DailyResult): string {
   return report;
 }
 
+// ============================================================
+// drop_0.6 バイパス分岐型シミュレーション
+// ============================================================
+
+interface BypassTrade {
+  symbol: string;
+  blockTime: string;
+  entryTime: string;
+  entryPrice: number;
+  exitTime: string;
+  exitPrice: number;
+  pnl: number;
+  exitReason: "TP" | "SL" | "EOD";
+  holdBars: number;
+  type: "bypass" | "cb_v2";
+}
+
+export interface BranchDailyResult {
+  tradeDate: string;
+  totalCandidates: number;     // 0.8%ブロックSHORT総数
+  bypassCandidates: number;    // drop_0.6成立数
+  cbCandidates: number;        // CB v2に回った数
+  bypassEntries: number;       // バイパスエントリー数
+  cbEntries: number;           // CB v2エントリー数
+  bypassPnl: number;
+  cbPnl: number;
+  totalPnl: number;
+  bypassWins: number;
+  bypassLosses: number;
+  cbWins: number;
+  cbLosses: number;
+  pf: number;
+  trades: BypassTrade[];
+}
+
+const DROP_0_6_THRESHOLD = -0.006; // 直近3本で0.6%以上下落
+
+/**
+ * 直近3本の下落率を計算: 3本前の始値から現在足終値までの変化率
+ */
+function calcDropRate3(candles: CandleData[], idx: number): number | null {
+  if (idx < 2) return null;
+  const open3ago = candles[idx - 2].open;
+  if (open3ago <= 0) return null;
+  return (candles[idx].close - open3ago) / open3ago;
+}
+
+/**
+ * drop_0.6バイパス分岐型シミュレーション
+ * 
+ * ロジック:
+ * - 0.8%ブロックされたSHORTに対して
+ * - 直近3本で0.6%以上下落 → 即時エントリー（次足始値）
+ * - それ以外 → CB v2ステートマシン
+ */
+export function runBranchDailySimulation(
+  tradeDate: string,
+  allCandles: Array<{ symbol: string; candleTime: string; open: string; high: string; low: string; close: string; volume: number }>,
+  signalBlocks: Array<{ time: string; symbol: string; price: number; reason: string }>
+): BranchDailyResult {
+  // SHORTブロックのみ
+  const shortBlocks = signalBlocks.filter(b => b.reason.includes("SHORTブロック"));
+
+  // 銘柄ごとに1分足を整理
+  const candlesBySymbol = new Map<string, CandleData[]>();
+  for (const row of allCandles) {
+    if (!candlesBySymbol.has(row.symbol)) {
+      candlesBySymbol.set(row.symbol, []);
+    }
+    candlesBySymbol.get(row.symbol)!.push({
+      candleTime: row.candleTime,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+    });
+  }
+
+  const allTrades: BypassTrade[] = [];
+  let totalCandidates = 0;
+  let bypassCandidates = 0;
+  let cbCandidates = 0;
+  let bypassEntries = 0;
+  let cbEntries = 0;
+
+  for (const [symbol, candles] of Array.from(candlesBySymbol.entries())) {
+    const symbolBlocks = shortBlocks.filter(b => b.symbol === symbol);
+    if (symbolBlocks.length === 0) continue;
+
+    const candidates = detectCBv2Candidates(candles, symbolBlocks);
+    totalCandidates += candidates.length;
+
+    for (const candidate of candidates) {
+      const blockIdx = candles.findIndex(c => c.candleTime === candidate.blockTime);
+      if (blockIdx < 0) continue;
+
+      // drop_0.6判定: ブロック時点の足で直近3本下落率を計算
+      const dropRate = calcDropRate3(candles, blockIdx);
+      const isCrash = dropRate !== null && dropRate <= DROP_0_6_THRESHOLD;
+
+      if (isCrash) {
+        // バイパス: 次足始値で即時エントリー
+        bypassCandidates++;
+        const entryIdx = blockIdx + 1;
+        if (entryIdx >= candles.length) continue;
+        if (candles[entryIdx].candleTime >= "15:25") continue;
+
+        const entryPrice = candles[entryIdx].open;
+        const shares = Math.floor(POSITION_SIZE / entryPrice);
+        if (shares <= 0) continue;
+
+        const slPrice = entryPrice * (1 + CB_V2_SL_PCT / 100);
+        const tpPrice = entryPrice * (1 - CB_V2_TP_PCT / 100);
+        let traded = false;
+
+        for (let j = entryIdx; j < candles.length; j++) {
+          const c = candles[j];
+          if (c.high >= slPrice) {
+            allTrades.push({
+              symbol, blockTime: candidate.blockTime,
+              entryTime: candles[entryIdx].candleTime, entryPrice,
+              exitTime: c.candleTime, exitPrice: slPrice,
+              pnl: Math.round((entryPrice - slPrice) * shares),
+              exitReason: "SL", holdBars: j - entryIdx, type: "bypass",
+            });
+            bypassEntries++;
+            traded = true;
+            break;
+          }
+          if (c.low <= tpPrice) {
+            allTrades.push({
+              symbol, blockTime: candidate.blockTime,
+              entryTime: candles[entryIdx].candleTime, entryPrice,
+              exitTime: c.candleTime, exitPrice: tpPrice,
+              pnl: Math.round((entryPrice - tpPrice) * shares),
+              exitReason: "TP", holdBars: j - entryIdx, type: "bypass",
+            });
+            bypassEntries++;
+            traded = true;
+            break;
+          }
+          if (c.candleTime >= "15:25") {
+            allTrades.push({
+              symbol, blockTime: candidate.blockTime,
+              entryTime: candles[entryIdx].candleTime, entryPrice,
+              exitTime: c.candleTime, exitPrice: c.close,
+              pnl: Math.round((entryPrice - c.close) * shares),
+              exitReason: "EOD", holdBars: j - entryIdx, type: "bypass",
+            });
+            bypassEntries++;
+            traded = true;
+            break;
+          }
+        }
+        if (!traded) {
+          // データ末尾
+          const last = candles[candles.length - 1];
+          allTrades.push({
+            symbol, blockTime: candidate.blockTime,
+            entryTime: candles[entryIdx].candleTime, entryPrice,
+            exitTime: last.candleTime, exitPrice: last.close,
+            pnl: Math.round((entryPrice - last.close) * shares),
+            exitReason: "EOD", holdBars: candles.length - 1 - entryIdx, type: "bypass",
+          });
+          bypassEntries++;
+        }
+      } else {
+        // CB v2 ステートマシン
+        cbCandidates++;
+        const trade = runCBv2StateMachine(candles, candidate);
+        if (trade) {
+          allTrades.push({
+            symbol: trade.symbol,
+            blockTime: trade.blockTime,
+            entryTime: trade.entryTime,
+            entryPrice: trade.entryPrice,
+            exitTime: trade.exitTime,
+            exitPrice: trade.exitPrice,
+            pnl: trade.pnl,
+            exitReason: trade.exitReason === "TIMEOUT" ? "EOD" : trade.exitReason,
+            holdBars: trade.holdBars,
+            type: "cb_v2",
+          });
+          cbEntries++;
+        }
+      }
+    }
+  }
+
+  // 集計
+  const bypassTrades = allTrades.filter(t => t.type === "bypass");
+  const cbTrades = allTrades.filter(t => t.type === "cb_v2");
+  const bypassPnl = bypassTrades.reduce((s, t) => s + t.pnl, 0);
+  const cbPnl = cbTrades.reduce((s, t) => s + t.pnl, 0);
+  const totalPnl = bypassPnl + cbPnl;
+  const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+  const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
+  const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+
+  return {
+    tradeDate,
+    totalCandidates,
+    bypassCandidates,
+    cbCandidates,
+    bypassEntries,
+    cbEntries,
+    bypassPnl,
+    cbPnl,
+    totalPnl,
+    bypassWins: bypassTrades.filter(t => t.pnl > 0).length,
+    bypassLosses: bypassTrades.filter(t => t.pnl <= 0).length,
+    cbWins: cbTrades.filter(t => t.pnl > 0).length,
+    cbLosses: cbTrades.filter(t => t.pnl <= 0).length,
+    pf,
+    trades: allTrades,
+  };
+}
+
+/**
+ * 分岐型シミュレーション結果のフォーマット済み文字列を生成
+ */
+export function formatBranchReport(result: BranchDailyResult): string {
+  if (result.totalCandidates === 0) {
+    return `\n【分岐型シミュレーション（drop_0.6バイパス + CB v2）】\n  候補なし\n`;
+  }
+
+  const totalEntries = result.bypassEntries + result.cbEntries;
+  const totalWins = result.bypassWins + result.cbWins;
+  const totalLosses = result.bypassLosses + result.cbLosses;
+  const winRate = totalEntries > 0 ? (totalWins / totalEntries * 100).toFixed(1) : "0.0";
+  const pnlSign = result.totalPnl >= 0 ? "+" : "";
+
+  let report = `\n【分岐型シミュレーション（drop_0.6バイパス + CB v2）】\n`;
+  report += `  候補数: ${result.totalCandidates}件\n`;
+  report += `  ├ 急落バイパス(drop≧0.6%): ${result.bypassCandidates}件 → エントリー: ${result.bypassEntries}件\n`;
+  report += `  └ CB v2: ${result.cbCandidates}件 → エントリー: ${result.cbEntries}件\n`;
+  report += `  合計損益: ${pnlSign}${result.totalPnl.toLocaleString()}円 | PF: ${result.pf === Infinity ? "∞" : result.pf.toFixed(2)} | 勝率: ${winRate}%\n`;
+
+  // バイパス部分
+  if (result.bypassEntries > 0) {
+    const bpWinRate = (result.bypassWins / result.bypassEntries * 100).toFixed(1);
+    const bpSign = result.bypassPnl >= 0 ? "+" : "";
+    report += `  ■ バイパス部分: ${bpSign}${result.bypassPnl.toLocaleString()}円 (${result.bypassWins}勝${result.bypassLosses}敗, 勝率${bpWinRate}%)\n`;
+  }
+
+  // CB v2部分
+  if (result.cbEntries > 0) {
+    const cbWinRate = (result.cbWins / result.cbEntries * 100).toFixed(1);
+    const cbSign = result.cbPnl >= 0 ? "+" : "";
+    report += `  ■ CB v2部分: ${cbSign}${result.cbPnl.toLocaleString()}円 (${result.cbWins}勝${result.cbLosses}敗, 勝率${cbWinRate}%)\n`;
+  }
+
+  // 取引詳細
+  if (result.trades.length > 0) {
+    report += `  ■ 取引詳細\n`;
+    for (const t of result.trades) {
+      const tSign = t.pnl >= 0 ? "+" : "";
+      const typeLabel = t.type === "bypass" ? "[BP]" : "[CB]";
+      report += `  ${typeLabel} [${t.blockTime}→${t.entryTime}→${t.exitTime}] ${t.symbol} ` +
+        `@${t.entryPrice.toLocaleString()}→${t.exitPrice.toLocaleString()} ` +
+        `${tSign}${t.pnl.toLocaleString()}円 (${t.exitReason}, ${t.holdBars}本)\n`;
+    }
+  }
+
+  return report;
+}
+
 // テスト用エクスポート
-export { detectCBv2Candidates, runCBv2StateMachine, calcMA5, calcDistancePct };
-export type { CBv2Candidate, CBv2Trade, CBv2DailyResult, CandleData };
+export { detectCBv2Candidates, runCBv2StateMachine, calcMA5, calcDistancePct, calcDropRate3 };
+export type { CBv2Candidate, CBv2Trade, CBv2DailyResult, CandleData, BypassTrade };

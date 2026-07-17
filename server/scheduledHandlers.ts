@@ -634,10 +634,11 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
 
     // ★CB v2 SHORTシミュレーション実行
     let cbV2Section = "";
+    let branchSection = "";
     try {
       const { getRtCandlesAllForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
-      const { runCBv2DailySimulation, formatCBv2Report } = await import("./cbV2Simulation");
+      const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport } = await import("./cbV2Simulation");
 
       const allCandles = await getRtCandlesAllForDate(todayStr);
       // signalHistoryからround_distance_block SHORTを抽出
@@ -648,9 +649,15 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       const cbV2Result = runCBv2DailySimulation(todayStr, allCandles, signalBlocks);
       cbV2Section = formatCBv2Report(cbV2Result);
       console.log(`[rt-daily-report] CB v2 simulation: candidates=${cbV2Result.candidates}, entries=${cbV2Result.entries}, pnl=${cbV2Result.totalPnl}`);
+
+      // 分岐型シミュレーション（drop_0.6バイパス + CB v2）
+      const branchResult = runBranchDailySimulation(todayStr, allCandles, signalBlocks);
+      branchSection = formatBranchReport(branchResult);
+      console.log(`[rt-daily-report] Branch simulation: bypass=${branchResult.bypassEntries}, cb=${branchResult.cbEntries}, pnl=${branchResult.totalPnl}`);
     } catch (cbErr) {
       console.error("[rt-daily-report] CB v2 simulation error:", cbErr);
       cbV2Section = "\n【CB v2 SHORTシミュレーション】\n  エラーが発生しました\n";
+      branchSection = "\n【分岐型シミュレーション】\n  エラーが発生しました\n";
     }
 
     const body = `${subject}
@@ -668,6 +675,7 @@ ${symbolLines || "  （取引なし）"}
 【取引詳細（最大20件）】
 ${tradeLines || "  （取引なし）"}
 ${cbV2Section}
+${branchSection}
 ---
 このメールはStock Alert Appのリアルタイムシミュレーション機能から自動送信されています。
 `;

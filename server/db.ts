@@ -549,10 +549,13 @@ import {
   rtCandles,
   rtTrades,
   rtDailySummaries,
+  rtScore0Blocks,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
   type RtDailySummary,
+  type InsertRtScore0Block,
+  type RtScore0Block,
 } from "../drizzle/schema";
 
 /**
@@ -746,4 +749,34 @@ export async function getRtOpenPositionsFromDb(tradeDate: string): Promise<RtTra
   }
 
   return openEntries;
+}
+
+// ============================================================
+// スコア0+信頼度強ブロック記録 helpers
+// ============================================================
+
+/**
+ * スコア0+信頼度強でブロックされたシグナルをDBに記録する
+ */
+export async function insertScore0Block(data: Omit<InsertRtScore0Block, "id" | "createdAt">) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.insert(rtScore0Blocks).values(data);
+  } catch (err) {
+    console.error("[DB] insertScore0Block error:", err);
+  }
+}
+
+/**
+ * 指定日のスコア0ブロック記録を取得する
+ */
+export async function getScore0BlocksForDate(tradeDate: string): Promise<RtScore0Block[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtScore0Blocks)
+    .where(eq(rtScore0Blocks.tradeDate, tradeDate))
+    .orderBy(rtScore0Blocks.id);
 }

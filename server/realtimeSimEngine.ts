@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -976,6 +976,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const brScore = boardReadingScore(symbol, "long", boardSnapshot);
       if (brScore < BOARD_SCORE_THRESHOLD) {
         console.log(`[RealtimeSim] ${symbol} 押し目確認: 板読みスコア不足(${brScore})`);
+        // ★スコア0+信頼度強ブロック記録
+        if (brScore === 0 && pullbackState.reason.includes("信頼度：強")) {
+          insertScore0Block({
+            tradeDate,
+            symbol,
+            candleTime,
+            side: "BUY",
+            signalReason: pullbackState.reason.substring(0, 200),
+            entryPrice: String(candle.close),
+            boardScore: 0,
+            confidence: "strong",
+            context: "pullback_buy",
+          });
+        }
         return { symbol, tradeDate, candleTime, action: "none" };
       }
       console.log(`[RealtimeSim] ${symbol} 押し目確認後エントリー: ${pullbackState.reason} (板スコア:${brScore})`);
@@ -1070,6 +1084,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const brScoreTimeout = boardReadingScore(symbol, side, boardSnapshot);
       if (brScoreTimeout < BOARD_SCORE_THRESHOLD) {
         console.log(`[RealtimeSim] ${symbol} 大台押し目待ちタイムアウト: 板読みスコア不足(${brScoreTimeout})`);
+        // ★スコア0+信頼度強ブロック記録
+        if (brScoreTimeout === 0 && roundPb.reason.includes("信頼度：強")) {
+          insertScore0Block({
+            tradeDate,
+            symbol,
+            candleTime,
+            side: side === "long" ? "BUY" : "SHORT",
+            signalReason: roundPb.reason.substring(0, 200),
+            entryPrice: String(candle.close),
+            boardScore: 0,
+            confidence: "strong",
+            context: "round_timeout",
+          });
+        }
         return { symbol, tradeDate, candleTime, action: "none" };
       }
       // ★大台乖離率0.8%フィルター
@@ -1122,6 +1150,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
         if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
           console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板読みスコア不足(${brScoreBuy})`);
+          // ★スコア0+信頼度強ブロック記録
+          if (brScoreBuy === 0 && roundPb.reason.includes("信頼度：強")) {
+            insertScore0Block({
+              tradeDate,
+              symbol,
+              candleTime,
+              side: "BUY",
+              signalReason: roundPb.reason.substring(0, 200),
+              entryPrice: String(candle.close),
+              boardScore: 0,
+              confidence: "strong",
+              context: "round_pullback_buy",
+            });
+          }
           return { symbol, tradeDate, candleTime, action: "none" };
         }
         // ★大台乖離率0.8%フィルター
@@ -1172,6 +1214,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const brScoreSell = boardReadingScore(symbol, "short", boardSnapshot);
         if (brScoreSell < BOARD_SCORE_THRESHOLD) {
           console.log(`[RealtimeSim] ${symbol} 大台押し目確認: 板読みスコア不足(${brScoreSell})`);
+          // ★スコア0+信頼度強ブロック記録
+          if (brScoreSell === 0 && roundPb.reason.includes("信頼度：強")) {
+            insertScore0Block({
+              tradeDate,
+              symbol,
+              candleTime,
+              side: "SHORT",
+              signalReason: roundPb.reason.substring(0, 200),
+              entryPrice: String(candle.close),
+              boardScore: 0,
+              confidence: "strong",
+              context: "round_pullback_short",
+            });
+          }
           return { symbol, tradeDate, candleTime, action: "none" };
         }
         // ★大台乖離率0.8%フィルター
@@ -1220,6 +1276,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
     if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
       console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア不足(${brScoreBuy}) (${sig.reason.substring(0, 30)})`);
+      // ★スコア0+信頼度強ブロック記録
+      if (brScoreBuy === 0 && sig.confidence === "strong") {
+        insertScore0Block({
+          tradeDate,
+          symbol,
+          candleTime,
+          side: "BUY",
+          signalReason: sig.reason.substring(0, 200),
+          entryPrice: String(candle.close),
+          boardScore: 0,
+          confidence: "strong",
+          context: "direct_buy",
+        });
+      }
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
@@ -1307,6 +1377,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     const brScoreShort = boardReadingScore(symbol, "short", boardSnapshot);
     if (brScoreShort < BOARD_SCORE_THRESHOLD) {
       console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板読みスコア不足(${brScoreShort}) (${sig.reason.substring(0, 30)})`);
+      // ★スコア0+信頼度強ブロック記録
+      if (brScoreShort === 0 && sig.confidence === "strong") {
+        insertScore0Block({
+          tradeDate,
+          symbol,
+          candleTime,
+          side: "SHORT",
+          signalReason: sig.reason.substring(0, 200),
+          entryPrice: String(candle.close),
+          boardScore: 0,
+          confidence: "strong",
+          context: "direct_short",
+        });
+      }
       return { symbol, tradeDate, candleTime, action: "none" };
     }
     // ★3分足HTFフィルター: SELLシグナル全体に適用（逆方向=upのみブロック、neutral通過）

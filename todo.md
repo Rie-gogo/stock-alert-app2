@@ -869,3 +869,11 @@
 - [ ] scheduledHandlers.tsの日次レポートに分岐型結果セクション追加
 - [ ] TypeScriptチェック・テスト通過
 - [ ] チェックポイント保存
+
+## スコア0+信頼度強ブロックの日次シミュレーション追加
+- [x] realtimeSimEngine.tsでスコア0+信頼度強ブロック時にrt_score0_blocksテーブルに記録
+- [x] DBテーブルrt_score0_blocks作成（tradeDate, symbol, candleTime, side, signal, entryPrice, confidence）
+- [x] cbV2Simulation.tsにscore0シミュレーション関数追加（ブロック記録からSL/TP/EODを計算）
+- [x] 日次レポートに「スコア0+信頼度強シミュレーション」セクション追加（件数・勝率・損益・累計）
+- [x] TypeScriptチェック・テスト通過
+- [ ] チェックポイント保存

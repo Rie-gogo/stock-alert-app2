@@ -549,3 +549,22 @@ export const rt3peakSignals = mysqlTable("rt_3peak_signals", {
 
 export type Rt3peakSignal = typeof rt3peakSignals.$inferSelect;
 export type InsertRt3peakSignal = typeof rt3peakSignals.$inferInsert;
+
+// ============================================================
+// スコア0+信頼度強ブロック記録テーブル
+// ============================================================
+export const rtScore0Blocks = mysqlTable("rt_score0_blocks", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  side: varchar("side", { length: 5 }).notNull(),
+  signalReason: varchar("signal_reason", { length: 200 }).notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 2 }).notNull(),
+  boardScore: int("board_score").notNull().default(0),
+  confidence: varchar("confidence", { length: 10 }).notNull().default("strong"),
+  context: varchar("context", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type RtScore0Block = typeof rtScore0Blocks.$inferSelect;
+export type InsertRtScore0Block = typeof rtScore0Blocks.$inferInsert;

@@ -753,3 +753,279 @@ export function formatBranchReport(result: BranchDailyResult): string {
 // テスト用エクスポート
 export { detectCBv2Candidates, runCBv2StateMachine, calcMA5, calcDistancePct, calcDropRate3 };
 export type { CBv2Candidate, CBv2Trade, CBv2DailyResult, CandleData, BypassTrade };
+
+
+// ============================================================
+// スコア0+信頼度強 仮想エントリーシミュレーション
+// ============================================================
+
+interface Score0Block {
+  symbol: string;
+  candleTime: string;  // HH:MM
+  side: "BUY" | "SHORT";
+  signalReason: string;
+  entryPrice: string;
+}
+
+interface Score0Trade {
+  symbol: string;
+  side: "BUY" | "SHORT";
+  blockTime: string;
+  entryTime: string;
+  entryPrice: number;
+  exitTime: string;
+  exitPrice: number;
+  pnl: number;
+  exitReason: "TP" | "SL" | "EOD";
+  holdBars: number;
+}
+
+interface Score0DailyResult {
+  tradeDate: string;
+  candidates: number;
+  entries: number;
+  wins: number;
+  losses: number;
+  totalPnl: number;
+  pf: number;
+  trades: Score0Trade[];
+  bySide: {
+    buy: { count: number; wins: number; pnl: number };
+    short: { count: number; wins: number; pnl: number };
+  };
+}
+
+const SCORE0_SL_PCT = 0.5;   // SL: 0.5%
+const SCORE0_TP_PCT = 1.5;   // TP: 1.5%
+const SCORE0_POSITION_SIZE = 3_000_000;  // 300万円
+
+/**
+ * スコア0+信頼度強ブロックの仮想エントリーシミュレーション
+ * ブロック時点のclose価格でエントリーし、SL/TP/EODを判定
+ */
+export function runScore0DailySimulation(
+  tradeDate: string,
+  allCandles: Array<{ symbol: string; candleTime: string; open: string; high: string; low: string; close: string; volume: number }>,
+  score0Blocks: Score0Block[]
+): Score0DailyResult {
+  if (score0Blocks.length === 0) {
+    return {
+      tradeDate,
+      candidates: 0,
+      entries: 0,
+      wins: 0,
+      losses: 0,
+      totalPnl: 0,
+      pf: 0,
+      trades: [],
+      bySide: {
+        buy: { count: 0, wins: 0, pnl: 0 },
+        short: { count: 0, wins: 0, pnl: 0 },
+      },
+    };
+  }
+
+  // 銘柄ごとにキャンドルを整理
+  const candlesBySymbol = new Map<string, CandleData[]>();
+  for (const row of allCandles) {
+    if (!candlesBySymbol.has(row.symbol)) {
+      candlesBySymbol.set(row.symbol, []);
+    }
+    candlesBySymbol.get(row.symbol)!.push({
+      candleTime: row.candleTime,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+    });
+  }
+
+  const allTrades: Score0Trade[] = [];
+
+  for (const block of score0Blocks) {
+    const candles = candlesBySymbol.get(block.symbol);
+    if (!candles || candles.length === 0) continue;
+
+    // ブロック時刻の足を見つける
+    const blockIdx = candles.findIndex(c => c.candleTime === block.candleTime);
+    if (blockIdx < 0) continue;
+
+    // エントリー: ブロック時点のclose価格（次足始値ではなく、ブロック時のclose）
+    const entryPrice = Number(block.entryPrice);
+    const shares = Math.floor(SCORE0_POSITION_SIZE / entryPrice);
+    if (shares <= 0) continue;
+
+    const isLong = block.side === "BUY";
+    const slPrice = isLong
+      ? entryPrice * (1 - SCORE0_SL_PCT / 100)
+      : entryPrice * (1 + SCORE0_SL_PCT / 100);
+    const tpPrice = isLong
+      ? entryPrice * (1 + SCORE0_TP_PCT / 100)
+      : entryPrice * (1 - SCORE0_TP_PCT / 100);
+
+    let traded = false;
+
+    // ブロック足の次足からシミュレーション開始
+    for (let j = blockIdx + 1; j < candles.length; j++) {
+      const c = candles[j];
+
+      // SL判定
+      if (isLong && c.low <= slPrice) {
+        allTrades.push({
+          symbol: block.symbol, side: block.side,
+          blockTime: block.candleTime,
+          entryTime: block.candleTime, entryPrice,
+          exitTime: c.candleTime, exitPrice: slPrice,
+          pnl: Math.round((slPrice - entryPrice) * shares),
+          exitReason: "SL", holdBars: j - blockIdx,
+        });
+        traded = true;
+        break;
+      }
+      if (!isLong && c.high >= slPrice) {
+        allTrades.push({
+          symbol: block.symbol, side: block.side,
+          blockTime: block.candleTime,
+          entryTime: block.candleTime, entryPrice,
+          exitTime: c.candleTime, exitPrice: slPrice,
+          pnl: Math.round((entryPrice - slPrice) * shares),
+          exitReason: "SL", holdBars: j - blockIdx,
+        });
+        traded = true;
+        break;
+      }
+
+      // TP判定
+      if (isLong && c.high >= tpPrice) {
+        allTrades.push({
+          symbol: block.symbol, side: block.side,
+          blockTime: block.candleTime,
+          entryTime: block.candleTime, entryPrice,
+          exitTime: c.candleTime, exitPrice: tpPrice,
+          pnl: Math.round((tpPrice - entryPrice) * shares),
+          exitReason: "TP", holdBars: j - blockIdx,
+        });
+        traded = true;
+        break;
+      }
+      if (!isLong && c.low <= tpPrice) {
+        allTrades.push({
+          symbol: block.symbol, side: block.side,
+          blockTime: block.candleTime,
+          entryTime: block.candleTime, entryPrice,
+          exitTime: c.candleTime, exitPrice: tpPrice,
+          pnl: Math.round((entryPrice - tpPrice) * shares),
+          exitReason: "TP", holdBars: j - blockIdx,
+        });
+        traded = true;
+        break;
+      }
+
+      // EOD判定
+      if (c.candleTime >= "15:25") {
+        const exitPrice = c.close;
+        const pnl = isLong
+          ? Math.round((exitPrice - entryPrice) * shares)
+          : Math.round((entryPrice - exitPrice) * shares);
+        allTrades.push({
+          symbol: block.symbol, side: block.side,
+          blockTime: block.candleTime,
+          entryTime: block.candleTime, entryPrice,
+          exitTime: c.candleTime, exitPrice,
+          pnl, exitReason: "EOD", holdBars: j - blockIdx,
+        });
+        traded = true;
+        break;
+      }
+    }
+
+    // 最終足まで到達した場合（EOD未到達）
+    if (!traded && candles.length > blockIdx + 1) {
+      const lastCandle = candles[candles.length - 1];
+      const exitPrice = lastCandle.close;
+      const pnl = isLong
+        ? Math.round((exitPrice - entryPrice) * shares)
+        : Math.round((entryPrice - exitPrice) * shares);
+      allTrades.push({
+        symbol: block.symbol, side: block.side,
+        blockTime: block.candleTime,
+        entryTime: block.candleTime, entryPrice,
+        exitTime: lastCandle.candleTime, exitPrice,
+        pnl, exitReason: "EOD", holdBars: candles.length - 1 - blockIdx,
+      });
+    }
+  }
+
+  // 集計
+  const wins = allTrades.filter(t => t.pnl > 0).length;
+  const losses = allTrades.filter(t => t.pnl <= 0).length;
+  const totalPnl = allTrades.reduce((sum, t) => sum + t.pnl, 0);
+  const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0);
+  const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((sum, t) => sum + t.pnl, 0));
+  const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+
+  // BUY/SHORT別集計
+  const buyTrades = allTrades.filter(t => t.side === "BUY");
+  const shortTrades = allTrades.filter(t => t.side === "SHORT");
+
+  return {
+    tradeDate,
+    candidates: score0Blocks.length,
+    entries: allTrades.length,
+    wins,
+    losses,
+    totalPnl,
+    pf,
+    trades: allTrades,
+    bySide: {
+      buy: {
+        count: buyTrades.length,
+        wins: buyTrades.filter(t => t.pnl > 0).length,
+        pnl: buyTrades.reduce((sum, t) => sum + t.pnl, 0),
+      },
+      short: {
+        count: shortTrades.length,
+        wins: shortTrades.filter(t => t.pnl > 0).length,
+        pnl: shortTrades.reduce((sum, t) => sum + t.pnl, 0),
+      },
+    },
+  };
+}
+
+/**
+ * スコア0+信頼度強シミュレーションのレポートフォーマット
+ */
+export function formatScore0Report(result: Score0DailyResult): string {
+  if (result.candidates === 0) {
+    return `\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n  候補なし（スコア0+信頼度強ブロックが0件）\n`;
+  }
+
+  const winRate = result.entries > 0 ? (result.wins / result.entries * 100).toFixed(1) : "0.0";
+  const pnlSign = result.totalPnl >= 0 ? "+" : "";
+
+  let report = `\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n`;
+  report += `  候補数: ${result.candidates}件 → エントリー: ${result.entries}件\n`;
+  report += `  損益: ${pnlSign}${result.totalPnl.toLocaleString()}円 | PF: ${result.pf === Infinity ? "∞" : result.pf.toFixed(2)} | 勝率: ${winRate}%\n`;
+  report += `  勝: ${result.wins} / 負: ${result.losses}\n`;
+
+  // BUY/SHORT別
+  const buySign = result.bySide.buy.pnl >= 0 ? "+" : "";
+  const shortSign = result.bySide.short.pnl >= 0 ? "+" : "";
+  report += `  [BUY] ${result.bySide.buy.count}件 (${result.bySide.buy.wins}W) ${buySign}${result.bySide.buy.pnl.toLocaleString()}円\n`;
+  report += `  [SHORT] ${result.bySide.short.count}件 (${result.bySide.short.wins}W) ${shortSign}${result.bySide.short.pnl.toLocaleString()}円\n`;
+
+  // 取引詳細
+  if (result.trades.length > 0) {
+    report += `\n  ■ 取引詳細\n`;
+    for (const t of result.trades) {
+      const tSign = t.pnl >= 0 ? "+" : "";
+      report += `  [${t.blockTime}] ${t.symbol} ${t.side} @${t.entryPrice.toLocaleString()}→${t.exitPrice.toLocaleString()} ` +
+        `${tSign}${t.pnl.toLocaleString()}円 (${t.exitReason}, ${t.holdBars}本)\n`;
+    }
+  }
+
+  return report;
+}
+
+export type { Score0Block, Score0Trade, Score0DailyResult };

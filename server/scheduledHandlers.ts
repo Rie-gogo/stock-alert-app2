@@ -635,10 +635,11 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     // ★CB v2 SHORTシミュレーション実行
     let cbV2Section = "";
     let branchSection = "";
+    let score0Section = "";
     try {
       const { getRtCandlesAllForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
-      const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport } = await import("./cbV2Simulation");
+      const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport, runScore0DailySimulation, formatScore0Report } = await import("./cbV2Simulation");
 
       const allCandles = await getRtCandlesAllForDate(todayStr);
       // signalHistoryからround_distance_block SHORTを抽出
@@ -654,10 +655,24 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       const branchResult = runBranchDailySimulation(todayStr, allCandles, signalBlocks);
       branchSection = formatBranchReport(branchResult);
       console.log(`[rt-daily-report] Branch simulation: bypass=${branchResult.bypassEntries}, cb=${branchResult.cbEntries}, pnl=${branchResult.totalPnl}`);
+
+      // スコア0+信頼度強シミュレーション
+      const { getScore0BlocksForDate } = await import("./db");
+      const score0Blocks = await getScore0BlocksForDate(todayStr);
+      const score0Result = runScore0DailySimulation(todayStr, allCandles, score0Blocks.map(b => ({
+        symbol: b.symbol,
+        candleTime: b.candleTime,
+        side: b.side as "BUY" | "SHORT",
+        signalReason: b.signalReason,
+        entryPrice: b.entryPrice,
+      })));
+      score0Section = formatScore0Report(score0Result);
+      console.log(`[rt-daily-report] Score0 simulation: candidates=${score0Result.candidates}, entries=${score0Result.entries}, pnl=${score0Result.totalPnl}`);
     } catch (cbErr) {
       console.error("[rt-daily-report] CB v2 simulation error:", cbErr);
       cbV2Section = "\n【CB v2 SHORTシミュレーション】\n  エラーが発生しました\n";
       branchSection = "\n【分岐型シミュレーション】\n  エラーが発生しました\n";
+      score0Section = "\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n  エラーが発生しました\n";
     }
 
     const body = `${subject}
@@ -676,6 +691,7 @@ ${symbolLines || "  （取引なし）"}
 ${tradeLines || "  （取引なし）"}
 ${cbV2Section}
 ${branchSection}
+${score0Section}
 ---
 このメールはStock Alert Appのリアルタイムシミュレーション機能から自動送信されています。
 `;

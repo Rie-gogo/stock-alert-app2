@@ -882,3 +882,8 @@
 - [x] TRADE_EXCLUDED_SYMBOLSから6920, 6758, 8316を削除
 - [x] TypeScriptチェック通過
 - [x] チェックポイント保存
+
+## isBullish判定の動的MA傾き方式への変更
+- [x] isBullish判定を動的MA20傾き方式に変更（MA20, 傾き閾値-0.03%/分）
+- [x] TypeScriptチェック通過
+- [ ] チェックポイント保存

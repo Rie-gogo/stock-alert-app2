@@ -56,8 +56,12 @@ const SYMBOL_TP_SL_OVERRIDE: Record<string, { tp: number; sl: number }> = {
   // 全銘柄共通: SL=0.5%, TP=1.5%（285Aの拡大設定を廃止 2026-07-16）
 };
 
-/** isBullish方式: 銘柄別始値比がこの%以上なら上昇相場と判定しSHORT禁止 */
-const IS_BULLISH_THRESHOLD = 0.2;
+/** isBullish方式: 動的MA傾き判定（MA20の1分あたり傾きが閾値以上なら上昇相場と判定しSHORT禁止） */
+const IS_BULLISH_MA_PERIOD = 20;
+/** isBullish傾き閾値: MA20の1分あたり変化率がこの値(%)を超えたら上昇中と判定 */
+const IS_BULLISH_SLOPE_THRESHOLD = -0.03;
+/** isBullishフォールバック閾値: バッファ不足時に使う始値比(%) */
+const IS_BULLISH_FALLBACK_THRESHOLD = 0.2;
 
 /** 後場BPRフィルター: 13:00以降のSHORTでBPR>=この値ならエントリーブロック */
 const PM_BPR_BLOCK_THRESHOLD = 0.65;
@@ -922,14 +926,28 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
   const sig = latestSignal.signal;
 
-  // ---- isBullish方式: 鋘柄別の上昇相場判定（+D構成） ----
-  // 各鋘柄の始値比+0.2%以上ならその鋘柄は上昇相場と判定しSHORT禁止
+  // ---- isBullish方式: 動的MA傾き判定（+D構成改良） ----
+  // MA20の傾きが閾値以上（上向き）ならその銘柄は上昇相場と判定しSHORT禁止
+  // バッファ不足時は従来の始値比フォールバックを使用
   const isBullish = (() => {
     if (buffer.length < 2) return false;
-    const firstCandle = buffer[0];
-    const openPrice = firstCandle.open;
-    const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
-    return priceChangeRatio >= IS_BULLISH_THRESHOLD;
+    const maPeriod = IS_BULLISH_MA_PERIOD;
+    if (buffer.length < maPeriod + 1) {
+      // ウォームアップ中: 従来の始値比方式にフォールバック
+      const openPrice = buffer[0].open;
+      const priceChangeRatio = (candle.close - openPrice) / openPrice * 100;
+      return priceChangeRatio >= IS_BULLISH_FALLBACK_THRESHOLD;
+    }
+    // MA20の現在値を計算（直近20本のclose平均）
+    const currentSlice = buffer.slice(buffer.length - maPeriod).map(c => c.close);
+    const currentMA = currentSlice.reduce((a, b) => a + b, 0) / maPeriod;
+    // MA20の1本前の値を計算（1本前までの20本のclose平均）
+    const prevSlice = buffer.slice(buffer.length - maPeriod - 1, buffer.length - 1).map(c => c.close);
+    const prevMA = prevSlice.reduce((a, b) => a + b, 0) / maPeriod;
+    // 傾き = (現在MA - 前MA) / 前MA * 100 (%)
+    const slope = (currentMA - prevMA) / prevMA * 100;
+    // 傾きが閾値を超えていれば上昇中（isBullish=true → SHORT禁止）
+    return slope > IS_BULLISH_SLOPE_THRESHOLD;
   })();
 
   // ---- 押し目確認ステートマシン処理 (ダウ理論上昇のみ) ----

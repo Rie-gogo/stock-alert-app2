@@ -48,7 +48,7 @@ vi.mock("../shared/stocks", () => ({
 
 // ===== テスト対象をインポート =====
 // モック設定後にインポートする
-import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockRoundDistance } from "./realtimeSimEngine";
+import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct } from "./realtimeSimEngine";
 import type { RtCandle1Min } from "./realtimeSimEngine";
 
 // ===== ヘルパー =====
@@ -1587,36 +1587,5 @@ describe("大台乖離率0.8%フィルター", () => {
     });
   });
 
-  describe("shouldBlockRoundDistance", () => {
-    it("乖離率が閾値以下の場合はブロックしない（false）", () => {
-      // 3000から0.5%乖離 = 3015
-      expect(shouldBlockRoundDistance(3015, 3000)).toBe(false);
-    });
-
-    it("乖離率がちょうど0.8%の場合はブロックしない（<=判定）", () => {
-      // 3000 * 1.008 = 3024
-      expect(shouldBlockRoundDistance(3024, 3000)).toBe(false);
-    });
-
-    it("乖離率が0.8%を超える場合はブロックする（true）", () => {
-      // 3000 * 1.009 = 3027
-      expect(shouldBlockRoundDistance(3027, 3000)).toBe(true);
-    });
-
-    it("roundLevelが0以下の場合はブロックしない（防御的スキップ）", () => {
-      expect(shouldBlockRoundDistance(3000, 0)).toBe(false);
-      expect(shouldBlockRoundDistance(3000, -100)).toBe(false);
-    });
-
-    it("カスタム閾値を指定できる", () => {
-      // 3000から1.5%乖離 = 3045
-      expect(shouldBlockRoundDistance(3045, 3000, 1.0)).toBe(true);
-      expect(shouldBlockRoundDistance(3045, 3000, 2.0)).toBe(false);
-    });
-
-    it("下方乖離でもブロックする", () => {
-      // 3000から-1.0%乖離 = 2970
-      expect(shouldBlockRoundDistance(2970, 3000)).toBe(true);
-    });
-  });
+  // shouldBlockRoundDistance tests removed - filter abolished 2026-07-28
 });

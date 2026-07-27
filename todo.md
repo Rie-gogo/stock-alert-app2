@@ -886,4 +886,5 @@
 ## isBullish判定の動的MA傾き方式への変更
 - [x] isBullish判定を動的MA20傾き方式に変更（MA20, 傾き閾値-0.03%/分）
 - [x] TypeScriptチェック通過
-- [ ] チェックポイント保存
+- [x] チェックポイント保存
+- [x] 大台乖離率0.8%フィルターを撤廃（shouldBlockRoundDistance関連コード削除）

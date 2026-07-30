@@ -888,3 +888,6 @@
 - [x] TypeScriptチェック通過
 - [x] チェックポイント保存
 - [x] 大台乖離率0.8%フィルターを撤廃（shouldBlockRoundDistance関連コード削除）
+
+## ROUND_LEVEL_CONFIRM_BARS最適化（2026-07-30）
+- [x] ROUND_LEVEL_CONFIRM_BARS を 5→4 に変更（全期間スイープで4本が最適と判明: BUY +374,718円改善、SHORT +654,363円改善）

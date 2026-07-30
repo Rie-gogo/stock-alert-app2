@@ -187,8 +187,8 @@ const roundLevelPendingStates = new Map<string, RoundLevelPendingState>();
 /** 銘柄ごとの大台確認後押し目待ちステート */
 const roundPullbackStates = new Map<string, RoundPullbackState>();
 
-/** 大台確認に必要な維持本数（5本 = 5分間維持） */
-const ROUND_LEVEL_CONFIRM_BARS = 5;
+/** 大台確認に必要な維持本数（4本 = 4分間維持）2026-07-30: 5→4に変更（全期間スイープで4本が最適と判明） */
+const ROUND_LEVEL_CONFIRM_BARS = 4;
 
 /** 大台確認後の押し目待ち最大足数 */
 const ROUND_PULLBACK_MAX_WAIT = 5;

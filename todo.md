@@ -891,3 +891,9 @@
 
 ## ROUND_LEVEL_CONFIRM_BARS最適化（2026-07-30）
 - [x] ROUND_LEVEL_CONFIRM_BARS を 5→4 に変更（全期間スイープで4本が最適と判明: BUY +374,718円改善、SHORT +654,363円改善）
+
+## 銘柄別SL幅の実装（2026-08-03）
+- [x] SYMBOL_SL_OVERRIDE設定を追加（切り戻しやすいフラグ付き構造）
+- [x] realtimeSimEngine.tsのSL判定を銘柄別SLに対応
+- [x] テスト作成・全テスト通過確認
+- [x] チェックポイント保存

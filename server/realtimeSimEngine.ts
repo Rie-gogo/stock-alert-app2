@@ -46,14 +46,34 @@ const INITIAL_CAPITAL_PER_STOCK = 3_000_000;
 const LOT_RATIO = 0.9;
 
 /** 損切り率（%）: エントリー価格から何%下落で損切り（6/11良い結果: -0.7%/高安値トリガー） */
-const STOP_LOSS_PERCENT = 0.5; // 改善③: 0.7→0.5に引き締め (2026-06-16検証済み)
+const STOP_LOSS_PERCENT = 0.5; // デフォルトSL（銘柄別設定がない場合のフォールバック）
 
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
 const TAKE_PROFIT_PERCENT = 1.5;
 
-/** 銘柄別TP/SLオーバーライド（デフォルトと異なる銘柄のみ指定） */
+/**
+ * 銘柄別SL幅設定（2026-08-03 MAE分析に基づく）
+ * USE_PER_SYMBOL_SL = false にすると全銘柄一律 STOP_LOSS_PERCENT(0.5%) に戻る
+ */
+const USE_PER_SYMBOL_SL = true;
+
+/** 銘柄別SL（%）: MAE中央値〜75%タイルを基に設定 */
+const SYMBOL_SL_MAP: Record<string, number> = {
+  "8035": 0.7,   // 東京エレクトロン: MAE中央値0.53%, 75%=1.17%
+  "6857": 0.9,   // アドバンテスト: MAE中央値1.03%, 75%=2.81%
+  "6976": 1.0,   // 太陽誘電: MAE中央値1.76%, 75%=3.67%
+  "6526": 0.9,   // ソシオネクスト: MAE中央値1.48%, 75%=2.27%
+  "5803": 0.7,   // フジクラ: MAE中央値1.12%, 75%=1.97%
+  "6981": 0.9,   // 村田製作所: MAE中央値1.23%, 75%=2.48%
+  "285A": 1.5,   // キオクシアHD: MAE中央値2.63%, 75%=5.16%
+  "6920": 1.0,   // レーザーテック: MAE中央値1.54%, 75%=2.05%
+  "6758": 0.5,   // ソニーG: 方向正解率0%のため据置
+  "8316": 0.5,   // 三井住友FG: 現状で十分
+};
+
+/** 銘柄別TP/SLオーバーライド（レガシー互換、USE_PER_SYMBOL_SL=true時はSYMBOL_SL_MAPが優先） */
 const SYMBOL_TP_SL_OVERRIDE: Record<string, { tp: number; sl: number }> = {
-  // 全銘柄共通: SL=0.5%, TP=1.5%（285Aの拡大設定を廃止 2026-07-16）
+  // 現在は空（SYMBOL_SL_MAPで管理）
 };
 
 /** isBullish方式: 動的MA傾き判定（MA20の1分あたり傾きが閾値以上なら上昇相場と判定しSHORT禁止） */
@@ -1630,10 +1650,13 @@ async function checkExitConditions(
   let exitReason = "";
   let action: "exit" | "stop_loss" | "take_profit" = "exit";
 
-  // 銘柄別TP/SLオーバーライド適用
+  // 銘柄別TP/SL解決
   const override = SYMBOL_TP_SL_OVERRIDE[symbol];
   const tpPct = override ? override.tp : TAKE_PROFIT_PERCENT;
-  const slPct = override ? override.sl : STOP_LOSS_PERCENT;
+  // SL: USE_PER_SYMBOL_SL有効時はSYMBOL_SL_MAPを優先、なければレガシーoverride、最終デフォルト
+  const slPct = USE_PER_SYMBOL_SL && SYMBOL_SL_MAP[symbol] !== undefined
+    ? SYMBOL_SL_MAP[symbol]
+    : override ? override.sl : STOP_LOSS_PERCENT;
 
   if (side === "long") {
     // 損切り: 通常SLのみ

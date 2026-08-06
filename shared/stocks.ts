@@ -19,11 +19,13 @@ export const TARGET_STOCKS = [
   { symbol: '5803', ticker: '5803.T', name: 'フジクラ',               basePrice: 4400,  sector: '電線' },
   { symbol: '6981', ticker: '6981.T', name: '村田製作所',             basePrice: 10000, sector: '電子部品' },
   { symbol: '285A', ticker: '285A.T', name: 'キオクシアHD',           basePrice: 70000, sector: '半導体' },
-  // --- 7/23復活銘柄（セクター分散目的） ---
-  { symbol: '6920', ticker: '6920.T', name: 'レーザーテック',          basePrice: 22400, sector: '半導体' },   // 7/23復活: ボラ活用
-  { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },     // 7/23復活: 電機セクター分散
+  // --- 8/6追加銘柄 ---
+  { symbol: '6146', ticker: '6146.T', name: 'ディスコ',               basePrice: 40000, sector: '半導体製造装置' }, // 8/6追加: 高ボラ・トレンド明確
+  { symbol: '6594', ticker: '6594.T', name: 'ニデック',               basePrice: 3000,  sector: 'モーター' },   // 8/6追加: セクター分散
   { symbol: '8316', ticker: '8316.T', name: '三井住友FG',             basePrice: 3900,  sector: '銀行' },     // 7/23復活: 銀行セクター分散
   // --- 取引除外銘柄（データ受信は継続、TRADE_EXCLUDED_SYMBOLSで取引停止） ---
+  { symbol: '6920', ticker: '6920.T', name: 'レーザーテック',          basePrice: 22400, sector: '半導体' },   // 除外: 8/6 勝率18.2%・-172,904円・12連敗
+  { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },     // 除外: 8/6 PF 0.04・方向正解率0%
   { symbol: '9984', ticker: '9984.T', name: 'ソフトバンクグループ',    basePrice: 8420,  sector: '通信・投資' }, // 除外: 7/1以降0勝5敗、-61,758円
   { symbol: '7011', ticker: '7011.T', name: '三菱重工業',              basePrice: 2900,  sector: '機械' },     // 除外: 7/1以降0勝2敗、-26,670円
   { symbol: '9107', ticker: '9107.T', name: '川崎汽船',               basePrice: 2100,  sector: '海運' },     // 除外: 7/1以降取引なし
@@ -43,15 +45,14 @@ export type TargetStock = typeof TARGET_STOCKS[number];
  * 復活させる場合はこのセットから削除するだけでOK。
  */
 export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
-  // '6920',  // レーザーテック: 7/23復活
+  '6920',  // レーザーテック: 8/6除外 — 勝率18.2%・-172,904円・12連敗
   '9984',  // ソフトバンクG: 7/1以降0勝5敗、-61,758円
-  // '8316',  // 三井住友FG: 7/23復活
   '7011',  // 三菱重工業: 7/1以降0勝2敗、-26,670円
   '9107',  // 川崎汽船: 7/1以降取引なし
   '8306',  // 三菱UFJ FG: 7/1以降取引なし
   '4568',  // 第一三共: 7/1以降取引なし
   '5016',  // JX金属: SHORT 0勝8敗、-71,086円
-  // '6758',  // ソニーグループ: 7/23復活
+  '6758',  // ソニーグループ: 8/6除外 — PF 0.04・方向正解率0%
   '7203',  // トヨタ自動車: 7/1以降取引なし
   '3778',  // さくらインターネット: 2026-06-19除外
   '3436',  // SUMCO: 2026-06-19除外

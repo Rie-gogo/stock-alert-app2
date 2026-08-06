@@ -897,3 +897,10 @@
 - [x] realtimeSimEngine.tsのSL判定を銘柄別SLに対応
 - [x] テスト作成・全テスト通過確認
 - [x] チェックポイント保存
+
+## 銘柄入れ替え: 6920/6758除外、6146/6594追加（2026-08-06）
+- [x] shared/stocks.ts: 6920レーザーテック、6758ソニーGをTRADE_EXCLUDED_SYMBOLSに追加
+- [x] shared/stocks.ts: 6146ディスコ、6594ニデックをTARGET_STOCKSに追加
+- [x] realtimeSimEngine.ts: SYMBOL_SL_MAPから6920/6758を削除、6146/6594のSL初期値を追加
+- [x] テスト実行・全テスト通過確認
+- [ ] チェックポイント保存

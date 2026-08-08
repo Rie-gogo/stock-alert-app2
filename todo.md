@@ -903,4 +903,9 @@
 - [x] shared/stocks.ts: 6146ディスコ、6594ニデックをTARGET_STOCKSに追加
 - [x] realtimeSimEngine.ts: SYMBOL_SL_MAPから6920/6758を削除、6146/6594のSL初期値を追加
 - [x] テスト実行・全テスト通過確認
-- [ ] チェックポイント保存
+- [x] チェックポイント保存
+
+## 大台確認LONG × buy_pressure 逆張りSHORT実装（2026-08-08）
+- [x] realtimeSimEngine.ts: 大台確認LONGシグナル + buy_pressure時にSHORTエントリーに反転
+- [x] テスト追加・全テスト通過確認
+- [ ] チェックポイント保存（次のステップ）

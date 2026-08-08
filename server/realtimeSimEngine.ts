@@ -1126,6 +1126,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         return { symbol, tradeDate, candleTime, action: "none" };
       }
       console.log(`[RealtimeSim] ${symbol} 大台押し目なし・強トレンドエントリー: ${roundPb.reason} (板スコア:${brScoreTimeout})`);
+      // ★逆張りSHORT: 大台確認LONG + buy_pressure → SHORTに反転（過熱反転シグナル）
+      if (side === "long" && boardSnapshot && boardSnapshot.signal === "buy_pressure") {
+        console.log(`[RealtimeSim] ${symbol} 大台確認LONG×buy_pressure → 逆張りSHORTに反転: ${roundPb.reason}`);
+        return await enterPosition("short", candle, tradeDate, candleTime, `${roundPb.reason} (過熱反転SHORT)`, boardSnapshot);
+      }
       return await enterPosition(side, candle, tradeDate, candleTime, `${roundPb.reason} (押し目なし・強トレンド)`, boardSnapshot);
     }
 
@@ -1171,6 +1176,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           return { symbol, tradeDate, candleTime, action: "none" };
         }
         console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason} (板スコア:${brScoreBuy})`);
+        // ★逆張りSHORT: 大台確認LONG + buy_pressure → SHORTに反転（過熱反転シグナル）
+        if (boardSnapshot && boardSnapshot.signal === "buy_pressure") {
+          console.log(`[RealtimeSim] ${symbol} 大台確認LONG×buy_pressure → 逆張りSHORTに反転(押し目後): ${roundPb.reason}`);
+          return await enterPosition("short", candle, tradeDate, candleTime, `${roundPb.reason} (過熱反転SHORT・押し目後)`, boardSnapshot);
+        }
         return await enterPosition("long", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
       }
     } else {

@@ -1308,6 +1308,13 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     // 大台超えシグナルは確認バーステートマシンに登録して待機
     if (sig.reason.startsWith("大台超え")) {
+      // ★大台確認LONG停止（2026-08-09）: 大台超えLONGは構造的にエントリーが遅く、
+      // 30日間で-206,025円のマイナス。GC・逆三尊のLONGは継続。
+      // buy_pressure時の逆張りSHORTはステートマシン内で処理されるため、
+      // ステートマシン自体を停止してもSHORT側（大台割れ）には影響なし。
+      console.log(`[RealtimeSim] ${symbol} 大台超えLONG停止: ${sig.reason}`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+      /* 以下は大台超えLONG停止のため無効化
       const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
       const level = m ? parseFloat(m[1]) : candle.close;
       roundLevelPendingStates.set(symbol, {
@@ -1319,6 +1326,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       });
       console.log(`[RealtimeSim] ${symbol} 大台超え確認待機開始: ${sig.reason} (キリ番:${level}円)`);
       return { symbol, tradeDate, candleTime, action: "none" };
+      */
     }
 
     // ★改良策3改: medium直接エントリー禁止（ステートマシントリガー以外のmediumシグナルをブロック）

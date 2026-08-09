@@ -908,4 +908,9 @@
 ## 大台確認LONG × buy_pressure 逆張りSHORT実装（2026-08-08）
 - [x] realtimeSimEngine.ts: 大台確認LONGシグナル + buy_pressure時にSHORTエントリーに反転
 - [x] テスト追加・全テスト通過確認
+- [x] チェックポイント保存
+
+## 大台確認LONG停止（2026-08-09）
+- [x] realtimeSimEngine.ts: 大台超えシグナル発生時にステートマシン登録をスキップ（LONGのみ停止、SHORTは変更なし）
+- [x] テスト追加・全テスト通過確認（274テスト通過、J-Quants環境依存2件のみ失敗）
 - [ ] チェックポイント保存（次のステップ）

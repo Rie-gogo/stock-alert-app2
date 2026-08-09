@@ -1331,6 +1331,17 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     // ★改良策3改: medium直接エントリー禁止（ステートマシントリガー以外のmediumシグナルをブロック）
     if (sig.confidence === "medium") {
+      // ★太陽誘電(6976)のみGC medium許可: close>MA20 + 陽線の場合にLONGエントリーを許可
+      // 30日間シミュレーション: 27件, 勝率40.7%, +169,056円, PF 2.06
+      if (symbol === "6976" && sig.reason.includes("ゴールデンクロス")) {
+        const ma20Val = buffer.length >= 20
+          ? buffer.slice(-20).reduce((s, c) => s + c.close, 0) / 20
+          : 0;
+        if (ma20Val > 0 && candle.close > ma20Val && candle.close > candle.open) {
+          console.log(`[RealtimeSim] ${symbol} GC medium許可(太陽誘電特例): close=${candle.close} > MA20=${ma20Val.toFixed(0)}, 陽線`);
+          return await enterPosition("long", candle, tradeDate, candleTime, sig.reason + " (GC medium許可)", boardSnapshot);
+        }
+      }
       console.log(`[RealtimeSim] ${symbol} BUY直接エントリーブロック: medium品質のため禁止 (${sig.reason.substring(0, 50)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }

@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Sparkles, RefreshCw, AlertTriangle, Brain, TrendingUp, TrendingDown, Minus, Target, ShieldAlert, Zap } from 'lucide-react';
-import { trpc } from '@/lib/trpc';
 import { MarketState, Stock } from '../types';
 import { AdvisorDiagnosis } from '../lib/advisor';
 
@@ -82,19 +81,24 @@ export default function AIAdvisorPanel({
     marketStateRef.current = marketState;
   }, [marketState]);
 
-  const analyzeMarket = trpc.aiAnalysis.analyzeMarket.useMutation({
-    onSuccess: (data) => {
-      setResult(data as AnalysisResult);
+  const analyzeMarket = {
+    mutate: (_input: unknown) => {
+      // AI機能は削除済み - ルールベース診断のみ使用
+      setResult({
+        verdict: 'WAIT' as const,
+        confidence: 0,
+        entry_price: null,
+        stop_loss: null,
+        take_profit: null,
+        reason: 'AI分析機能は無効化されています。ルールベース診断を参照してください。',
+        warning: null,
+        timestamp: Date.now(),
+        currentPrice: marketState?.currentPrice ?? 0,
+      });
       setIsAnalyzing(false);
       setIsBackgroundRefreshing(false);
-      setError(null);
     },
-    onError: () => {
-      setError('AI分析に失敗しました。自動的に再試行します。');
-      setIsAnalyzing(false);
-      setIsBackgroundRefreshing(false);
-    },
-  });
+  };
 
   const runAnalysis = useCallback((ms: MarketState, isBackground = false) => {
     const now = Date.now();

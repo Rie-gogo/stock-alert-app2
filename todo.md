@@ -919,3 +919,7 @@
 - [x] realtimeSimEngine.ts: 6976のみGCシグナルmedium品質をclose>MA20+陽線条件で許可
 - [x] テスト全通過確認（274テスト通過、J-Quants環境依存2件のみ失敗）
 - [x] チェックポイント保存
+- [ ] AI(LLM)呼び出しの全削除: scheduledHandlers.ts, trading.ts, runTodaySimulation.ts, aiAnalysis.ts
+- [ ] テスト通過確認
+- [ ] チェックポイント保存
+- [x] AI(LLM)呼び出しの全削除: scheduledHandlers.ts, trading.ts, runTodaySimulation.ts, aiAnalysis.ts, AIAdvisorPanel.tsx

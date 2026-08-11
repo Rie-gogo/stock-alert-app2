@@ -923,3 +923,19 @@
 - [ ] テスト通過確認
 - [ ] チェックポイント保存
 - [x] AI(LLM)呼び出しの全削除: scheduledHandlers.ts, trading.ts, runTodaySimulation.ts, aiAnalysis.ts, AIAdvisorPanel.tsx
+- [x] AI(LLM)呼び出しの全削除: scheduledHandlers.ts, trading.ts, runTodaySimulation.ts, aiAnalysis.ts, AIAdvisorPanel.tsx
+## 自動売買 kabu_relay v6.0 実装（2026-08-11）
+- [x] ステートマシン10状態（NO_POSITION/ENTRY_SENT/ENTRY_FILLED/SL_SENT/POSITION_ACTIVE/UNPROTECTED_POSITION/EXIT_REQUESTED/EXIT_SENT/EXIT_FILLED/ERROR_STOP）
+- [x] エントリー約定後の逆指値SL自動発注（FrontOrderType=30、銘柄別SL幅）
+- [x] TP/EOD/EXIT時の競合制御（SL取消→取消確認→建玉確認→成行返済→約定確認→建玉0確認）
+- [x] sendorderタイムアウト時の/orders確認（即再発注禁止）
+- [x] UNPROTECTED_POSITION（SL設置失敗時のフェイルセーフ）
+- [x] LIVE/SIMULATION管理（LIVE_TRADE_SYMBOLS={"8035"}、段階的テスト対応）
+- [x] /positions同期強化（全実建玉確認→LIVE建玉照合、想定外建玉警告）
+- [x] 大引け強制決済のLIVE/SIMULATION区別
+- [x] NO_POSITION遷移条件強化（返済約定確認+建玉0確認）
+- [x] 発注APIレート制御（5件/秒未満、_rate_limit_order_api）
+- [x] v5.9.2の全安全機能維持
+- [ ] DRY_RUN=Trueで異常系テスト（ENTRY/SLタイムアウト、UNPROTECTED、競合、EOD等）
+- [ ] DRY_RUN=False、LIVE_TRADE_SYMBOLS={"8035"}で実売買テスト
+- [ ] 段階的にLIVE_TRADE_SYMBOLSを拡大

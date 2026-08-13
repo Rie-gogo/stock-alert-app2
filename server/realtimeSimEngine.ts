@@ -1247,6 +1247,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // ★v6: 板読みスコアで統合判定
     const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
     if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
+      // ★ディスコ(6146)のみ: 信頼度強LONGはスコア0でもエントリー許可（8/13追加、今後戻す可能性あり）
+      const disco6146Bypass = symbol === "6146" && sig.confidence === "strong" && brScoreBuy === 0;
+      if (disco6146Bypass) {
+        console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だがディスコ特例でエントリー許可 (${sig.reason.substring(0, 30)})`);
+        // ブロックせずに次のフィルターへ進む
+      } else {
       console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア不足(${brScoreBuy}) (${sig.reason.substring(0, 30)})`);
       // ★スコア0+信頼度強ブロック記録
       if (brScoreBuy === 0 && sig.confidence === "strong") {
@@ -1263,6 +1269,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         });
       }
       return { symbol, tradeDate, candleTime, action: "none" };
+      }
     }
 
     // ★3分足HTFフィルター: BUYシグナル全体に適用（逆方向=downのみブロック、neutral通過）

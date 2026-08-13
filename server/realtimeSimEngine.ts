@@ -58,18 +58,18 @@ const TAKE_PROFIT_PERCENT = 1.5;
 const USE_PER_SYMBOL_SL = true;
 
 /** 銘柄別SL（%）: MAE中央値〜75%タイルを基に設定 */
-const SYMBOL_SL_MAP: Record<string, number> = {
-  "8035": 0.8,   // 東京エレクトロン: 全期間・直近とも0.8%が最適（10件, +558,184円）
-  "6857": 0.6,   // アドバンテスト: 0.6%が最適（22件, -41,131円）、0.9%では負け時損失拡大のみ
-  "6976": 0.5,   // 太陽誘電: 0.5%が最適（35件, +173,062円）、SL拡大で勝率改善せず損失倍増
-  "6526": 0.9,   // ソシオネクスト: MAE中央値1.48%, 75%=2.27%
-  "5803": 0.5,   // フジクラ: 0.5%で十分機能（勝率50%・+158,744円）、0.7%との差は誤差レベル
-  "6981": 0.9,   // 村田製作所: MAE中央値1.23%, 75%=2.48%
-  "285A": 0.8,   // キオクシアHD: 0.8%が最適（12件, +301,953円）、1.5%は最大損失-119,730円と過大
-  "6920": 0.9,   // レーザーテック: 0.9%が最適（21件, +256,860円）、1.0%は平均損失増のみ
-  "6146": 0.8,   // ディスコ: 8/6追加 高ボラ銘柄のため0.8%で開始（東京エレクトロンと同等）
-  "6594": 0.5,   // ニデック: 8/6追加 中ボラ銘柄のためデフォルト0.5%で開始
-  "8316": 0.5,   // 三井住友FG: 現状で十分
+const SYMBOL_SL_MAP: Record<string, { long: number; short: number }> = {
+  "8035": { long: 0.8, short: 0.8 },   // 東京エレクトロン: 両方0.8%が最適
+  "6857": { long: 0.6, short: 0.6 },   // アドバンテスト: 両方0.6%が最適
+  "6976": { long: 0.6, short: 0.8 },   // 太陽誘電: LONG 0.6%(19件,PF1.34), SHORT 0.8%(19件,PF1.97)
+  "6526": { long: 0.9, short: 1.0 },   // ソシオネクスト: SHORT 1.0%(13件,PF2.47,+101k改善)
+  "5803": { long: 0.5, short: 0.6 },   // フジクラ: SHORT 0.6%(19件,PF2.07,+25k改善)
+  "6981": { long: 0.4, short: 0.9 },   // 村田製作所: LONG 0.4%(7件,PF5.02,+35k改善)
+  "285A": { long: 0.8, short: 0.6 },   // キオクシア: SHORT 0.6%(9件,PF8.86,+26k改善)
+  "6920": { long: 0.9, short: 0.9 },   // レーザーテック: 両方0.9%
+  "6146": { long: 0.8, short: 0.8 },   // ディスコ: 両方0.8%（データ少）
+  "6594": { long: 0.5, short: 0.5 },   // ニデック: 両方0.5%（データ少）
+  "8316": { long: 0.5, short: 0.5 },   // 三井住友FG: 両方0.5%
 };
 
 /** 銘柄別TP/SLオーバーライド（レガシー互換、USE_PER_SYMBOL_SL=true時はSYMBOL_SL_MAPが優先） */
@@ -1684,8 +1684,9 @@ async function checkExitConditions(
   const override = SYMBOL_TP_SL_OVERRIDE[symbol];
   const tpPct = override ? override.tp : TAKE_PROFIT_PERCENT;
   // SL: USE_PER_SYMBOL_SL有効時はSYMBOL_SL_MAPを優先、なければレガシーoverride、最終デフォルト
-  const slPct = USE_PER_SYMBOL_SL && SYMBOL_SL_MAP[symbol] !== undefined
-    ? SYMBOL_SL_MAP[symbol]
+  const slEntry = SYMBOL_SL_MAP[symbol];
+  const slPct = USE_PER_SYMBOL_SL && slEntry !== undefined
+    ? (side === "long" ? slEntry.long : slEntry.short)
     : override ? override.sl : STOP_LOSS_PERCENT;
 
   if (side === "long") {

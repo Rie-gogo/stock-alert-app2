@@ -1165,7 +1165,7 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
     expect(result.pnl).toBe(15000); // (10150 - 10000) * 100 = 15000
   });
 
-  it("SHORT: 銘柄別SL(6976=0.5%)で損切り決済される", async () => {
+  it("SHORT: 銘柄別SL(6976 SHORT=0.8%)で損切り決済される", async () => {
     const shortSymbol = "6976";
     const shortDate = "2026-07-10";
 
@@ -1180,34 +1180,34 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
       reason: "テストショート",
     }]);
 
-    // 6976のSL=0.5% → SLライン=10050
-    // high=10045ではSL未到達
+    // 6976 SHORTのSL=0.8% → SLライン=10080
+    // high=10075ではSL未到達
     const result1 = await processCandle(makeCandle({
       symbol: shortSymbol,
       tradeDate: shortDate,
       candleTime: "09:35",
       open: 10020,
-      high: 10045, // +0.45% → SL=10050に未到達
+      high: 10075, // +0.75% → SL=10080に未到達
       low: 10010,
       close: 10030,
       volume: 8000,
     }));
     expect(result1.action).toBe("none");
 
-    // high=10055でSL到達
+    // high=10085でSL到達
     const result2 = await processCandle(makeCandle({
       symbol: shortSymbol,
       tradeDate: shortDate,
       candleTime: "09:36",
       open: 10030,
-      high: 10055, // +0.55% → SL=10050に到達
+      high: 10085, // +0.85% → SL=10080に到達
       low: 10020,
-      close: 10050,
+      close: 10080,
       volume: 9000,
     }));
     expect(result2.action).toBe("stop_loss");
     expect(result2.reason).toContain("損切り");
-    expect(result2.pnl).toBe(-5000); // (10000 - 10050) * 100 = -5000
+    expect(result2.pnl).toBe(-8000); // (10000 - 10080) * 100 = -8000
   });
 
   it("含み益+0.5%到達してもBE決済は発生せず、TPまで保持される", async () => {

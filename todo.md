@@ -1008,3 +1008,10 @@
 - [x] テスト通過確認（274通過）
 - [x] チェックポイント保存
 - [ ] 結果が悪ければ元に戻す（ROUND_SHORT_CONFIRM_BARS=4, ROUND_SHORT_PULLBACK_MAX_WAIT=5）
+
+## isBullish閾値変更: -0.03% → 0%（2026-08-14）
+- [x] IS_BULLISH_SLOPE_THRESHOLDを-0.03から0に変更
+- [x] TypeScriptエラーゼロ確認
+- [x] テスト通過確認（274通過）
+- [x] チェックポイント保存
+- [ ] 結果が悪ければ元に戻す（IS_BULLISH_SLOPE_THRESHOLD = -0.03）

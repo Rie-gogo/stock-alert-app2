@@ -214,6 +214,13 @@ const ROUND_LEVEL_CONFIRM_BARS = 4;
 /** 大台確認後の押し目待ち最大足数 */
 const ROUND_PULLBACK_MAX_WAIT = 5;
 
+/** ★大台割れSHORT専用パラメータ（A案: 2026-08-14 シミュレーション最適化）
+ *  30日間シミュレーション: CB=2,MW=1が損益+1,663,539円(PF1.71)で最適
+ *  現行CB=4,MW=5は+868,270円(PF1.37) → +795,269円の改善
+ *  大台超えLONG（逆張りSHORT用）はCB=4,MW=5を維持 */
+const ROUND_SHORT_CONFIRM_BARS = 2;
+const ROUND_SHORT_PULLBACK_MAX_WAIT = 1;
+
 // ★大台乖離率フィルター: 撤廃済み（2026-07-28 再シミュレーションにより逆効果と判明）
 // const ROUND_DISTANCE_BLOCK_THRESHOLD_PCT = 0.8;
 
@@ -1039,18 +1046,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
       if (stillValid) {
         roundPending.confirmCount++;
-        if (roundPending.confirmCount >= ROUND_LEVEL_CONFIRM_BARS) {
+        // ★方向別確認バー数: 大台割れSHORT=ROUND_SHORT_CONFIRM_BARS, 大台超えLONG=ROUND_LEVEL_CONFIRM_BARS
+        const requiredBars = roundPending.direction === "sell" ? ROUND_SHORT_CONFIRM_BARS : ROUND_LEVEL_CONFIRM_BARS;
+        if (roundPending.confirmCount >= requiredBars) {
           roundLevelPendingStates.delete(symbol);
           // 改善⑤: 確認完了 → 即エントリーせず押し目待ちステートに移行
           if (candleTime < NO_ENTRY_AFTER) {
-            console.log(`[RealtimeSim] ${symbol} 大台確認完了(${ROUND_LEVEL_CONFIRM_BARS}本維持) → 押し目待ち開始: ${roundPending.reason}`);
+            console.log(`[RealtimeSim] ${symbol} 大台確認完了(${requiredBars}本維持) → 押し目待ち開始: ${roundPending.reason}`);
             roundPullbackStates.set(symbol, {
               direction: roundPending.direction,
               level: roundPending.level,
               signalPrice: candle.close,
               waitCount: 0,
               pulledBack: false,
-              reason: `大台確認(${ROUND_LEVEL_CONFIRM_BARS}本維持): ${roundPending.reason}`,
+              reason: `大台確認(${requiredBars}本維持): ${roundPending.reason}`,
             });
           }
         }
@@ -1082,7 +1091,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
 
     // タイムアウト: 押し目なし＝強トレンド → そのままエントリー
-    if (roundPb.waitCount > ROUND_PULLBACK_MAX_WAIT) {
+    // ★方向別押し目待ち: 大台割れSHORT=ROUND_SHORT_PULLBACK_MAX_WAIT, 大台超えLONG=ROUND_PULLBACK_MAX_WAIT
+    const maxWait = roundPb.direction === "sell" ? ROUND_SHORT_PULLBACK_MAX_WAIT : ROUND_PULLBACK_MAX_WAIT;
+    if (roundPb.waitCount > maxWait) {
       roundPullbackStates.delete(symbol);
       // ★3分足HTFフィルター（ステートマシンエントリー時）: 逆方向のみブロック
       {

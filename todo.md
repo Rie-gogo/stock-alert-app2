@@ -998,3 +998,13 @@
 - [x] TypeScriptエラーゼロ確認
 - [x] テスト通過確認（274通過、J-Quants API環境依存2件のみ失敗）
 - [x] チェックポイント保存
+
+## 大台割れSHORT A案（CB=2, MW=1）実装（2026-08-14）
+- [x] ROUND_SHORT_CONFIRM_BARS=2, ROUND_SHORT_PULLBACK_MAX_WAIT=1 定数追加
+- [x] 確認バーカウント判定を方向別に分岐（sell→ROUND_SHORT_CONFIRM_BARS, buy→ROUND_LEVEL_CONFIRM_BARS）
+- [x] 押し目待ちタイムアウト判定を方向別に分岐（sell→ROUND_SHORT_PULLBACK_MAX_WAIT, buy→ROUND_PULLBACK_MAX_WAIT）
+- [x] 大台超えLONG（逆張りSHORT用）のパラメータ（CB=4, MW=5）は変更なし
+- [x] TypeScriptエラーゼロ確認
+- [x] テスト通過確認（274通過）
+- [x] チェックポイント保存
+- [ ] 結果が悪ければ元に戻す（ROUND_SHORT_CONFIRM_BARS=4, ROUND_SHORT_PULLBACK_MAX_WAIT=5）

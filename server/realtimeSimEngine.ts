@@ -1265,10 +1265,20 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // ★v6: 板読みスコアで統合判定
     const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
     if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
-      // ★ディスコ(6146)のみ: 信頼度強LONGはスコア0でもエントリー許可（8/13追加、今後戻す可能性あり）
-      const disco6146Bypass = symbol === "6146" && sig.confidence === "strong" && brScoreBuy === 0;
-      if (disco6146Bypass) {
-        console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だがディスコ特例でエントリー許可 (${sig.reason.substring(0, 30)})`);
+      // ★静かな上昇バイパス（2026-08-17）: ①+②条件を満たすLONGはスコア0でもエントリー許可
+      // ① MA乖離<0.3% + エントリー足実体<0.1%（静かな上昇）
+      // ② 直近10本で陰線3本以下（売り圧力不在）
+      const ma20 = buffer.length >= IS_BULLISH_MA_PERIOD
+        ? buffer.slice(buffer.length - IS_BULLISH_MA_PERIOD).reduce((s, c) => s + c.close, 0) / IS_BULLISH_MA_PERIOD
+        : 0;
+      const maDeviation = ma20 > 0 ? (candle.close - ma20) / ma20 * 100 : 999;
+      const barBody = Math.abs(candle.close - candle.open) / candle.open * 100;
+      const recentBearBars = buffer.length >= 10
+        ? buffer.slice(buffer.length - 10).filter(c => c.close < c.open).length
+        : 999;
+      const quietRiseBypass = isBullish && maDeviation < 0.3 && barBody < 0.1 && recentBearBars <= 3;
+      if (quietRiseBypass) {
+        console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だが静かな上昇バイパスでエントリー許可 (MA乖離:${maDeviation.toFixed(3)}%, 実体:${barBody.toFixed(3)}%, 陰線:${recentBearBars}本) (${sig.reason.substring(0, 30)})`);
         // ブロックせずに次のフィルターへ進む
       } else {
       console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア不足(${brScoreBuy}) (${sig.reason.substring(0, 30)})`);

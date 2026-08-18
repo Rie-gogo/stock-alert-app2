@@ -77,9 +77,9 @@ const SYMBOL_TP_SL_OVERRIDE: Record<string, { tp: number; sl: number }> = {
   // 現在は空（SYMBOL_SL_MAPで管理）
 };
 
-/** isBullish方式: 動的MA傾き判定（MA20の1分あたり傾きが閾値以上なら上昇相場と判定しSHORT禁止） */
-const IS_BULLISH_MA_PERIOD = 20;
-/** isBullish傾き閾値: MA20の1分あたり変化率がこの値(%)を超えたら上昇中と判定 */
+/** isBullish方式: 動的MA傾き判定（MA8の1分あたり傾きが閾値以上なら上昇相場と判定しSHORT禁止） */
+const IS_BULLISH_MA_PERIOD = 8; // 2026-08-18: 20→8に変更。38営業日シミュレーションで+4,803,927円(PF1.35) vs MA20+3,663,370円(PF1.29)。デイトレ1分足で8分間が「直近の勢い」判定に最適。結果が悪ければ20に戻す。
+/** isBullish傾き閾値: MA8の1分あたり変化率がこの値(%)を超えたら上昇中と判定 */
 const IS_BULLISH_SLOPE_THRESHOLD = 0; // 2026-08-14: -0.03→0に変更（横ばい以上で禁止→上向きのみ禁止）。28日間シミュレーションで最適（+1,040,556円, 勝率43.4%）。結果が悪ければ-0.03に戻す。
 /** isBullishフォールバック閾値: バッファ不足時に使う始値比(%) */
 const IS_BULLISH_FALLBACK_THRESHOLD = 0.2;

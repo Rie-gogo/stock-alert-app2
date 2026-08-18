@@ -1472,8 +1472,21 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (即エントリー: vol)", boardSnapshot);
       }
 
+      // ② 案4a: 前足がキリ番+0.05%以内 → 即エントリー
       const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
       const level = m ? parseFloat(m[1]) : candle.close;
+      if (buffer6 && buffer6.length >= 2) {
+        const prevClose = buffer6[buffer6.length - 2].close;
+        if (prevClose >= level) {
+          const prevDistPct = (prevClose - level) / level * 100;
+          if (prevDistPct <= FAST_ENTRY_PREV_DIST_PCT) {
+            console.log(`[RealtimeSim] ${symbol} 大台割れSHORT即エントリー(前足近接): 前足乖離${prevDistPct.toFixed(3)}%(≤${FAST_ENTRY_PREV_DIST_PCT}%) (${sig.reason})`);
+            return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (即エントリー: 前足近接)", boardSnapshot);
+          }
+        }
+      }
+
+      // ③ 従来フロー: CB=2, MW=1で待機
       roundLevelPendingStates.set(symbol, {
         direction: "sell",
         level,
@@ -2094,3 +2107,8 @@ export function getDashboardStatus(): {
  *  条件: 出来高が直近20本平均の1.5倍以上 */
 const FAST_ENTRY_VOL_RATIO = 1.5;
 const FAST_ENTRY_VOL_LOOKBACK = 20;
+
+/** ★案4a: 前足近接即エントリー条件（前足closeがキリ番から+0.05%以内で割れたら即エントリー）
+ *  30営業日検証: 現行比+159,592円改善, 勝率40.9%(+1.4pt), PF1.44(+0.08)
+ *  優先順位: ①即vol(出来高1.5倍) → ②即4a(前足近接) → ③従来CB2MW1 */
+const FAST_ENTRY_PREV_DIST_PCT = 0.05; // 前足closeがキリ番から0.05%以内

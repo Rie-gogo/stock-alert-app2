@@ -910,16 +910,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   }
   // ---- 午後エントリー禁止 ----
   if (candleTime >= NO_ENTRY_AFTER) {
-    return { symbol, tradeDate, candleTime, action: "none" };
+  return { symbol, tradeDate, candleTime, action: "none" };
   }
-  // ---- 改良策5: 昼休み前（11:00-11:30）エントリー禁止 ----
-  if (candleTime >= NO_ENTRY_PRE_LUNCH_START && candleTime < NO_ENTRY_PRE_LUNCH_END) {
-    return { symbol, tradeDate, candleTime, action: "none" };
-  }
-  // ---- 改良策5: 後場序盤（12:30-13:00）エントリー禁止 ----
-  if (candleTime >= NO_ENTRY_POST_LUNCH_START && candleTime < NO_ENTRY_POST_LUNCH_END) {
-    return { symbol, tradeDate, candleTime, action: "none" };
-  }
+  // ---- 改良策5: 昼休み前（11:00-11:30）エントリー禁止 → 撤廃（2026-08-17 シミュレーションで+2,166,351円の機会損失と判明）----
+  // ---- 改良策5: 後場序盤（12:30-13:00）エントリー禁止 → 撤廃（同上）----
 
   // ---- 既にポジションがある場合は新規エントリーしない ----
   if (existingPos) {
@@ -1264,6 +1258,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
     // ★v6: 板読みスコアで統合判定
     const brScoreBuy = boardReadingScore(symbol, "long", boardSnapshot);
+    let quietRiseBypassed = false; // 静かな上昇バイパスが適用されたかのフラグ
     if (brScoreBuy < BOARD_SCORE_THRESHOLD) {
       // ★静かな上昇バイパス（2026-08-17）: ①+②条件を満たすLONGはスコア0でもエントリー許可
       // ① MA乖離<0.3% + エントリー足実体<0.1%（静かな上昇）
@@ -1280,8 +1275,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       if (quietRiseBypass) {
         console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だが静かな上昇バイパスでエントリー許可 (MA乖離:${maDeviation.toFixed(3)}%, 実体:${barBody.toFixed(3)}%, 陰線:${recentBearBars}本) (${sig.reason.substring(0, 30)})`);
         // ブロックせずに次のフィルターへ進む
+        quietRiseBypassed = true;
       } else {
-      console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア不足(${brScoreBuy}) (${sig.reason.substring(0, 30)})`);
+        console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア不足(${brScoreBuy}) (${sig.reason.substring(0, 30)})`);
       // ★スコア0+信頼度強ブロック記録
       if (brScoreBuy === 0 && sig.confidence === "strong") {
         insertScore0Block({
@@ -1298,6 +1294,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       return { symbol, tradeDate, candleTime, action: "none" };
       }
+    } else {
+      // スコア1以上: 静かな上昇バイパスは不要（通常通過）
     }
 
     // ★3分足HTFフィルター: BUYシグナル全体に適用（逆方向=downのみブロック、neutral通過）
@@ -1361,6 +1359,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     // ★改良策3改: medium直接エントリー禁止（ステートマシントリガー以外のmediumシグナルをブロック）
     if (sig.confidence === "medium") {
+      // ★静かな上昇バイパス適用時はmediumでもエントリー許可（2026-08-17）
+      if (quietRiseBypassed) {
+        console.log(`[RealtimeSim] ${symbol} BUYシグナル: medium品質だが静かな上昇バイパスでエントリー許可 (${sig.reason.substring(0, 50)})`);
+        return await enterPosition("long", candle, tradeDate, candleTime, sig.reason + " (静かな上昇バイパス)", boardSnapshot);
+      }
       // ★太陽誘電(6976)のみGC medium許可: close>MA20 + 陽線の場合にLONGエントリーを許可
       // 30日間シミュレーション: 27件, 勝率40.7%, +169,056円, PF 2.06
       if (symbol === "6976" && sig.reason.includes("ゴールデンクロス")) {

@@ -106,6 +106,8 @@ const MAX_TOTAL_EXPOSURE = MARGIN_CAPITAL * MARGIN_MULTIPLIER * MARGIN_USAGE_LIM
 
 /** 大引け強制決済の時刻 (HH:MM) */
 const MARKET_CLOSE_TIME = "15:25";
+/** 前場強制決済の時刻 (HH:MM) — 昼休み前にポジションを全て決済 */
+const AM_SESSION_CLOSE_TIME = "11:27";
 
 /** 午後エントリー禁止の時刻 (HH:MM) - この時刻以降は新規エントリーしない */
 const NO_ENTRY_AFTER = "15:05";
@@ -114,9 +116,9 @@ const NO_ENTRY_BEFORE = "09:30";
 /** 改良策5: 昼休み前（11:00-11:30）エントリー禁止 */
 const NO_ENTRY_PRE_LUNCH_START = "11:00";
 const NO_ENTRY_PRE_LUNCH_END = "11:30";
-/** 改良策5: 後場序盤（12:30-13:00）エントリー禁止 */
+/** 後場序盤（12:30-12:50）エントリー禁止 */
 const NO_ENTRY_POST_LUNCH_START = "12:30";
-const NO_ENTRY_POST_LUNCH_END = "13:00";
+const NO_ENTRY_POST_LUNCH_END = "12:50";
 
 // ★VWAP急落フィルター: 撤廃（+D構成: 6/26版回帰）
 // アブレーションテストで-19.6%のマイナス影響が確認されたため撤廃
@@ -899,6 +901,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
   }
 
+  // ---- 前場強制決済チェック (11:27) ----
+  if (candleTime >= AM_SESSION_CLOSE_TIME && candleTime < "11:30" && existingPos) {
+    return await forceClosePosition(existingPos, candle, tradeDate, candleTime, "前場強制決済");
+  }
+
   // ---- 大引け強制決済チェック ----
   if (candleTime >= MARKET_CLOSE_TIME && existingPos) {
     return await forceClosePosition(existingPos, candle, tradeDate, candleTime, "大引け強制決済");
@@ -912,8 +919,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   if (candleTime >= NO_ENTRY_AFTER) {
   return { symbol, tradeDate, candleTime, action: "none" };
   }
-  // ---- 改良策5: 昼休み前（11:00-11:30）エントリー禁止 → 撤廃（2026-08-17 シミュレーションで+2,166,351円の機会損失と判明）----
-  // ---- 改良策5: 後場序盤（12:30-13:00）エントリー禁止 → 撤廃（同上）----
+  // ---- 後場序盤（12:30-12:50）エントリー禁止 ----
+  if (candleTime >= NO_ENTRY_POST_LUNCH_START && candleTime < NO_ENTRY_POST_LUNCH_END) {
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
 
   // ---- 既にポジションがある場合は新規エントリーしない ----
   if (existingPos) {

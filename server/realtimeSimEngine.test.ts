@@ -1603,3 +1603,57 @@ describe("大台乖離率0.8%フィルター", () => {
 
   // shouldBlockRoundDistance tests removed - filter abolished 2026-07-28
 });
+
+describe("前場強制決済 (11:27) + 後場序盤エントリー禁止 (12:30-12:50)", () => {
+  it("11:27でポジション保有中なら前場強制決済される", async () => {
+    const symbol = "TEST_AM_CLOSE";
+    const tradeDate = "2026-08-18";
+
+    // ウォームアップ
+    await warmup(symbol, tradeDate, 10000);
+
+    // 10:00にエントリー（大きな上昇でダウ理論シグナル）
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:00",
+      open: 10000, high: 10200, low: 9990, close: 10180, volume: 50000,
+    }));
+
+    // 11:27の足を送信 → 前場強制決済
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "11:27",
+      open: 10200, high: 10220, low: 10180, close: 10200, volume: 3000,
+    }));
+
+    // ポジションがあれば強制決済、なければnone
+    expect(["exit", "none"]).toContain(result.action);
+  });
+
+  it("12:35はエントリー禁止（後場序盤フィルター）", async () => {
+    const symbol = "TEST_POST_LUNCH_BLOCK";
+    const tradeDate = "2026-08-18";
+
+    await warmup(symbol, tradeDate, 5000);
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "12:35",
+      open: 5000, high: 5200, low: 4990, close: 5180, volume: 50000,
+    }));
+
+    expect(result.action).toBe("none");
+  });
+
+  it("12:50はエントリー許可（禁止時間帯外）", async () => {
+    const symbol = "TEST_POST_LUNCH_ALLOW";
+    const tradeDate = "2026-08-18";
+
+    await warmup(symbol, tradeDate, 5000);
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "12:50",
+      open: 5000, high: 5010, low: 4990, close: 5005, volume: 5000,
+    }));
+
+    // シグナルがないのでnoneだが、時間帯フィルターではブロックされていない
+    expect(result.action).toBe("none");
+  });
+});

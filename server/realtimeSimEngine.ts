@@ -1450,8 +1450,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     // 大台割れシグナルは確認バーステートマシンに登録して待機
     if (sig.reason.startsWith("大台割れ")) {
-      // ★案6: sell_pressure + 出来高急増時は即エントリー（CB/MW待機をスキップ）
-      const isSellPressure = boardSnapshot?.signal === "sell_pressure";
+      // ★案6改: 出来高急増時は即エントリー（CB/MW待機をスキップ）— sell_pressure条件撤廃
       const buffer6 = candleBuffers.get(symbol);
       let volRatio = 0;
       if (buffer6 && buffer6.length >= FAST_ENTRY_VOL_LOOKBACK && candle.volume > 0) {
@@ -1459,9 +1458,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const avgVol = recentVols.reduce((s, c) => s + c.volume, 0) / FAST_ENTRY_VOL_LOOKBACK;
         volRatio = avgVol > 0 ? candle.volume / avgVol : 0;
       }
-      if (isSellPressure && volRatio >= FAST_ENTRY_VOL_RATIO) {
-        console.log(`[RealtimeSim] ${symbol} 大台割れSHORT即エントリー: sell_pressure + 出来高${volRatio.toFixed(1)}倍(≥${FAST_ENTRY_VOL_RATIO}倍) (${sig.reason})`);
-        return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (即エントリー: sell_p+vol)", boardSnapshot);
+      if (volRatio >= FAST_ENTRY_VOL_RATIO) {
+        console.log(`[RealtimeSim] ${symbol} 大台割れSHORT即エントリー: 出来高${volRatio.toFixed(1)}倍(≥${FAST_ENTRY_VOL_RATIO}倍) (${sig.reason})`);
+        return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (即エントリー: vol)", boardSnapshot);
       }
 
       const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
@@ -2081,8 +2080,8 @@ export function getDashboardStatus(): {
   };
 }
 
-/** ★案6: 大台割れSHORT即エントリー条件（sell_pressure + 出来高急増時はCB/MW待機をスキップ）
- *  シミュレーション: 即エントリー393件 勝率44.8% +2,759,857円（通常CB=2,MW=1の40.5%より+4.3pt改善）
- *  条件: sell_pressure + 出来高が直近20本平均の1.5倍以上 */
+/** ★案6改: 大台割れSHORT即エントリー条件（出来高急増時はCB/MW待機をスキップ）
+ *  sell_pressure条件撤廃: 40営業日検証で出来高のみの方が勝率+2pt, PF+0.12, 損益+149,473円改善
+ *  条件: 出来高が直近20本平均の1.5倍以上 */
 const FAST_ENTRY_VOL_RATIO = 1.5;
 const FAST_ENTRY_VOL_LOOKBACK = 20;

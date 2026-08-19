@@ -68,10 +68,13 @@ function formatAction(action: string): { label: string; variant: "default" | "se
 
 /** reasonテキストから信頼度を抽出し、信頼度バッジ用情報と残りテキストを返す */
 function extractConfidence(reason: string): { confidence: "strong" | "medium" | "weak" | null; reasonText: string } {
-  const match = reason.match(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\](.*)$/);
+  const match = reason.match(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\]\s*[^(]*/);
   if (match) {
     const level = match[1] === "強" ? "strong" : match[1] === "中" ? "medium" : "weak";
-    const reasonText = reason.replace(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\].*$/, "").trim();
+    // 信頼度部分を削除するが、末尾の括弧タグ（過熱反転SHORT、静かな上昇バイパス等）は保持
+    const tags = reason.match(/\(過熱反転SHORT[^)]*\)|\(静かな上昇バイパス\)|\(即エントリー[^)]*\)|\(押し目確認後\)|\(押し目なし・強トレンド\)/g);
+    const baseText = reason.replace(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\].*$/, "").trim();
+    const reasonText = tags ? `${baseText} ${tags.join(" ")}` : baseText;
     return { confidence: level, reasonText };
   }
   return { confidence: null, reasonText: reason };

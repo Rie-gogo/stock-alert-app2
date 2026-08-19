@@ -1286,8 +1286,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const quietRiseBypass = isBullish && maDeviation < 0.5 && barBody < 0.2 && recentBearBars <= 4 && !isInverseHS;
 
       // ★案A: 前場ブースト（09:30〜11:27のみ緩和条件でバイパス）
+      // ★案A: 前場ブースト — 撤廃（2026-08-19検証: PF0.83でマイナス、SHORTとの競合が発生）
       const isAMBoost = candleTime < AM_BOOST_END_TIME;
-      const amBoostBypass = isAMBoost && isBullish && maDeviation < AM_BOOST_MA_DEV_MAX && barBody < AM_BOOST_BODY_MAX && recentBearBars <= AM_BOOST_BEAR_MAX && !isInverseHS;
+      // amBoostBypass は常にfalse（撤廃）
+      const amBoostBypass = false;
 
       // ★案B: 出来高ブレイクLONG（前場のみ、出来高1.5倍以上 + 直近高値更新 + isBullish）
       let amVolBreakBypass = false;
@@ -1422,15 +1424,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // ★+D構成: isBullish方式によるSHORT全面禁止
     // その鋘柄が始値比+0.2%以上の上昇相場ならSHORTエントリー禁止
     if (isBullish) {
-      // ★案2: 大台割れSHORTはisBullishブロックを免除（2026-08-19）
-      // 確認バー待機中にisBullishが戻ってもキャンセルされない問題への対処
-      // 大台割れシグナルの場合はisBullishブロックをスキップし、ステートマシンに登録する
-      if (!sig.reason.startsWith("大台割れ")) {
       console.log(`[RealtimeSim] ${symbol} SHORTブロック: isBullish方式 上昇相場判定 (${sig.reason.substring(0, 50)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
-      }
-      // 大台割れの場合はisBullishでもブロックせず、下の即エントリー/確認バー処理に進む
-      console.log(`[RealtimeSim] ${symbol} 大台割れSHORT: isBullish=trueだが免除（案2） (${sig.reason.substring(0, 50)})`);
     }
 
     // ★v6: 板読みスコアで統合判定

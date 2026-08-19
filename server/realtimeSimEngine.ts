@@ -1422,8 +1422,15 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // ★+D構成: isBullish方式によるSHORT全面禁止
     // その鋘柄が始値比+0.2%以上の上昇相場ならSHORTエントリー禁止
     if (isBullish) {
+      // ★案2: 大台割れSHORTはisBullishブロックを免除（2026-08-19）
+      // 確認バー待機中にisBullishが戻ってもキャンセルされない問題への対処
+      // 大台割れシグナルの場合はisBullishブロックをスキップし、ステートマシンに登録する
+      if (!sig.reason.startsWith("大台割れ")) {
       console.log(`[RealtimeSim] ${symbol} SHORTブロック: isBullish方式 上昇相場判定 (${sig.reason.substring(0, 50)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
+      }
+      // 大台割れの場合はisBullishでもブロックせず、下の即エントリー/確認バー処理に進む
+      console.log(`[RealtimeSim] ${symbol} 大台割れSHORT: isBullish=trueだが免除（案2） (${sig.reason.substring(0, 50)})`);
     }
 
     // ★v6: 板読みスコアで統合判定
@@ -1530,6 +1537,19 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     if (sig.confidence === "medium") {
       console.log(`[RealtimeSim] ${symbol} SHORT mediumブロック: 全ブロック方式 (${sig.reason.substring(0, 50)})`);
       return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    // ★案1: 直近安値更新即エントリー（大台割れとは独立した条件）（2026-08-19）
+    // 直近20本の安値を更新 + 出来高1.2倍以上 + isBullish=false → 即SHORTエントリー
+    // 30営業日シミュレーション: 229件 勝率47.2% +808,325円 PF1.41
+    if (!isBullish && sig.reason.startsWith("ダウ理論: 直近安値更新") && buffer.length >= SHORT_LOW_BREAK_LOOKBACK + 1) {
+      const recentVols = buffer.slice(buffer.length - SHORT_LOW_BREAK_LOOKBACK - 1, buffer.length - 1);
+      const avgVol = recentVols.reduce((s, c) => s + c.volume, 0) / SHORT_LOW_BREAK_LOOKBACK;
+      const volRatio = avgVol > 0 ? candle.volume / avgVol : 0;
+      if (volRatio >= SHORT_LOW_BREAK_VOL_RATIO) {
+        console.log(`[RealtimeSim] ${symbol} 直近安値更新SHORT即エントリー: 出来高${volRatio.toFixed(1)}倍(≥${SHORT_LOW_BREAK_VOL_RATIO}倍) (${sig.reason.substring(0, 60)})`);
+        return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (安値更新即エントリー)", boardSnapshot);
+      }
     }
 
     return await enterPosition("short", candle, tradeDate, candleTime, sig.reason, boardSnapshot);
@@ -2158,4 +2178,9 @@ const AM_BOOST_BEAR_MAX = 5;
 
 /** 案B: 出来高ブレイクLONGの出来高倍率閾値（前場のみ適用） */
 const AM_VOL_BREAK_RATIO = 1.5;
+
+/** ★SHORT改善 案1: 直近安値更新即エントリーの出来高閾値（直近20本平均の1.2倍以上） */
+const SHORT_LOW_BREAK_VOL_RATIO = 1.2;
+/** ★SHORT改善 案1: 直近安値更新のルックバック期間 */
+const SHORT_LOW_BREAK_LOOKBACK = 20;
     // Note: quietRiseBypassed includes 前場ブースト and 出来高ブレイク as well

@@ -1388,7 +1388,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
-    return await enterPosition("long", candle, tradeDate, candleTime, sig.reason, boardSnapshot);
+    return await enterPosition("long", candle, tradeDate, candleTime, quietRiseBypassed ? sig.reason + " (静かな上昇バイパス)" : sig.reason, boardSnapshot);
   }
 
   // ---- 売り（空売り）エントリー ----

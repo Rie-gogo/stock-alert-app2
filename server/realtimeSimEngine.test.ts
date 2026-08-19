@@ -1134,7 +1134,7 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
     expect(result.pnl).toBe(-5000); // (9950 - 10000) * 100 = -5000
   });
 
-  it("LONG: 利確(+1.5%)で決済される", async () => {
+  it("LONG: 利確(+0.5%)で決済される", async () => {
     const tpSymbol = "TEST_HTF_FILTER";
     const tpDate = "2026-07-04";
 
@@ -1153,16 +1153,16 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
       symbol: tpSymbol,
       tradeDate: tpDate,
       candleTime: "09:40",
-      open: 10100,
-      high: 10160, // +1.6% → TP到達 (TP=10150)
-      low: 10090,
-      close: 10150,
+      open: 10040,
+      high: 10060, // +0.6% → TP到達 (TP=10050)
+      low: 10030,
+      close: 10050,
       volume: 15000,
     }));
 
     expect(result.action).toBe("take_profit");
     expect(result.reason).toContain("利確");
-    expect(result.pnl).toBe(15000); // (10150 - 10000) * 100 = 15000
+    expect(result.pnl).toBe(5000); // (10050 - 10000) * 100 = 5000
   });
 
   it("SHORT: 銘柄別SL(6976 SHORT=0.8%)で損切り決済される", async () => {
@@ -1210,7 +1210,7 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
     expect(result2.pnl).toBe(-8000); // (10000 - 10080) * 100 = -8000
   });
 
-  it("含み益+0.5%到達してもBE決済は発生せず、TPまで保持される", async () => {
+  it("LONG TP=0.5%: 含み益+0.5%到達でTP利確される", async () => {
     const holdSymbol = "TEST_SHAPE";
     const holdDate = "2026-07-03";
 
@@ -1225,7 +1225,7 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
       reason: "テストエントリー",
     }]);
 
-    // 含み益+0.5%到達しても決済されない（BE撤廃済み）
+    // LONG TP=0.5% → 含み益+0.6%到達でTP利確
     const result = await processCandle(makeCandle({
       symbol: holdSymbol,
       tradeDate: holdDate,
@@ -1237,13 +1237,15 @@ describe("+D構成: 純粋SL/TP（BEストップ撤廃）", () => {
       volume: 8000,
     }));
 
-    // BEがないので決済されない
-    expect(result.action).toBe("none");
+    // LONG TP=0.5%なので+0.6%到達でTP利確
+    expect(result.action).toBe("take_profit");
+    expect(result.reason).toContain("利確");
+    expect(result.pnl).toBe(5000); // (10050 - 10000) * 100 = 5000
 
-    // ポジションがまだ残っている
+    // ポジションが決済されている
     const positions = getOpenPositions();
     const pos = positions.find(p => p.symbol === holdSymbol);
-    expect(pos).toBeDefined();
+    expect(pos).toBeUndefined();
   });
 });
 

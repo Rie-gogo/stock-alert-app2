@@ -49,7 +49,8 @@ const LOT_RATIO = 0.9;
 const STOP_LOSS_PERCENT = 0.5; // デフォルトSL（銘柄別設定がない場合のフォールバック）
 
 /** 利確率（%）: エントリー価格から何%上昇で利確 */
-const TAKE_PROFIT_PERCENT = 1.5;
+const TAKE_PROFIT_PERCENT_SHORT = 1.5;
+const TAKE_PROFIT_PERCENT_LONG = 0.5; // 2026-08-19: 1.5%→0.5%に変更。10営業日シミュレーションでTP0.5%が最適（勝率57.1%,+416,952円,PF1.29）。静かな上昇バイパスLONGは0.5%で十分到達する。結果が悪ければ1.5%に戻す。
 
 /**
  * 銘柄別SL幅設定（2026-08-03 MAE分析に基づく）
@@ -1759,7 +1760,7 @@ async function checkExitConditions(
 
   // 銘柄別TP/SL解決
   const override = SYMBOL_TP_SL_OVERRIDE[symbol];
-  const tpPct = override ? override.tp : TAKE_PROFIT_PERCENT;
+  const tpPct = override ? override.tp : (side === "long" ? TAKE_PROFIT_PERCENT_LONG : TAKE_PROFIT_PERCENT_SHORT);
   // SL: USE_PER_SYMBOL_SL有効時はSYMBOL_SL_MAPを優先、なければレガシーoverride、最終デフォルト
   const slEntry = SYMBOL_SL_MAP[symbol];
   const slPct = USE_PER_SYMBOL_SL && slEntry !== undefined

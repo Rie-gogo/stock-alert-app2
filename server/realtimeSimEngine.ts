@@ -1272,6 +1272,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       // ★静かな上昇バイパス（2026-08-17）: ①+②条件を満たすLONGはスコア0でもエントリー許可
       // ① MA乖離<0.5% + エントリー足実体<0.2%（静かな上昇）— 緩和A（8/18）
       // ② 直近10本で陰線4本以下（売り圧力不在）— 緩和A（8/18）
+      // ③ 逆三尊シグナルは除外（逆三尊はmediumの精度が低いため、信頼度「強」のみエントリー）— 8/19
+      const isInverseHS = sig.reason.includes("逆三尊") || sig.reason.includes("インバースH&S");
       const ma20 = buffer.length >= IS_BULLISH_MA_PERIOD
         ? buffer.slice(buffer.length - IS_BULLISH_MA_PERIOD).reduce((s, c) => s + c.close, 0) / IS_BULLISH_MA_PERIOD
         : 0;
@@ -1280,7 +1282,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const recentBearBars = buffer.length >= 10
         ? buffer.slice(buffer.length - 10).filter(c => c.close < c.open).length
         : 999;
-      const quietRiseBypass = isBullish && maDeviation < 0.5 && barBody < 0.2 && recentBearBars <= 4;
+      const quietRiseBypass = isBullish && maDeviation < 0.5 && barBody < 0.2 && recentBearBars <= 4 && !isInverseHS;
       if (quietRiseBypass) {
         console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だが静かな上昇バイパスでエントリー許可 (MA乖離:${maDeviation.toFixed(3)}%, 実体:${barBody.toFixed(3)}%, 陰線:${recentBearBars}本) (${sig.reason.substring(0, 30)})`);
         // ブロックせずに次のフィルターへ進む

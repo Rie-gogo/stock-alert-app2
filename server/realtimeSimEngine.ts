@@ -1411,22 +1411,29 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // ★v6: 板読みスコアで統合判定
     const brScoreShort = boardReadingScore(symbol, "short", boardSnapshot);
     if (brScoreShort < BOARD_SCORE_THRESHOLD) {
-      console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板読みスコア不足(${brScoreShort}) (${sig.reason.substring(0, 30)})`);
-      // ★スコア0+信頼度強ブロック記録
-      if (brScoreShort === 0 && sig.confidence === "strong") {
-        insertScore0Block({
-          tradeDate,
-          symbol,
-          candleTime,
-          side: "SHORT",
-          signalReason: sig.reason.substring(0, 200),
-          entryPrice: String(candle.close),
-          boardScore: 0,
-          confidence: "strong",
-          context: "direct_short",
-        });
+      // ★SHORTスコア0ブロック緩和（2026-08-19）: 逆三尊以外はスコア0でもエントリー許可
+      const isInverseHS_short = sig.reason.includes("逆三尊") || sig.reason.includes("インバースH&S");
+      if (isInverseHS_short) {
+        // 逆三尊SHORTはスコア0でブロック維持
+        console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板読みスコア不足(${brScoreShort}) [逆三尊ブロック維持] (${sig.reason.substring(0, 30)})`);
+        if (brScoreShort === 0 && sig.confidence === "strong") {
+          insertScore0Block({
+            tradeDate,
+            symbol,
+            candleTime,
+            side: "SHORT",
+            signalReason: sig.reason.substring(0, 200),
+            entryPrice: String(candle.close),
+            boardScore: 0,
+            confidence: "strong",
+            context: "direct_short",
+          });
+        }
+        return { symbol, tradeDate, candleTime, action: "none" };
+      } else {
+        // 逆三尊以外（ダウ理論/VWAP/大台割れ）はスコア0でもSHORTエントリー許可
+        console.log(`[RealtimeSim] ${symbol} SHORTシグナル: 板読みスコア不足(${brScoreShort})だがスコア0バイパス許可 (${sig.reason.substring(0, 30)})`);
       }
-      return { symbol, tradeDate, candleTime, action: "none" };
     }
     // ★3分足HTFフィルター: SELLシグナル全体に適用（逆方向=upのみブロック、neutral通過）
     {

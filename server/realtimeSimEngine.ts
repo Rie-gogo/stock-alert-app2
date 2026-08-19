@@ -1284,8 +1284,25 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         ? buffer.slice(buffer.length - 10).filter(c => c.close < c.open).length
         : 999;
       const quietRiseBypass = isBullish && maDeviation < 0.5 && barBody < 0.2 && recentBearBars <= 4 && !isInverseHS;
-      if (quietRiseBypass) {
-        console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だが静かな上昇バイパスでエントリー許可 (MA乖離:${maDeviation.toFixed(3)}%, 実体:${barBody.toFixed(3)}%, 陰線:${recentBearBars}本) (${sig.reason.substring(0, 30)})`);
+
+      // ★案A: 前場ブースト（09:30〜11:27のみ緩和条件でバイパス）
+      const isAMBoost = candleTime < AM_BOOST_END_TIME;
+      const amBoostBypass = isAMBoost && isBullish && maDeviation < AM_BOOST_MA_DEV_MAX && barBody < AM_BOOST_BODY_MAX && recentBearBars <= AM_BOOST_BEAR_MAX && !isInverseHS;
+
+      // ★案B: 出来高ブレイクLONG（前場のみ、出来高1.5倍以上 + 直近高値更新 + isBullish）
+      let amVolBreakBypass = false;
+      if (isAMBoost && isBullish && !isInverseHS && buffer.length >= 21) {
+        const volLookback = buffer.slice(buffer.length - 21, buffer.length - 1);
+        const avgVol = volLookback.reduce((s, c) => s + c.volume, 0) / 20;
+        const volRatio = avgVol > 0 ? candle.volume / avgVol : 0;
+        if (volRatio >= AM_VOL_BREAK_RATIO) {
+          amVolBreakBypass = true;
+        }
+      }
+
+      if (quietRiseBypass || amBoostBypass || amVolBreakBypass) {
+        const bypassReason = quietRiseBypass ? "静かな上昇バイパス" : amBoostBypass ? "前場ブースト" : "出来高ブレイク";
+        console.log(`[RealtimeSim] ${symbol} BUYシグナル: 板読みスコア0だが${bypassReason}でエントリー許可 (MA乖離:${maDeviation.toFixed(3)}%, 実体:${barBody.toFixed(3)}%, 陰線:${recentBearBars}本) (${sig.reason.substring(0, 30)})`);
         // ブロックせずに次のフィルターへ進む
         quietRiseBypassed = true;
       } else {
@@ -1373,8 +1390,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     if (sig.confidence === "medium") {
       // ★静かな上昇バイパス適用時はmediumでもエントリー許可（2026-08-17）
       if (quietRiseBypassed) {
-        console.log(`[RealtimeSim] ${symbol} BUYシグナル: medium品質だが静かな上昇バイパスでエントリー許可 (${sig.reason.substring(0, 50)})`);
-        return await enterPosition("long", candle, tradeDate, candleTime, sig.reason + " (静かな上昇バイパス)", boardSnapshot);
+        console.log(`[RealtimeSim] ${symbol} BUYシグナル: medium品質だがバイパスでエントリー許可 (${sig.reason.substring(0, 50)})`);
+        return await enterPosition("long", candle, tradeDate, candleTime, sig.reason + " (バイパスLONG)", boardSnapshot);
       }
       // ★太陽誘電(6976)のみGC medium許可: close>MA20 + 陽線の場合にLONGエントリーを許可
       // 30日間シミュレーション: 27件, 勝率40.7%, +169,056円, PF 2.06
@@ -2122,3 +2139,23 @@ const FAST_ENTRY_VOL_LOOKBACK = 20;
  *  30営業日検証: 現行比+159,592円改善, 勝率40.9%(+1.4pt), PF1.44(+0.08)
  *  優先順位: ①即vol(出来高1.5倍) → ②即4a(前足近接) → ③従来CB2MW1 */
 const FAST_ENTRY_PREV_DIST_PCT = 0.05; // 前足closeがキリ番から0.05%以内
+
+// ============================================================
+// ★案A+B前場のみ: 前場ブースト + 出来高ブレイクLONG（2026-08-19）
+// 30営業日シミュレーション: 860件 54.8% +1,177,390円 PF1.17 (現行577件 51.6% +294,492円 PF1.06)
+// 前場のみ適用、後場は現行バイパス条件を維持
+// ============================================================
+
+/** 案A: 前場ブースト終了時刻（分）— 09:30〜11:27の間で緩和条件を適用 */
+const AM_BOOST_END_TIME = "11:27"; // 前場強制決済と同じ
+
+/** 案A: 前場ブーストのMA乖離閾値（通常0.5%→前場は1.0%に緩和） */
+const AM_BOOST_MA_DEV_MAX = 1.0;
+/** 案A: 前場ブーストの実体閾値（通常0.2%→前場は0.5%に緩和） */
+const AM_BOOST_BODY_MAX = 0.5;
+/** 案A: 前場ブーストの陰線閾値（通常4本→前場は5本に緩和） */
+const AM_BOOST_BEAR_MAX = 5;
+
+/** 案B: 出来高ブレイクLONGの出来高倍率閾値（前場のみ適用） */
+const AM_VOL_BREAK_RATIO = 1.5;
+    // Note: quietRiseBypassed includes 前場ブースト and 出来高ブレイク as well

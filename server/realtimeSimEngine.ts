@@ -1428,6 +1428,17 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
+    // ★高値下落フィルター: 直近20本高値から1.5%以上下落済みならSHORTブロック
+    // 下落の途中での追いかけSHORT（反発リスク大）を防止し、下落の初動のみに絞る
+    if (buffer.length >= SHORT_DROP_FROM_HIGH_LOOKBACK) {
+      const recentHighForDrop = Math.max(...buffer.slice(buffer.length - SHORT_DROP_FROM_HIGH_LOOKBACK).map(c => c.high));
+      const dropFromHighPct = (recentHighForDrop - candle.close) / recentHighForDrop * 100;
+      if (dropFromHighPct > SHORT_DROP_FROM_HIGH_MAX) {
+        console.log(`[RealtimeSim] ${symbol} SHORTブロック: 高値下落フィルター (下落${dropFromHighPct.toFixed(2)}% > ${SHORT_DROP_FROM_HIGH_MAX}%) (${sig.reason.substring(0, 50)})`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+
     // ★v6: 板読みスコアで統合判定
     const brScoreShort = boardReadingScore(symbol, "short", boardSnapshot);
     if (brScoreShort < BOARD_SCORE_THRESHOLD) {
@@ -2178,4 +2189,7 @@ const AM_VOL_BREAK_RATIO = 1.5;
 const SHORT_LOW_BREAK_VOL_RATIO = 1.2;
 /** ★SHORT改善 案1: 直近安値更新のルックバック期間 */
 const SHORT_LOW_BREAK_LOOKBACK = 20;
-    // Note: quietRiseBypassed includes 前場ブースト and 出来高ブレイク as well
+
+/** ★高値下落フィルター: 直近20本高値から1.5%以上下落済みならSHORTブロック */
+const SHORT_DROP_FROM_HIGH_MAX = 1.5; // %
+const SHORT_DROP_FROM_HIGH_LOOKBACK = 20;

@@ -234,10 +234,14 @@ const BOARD_SCORE_THRESHOLD = 1;
 const ATR_FILTER_PERIOD = 7;
 const ATR_FILTER_THRESHOLD = 0.0012; // 0.12%
 
-/** ★押し目深さフィルター: ダウ理論シグナルの押し目深さが範囲外ならブロック */
-const PULLBACK_DEPTH_MIN = 0.30; // 30% — これ以下は「浅すぎる押し目」（高値づかみリスク）
-const PULLBACK_DEPTH_MAX = 0.70; // 70% — これ以上は「深すぎる押し目」（トレンド崩壊リスク）
-const PULLBACK_DEPTH_LOOKBACK = 20; // 直近20本のスイング高値/安値を参照
+/** ★押し目深さフィルター: 撤廃（2026-08-20）
+ * 旧: DEPTH_MIN=0.30, DEPTH_MAX=0.70 → 30営業日で0件エントリー（過剰ブロック）
+ * 新: フィルターなし → 130件 勝率63.8% PF1.50 +493,330円
+ * 押し目確認ステートマシン自体は維持（一度下がって再上昇でエントリー）
+ */
+const PULLBACK_DEPTH_MIN = 0.0;  // 撤廃: 全ての深さを許可
+const PULLBACK_DEPTH_MAX = 1.0;  // 撤廃: 全ての深さを許可
+const PULLBACK_DEPTH_LOOKBACK = 20; // 直近20本のスイング高値/安値を参照（深さフィルター撤廃のため実質不使用）
 
 /** ★v6: 板読み早期利確の最低利益率（%） */
 const BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;

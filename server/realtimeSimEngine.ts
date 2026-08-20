@@ -618,13 +618,14 @@ function detectFakeOrder(snapshot: BoardSnapshot | null): { cancelDetected: bool
  *
  * 7要素の統合スコア:
  * A) アグレッシブ注文検出 (±2): marketOrderRatio≧ 0.08で方向判定
- * B) 厚い板のアノマリー (±1): largeBuyWall/largeSellWall
- * C) 板圧力トレンド (±1): 直近5本のbpr変化量≧ 0.15
- * D) 相場モード判定 (+1/-2): active/building→+1, trap/quiet→-2、キャンセル検出時はtrap強制
- * E) 板圧力の強さ (±1): bpr≧ 1.4(買い圧力強) or bpr≦ 0.65(売り圧力強)
- * F) 歩み値方向推定 (±2): marketOrderDirection + BPRトレンドで約定方向を推定
- * G) アイスバーグ検出 (±1): エントリー方向と一致すれば+1、逆方向なら-1
- */
+  * B) 厚い板のアノマリー (±1): largeBuyWall/largeSellWall
+  * C) 板圧力トレンド (±1): 直近5本のbpr変化量≧ 0.15
+  * D) 相場モード判定 (+1/-2): active/building→+1, trap/quiet→-2、キャンセル検出時はtrap強制
+  * E) 板圧力の強さ (±1): bpr≧ 1.4(買い圧力強) or bpr≦ 0.65(売り圧力強)
+  * F) 歩み値方向推定 (±2): marketOrderDirection + BPRトレンドで約定方向を推定
+  * G) アイスバーグ検出 (±1): エントリー方向と一致すれば+1、逆方向なら-1
+  * J) neutral時SHORT減点 (-2): boardSignal=neutral時のSHORTを抑制
+  */
 export function boardReadingScore(symbol: string, side: "long" | "short", snapshot: BoardSnapshot | null): number {
   if (!snapshot) return 1; // 板情報なし → 中立（シグナルを通す）
 
@@ -633,8 +634,10 @@ export function boardReadingScore(symbol: string, side: "long" | "short", snapsh
 
   // 要素A: アグレッシブ注文検出 (±2)
   if (snapshot.marketOrderRatio >= 0.08) {
-    if (side === "long" && bpr > 1.0) score += 2;
-    else if (side === "long" && bpr < 1.0) score -= 2;
+    if (side === "long" && bpr >= 0.8 && bpr <= 1.2) score += 2;  // ★案A: 均衡〜やや買い優勢が最適帯
+    else if (side === "long" && bpr < 0.8) score -= 2;             // 売り圧力強い
+    else if (side === "long" && bpr >= 1.5) score -= 2;            // ★案A: 過熱（天井掴みリスク）
+    // BPR 1.2〜1.5のLONGは加減点なし（中立）
     else if (side === "short" && bpr < 1.0) score += 2;
     else if (side === "short" && bpr > 1.0) score -= 2;
   }
@@ -677,10 +680,17 @@ export function boardReadingScore(symbol: string, side: "long" | "short", snapsh
   }
 
   // 要素E: 板圧力の強さ (±1)
-  if (side === "long" && bpr >= 1.4) score += 1;
+  if (side === "long" && bpr >= 1.5) score -= 1;    // ★案A: 過熱時は減点（旧: bpr>=1.4で+1）
   else if (side === "long" && bpr <= 0.65) score -= 1;
   else if (side === "short" && bpr <= 0.65) score += 1;
   else if (side === "short" && bpr >= 1.4) score -= 1;
+
+  // ★要素J: neutral時SHORT減点 (-2)【BPR改善】
+  // 本番データ: neutral時SHORT = 25件中1勝24敗 -260,374円
+  // 板に方向感がない時のSHORTは反発リスクが高い
+  if (side === "short" && snapshot.signal === "neutral") {
+    score -= 2;
+  }
 
   // ★要素F: 歩み値方向推定 (±2)【改良案B】
   const tickDir = estimateTickDirection(symbol, snapshot);

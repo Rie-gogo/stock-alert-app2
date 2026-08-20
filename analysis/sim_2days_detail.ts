@@ -13,7 +13,7 @@ const AM_VOL_BREAK_RATIO = 1.5;
 const TP_SHORT = 1.5;
 const TP_LONG = 0.5;
 const ATR_FILTER_THRESHOLD = 0.12;
-const SHORT_DROP_FROM_HIGH_MAX = 1.5;
+const SHORT_DROP_FROM_HIGH_MAX = 2.0;
 const PULLBACK_MAX_WAIT = 5;
 
 const SL_MAP: Record<string, { long: number; short: number }> = {

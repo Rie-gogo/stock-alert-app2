@@ -426,10 +426,11 @@ describe("板読みスコアv6", () => {
         signal: "buy_pressure",
       };
       const score = boardReadingScore("TEST_HIGH", "long", snapshot);
-      // 要素A: +2 (marketOrderRatio>=0.08, bpr>1.0)
-      // 要素E: +1 (bpr>=1.4)
+      // ★案A変更後: BPR>=1.5はLONGに不利（過熱）
+      // 要素A: -2 (marketOrderRatio>=0.08, bpr>=1.5 → 過熱減点)
+      // 要素E: -1 (bpr>=1.5 → 過熱減点)
       // 要素D: +1 (active, bpr>1.2)
-      expect(score).toBeGreaterThanOrEqual(3);
+      expect(score).toBeLessThan(1); // 過熱状態ではLONGスコアが低くなる
     });
 
     it("買い方向: buyPressureRatio低い → 低スコア（エントリー抑制）", () => {
@@ -473,8 +474,8 @@ describe("板読みスコアv6", () => {
       const score = boardReadingScore("TEST_WALL2", "long", snapshot);
       // 要素B: +1 (largeSellWall → ブレイクスルーの勢い)
       // 要素D: +1 (active, bpr>1.2)
-      // 要素E: +1 (bpr>=1.4)
-      expect(score).toBeGreaterThanOrEqual(2);
+      // 要素E: -1 (bpr>=1.5 → 過熱減点) ★案A変更
+      expect(score).toBeGreaterThanOrEqual(0); // 売り壁突破の勢い+1だが、過熱-1で相殺
     });
   });
 

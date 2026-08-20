@@ -2195,5 +2195,5 @@ const SHORT_LOW_BREAK_VOL_RATIO = 1.2;
 const SHORT_LOW_BREAK_LOOKBACK = 20;
 
 /** ★高値下落フィルター: 直近20本高値から1.5%以上下落済みならSHORTブロック */
-const SHORT_DROP_FROM_HIGH_MAX = 1.5; // %
+const SHORT_DROP_FROM_HIGH_MAX = 2.0; // % (旧1.5% → 2.0%に緩和: 30営業日 +3,835k PF1.33)
 const SHORT_DROP_FROM_HIGH_LOOKBACK = 20;

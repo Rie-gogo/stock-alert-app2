@@ -102,6 +102,8 @@ export interface SymbolConfig {
   enableReversalLong?: boolean;           // 反転LONGを有効にするか
   reversalLongDropPct?: number;           // 当日高値からの下落閾値（%）
   reversalLongAmOnly?: boolean;           // 前場のみに限定するか
+  reversalLongStartTime?: string;         // 開始時間（例: "09:45"）
+  reversalLongMinSlope?: number;          // MA傾き最小閾値（%）
   disableRoundUpLong?: boolean;           // 大台超えLONGを無効にするか
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
@@ -119,8 +121,10 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     enableReversalLong: true,         // 反転LONGを有効化
     reversalLongDropPct: 2.5,         // 当日高値から2.5%以上下落で反転LONG発火条件
     reversalLongAmOnly: true,         // 前場のみ（09:30〜11:27）
+    reversalLongStartTime: "09:45",   // 09:45以降に限定（09:30-09:44は勝率低い）
+    reversalLongMinSlope: 0.02,       // MA8傾き>=0.02%（反転の勢いが弱すぎる場合を除外）
     disableRoundUpLong: true,         // 大台超えLONGを無効化（全敗のため）
-    notes: "キオクシア: 反転LONG（落2.5%/SL0.6%/TP0.8%/前場）。大台超えLONG廃止。40営業日: 27件16勝11敗 勝率59.3% +317,282円。",
+    notes: "キオクシア: 反転LONG（落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA傾き>=0.02%）。大台超えLONG廃止。40営業日: 27件19勝8敗 勝率70.4% +6,258円/株。",
   },
   "8035": { sl: { long: 0.8, short: 0.8 } },
   "6857": { sl: { long: 0.6, short: 0.6 } },
@@ -1034,7 +1038,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     const amOnly = symConfig.reversalLongAmOnly ?? true;
 
     // 前場のみ制限
-    const inTimeWindow = amOnly ? (candleTime >= "09:30" && candleTime <= AM_SESSION_CLOSE_TIME) : true;
+    const startTime = symConfig.reversalLongStartTime ?? "09:30";
+    const inTimeWindow = amOnly ? (candleTime >= startTime && candleTime <= AM_SESSION_CLOSE_TIME) : true;
 
     if (inTimeWindow && buffer.length >= IS_BULLISH_MA_PERIOD + 1) {
       const currentDayHigh = dayHighTracker.get(symbol) ?? 0;
@@ -1050,17 +1055,27 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const prevMA = prevSlice.reduce((a, b) => a + b, 0) / maPeriod;
         const maRising = currentMA > prevMA;
 
-        // 条件3: 直近10本の高値を更新
+        // 条件3: MA傾き閾値チェック（2本前のMAとの比較）
+        const minSlope = symConfig.reversalLongMinSlope ?? 0;
+        let slopeOk = true;
+        if (minSlope > 0 && buffer.length >= maPeriod + 2) {
+          const slice2ago = buffer.slice(buffer.length - maPeriod - 2, buffer.length - 2).map(c => c.close);
+          const ma2ago = slice2ago.reduce((a, b) => a + b, 0) / maPeriod;
+          const maSlope = ma2ago > 0 ? (currentMA - ma2ago) / ma2ago * 100 : 0;
+          slopeOk = maSlope >= minSlope;
+        }
+
+        // 条件4: 直近10本の高値を更新
         const lookback = Math.min(10, buffer.length - 1);
         const recent10Highs = buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(c => c.high);
         const recent10High = recent10Highs.length > 0 ? Math.max(...recent10Highs) : 0;
         const highBreak = candle.high > recent10High;
 
-        if (maRising && highBreak) {
+        if (maRising && highBreak && slopeOk) {
           reversalLongFired.add(symbol);
           console.log(
             `[RealtimeSim] ${symbol} ★反転LONG発火: 高値${currentDayHigh}→現在${candle.close} ` +
-            `(落${dropFromHigh.toFixed(1)}% >= ${dropPct}%) MA上向き + 直近10本高値更新`
+            `(落${dropFromHigh.toFixed(1)}% >= ${dropPct}%) MA${maPeriod}上向き + 傾き>=0.02% + 直近10本高値更新`
           );
           // sell_pressure時はブロック
           const boardSnapshot2 = getBoardSnapshot(symbol);

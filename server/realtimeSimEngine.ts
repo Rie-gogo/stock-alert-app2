@@ -98,6 +98,11 @@ export interface SymbolConfig {
   enableVolBreakLong?: boolean;    // 出来高ブレイクLONG
   enableQuietRiseBypass?: boolean; // 静かな上昇バイパス
   enablePullbackLong?: boolean;    // 押し目確認LONG
+  // 反転LONG設定（大台超えLONG廃止の代替）
+  enableReversalLong?: boolean;           // 反転LONGを有効にするか
+  reversalLongDropPct?: number;           // 当日高値からの下落閾値（%）
+  reversalLongAmOnly?: boolean;           // 前場のみに限定するか
+  disableRoundUpLong?: boolean;           // 大台超えLONGを無効にするか
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
   quietRiseBody?: number;     // 実体閾値
@@ -110,7 +115,12 @@ export interface SymbolConfig {
 export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
   "285A": {
     sl: { long: 0.8, short: 0.6 },
-    notes: "キオクシア: 最初の銘柄別最適化対象。値動きが大きく取引数も多い。",
+    tp: { long: 0.8, short: 1.5 },  // 反転LONG用TP 0.8%（SHORTは全体デフォルト1.5%）
+    enableReversalLong: true,         // 反転LONGを有効化
+    reversalLongDropPct: 2.5,         // 当日高値から2.5%以上下落で反転LONG発火条件
+    reversalLongAmOnly: true,         // 前場のみ（09:30〜11:27）
+    disableRoundUpLong: true,         // 大台超えLONGを無効化（全敗のため）
+    notes: "キオクシア: 反転LONG（落2.5%/SL0.6%/TP0.8%/前場）。大台超えLONG廃止。40営業日: 27件16勝11敗 勝率59.3% +317,282円。",
   },
   "8035": { sl: { long: 0.8, short: 0.8 } },
   "6857": { sl: { long: 0.6, short: 0.6 } },
@@ -337,6 +347,11 @@ const symbolPnlMap = new Map<string, number>();
 /** ★v5.5応急: 銘柄ごとの最終損切り時刻（HH:MM形式） */
 const lastStopLossTime = new Map<string, string>();
 
+/** ★反転LONG: 銘柄ごとの当日高値追跡（反転LONGの発火条件判定用） */
+const dayHighTracker = new Map<string, number>();
+/** ★反転LONG: 銘柄ごとの反転LONGエントリー済みフラグ（1日1回のみ） */
+const reversalLongFired = new Set<string>();
+
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
   time: string;       // HH:MM
@@ -398,6 +413,8 @@ function resetIfNewDay(tradeDate: string): void {
     bprHistory.clear(); // ★v6: 板圧力履歴もリセット
     clearBoardRingBuffer(); // ★v8: 10秒リングバッファもリセット
     lastStopLossTime.clear(); // ★v5.5応急: 損切り時刻記録もリセット
+    dayHighTracker.clear(); // ★反転LONG: 当日高値追跡もリセット
+    reversalLongFired.clear(); // ★反転LONG: エントリー済みフラグもリセット
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -934,6 +951,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // バッファに追加
   buffer.push(candleForSignal);
 
+  // ★反転LONG: 当日高値を追跡（全銘柄で更新、反転LONG発火条件の判定に使用）
+  const prevDayHigh = dayHighTracker.get(symbol) ?? 0;
+  if (candle.high > prevDayHigh) {
+    dayHighTracker.set(symbol, candle.high);
+  }
+
   // MA5・MA25・RSI・BBを計算してバッファの最新足に設定
   // （detectSignalsは入力のma5/ma25/rsi/bbをそのまま使うため、事前計算が必須）
   const closes = buffer.map(c => c.close);
@@ -1001,6 +1024,54 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // ---- 既にポジションがある場合は新規エントリーしない ----
   if (existingPos) {
     return { symbol, tradeDate, candleTime, action: "none" };
+  }
+
+  // ---- ★反転LONG: 銘柄別設定で反転LONGが有効な場合の検出 ----
+  // 大台超えLONGの代替として、当日高値からの下落後に反転上昇を検出してLONGエントリー
+  const symConfig = getSymbolConfig(symbol);
+  if (symConfig.enableReversalLong && !reversalLongFired.has(symbol) && isEntryAllowed) {
+    const dropPct = symConfig.reversalLongDropPct ?? 2.5;
+    const amOnly = symConfig.reversalLongAmOnly ?? true;
+
+    // 前場のみ制限
+    const inTimeWindow = amOnly ? (candleTime >= "09:30" && candleTime <= AM_SESSION_CLOSE_TIME) : true;
+
+    if (inTimeWindow && buffer.length >= IS_BULLISH_MA_PERIOD + 1) {
+      const currentDayHigh = dayHighTracker.get(symbol) ?? 0;
+      const dropFromHigh = currentDayHigh > 0 ? (currentDayHigh - candle.close) / currentDayHigh * 100 : 0;
+
+      // 条件1: 当日高値からX%以上下落
+      if (dropFromHigh >= dropPct) {
+        // 条件2: MA8上向き（isBullish）
+        const maPeriod = symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD;
+        const currentSlice = buffer.slice(buffer.length - maPeriod).map(c => c.close);
+        const currentMA = currentSlice.reduce((a, b) => a + b, 0) / maPeriod;
+        const prevSlice = buffer.slice(buffer.length - maPeriod - 1, buffer.length - 1).map(c => c.close);
+        const prevMA = prevSlice.reduce((a, b) => a + b, 0) / maPeriod;
+        const maRising = currentMA > prevMA;
+
+        // 条件3: 直近10本の高値を更新
+        const lookback = Math.min(10, buffer.length - 1);
+        const recent10Highs = buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(c => c.high);
+        const recent10High = recent10Highs.length > 0 ? Math.max(...recent10Highs) : 0;
+        const highBreak = candle.high > recent10High;
+
+        if (maRising && highBreak) {
+          reversalLongFired.add(symbol);
+          console.log(
+            `[RealtimeSim] ${symbol} ★反転LONG発火: 高値${currentDayHigh}→現在${candle.close} ` +
+            `(落${dropFromHigh.toFixed(1)}% >= ${dropPct}%) MA上向き + 直近10本高値更新`
+          );
+          // sell_pressure時はブロック
+          const boardSnapshot2 = getBoardSnapshot(symbol);
+          if (boardSnapshot2 && boardSnapshot2.signal === "sell_pressure") {
+            console.log(`[RealtimeSim] ${symbol} 反転LONG: sell_pressure時ブロック`);
+            return { symbol, tradeDate, candleTime, action: "none" };
+          }
+          return await enterPosition("long", candle, tradeDate, candleTime, `反転LONG: 高値${currentDayHigh}から${dropFromHigh.toFixed(1)}%下落後の反転 (前場)`, boardSnapshot);
+        }
+      }
+    }
   }
 
   // ---- シグナル検出 ----
@@ -1448,6 +1519,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       // ★大台超えLONG: LONGエントリーは停止（全敗のため）だが、
       // buy_pressure時の逆張りSHORTを有効にするためステートマシン登録は復活（2026-08-13）。
       // ステートマシン内でbuy_pressureなら逆張りSHORT、それ以外はLONGブロック。
+      // ★銘柄別: disableRoundUpLong=trueの場合、逆張りSHORT用のステートマシン登録も行わない
+      const symCfg = getSymbolConfig(symbol);
+      if (symCfg.disableRoundUpLong) {
+        console.log(`[RealtimeSim] ${symbol} 大台超えLONG完全無効化(銘柄別設定): ${sig.reason.substring(0, 50)}`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       const m = sig.reason.match(/(\d+(?:\.\d+)?)円/);
       const level = m ? parseFloat(m[1]) : candle.close;
       roundLevelPendingStates.set(symbol, {
@@ -1884,7 +1961,11 @@ async function checkExitConditions(
 
   // 銘柄別TP/SL解決
   const override = SYMBOL_TP_SL_OVERRIDE[symbol];
-  const tpPct = override ? override.tp : (side === "long" ? TAKE_PROFIT_PERCENT_LONG : TAKE_PROFIT_PERCENT_SHORT);
+  // ★銘柄別SYMBOL_CONFIGのTP設定を優先（反転LONG用のTP 0.8%等）
+  const symCfgExit = getSymbolConfig(symbol);
+  const tpPct = symCfgExit.tp
+    ? (side === "long" ? symCfgExit.tp.long : symCfgExit.tp.short)
+    : override ? override.tp : (side === "long" ? TAKE_PROFIT_PERCENT_LONG : TAKE_PROFIT_PERCENT_SHORT);
   // SL: USE_PER_SYMBOL_SL有効時はSYMBOL_SL_MAPを優先、なければレガシーoverride、最終デフォルト
   const slEntry = SYMBOL_SL_MAP[symbol];
   const slPct = USE_PER_SYMBOL_SL && slEntry !== undefined

@@ -1779,6 +1779,57 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config8035.disableRoundUpLong).toBeUndefined();
   });
 
+  it("東京エレクトロン(8035)に順張り3方式と再最適化SL・TPが定義されている", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("8035");
+
+    expect(config.sl).toEqual({ long: 0.7, short: 0.6 });
+    expect(config.tp).toEqual({ long: 1.0, short: 1.8 });
+    expect(config.enableTrendLong).toBe(true);
+    expect(config.trendLongStartTime).toBe("10:00");
+    expect(config.trendLongEndTime).toBe("11:27");
+    expect(config.trendLongMinOpenGainPct).toBe(1.5);
+    expect(config.trendLongMaxOpenGainPct).toBe(2.5);
+    expect(config.trendLongHighLookback).toBe(20);
+    expect(config.trendLongMinVolumeRatio).toBe(1.0);
+    expect(config.trendLongSlPct).toBe(0.7);
+    expect(config.trendLongTpPct).toBe(1.0);
+    expect(config.trendBoardBprMax).toBe(1.6);
+    expect(config.enableTrendShort).toBe(true);
+    expect(config.trendShortMinOpenGainPct).toBe(-4.0);
+    expect(config.trendShortMaxOpenGainPct).toBe(-0.5);
+    expect(config.trendShortLowLookback).toBe(5);
+    expect(config.trendShortSlPct).toBe(0.6);
+    expect(config.trendShortTpPct).toBe(1.8);
+    expect(config.enablePeakReversalShort).toBe(true);
+    expect(config.peakReversalShortMinRisePct).toBe(2.5);
+    expect(config.peakReversalShortDropPct).toBe(0.4);
+    expect(config.peakReversalShortSlPct).toBe(0.6);
+    expect(config.peakReversalShortTpPct).toBe(1.8);
+  });
+
+  it("東京エレクトロンの急騰後反落で高値反転SHORTが発火する", async () => {
+    const symbol = "8035";
+    const tradeDate = "2026-08-28";
+    const { getOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue(null);
+
+    for (let i = 0; i < 60; i++) {
+      const time = `09:${String(i).padStart(2, "0")}`;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: time,
+        open: 70000, high: 70050, low: 69950, close: 70000, volume: 500,
+      }));
+    }
+
+    await processCandle(makeCandle({ symbol, tradeDate, candleTime: "10:00", open: 71800, high: 72000, low: 71700, close: 71900, volume: 500 }));
+    await processCandle(makeCandle({ symbol, tradeDate, candleTime: "10:01", open: 71900, high: 71920, low: 71650, close: 71700, volume: 500 }));
+    const result = await processCandle(makeCandle({ symbol, tradeDate, candleTime: "10:02", open: 71700, high: 71720, low: 71480, close: 71500, volume: 700 }));
+
+    expect(result.action).toBe("none");
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.side).toBe("short");
+  });
+
   it("当日高値から2.5%以上下落→MA上向き→直近高値更新で反転LONG発火", async () => {
     const symbol = "285A";
     const tradeDate = "2026-08-22";

@@ -122,19 +122,32 @@ export interface SymbolConfig {
   trendLongStartTime?: string;
   trendLongEndTime?: string;
   trendLongMinOpenGainPct?: number;
+  trendLongMaxOpenGainPct?: number;
   trendLongHighLookback?: number;
   trendLongMinVolumeRatio?: number;
   trendLongSlPct?: number;
   trendLongTpPct?: number;
+  trendBoardBprMax?: number;
   // 順張りSHORT設定（下落継続日を捉える）
   enableTrendShort?: boolean;
   trendShortStartTime?: string;
   trendShortEndTime?: string;
+  trendShortMinOpenGainPct?: number;
   trendShortMaxOpenGainPct?: number;
   trendShortLowLookback?: number;
   trendShortMinVolumeRatio?: number;
   trendShortSlPct?: number;
   trendShortTpPct?: number;
+  // 高値反転SHORT設定（急騰後の初動反落を狙う）
+  enablePeakReversalShort?: boolean;
+  peakReversalShortStartTime?: string;
+  peakReversalShortEndTime?: string;
+  peakReversalShortMinRisePct?: number;
+  peakReversalShortDropPct?: number;
+  peakReversalShortMinBodyPct?: number;
+  peakReversalShortMinVolumeRatio?: number;
+  peakReversalShortSlPct?: number;
+  peakReversalShortTpPct?: number;
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
   quietRiseBody?: number;     // 実体閾値
@@ -182,7 +195,39 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     trendShortTpPct: 1.2,
     notes: "キオクシア: 反転LONG（高値落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA8傾き>=0.02%）＋安全CB SHORT＋反転SHORT（始値+3%→高値から1.5%反落、SL0.8%/TP1.2%、前場09:45〜11:27）＋順張りLONG（10:15〜、始値以上・20本高値更新・出来高1.2倍）＋順張りSHORT（10:15〜、始値比-1%以下・10本安値更新）。",
   },
-  "8035": { sl: { long: 0.8, short: 0.8 } },
+  "8035": {
+    sl: { long: 0.7, short: 0.6 },
+    tp: { long: 1.0, short: 1.8 },
+    enableTrendLong: true,
+    trendLongStartTime: "10:00",
+    trendLongEndTime: "11:27",
+    trendLongMinOpenGainPct: 1.5,
+    trendLongMaxOpenGainPct: 2.5,
+    trendLongHighLookback: 20,
+    trendLongMinVolumeRatio: 1.0,
+    trendLongSlPct: 0.7,
+    trendLongTpPct: 1.0,
+    trendBoardBprMax: 1.6,
+    enableTrendShort: true,
+    trendShortStartTime: "10:00",
+    trendShortEndTime: "11:00",
+    trendShortMinOpenGainPct: -4.0,
+    trendShortMaxOpenGainPct: -0.5,
+    trendShortLowLookback: 5,
+    trendShortMinVolumeRatio: 1.2,
+    trendShortSlPct: 0.6,
+    trendShortTpPct: 1.8,
+    enablePeakReversalShort: true,
+    peakReversalShortStartTime: "09:45",
+    peakReversalShortEndTime: "11:27",
+    peakReversalShortMinRisePct: 2.5,
+    peakReversalShortDropPct: 0.4,
+    peakReversalShortMinBodyPct: 0.1,
+    peakReversalShortMinVolumeRatio: 1.0,
+    peakReversalShortSlPct: 0.6,
+    peakReversalShortTpPct: 1.8,
+    notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。",
+  },
   "6857": { sl: { long: 0.6, short: 0.6 } },
   "6976": { sl: { long: 0.6, short: 0.8 } },
   "6526": { sl: { long: 0.9, short: 1.0 } },
@@ -421,6 +466,8 @@ const reversalShortFired = new Set<string>();
 /** ★順張り: 銘柄ごとの順張りLONG/SHORTエントリー済みフラグ（各方向1日1回のみ） */
 const trendLongFired = new Set<string>();
 const trendShortFired = new Set<string>();
+/** ★高値反転SHORT: 銘柄ごとの急騰後反落エントリー済みフラグ（1日1回のみ） */
+const peakReversalShortFired = new Set<string>();
 
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
@@ -490,6 +537,7 @@ function resetIfNewDay(tradeDate: string): void {
     reversalShortFired.clear();
     trendLongFired.clear();
     trendShortFired.clear();
+    peakReversalShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -1310,6 +1358,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const highBreak = candle.high > recentHigh;
       const trendLongOk =
         openGainPct >= (symConfig.trendLongMinOpenGainPct ?? 0) &&
+        openGainPct <= (symConfig.trendLongMaxOpenGainPct ?? Number.POSITIVE_INFINITY) &&
         currentMA > prevMA &&
         maSlope2 >= 0.02 &&
         highBreak &&
@@ -1320,10 +1369,14 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const htfTrend = getHigherTfTrend(buffer, buffer.length - 1, HTF_TIMEFRAME_MINUTES);
         const trendBoard = getBoardSnapshot(symbol);
         const trendBoardScore = boardReadingScore(symbol, "long", trendBoard);
+        const trendBpr = trendBoard?.buyPressureRatio ?? 0;
+        const trendBprMax = symConfig.trendBoardBprMax;
         if (htfTrend === "down") {
           console.log(`[RealtimeSim] ${symbol} 順張りLONG: 3分足HTF downでブロック`);
         } else if (trendBoard?.signal === "sell_pressure") {
           console.log(`[RealtimeSim] ${symbol} 順張りLONG: sell_pressureでブロック`);
+        } else if (trendBprMax !== undefined && trendBpr > trendBprMax) {
+          console.log(`[RealtimeSim] ${symbol} 順張りLONG: BPR過熱(${trendBpr.toFixed(2)} > ${trendBprMax})でブロック`);
         } else if (trendBoardScore < BOARD_SCORE_THRESHOLD) {
           console.log(`[RealtimeSim] ${symbol} 順張りLONG: 板読みスコア不足(${trendBoardScore})でブロック`);
         } else {
@@ -1349,6 +1402,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const recentLow = Math.min(...buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(item => item.low));
       const lowBreak = candle.low < recentLow;
       const trendShortOk =
+        openGainPct >= (symConfig.trendShortMinOpenGainPct ?? Number.NEGATIVE_INFINITY) &&
         openGainPct <= (symConfig.trendShortMaxOpenGainPct ?? -1.0) &&
         currentMA <= prevMA &&
         maSlope2 <= -0.02 &&
@@ -1360,11 +1414,15 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const htfTrend = getHigherTfTrend(buffer, buffer.length - 1, HTF_TIMEFRAME_MINUTES);
         const trendBoard = getBoardSnapshot(symbol);
         const trendBoardScore = boardReadingScore(symbol, "short", trendBoard);
+        const trendBpr = trendBoard?.buyPressureRatio ?? 0;
+        const trendBprMax = symConfig.trendBoardBprMax;
         const isNeutralBoard = trendBoard?.signal === "neutral";
         if (htfTrend === "up") {
           console.log(`[RealtimeSim] ${symbol} 順張りSHORT: 3分足HTF upでブロック`);
         } else if (trendBoard?.signal === "buy_pressure") {
           console.log(`[RealtimeSim] ${symbol} 順張りSHORT: buy_pressureでブロック`);
+        } else if (trendBprMax !== undefined && trendBpr > trendBprMax) {
+          console.log(`[RealtimeSim] ${symbol} 順張りSHORT: BPR買い優勢(${trendBpr.toFixed(2)} > ${trendBprMax})でブロック`);
         } else if (trendBoardScore < BOARD_SCORE_THRESHOLD && isNeutralBoard) {
           console.log(`[RealtimeSim] ${symbol} 順張りSHORT: neutral時の板読みスコア不足(${trendBoardScore})でブロック`);
         } else {
@@ -1374,6 +1432,58 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           console.log(`[RealtimeSim] ${symbol} ★順張りSHORT発火: 始値比${openGainPct.toFixed(1)}%・10本安値更新・出来高${volumeRatio.toFixed(1)}倍 (SL${slPct}%/TP${tpPct}%)`);
           return await enterPosition("short", candle, tradeDate, candleTime, `順張りSHORT: 始値比${openGainPct.toFixed(1)}%、10本安値更新、出来高${volumeRatio.toFixed(1)}倍`, trendBoard, { slPct, tpPct });
         }
+      }
+    }
+  }
+
+  // 高値反転SHORT: 急騰後、当日高値の近傍から反落した初動を捉える。
+  // 安全CBが同一足にある場合はCBを優先し、板読み・3分足HTFも順張りSHORTと同様に適用する。
+  if (
+    symConfig.enablePeakReversalShort &&
+    !peakReversalShortFired.has(symbol) &&
+    buffer.length >= (symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD) + 2 &&
+    (!isRoundBreakdownSignal || safeCbBlockedNow) &&
+    candleTime >= (symConfig.peakReversalShortStartTime ?? "09:45") &&
+    candleTime <= (symConfig.peakReversalShortEndTime ?? "11:27")
+  ) {
+    const currentDayHigh = dayHighTracker.get(symbol) ?? candle.high;
+    const peakDayOpen = buffer[0]?.open ?? candle.open;
+    const riseFromOpenPct = peakDayOpen > 0 ? (currentDayHigh - peakDayOpen) / peakDayOpen * 100 : 0;
+    const dropFromHighPct = currentDayHigh > 0 ? (currentDayHigh - candle.close) / currentDayHigh * 100 : 0;
+    const bodyPct = candle.open > 0 ? (candle.open - candle.close) / candle.open * 100 : 0;
+    const peakRecentVolumes = buffer.slice(buffer.length - 21, buffer.length - 1);
+    const peakAvgVolume = peakRecentVolumes.reduce((sum, item) => sum + item.volume, 0) / peakRecentVolumes.length;
+    const peakVolumeRatio = peakAvgVolume > 0 ? candle.volume / peakAvgVolume : 0;
+    const recent3High = Math.max(...buffer.slice(Math.max(0, buffer.length - 3)).map(item => item.high));
+    const nearRecentDayHigh = Math.abs(recent3High - currentDayHigh) < 0.000001;
+    const peakShortOk =
+      riseFromOpenPct >= (symConfig.peakReversalShortMinRisePct ?? 2.5) &&
+      dropFromHighPct >= (symConfig.peakReversalShortDropPct ?? 0.4) &&
+      bodyPct >= (symConfig.peakReversalShortMinBodyPct ?? 0.1) &&
+      peakVolumeRatio >= (symConfig.peakReversalShortMinVolumeRatio ?? 1.0) &&
+      nearRecentDayHigh;
+
+    if (peakShortOk) {
+      const htfTrend = getHigherTfTrend(buffer, buffer.length - 1, HTF_TIMEFRAME_MINUTES);
+      const peakBoard = getBoardSnapshot(symbol);
+      const peakBoardScore = boardReadingScore(symbol, "short", peakBoard);
+      const peakBpr = peakBoard?.buyPressureRatio ?? 0;
+      const peakBprMax = symConfig.trendBoardBprMax;
+      const isNeutralBoard = peakBoard?.signal === "neutral";
+      if (htfTrend === "up") {
+        console.log(`[RealtimeSim] ${symbol} 高値反転SHORT: 3分足HTF upでブロック`);
+      } else if (peakBoard?.signal === "buy_pressure") {
+        console.log(`[RealtimeSim] ${symbol} 高値反転SHORT: buy_pressureでブロック`);
+      } else if (peakBprMax !== undefined && peakBpr > peakBprMax) {
+        console.log(`[RealtimeSim] ${symbol} 高値反転SHORT: BPR買い優勢(${peakBpr.toFixed(2)} > ${peakBprMax})でブロック`);
+      } else if (peakBoardScore < BOARD_SCORE_THRESHOLD && isNeutralBoard) {
+        console.log(`[RealtimeSim] ${symbol} 高値反転SHORT: neutral時の板読みスコア不足(${peakBoardScore})でブロック`);
+      } else {
+        peakReversalShortFired.add(symbol);
+        const slPct = symConfig.peakReversalShortSlPct ?? 0.6;
+        const tpPct = symConfig.peakReversalShortTpPct ?? 1.8;
+        console.log(`[RealtimeSim] ${symbol} ★高値反転SHORT発火: 始値比+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落 (SL${slPct}%/TP${tpPct}%)`);
+        return await enterPosition("short", candle, tradeDate, candleTime, `高値反転SHORT: 始値+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落`, peakBoard, { slPct, tpPct });
       }
     }
   }

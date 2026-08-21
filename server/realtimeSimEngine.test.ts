@@ -1693,7 +1693,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.reversalShortMinRisePct).toBe(3.0);
     expect(config.reversalShortDropPct).toBe(1.5);
     expect(config.reversalShortSlPct).toBe(0.8);
-    expect(config.reversalShortTpPct).toBe(1.5);
+    expect(config.reversalShortTpPct).toBe(1.2);
   });
 
   it("他の銘柄にはSYMBOL_CONFIGの反転LONG設定がない", async () => {

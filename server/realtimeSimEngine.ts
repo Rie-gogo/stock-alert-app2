@@ -145,8 +145,8 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     reversalShortStartTime: "09:45",
     reversalShortEndTime: "11:27", // 後場は12:50再開後の遅延発火で成績悪化するため前場限定
     reversalShortSlPct: 0.8,
-    reversalShortTpPct: 1.5,
-    notes: "キオクシア: 反転LONG（高値落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA8傾き>=0.02%）＋安全CB SHORT（始値比-8%以下・当日安値から1%超反発後を除外）＋反転SHORT（始値+3%→高値から1.5%反落、SL0.8%/TP1.5%、前場09:45〜11:27）。",
+    reversalShortTpPct: 1.2,
+    notes: "キオクシア: 反転LONG（高値落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA8傾き>=0.02%）＋安全CB SHORT（始値比-8%以下・当日安値から1%超反発後を除外）＋反転SHORT（始値+3%→高値から1.5%反落、SL0.8%/TP1.2%、前場09:45〜11:27）。",
   },
   "8035": { sl: { long: 0.8, short: 0.8 } },
   "6857": { sl: { long: 0.6, short: 0.6 } },

@@ -1696,6 +1696,82 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.reversalShortTpPct).toBe(1.2);
   });
 
+  it("285Aの順張りLONG・SHORT設定が正しく定義されている", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("285A");
+
+    expect(config.enableTrendLong).toBe(true);
+    expect(config.trendLongStartTime).toBe("10:15");
+    expect(config.trendLongEndTime).toBe("14:20");
+    expect(config.trendLongMinOpenGainPct).toBe(0.0);
+    expect(config.trendLongHighLookback).toBe(20);
+    expect(config.trendLongMinVolumeRatio).toBe(1.2);
+    expect(config.trendLongSlPct).toBe(0.6);
+    expect(config.trendLongTpPct).toBe(0.8);
+
+    expect(config.enableTrendShort).toBe(true);
+    expect(config.trendShortStartTime).toBe("10:15");
+    expect(config.trendShortEndTime).toBe("14:20");
+    expect(config.trendShortMaxOpenGainPct).toBe(-1.0);
+    expect(config.trendShortLowLookback).toBe(10);
+    expect(config.trendShortMinVolumeRatio).toBe(1.0);
+    expect(config.trendShortSlPct).toBe(0.8);
+    expect(config.trendShortTpPct).toBe(1.2);
+  });
+
+  it("10:15以降の始値以上・20本高値更新・出来高増で順張りLONGが発火する", async () => {
+    const symbol = "285A";
+    const tradeDate = "2026-08-26";
+    const { getOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue(null);
+
+    for (let i = 0; i < 75; i++) {
+      const hour = 9 + Math.floor(i / 60);
+      const minute = i % 60;
+      const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: time,
+        open: 50000, high: 50100, low: 49900, close: 50000, volume: 1000,
+      }));
+    }
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:15",
+      open: 50000, high: 50250, low: 49950, close: 50200, volume: 2000,
+    }));
+
+    expect(result.action).toBe("entry");
+    expect(result.reason).toContain("順張りLONG");
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.side).toBe("long");
+  });
+
+  it("10:15以降の始値比-1%・10本安値更新・出来高条件で順張りSHORTが発火する", async () => {
+    const symbol = "285A";
+    const tradeDate = "2026-08-27";
+    const { getOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue(null);
+
+    for (let i = 0; i < 75; i++) {
+      const hour = 9 + Math.floor(i / 60);
+      const minute = i % 60;
+      const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+      const price = i < 60 ? 50000 : 50000 - (i - 59) * 80;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: time,
+        open: price + 30, high: price + 40, low: price - 40, close: price, volume: 1000,
+      }));
+    }
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:15",
+      open: 48850, high: 48870, low: 48720, close: 48750, volume: 1200,
+    }));
+
+    expect(result.action).toBe("entry");
+    expect(result.reason).toContain("順張りSHORT");
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.side).toBe("short");
+  });
+
   it("他の銘柄にはSYMBOL_CONFIGの反転LONG設定がない", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config8035 = getSymbolConfig("8035");

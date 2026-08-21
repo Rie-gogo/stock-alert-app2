@@ -290,6 +290,33 @@ async function main() {
   summariseIntegrated('候補 LONG0.7/0.8・CB0.6/1.5・反転SHORT0.8/1.2', longs, safeCbs, reversals, {
     long: [0.7, 0.8], cb: [0.6, 1.5], reversal: [0.8, 1.2],
   });
+
+  const latestFiveDates = dates.slice(-5);
+  const latestFiveCandidates = [
+    ...longs.map(candidate => simulateExit(candidate, 0.6, 0.8)),
+    ...safeCbs.map(candidate => simulateExit(candidate, 0.6, 1.5)),
+    ...reversals.map(candidate => simulateExit(candidate, 0.8, 1.2)),
+  ].filter(trade => latestFiveDates.includes(trade.date))
+    .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+  const latestFiveAccepted: TradeResult[] = [];
+  for (const date of latestFiveDates) {
+    let active: TradeResult | null = null;
+    for (const trade of latestFiveCandidates.filter(item => item.date === date)) {
+      if (active && trade.time <= active.exitTime) continue;
+      latestFiveAccepted.push(trade);
+      active = trade;
+    }
+  }
+  console.log(`\n=== 直近5営業日: ${latestFiveDates.join(', ')} ===`);
+  for (const date of latestFiveDates) {
+    const daily = latestFiveAccepted.filter(trade => trade.date === date);
+    const dailyPnl = daily.reduce((total, trade) => total + trade.pnl, 0);
+    console.log(`${date}: ${daily.length}件 ${dailyPnl >= 0 ? '+' : ''}${Math.round(dailyPnl).toLocaleString()}円`);
+    daily.forEach(trade => console.log(`  ${trade.time} ${trade.strategy} ${trade.side} @${trade.entry.toLocaleString()} → ${trade.exitTime} ${trade.exitReason} ${trade.pnl >= 0 ? '+' : ''}${Math.round(trade.pnl).toLocaleString()}円`));
+  }
+  const fivePnl = latestFiveAccepted.reduce((total, trade) => total + trade.pnl, 0);
+  const fiveWins = latestFiveAccepted.filter(trade => trade.pnl > 0).length;
+  console.log(`直近5営業日合計: ${latestFiveAccepted.length}件 ${fiveWins}勝${latestFiveAccepted.length - fiveWins}敗 勝率${latestFiveAccepted.length ? (fiveWins / latestFiveAccepted.length * 100).toFixed(1) : '0'}% ${fivePnl >= 0 ? '+' : ''}${Math.round(fivePnl).toLocaleString()}円`);
 }
 
 main()

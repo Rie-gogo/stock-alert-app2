@@ -59,6 +59,19 @@ export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
   '6723',  // ルネサスエレクトロニクス: 2026-06-19除外
 ]);
 
+/**
+ * エントリー対象銘柄セット（銘柄別ロジック最適化用）
+ * 
+ * null = 全アクティブ銘柄でエントリー可能（従来動作）
+ * Set<string> = 指定銘柄のみエントリー可能（他銘柄はデータ受信・シグナル検出は継続するがエントリーはスキップ）
+ * 
+ * 使い方:
+ * - 1銘柄集中モード: new Set(['285A'])
+ * - 複数銘柄モード: new Set(['285A', '6146', '5803'])
+ * - 全銘柄モード: null
+ */
+export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set(['285A']);
+
 /** 同時保有の上限（ハイブリッド運用） */
 export const MAX_CONCURRENT_POSITIONS = 3;
 /** 同一業種で同時保有できる上限（一極集中の防止） */

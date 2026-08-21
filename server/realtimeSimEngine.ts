@@ -21,7 +21,7 @@ import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } 
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
 import { calcATR } from "./intradayRegime";
-import { getStockName, TARGET_STOCKS, TRADE_EXCLUDED_SYMBOLS } from "../shared/stocks";
+import { getStockName, TARGET_STOCKS, TRADE_EXCLUDED_SYMBOLS, ACTIVE_ENTRY_SYMBOLS } from "../shared/stocks";
 import {
   evaluateConfirmation,
   trailingAvgVolume,
@@ -72,6 +72,62 @@ const SYMBOL_SL_MAP: Record<string, { long: number; short: number }> = {
   "6594": { long: 0.5, short: 0.5 },   // ニデック: 両方0.5%（データ少）
   "8316": { long: 0.5, short: 0.5 },   // 三井住友FG: 両方0.5%
 };
+
+/**
+ * 銘柄別パラメータ設定（SYMBOL_CONFIG）
+ * 
+ * 各銘柄のくせに合わせた個別パラメータを設定可能。
+ * 未設定の項目はグローバルデフォルト値が使用される。
+ * 
+ * 将来的に銘柄ごとのロジック分岐もここで管理する。
+ */
+export interface SymbolConfig {
+  // SL/TP設定
+  sl: { long: number; short: number };
+  tp?: { long: number; short: number };
+  // isBullish設定
+  maPeriod?: number;          // IS_BULLISH_MA_PERIOD のオーバーライド
+  slopeThreshold?: number;    // IS_BULLISH_SLOPE_THRESHOLD のオーバーライド
+  // 高値下落フィルター
+  dropFromHighMax?: number;   // SHORT_DROP_FROM_HIGH_MAX のオーバーライド
+  dropLookback?: number;      // SHORT_DROP_LOOKBACK のオーバーライド
+  // エントリー方式の有効/無効
+  enableFastEntryVol?: boolean;    // 即vol（出来高1.5倍）
+  enableFastEntry4a?: boolean;     // 即4a（前足近接）
+  enableLowBreakFast?: boolean;    // 安値更新即
+  enableVolBreakLong?: boolean;    // 出来高ブレイクLONG
+  enableQuietRiseBypass?: boolean; // 静かな上昇バイパス
+  enablePullbackLong?: boolean;    // 押し目確認LONG
+  // 静かな上昇バイパスのパラメータ
+  quietRiseMaDev?: number;    // MA乖離閾値
+  quietRiseBody?: number;     // 実体閾値
+  quietRiseBearBars?: number; // 陰線本数閾値
+  // メモ（くせの記録）
+  notes?: string;
+}
+
+/** 銘柄別パラメータ設定マップ */
+export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
+  "285A": {
+    sl: { long: 0.8, short: 0.6 },
+    notes: "キオクシア: 最初の銘柄別最適化対象。値動きが大きく取引数も多い。",
+  },
+  "8035": { sl: { long: 0.8, short: 0.8 } },
+  "6857": { sl: { long: 0.6, short: 0.6 } },
+  "6976": { sl: { long: 0.6, short: 0.8 } },
+  "6526": { sl: { long: 0.9, short: 1.0 } },
+  "5803": { sl: { long: 0.5, short: 0.6 } },
+  "6981": { sl: { long: 0.4, short: 0.9 } },
+  "6920": { sl: { long: 0.9, short: 0.9 } },
+  "6146": { sl: { long: 0.8, short: 0.8 } },
+  "6594": { sl: { long: 0.5, short: 0.5 } },
+  "8316": { sl: { long: 0.5, short: 0.5 } },
+};
+
+/** 銘柄別パラメータ取得ヘルパー */
+export function getSymbolConfig(symbol: string): Partial<SymbolConfig> {
+  return SYMBOL_CONFIG[symbol] ?? {};
+}
 
 /** 銘柄別TP/SLオーバーライド（レガシー互換、USE_PER_SYMBOL_SL=true時はSYMBOL_SL_MAPが優先） */
 const SYMBOL_TP_SL_OVERRIDE: Record<string, { tp: number; sl: number }> = {
@@ -848,6 +904,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     return { symbol, tradeDate, candleTime, action: "none" as const };
   }
 
+  // エントリー対象銘柄制限: ACTIVE_ENTRY_SYMBOLSが設定されている場合、対象外銘柄はシグナル検出・データ蓄積は継続するがエントリーはスキップ
+  const isEntryAllowed = ACTIVE_ENTRY_SYMBOLS === null || ACTIVE_ENTRY_SYMBOLS.has(symbol);
+
   // バッファに追加
   if (!candleBuffers.has(symbol)) {
     candleBuffers.set(symbol, []);
@@ -1592,6 +1651,12 @@ export async function enterPosition(
   boardSnapshot: BoardSnapshot | null,
 ): Promise<ReturnType<typeof processCandle>> {
   const { symbol } = candle;
+
+  // エントリー対象銘柄制限チェック
+  if (ACTIVE_ENTRY_SYMBOLS !== null && !ACTIVE_ENTRY_SYMBOLS.has(symbol)) {
+    return { symbol, tradeDate, candleTime, action: "none" as const };
+  }
+
   const price = candle.close;
   const shares = calcShares(price);
   const amount = price * shares;

@@ -44,6 +44,7 @@ vi.mock("../shared/stocks", () => ({
     { symbol: "TEST_HTF_FILTER", ticker: "TEST_HTF_FILTER.T", name: "テスト", basePrice: 1000, sector: "テスト" },
   ],
   TRADE_EXCLUDED_SYMBOLS: new Set([]),
+  ACTIVE_ENTRY_SYMBOLS: null,
 }));
 
 // ===== テスト対象をインポート =====

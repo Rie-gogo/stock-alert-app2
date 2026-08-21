@@ -105,6 +105,18 @@ export interface SymbolConfig {
   reversalLongStartTime?: string;         // 開始時間（例: "09:45"）
   reversalLongMinSlope?: number;          // MA傾き最小閾値（%）
   disableRoundUpLong?: boolean;           // 大台超えLONGを無効にするか
+  // 安全CB SHORT設定（大幅下落の追撃と底値反発後の大台割れを回避）
+  enableSafeCbShort?: boolean;
+  safeCbMaxDropFromOpenPct?: number;      // 始値からの最大下落率（負数、例:-8.0）
+  safeCbMaxReboundFromDayLowPct?: number; // 当日安値から許容する最大反発率（%）
+  // 反転SHORT設定（上昇後の明確な反落を狙う）
+  enableReversalShort?: boolean;
+  reversalShortMinRisePct?: number;       // 始値からの最低上昇率（%）
+  reversalShortDropPct?: number;          // 当日高値からの最低下落率（%）
+  reversalShortStartTime?: string;
+  reversalShortEndTime?: string;
+  reversalShortSlPct?: number;
+  reversalShortTpPct?: number;
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
   quietRiseBody?: number;     // 実体閾値
@@ -124,7 +136,17 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     reversalLongStartTime: "09:45",   // 09:45以降に限定（09:30-09:44は勝率低い）
     reversalLongMinSlope: 0.02,       // MA8傾き>=0.02%（反転の勢いが弱すぎる場合を除外）
     disableRoundUpLong: true,         // 大台超えLONGを無効化（全敗のため）
-    notes: "キオクシア: 反転LONG（落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA傾き>=0.02%）。大台超えLONG廃止。40営業日: 27件19勝8敗 勝率70.4% +6,258円/株。",
+    enableSafeCbShort: true,
+    safeCbMaxDropFromOpenPct: -8.0,       // 始値比-8%以下は下落末端の追撃としてCB SHORTを停止
+    safeCbMaxReboundFromDayLowPct: 1.0,   // 当日安値から1%以上戻した後のCB SHORTを停止
+    enableReversalShort: true,
+    reversalShortMinRisePct: 3.0,         // 始値から3%以上上昇した日だけ反転を狙う
+    reversalShortDropPct: 1.5,            // 当日高値から1.5%以上の反落を確認
+    reversalShortStartTime: "09:45",
+    reversalShortEndTime: "11:27", // 後場は12:50再開後の遅延発火で成績悪化するため前場限定
+    reversalShortSlPct: 0.8,
+    reversalShortTpPct: 1.5,
+    notes: "キオクシア: 反転LONG（高値落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA8傾き>=0.02%）＋安全CB SHORT（始値比-8%以下・当日安値から1%超反発後を除外）＋反転SHORT（始値+3%→高値から1.5%反落、SL0.8%/TP1.5%、前場09:45〜11:27）。",
   },
   "8035": { sl: { long: 0.8, short: 0.8 } },
   "6857": { sl: { long: 0.6, short: 0.6 } },
@@ -221,6 +243,8 @@ interface OpenPosition {
   entryReason: string;
   boardSignal?: string;
   confidence?: SignalConfidence;
+  slPctOverride?: number;
+  tpPctOverride?: number;
   // BEストップ撤廃済み（+D構成）
 }
 
@@ -353,8 +377,13 @@ const lastStopLossTime = new Map<string, string>();
 
 /** ★反転LONG: 銘柄ごとの当日高値追跡（反転LONGの発火条件判定用） */
 const dayHighTracker = new Map<string, number>();
+/** ★反転SHORT: 当日安値と当日高値の更新位置を追跡 */
+const dayLowTracker = new Map<string, number>();
+const dayHighIndexTracker = new Map<string, number>();
 /** ★反転LONG: 銘柄ごとの反転LONGエントリー済みフラグ（1日1回のみ） */
 const reversalLongFired = new Set<string>();
+/** ★反転SHORT: 銘柄ごとの反転SHORTエントリー済みフラグ（1日1回のみ） */
+const reversalShortFired = new Set<string>();
 
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
@@ -418,12 +447,45 @@ function resetIfNewDay(tradeDate: string): void {
     clearBoardRingBuffer(); // ★v8: 10秒リングバッファもリセット
     lastStopLossTime.clear(); // ★v5.5応急: 損切り時刻記録もリセット
     dayHighTracker.clear(); // ★反転LONG: 当日高値追跡もリセット
+    dayLowTracker.clear();
+    dayHighIndexTracker.clear();
     reversalLongFired.clear(); // ★反転LONG: エントリー済みフラグもリセット
+    reversalShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
     bufferRestored = false; // 日付変更時は復元フラグもリセット
   }
+}
+
+/**
+ * 285A専用の安全CB SHORT判定。
+ * 大幅下落を追いかけるケースと、当日安値から反発済みのケースを除外する。
+ */
+function shouldBlockSafeCbShort(symbol: string, candle: RtCandle1Min, buffer: CandleWithSignal[]): boolean {
+  const config = getSymbolConfig(symbol);
+  if (!config.enableSafeCbShort || buffer.length === 0) return false;
+
+  const dayOpen = buffer[0].open;
+  const dayLow = dayLowTracker.get(symbol) ?? candle.low;
+  const dropFromOpenPct = dayOpen > 0 ? (candle.close - dayOpen) / dayOpen * 100 : 0;
+  const reboundFromDayLowPct = dayLow > 0 ? (candle.close - dayLow) / dayLow * 100 : 0;
+  const maxDrop = config.safeCbMaxDropFromOpenPct ?? -8.0;
+  const maxRebound = config.safeCbMaxReboundFromDayLowPct ?? 1.0;
+
+  if (dropFromOpenPct <= maxDrop) {
+    console.log(
+      `[RealtimeSim] ${symbol} 安全CB SHORTブロック: 始値比${dropFromOpenPct.toFixed(2)}% <= ${maxDrop.toFixed(1)}%（下落末端の追撃回避）`
+    );
+    return true;
+  }
+  if (reboundFromDayLowPct >= maxRebound) {
+    console.log(
+      `[RealtimeSim] ${symbol} 安全CB SHORTブロック: 当日安値から+${reboundFromDayLowPct.toFixed(2)}% >= +${maxRebound.toFixed(1)}%（反発後の追撃回避）`
+    );
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -498,6 +560,16 @@ export async function restoreBuffersFromDb(): Promise<void> {
       const withSignals = detectSignals(buf);
       candleBuffers.set(symbol, withSignals);
       candleCounters.set(symbol, candles.length);
+
+      // 反転LONG/SHORT用の当日高値・安値・高値位置を復元
+      if (withSignals.length > 0) {
+        const dayHigh = Math.max(...withSignals.map(c => c.high));
+        const dayLow = Math.min(...withSignals.map(c => c.low));
+        const dayHighIndex = withSignals.findIndex(c => c.high === dayHigh);
+        dayHighTracker.set(symbol, dayHigh);
+        dayLowTracker.set(symbol, dayLow);
+        dayHighIndexTracker.set(symbol, dayHighIndex);
+      }
     }
 
     currentTradeDate = today;
@@ -510,6 +582,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
       if (dbOpenTrades.length > 0) {
         for (const entry of dbOpenTrades) {
           if (!openPositions.has(entry.symbol)) {
+            const symbolConfig = getSymbolConfig(entry.symbol);
+            const isReversalShort = entry.side === "short" && entry.reason.includes("反転SHORT");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -517,6 +591,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
               shares: entry.shares,
               entryTime: entry.tradeTime,
               entryReason: entry.reason,
+              slPctOverride: isReversalShort ? symbolConfig.reversalShortSlPct : undefined,
+              tpPctOverride: isReversalShort ? symbolConfig.reversalShortTpPct : undefined,
             });
           }
         }
@@ -959,7 +1035,10 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   const prevDayHigh = dayHighTracker.get(symbol) ?? 0;
   if (candle.high > prevDayHigh) {
     dayHighTracker.set(symbol, candle.high);
+    dayHighIndexTracker.set(symbol, buffer.length - 1);
   }
+  const prevDayLow = dayLowTracker.get(symbol) ?? Number.POSITIVE_INFINITY;
+  if (candle.low < prevDayLow) dayLowTracker.set(symbol, candle.low);
 
   // MA5・MA25・RSI・BBを計算してバッファの最新足に設定
   // （detectSignalsは入力のma5/ma25/rsi/bbをそのまま使うため、事前計算が必須）
@@ -1097,11 +1176,69 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // バッファのMA/RSI/BB値を更新（次回以降の計算効率化）
   buffer[buffer.length - 1] = latestSignal;
 
-  if (!latestSignal.signal) {
-    return { symbol, tradeDate, candleTime, action: "none" };
+  const sig = latestSignal.signal;
+  const isRoundBreakdownSignal = sig?.type === "sell" && sig.reason.startsWith("大台割れ");
+  // 安全CBをブロックする場面では、同一足の反転SHORTを評価できるようにする。
+  const safeCbBlockedNow = isRoundBreakdownSignal && shouldBlockSafeCbShort(symbol, candle, buffer);
+
+  // ---- ★285A反転SHORT: 上昇後の明確な反落を捉える ----
+  // 安全な大台割れCBが同じ足で出ている場合はCBを優先する。
+  if (
+    symConfig.enableReversalShort &&
+    !reversalShortFired.has(symbol) &&
+    isEntryAllowed &&
+    (!isRoundBreakdownSignal || safeCbBlockedNow) &&
+    buffer.length >= (symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD) + 1
+  ) {
+    const startTime = symConfig.reversalShortStartTime ?? "09:45";
+    const endTime = symConfig.reversalShortEndTime ?? "14:30";
+    if (candleTime >= startTime && candleTime <= endTime) {
+      const dayOpen = buffer[0]?.open ?? candle.open;
+      const dayHigh = dayHighTracker.get(symbol) ?? candle.high;
+      const riseFromOpenPct = dayOpen > 0 ? (dayHigh - dayOpen) / dayOpen * 100 : 0;
+      const dropFromHighPct = dayHigh > 0 ? (dayHigh - candle.close) / dayHigh * 100 : 0;
+      const minRise = symConfig.reversalShortMinRisePct ?? 3.0;
+      const minDrop = symConfig.reversalShortDropPct ?? 1.5;
+
+      if (riseFromOpenPct >= minRise && dropFromHighPct >= minDrop) {
+        const maPeriod = symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD;
+        const currentSlice = buffer.slice(buffer.length - maPeriod).map(c => c.close);
+        const currentMA = currentSlice.reduce((sum, value) => sum + value, 0) / maPeriod;
+        const prevSlice = buffer.slice(buffer.length - maPeriod - 1, buffer.length - 1).map(c => c.close);
+        const previousMA = prevSlice.reduce((sum, value) => sum + value, 0) / maPeriod;
+        const maFalling = currentMA < previousMA;
+
+        const lookback = Math.min(10, buffer.length - 1);
+        const recent10Lows = buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(c => c.low);
+        const recent10Low = recent10Lows.length ? Math.min(...recent10Lows) : Number.NEGATIVE_INFINITY;
+        const lowBreak = candle.low < recent10Low;
+
+        if (maFalling && lowBreak) {
+          reversalShortFired.add(symbol);
+          const slPct = symConfig.reversalShortSlPct ?? 0.8;
+          const tpPct = symConfig.reversalShortTpPct ?? 1.5;
+          console.log(
+            `[RealtimeSim] ${symbol} ★反転SHORT発火: 始値比+${riseFromOpenPct.toFixed(1)}% ` +
+            `高値${dayHigh}→現在${candle.close}（落${dropFromHighPct.toFixed(1)}%） ` +
+            `MA${maPeriod}下向き + 直近10本安値更新 (SL${slPct}%/TP${tpPct}%)`
+          );
+          return await enterPosition(
+            "short",
+            candle,
+            tradeDate,
+            candleTime,
+            `反転SHORT: 始値+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落`,
+            boardSnapshot,
+            { slPct, tpPct },
+          );
+        }
+      }
+    }
   }
 
-  const sig = latestSignal.signal;
+  if (!sig) {
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
 
   // ---- isBullish方式: 動的MA傾き判定（+D構成改良） ----
   // MA20の傾きが閾値以上（上向き）ならその銘柄は上昇相場と判定しSHORT禁止
@@ -1666,6 +1803,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     // 大台割れシグナルは確認バーステートマシンに登録して待機
     if (sig.reason.startsWith("大台割れ")) {
+      if (safeCbBlockedNow || shouldBlockSafeCbShort(symbol, candle, buffer)) {
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       // ★案6改: 出来高急増時は即エントリー（CB/MW待機をスキップ）— sell_pressure条件撤廃
       const buffer6 = candleBuffers.get(symbol);
       let volRatio = 0;
@@ -1741,6 +1881,7 @@ export async function enterPosition(
   candleTime: string,
   reason: string,
   boardSnapshot: BoardSnapshot | null,
+  riskOverride?: { slPct: number; tpPct: number },
 ): Promise<ReturnType<typeof processCandle>> {
   const { symbol } = candle;
 
@@ -1916,6 +2057,8 @@ export async function enterPosition(
     entryReason: reason,
     boardSignal,
     confidence,
+    slPctOverride: riskOverride?.slPct,
+    tpPctOverride: riskOverride?.tpPct,
   };
 
   openPositions.set(symbol, pos);
@@ -1978,14 +2121,16 @@ async function checkExitConditions(
   const override = SYMBOL_TP_SL_OVERRIDE[symbol];
   // ★銘柄別SYMBOL_CONFIGのTP設定を優先（反転LONG用のTP 0.8%等）
   const symCfgExit = getSymbolConfig(symbol);
-  const tpPct = symCfgExit.tp
+  const configuredTpPct = symCfgExit.tp
     ? (side === "long" ? symCfgExit.tp.long : symCfgExit.tp.short)
     : override ? override.tp : (side === "long" ? TAKE_PROFIT_PERCENT_LONG : TAKE_PROFIT_PERCENT_SHORT);
+  const tpPct = pos.tpPctOverride ?? configuredTpPct;
   // SL: USE_PER_SYMBOL_SL有効時はSYMBOL_SL_MAPを優先、なければレガシーoverride、最終デフォルト
   const slEntry = SYMBOL_SL_MAP[symbol];
-  const slPct = USE_PER_SYMBOL_SL && slEntry !== undefined
+  const configuredSlPct = USE_PER_SYMBOL_SL && slEntry !== undefined
     ? (side === "long" ? slEntry.long : slEntry.short)
     : override ? override.sl : STOP_LOSS_PERCENT;
+  const slPct = pos.slPctOverride ?? configuredSlPct;
 
   if (side === "long") {
     // 損切り: 通常SLのみ

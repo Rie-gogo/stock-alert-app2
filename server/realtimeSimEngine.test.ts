@@ -1683,6 +1683,19 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.tp!.short).toBe(1.5);
   });
 
+  it("285Aの安全CB SHORT・反転SHORT設定が正しく定義されている", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("285A");
+    expect(config.enableSafeCbShort).toBe(true);
+    expect(config.safeCbMaxDropFromOpenPct).toBe(-8.0);
+    expect(config.safeCbMaxReboundFromDayLowPct).toBe(1.0);
+    expect(config.enableReversalShort).toBe(true);
+    expect(config.reversalShortMinRisePct).toBe(3.0);
+    expect(config.reversalShortDropPct).toBe(1.5);
+    expect(config.reversalShortSlPct).toBe(0.8);
+    expect(config.reversalShortTpPct).toBe(1.5);
+  });
+
   it("他の銘柄にはSYMBOL_CONFIGの反転LONG設定がない", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config8035 = getSymbolConfig("8035");
@@ -1736,5 +1749,52 @@ describe("キオクシア(285A) 反転LONG", () => {
 
     // 発火しなかった場合もエラーにはしない（板読みフィルター等でブロックされる可能性）
     // ただし、dayHighTrackerが正しく動作していることは確認
+  });
+
+  it("始値から3%以上上昇後の1.5%以上反落で反転SHORTが発火する", async () => {
+    const symbol = "285A";
+    const tradeDate = "2026-08-25";
+    let reversalShortTriggered = false;
+
+    // 09:00〜09:19: 始値50,000円から明確に上昇し、当日高値を作る
+    for (let i = 0; i < 20; i++) {
+      const minute = String(i).padStart(2, "0");
+      const price = 50000 + i * 180;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${minute}`,
+        open: price, high: price + 80, low: price - 30, close: price + 60, volume: 15000,
+      }));
+    }
+
+    // 09:20〜09:49: 高値から反落し、MA8下向き・直近10本安値更新を作る
+    for (let i = 0; i < 30; i++) {
+      const minute = String(20 + i).padStart(2, "0");
+      const price = 53400 - i * 150;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${minute}`,
+        open: price, high: price + 20, low: price - 110, close: price - 90, volume: 18000,
+      }));
+      if (result.action === "entry" && result.reason?.includes("反転SHORT")) {
+        reversalShortTriggered = true;
+        const pos = getOpenPositions().find(position => position.symbol === symbol);
+        expect(pos?.side).toBe("short");
+
+        // 反転SHORT固有のSL0.8%を超える高値を与える。
+        // 285A通常SHORTのSL0.6%ではなく、反転SHORT専用SLが決済計算に使われることを確認する。
+        const exitMinute = String(21 + i).padStart(2, "0");
+        const exitResult = await processCandle(makeCandle({
+          symbol, tradeDate, candleTime: `09:${exitMinute}`,
+          open: pos!.entryPrice,
+          high: pos!.entryPrice * 1.009,
+          low: pos!.entryPrice * 0.997,
+          close: pos!.entryPrice * 1.0085,
+          volume: 15000,
+        }));
+        expect(exitResult.action).toBe("stop_loss");
+        break;
+      }
+    }
+
+    expect(reversalShortTriggered).toBe(true);
   });
 });

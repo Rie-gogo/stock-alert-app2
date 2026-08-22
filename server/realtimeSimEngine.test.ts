@@ -36,6 +36,7 @@ vi.mock("../shared/stocks", () => ({
     { symbol: "8035", ticker: "8035.T", name: "東京エレクトロン", basePrice: 24800, sector: "半導体" },
     { symbol: "285A", ticker: "285A.T", name: "キオクシア", basePrice: 50000, sector: "半導体" },
     { symbol: "5803", ticker: "5803.T", name: "フジクラ", basePrice: 5000, sector: "非鉄金属" },
+    { symbol: "6981", ticker: "6981.T", name: "村田製作所", basePrice: 8100, sector: "電子部品" },
     { symbol: "TEST", ticker: "TEST.T", name: "テスト銀柄", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_WARMUP", ticker: "TEST_WARMUP.T", name: "テスト", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_DB", ticker: "TEST_DB.T", name: "テスト", basePrice: 1000, sector: "テスト" },
@@ -2133,5 +2134,93 @@ describe("フジクラ(5803) 構造ブレイクLONG・SHORTの安全フィルタ
 
     const blocked = await prepareHighFade("5803", "2026-09-13", 0.5, 12);
     expect(blocked?.reason?.includes("高値失速ブレイクSHORT")).not.toBe(true);
+  });
+});
+
+describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイクSHORT", () => {
+  async function setNeutralBoard(bpr: number) {
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue({
+      bids: [{ price: 8000, qty: Math.round(1000 * bpr) }],
+      asks: [{ price: 8005, qty: 1000 }],
+      underBuyQty: 0,
+      overSellQty: 0,
+      marketOrderBuyQty: 0,
+      marketOrderSellQty: 0,
+    } as any);
+    vi.mocked(analyzeOrderBook).mockReturnValue([]);
+  }
+
+  it("6981の構造ブレイク設定は方向別SL/TPとショック足条件を持ち、他銘柄には影響しない", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("6981");
+    expect(config.enableLowReversalBreakLong).toBe(true);
+    expect(config.lowReversalBreakLongMaxDayLowDropPct).toBe(-2.0);
+    expect(config.lowReversalBreakLongMinReboundPct).toBe(1.0);
+    expect(config.lowReversalBreakLongSlPct).toBe(1.0);
+    expect(config.lowReversalBreakLongTpPct).toBe(1.5);
+    expect(config.enableOpeningBreakShort).toBe(true);
+    expect(config.openingBreakShortSlPct).toBe(0.6);
+    expect(config.openingBreakShortTpPct).toBe(1.5);
+    expect(config.openingBreakShortShockRangePct).toBe(1.0);
+    expect(config.openingBreakShortShockVolumeRatio).toBe(2.0);
+    expect(getSymbolConfig("5803").enableOpeningBreakShort).toBeUndefined();
+  });
+
+  it("安値反転ブレイクLONGは始値比-2%後の反発を1本確認して発火する", async () => {
+    const symbol = "6981";
+    const tradeDate = "2026-09-20";
+    await setNeutralBoard(0.5);
+    await warmup(symbol, tradeDate, 8100);
+    for (let i = 0; i < 10; i++) {
+      const price = 8100 - (i + 1) * 35;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `12:${String(50 + i).padStart(2, "0")}`,
+        open: price + 8, high: price + 12, low: price - 8, close: price, volume: 1400,
+      }));
+    }
+    let entry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    for (let i = 0; i < 18; i++) {
+      const price = 7750 + (i + 1) * 42;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `13:${String(i).padStart(2, "0")}`,
+        open: price - 8, high: price + 12, low: price - 4, close: price, volume: 1600,
+      }));
+      if (result.action === "entry") { entry = result; break; }
+    }
+    expect(entry?.reason).toContain("安値反転ブレイクLONG");
+  });
+
+  it("寄り付きブレイクSHORTは1本確認後に発火し、ショック足では停止する", async () => {
+    const symbol = "6981";
+    const normalDate = "2026-09-21";
+    await setNeutralBoard(0.5);
+    await warmup(symbol, normalDate, 8100);
+    let normalEntry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    for (let i = 0; i < 18; i++) {
+      const price = 8100 - (i + 1) * 38;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate: normalDate, candleTime: `09:${String(30 + i).padStart(2, "0")}`,
+        open: price + 8, high: price + 12, low: price - 5, close: price, volume: 8000,
+      }));
+      if (result.action === "entry") { normalEntry = result; break; }
+    }
+    expect(normalEntry?.reason).toContain("寄り付きブレイクSHORT");
+
+    const shockDate = "2026-09-22";
+    await setNeutralBoard(0.5);
+    await warmup(symbol, shockDate, 8100);
+    for (let i = 0; i < 5; i++) {
+      const price = 8100 - (i + 1) * 50;
+      await processCandle(makeCandle({
+        symbol, tradeDate: shockDate, candleTime: `09:${String(30 + i).padStart(2, "0")}`,
+        open: price + 8, high: price + 12, low: price - 5, close: price, volume: 1500,
+      }));
+    }
+    const blocked = await processCandle(makeCandle({
+      symbol, tradeDate: shockDate, candleTime: "09:35",
+      open: 7860, high: 7920, low: 7800, close: 7810, volume: 8000,
+    }));
+    expect(blocked.reason?.includes("寄り付きブレイクSHORT")).not.toBe(true);
   });
 });

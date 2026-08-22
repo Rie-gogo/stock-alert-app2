@@ -160,6 +160,8 @@ export interface SymbolConfig {
   lowReversalBreakLongMinVolumeRatio?: number;
   lowReversalBreakLongBprMax?: number;
   lowReversalBreakLongBprFloor?: number;
+  lowReversalBreakLongMaxDayLowDropPct?: number;
+  lowReversalBreakLongMinReboundPct?: number;
   lowReversalBreakLongSlPct?: number;
   lowReversalBreakLongTpPct?: number;
   // 構造失速SHORT設定（フジクラ: 上昇後の安値更新）
@@ -173,6 +175,18 @@ export interface SymbolConfig {
   highFadeBreakShortMaSlopeFloor?: number;
   highFadeBreakShortSlPct?: number;
   highFadeBreakShortTpPct?: number;
+  // 寄り付きブレイクSHORT設定（村田製作所: 始値からの下落初動）
+  enableOpeningBreakShort?: boolean;
+  openingBreakShortStartTime?: string;
+  openingBreakShortEndTime?: string;
+  openingBreakShortMaxOpenGainPct?: number;
+  openingBreakShortLowLookback?: number;
+  openingBreakShortMinVolumeRatio?: number;
+  openingBreakShortBprMax?: number;
+  openingBreakShortSlPct?: number;
+  openingBreakShortTpPct?: number;
+  openingBreakShortShockRangePct?: number;
+  openingBreakShortShockVolumeRatio?: number;
   // 高値反転SHORT設定（急騰後の初動反落を狙う）
   enablePeakReversalShort?: boolean;
   peakReversalShortStartTime?: string;
@@ -302,7 +316,37 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     highFadeBreakShortTpPct: 1.5,
     notes: "フジクラ: 候補C（後場安値更新SHORT）に加え、安値反転ブレイクLONGと高値失速ブレイクSHORTを追加。LONGはBPR<=0.25を極端な売り圧力として停止、SHORTはMA8傾き<=-0.20%を急落末端として停止。候補Cのショック足停止は維持。",
   },
-  "6981": { sl: { long: 0.4, short: 0.9 } },
+  "6981": {
+    sl: { long: 1.0, short: 0.6 },
+    tp: { long: 1.5, short: 1.5 },
+    enableFastEntryVol: false,
+    enableFastEntry4a: false,
+    enableLowBreakFast: false,
+    enableLowReversalBreakLong: true,
+    lowReversalBreakLongStartTime: "09:45",
+    lowReversalBreakLongEndTime: "14:20",
+    lowReversalBreakLongLowLookback: 20,
+    lowReversalBreakLongHighLookback: 5,
+    lowReversalBreakLongMinVolumeRatio: 0.8,
+    lowReversalBreakLongBprMax: 1.0,
+    lowReversalBreakLongBprFloor: 0,
+    lowReversalBreakLongMaxDayLowDropPct: -2.0,
+    lowReversalBreakLongMinReboundPct: 1.0,
+    lowReversalBreakLongSlPct: 1.0,
+    lowReversalBreakLongTpPct: 1.5,
+    enableOpeningBreakShort: true,
+    openingBreakShortStartTime: "09:45",
+    openingBreakShortEndTime: "10:45",
+    openingBreakShortMaxOpenGainPct: -1.5,
+    openingBreakShortLowLookback: 20,
+    openingBreakShortMinVolumeRatio: 1.0,
+    openingBreakShortBprMax: 0.8,
+    openingBreakShortSlPct: 0.6,
+    openingBreakShortTpPct: 1.5,
+    openingBreakShortShockRangePct: 1.0,
+    openingBreakShortShockVolumeRatio: 2.0,
+    notes: "村田製作所: 安値反転ブレイクLONG（当日安値が始値比-2%後、安値から1%反発・5本高値更新・1本確認、SL1.0%/TP1.5%）＋寄り付きブレイクSHORT（始値比-1.5%・20本安値更新・1本確認、SL0.6%/TP1.5%）。SHORTは値幅1.0%かつ出来高2.0倍以上のショック足を停止。各日1方向1回のみ。",
+  },
   "6920": { sl: { long: 0.9, short: 0.9 } },
   "6146": { sl: { long: 0.8, short: 0.8 } },
   "6594": { sl: { long: 0.5, short: 0.5 } },
@@ -548,6 +592,9 @@ interface StructureBreakPendingState {
 }
 const lowReversalBreakLongPending = new Map<string, StructureBreakPendingState>();
 const highFadeBreakShortPending = new Map<string, StructureBreakPendingState>();
+/** ★6981寄り付きブレイクSHORT: 1日1方向1回と1本確認待ち状態 */
+const openingBreakShortFired = new Set<string>();
+const openingBreakShortPending = new Map<string, StructureBreakPendingState>();
 /** ★高値反転SHORT: 銘柄ごとの急騰後反落エントリー済みフラグ（1日1回のみ） */
 const peakReversalShortFired = new Set<string>();
 
@@ -624,6 +671,8 @@ function resetIfNewDay(tradeDate: string): void {
     highFadeBreakShortFired.clear();
     lowReversalBreakLongPending.clear();
     highFadeBreakShortPending.clear();
+    openingBreakShortFired.clear();
+    openingBreakShortPending.clear();
     peakReversalShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
@@ -761,6 +810,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
             const isAfternoonLowBreakShort = entry.side === "short" && entry.reason.includes("後場安値更新SHORT");
             const isLowReversalBreakLong = entry.side === "long" && entry.reason.includes("安値反転ブレイクLONG");
             const isHighFadeBreakShort = entry.side === "short" && entry.reason.includes("高値失速ブレイクSHORT");
+            const isOpeningBreakShort = entry.side === "short" && entry.reason.includes("寄り付きブレイクSHORT");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -776,6 +826,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
                     ? symbolConfig.lowReversalBreakLongSlPct
                     : isHighFadeBreakShort
                       ? symbolConfig.highFadeBreakShortSlPct
+                      : isOpeningBreakShort
+                        ? symbolConfig.openingBreakShortSlPct
                   : undefined,
               tpPctOverride: isReversalShort
                 ? symbolConfig.reversalShortTpPct
@@ -785,6 +837,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
                     ? symbolConfig.lowReversalBreakLongTpPct
                     : isHighFadeBreakShort
                       ? symbolConfig.highFadeBreakShortTpPct
+                      : isOpeningBreakShort
+                        ? symbolConfig.openingBreakShortTpPct
                   : undefined,
             });
           }
@@ -1501,6 +1555,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     if (
       symConfig.enableLowReversalBreakLong &&
       !lowReversalBreakLongFired.has(symbol) &&
+      !openingBreakShortFired.has(symbol) &&
       canCalcMa &&
       candleTime >= (symConfig.lowReversalBreakLongStartTime ?? "09:45") &&
       candleTime <= (symConfig.lowReversalBreakLongEndTime ?? "14:30")
@@ -1510,9 +1565,13 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const dayLow = Math.min(...buffer.map(item => item.low));
       const recentHigh = Math.max(...buffer.slice(buffer.length - 1 - highLookback, buffer.length - 1).map(item => item.high));
       const dayLowDropPct = dayOpen > 0 ? (dayLow - dayOpen) / dayOpen * 100 : 0;
+      const reboundFromDayLowPct = dayLow > 0 ? (candle.close - dayLow) / dayLow * 100 : 0;
+      const maxDayLowDropPct = symConfig.lowReversalBreakLongMaxDayLowDropPct ?? -0.5;
+      const minReboundPct = symConfig.lowReversalBreakLongMinReboundPct ?? 0;
       const reversalLongOk =
         buffer.length > lowLookback &&
-        dayLowDropPct <= -0.5 &&
+        dayLowDropPct <= maxDayLowDropPct &&
+        reboundFromDayLowPct >= minReboundPct &&
         candle.close > recentHigh &&
         candle.close > candle.open &&
         currentMA > prevMA &&
@@ -1549,6 +1608,66 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       } else if (reversalLongOk) {
         lowReversalBreakLongPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
         console.log(`[RealtimeSim] ${symbol} 安値反転ブレイクLONG: 初動検出、次の1本を確認待ち`);
+      }
+    }
+
+    // ---- ★6981: 寄り付きブレイクSHORT ----
+    // 始値から十分に下落し直近20本安値を更新した初動を、1本の陰線確認で捉える。
+    // 大きな値幅と出来高急増が同時に出たショック足は、下落末端の追撃としてこの方式だけ停止する。
+    if (
+      symConfig.enableOpeningBreakShort &&
+      !openingBreakShortFired.has(symbol) &&
+      !lowReversalBreakLongFired.has(symbol) &&
+      canCalcMa &&
+      candleTime >= (symConfig.openingBreakShortStartTime ?? "09:45") &&
+      candleTime <= (symConfig.openingBreakShortEndTime ?? "10:45")
+    ) {
+      const lowLookback = symConfig.openingBreakShortLowLookback ?? 20;
+      const recentLow = Math.min(...buffer.slice(buffer.length - 1 - lowLookback, buffer.length - 1).map(item => item.low));
+      const candleRangePct = candle.high > 0 ? Math.abs((candle.high - candle.low) / candle.high * 100) : 0;
+      const shockRangePct = symConfig.openingBreakShortShockRangePct ?? 1.0;
+      const shockVolumeRatio = symConfig.openingBreakShortShockVolumeRatio ?? 2.0;
+      const isShockCandle = candleRangePct >= shockRangePct && volumeRatio >= shockVolumeRatio;
+      const openingShortOk =
+        buffer.length > lowLookback &&
+        openGainPct <= (symConfig.openingBreakShortMaxOpenGainPct ?? -1.5) &&
+        candle.close < recentLow &&
+        candle.close < candle.open &&
+        volumeRatio >= (symConfig.openingBreakShortMinVolumeRatio ?? 1.0) &&
+        !isShockCandle;
+
+      const shortPending = openingBreakShortPending.get(symbol);
+      if (shortPending && candleTime > shortPending.triggerTime) {
+        openingBreakShortPending.delete(symbol);
+        const openingBoard = getBoardSnapshot(symbol);
+        const openingBpr = openingBoard?.buyPressureRatio ?? 0;
+        const bprMax = symConfig.openingBreakShortBprMax ?? 0.8;
+        const confirmedShort = candle.close < shortPending.triggerClose && candle.close < candle.open;
+        if (!confirmedShort) {
+          console.log(`[RealtimeSim] ${symbol} 寄り付きブレイクSHORT: 1本確認が不成立で取消`);
+        } else if (openingBoard?.signal === "buy_pressure") {
+          console.log(`[RealtimeSim] ${symbol} 寄り付きブレイクSHORT: buy_pressureでブロック`);
+        } else if (openingBpr > bprMax) {
+          console.log(`[RealtimeSim] ${symbol} 寄り付きブレイクSHORT: BPR買い優勢(${openingBpr.toFixed(2)} > ${bprMax})でブロック`);
+        } else {
+          openingBreakShortFired.add(symbol);
+          const slPct = symConfig.openingBreakShortSlPct ?? 0.6;
+          const tpPct = symConfig.openingBreakShortTpPct ?? 1.5;
+          console.log(`[RealtimeSim] ${symbol} ★寄り付きブレイクSHORT発火: 1本確認・始値比${openGainPct.toFixed(2)}%・${lowLookback}本安値更新 (SL${slPct}%/TP${tpPct}%)`);
+          return await enterPosition(
+            "short", candle, tradeDate, candleTime,
+            `寄り付きブレイクSHORT: 1本確認、始値比${openGainPct.toFixed(2)}%、${lowLookback}本安値更新`,
+            openingBoard, { slPct, tpPct },
+          );
+        }
+        return { symbol, tradeDate, candleTime, action: "none" };
+      } else if (isShockCandle && openGainPct <= (symConfig.openingBreakShortMaxOpenGainPct ?? -1.5) && candle.close < recentLow) {
+        console.log(`[RealtimeSim] ${symbol} 寄り付きブレイクSHORT: ショック足でブロック (値幅${candleRangePct.toFixed(3)}%、出来高${volumeRatio.toFixed(2)}倍)`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      } else if (openingShortOk) {
+        openingBreakShortPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
+        console.log(`[RealtimeSim] ${symbol} 寄り付きブレイクSHORT: 初動検出、次の1本を確認待ち`);
+        return { symbol, tradeDate, candleTime, action: "none" };
       }
     }
 
@@ -2378,6 +2497,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // アブレーションテストでmedium許可は-18.3%のマイナス影響が確認されたため全ブロック
     if (sig.confidence === "medium") {
       console.log(`[RealtimeSim] ${symbol} SHORT mediumブロック: 全ブロック方式 (${sig.reason.substring(0, 50)})`);
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    // 6981はダウ理論の即時SHORTではなく、寄り付きブレイクSHORTの1本確認だけで下落初動を扱う。
+    if (symConfig.enableOpeningBreakShort && sig.reason.startsWith("ダウ理論: 直近安値更新")) {
+      console.log(`[RealtimeSim] ${symbol} ダウ理論SHORT: 寄り付きブレイクSHORTの専用確認経路へ委譲`);
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 

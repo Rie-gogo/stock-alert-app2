@@ -2037,3 +2037,101 @@ describe("フジクラ(5803) 候補C 後場安値更新SHORT", () => {
     expect(getSymbolConfig("8035").enableAfternoonLowBreakShort).toBeUndefined();
   });
 });
+
+describe("フジクラ(5803) 構造ブレイクLONG・SHORTの安全フィルター", () => {
+  async function setNeutralBoard(bpr: number) {
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue({
+      bids: [{ price: 5000, qty: Math.round(1000 * bpr) }],
+      asks: [{ price: 5005, qty: 1000 }],
+      underBuyQty: 0,
+      overSellQty: 0,
+      marketOrderBuyQty: 0,
+      marketOrderSellQty: 0,
+    } as any);
+    vi.mocked(analyzeOrderBook).mockReturnValue([]);
+  }
+
+  async function prepareLowReversal(symbol: string, tradeDate: string, bpr: number) {
+    await setNeutralBoard(bpr);
+    await warmup(symbol, tradeDate, 5000);
+    for (let i = 0; i < 10; i++) {
+      const price = 5000 - (i + 1) * 35;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(i).padStart(2, "0")}`,
+        open: price + 8, high: price + 12, low: price - 8, close: price, volume: 1400,
+      }));
+    }
+  }
+
+  async function prepareHighFade(symbol: string, tradeDate: string, bpr: number, declinePerMinute: number) {
+    await setNeutralBoard(bpr);
+    await warmup(symbol, tradeDate, 5000);
+    for (let i = 0; i < 10; i++) {
+      const price = 5000 + (i + 1) * 80;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(i).padStart(2, "0")}`,
+        open: price - 10, high: price + 12, low: price - 4, close: price, volume: 1400,
+      }));
+    }
+    for (let i = 0; i < 20; i++) {
+      const price = 5800 - (i + 1) * declinePerMinute;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(10 + i).padStart(2, "0")}`,
+        open: price + 8, high: price + 12, low: price - 2, close: price, volume: 1400,
+      }));
+      if (result.action === "entry") return result;
+    }
+    return null;
+  }
+
+  it("5803の構造ブレイク2方式と専用安全フィルターが設定されている", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("5803");
+    expect(config.enableLowReversalBreakLong).toBe(true);
+    expect(config.lowReversalBreakLongBprFloor).toBe(0.25);
+    expect(config.lowReversalBreakLongSlPct).toBe(0.5);
+    expect(config.lowReversalBreakLongTpPct).toBe(0.5);
+    expect(config.enableHighFadeBreakShort).toBe(true);
+    expect(config.highFadeBreakShortMaSlopeFloor).toBe(-0.20);
+    expect(config.highFadeBreakShortSlPct).toBe(0.6);
+    expect(config.highFadeBreakShortTpPct).toBe(1.5);
+    expect(getSymbolConfig("285A").enableLowReversalBreakLong).toBeUndefined();
+    expect(getSymbolConfig("8035").enableHighFadeBreakShort).toBeUndefined();
+  });
+
+  it("安値反転ブレイクLONGはBPR0.50で発火し、BPR0.25では停止する", async () => {
+    const symbol = "5803";
+    const tradeDate = "2026-09-10";
+    await prepareLowReversal(symbol, tradeDate, 0.5);
+    let entry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    for (let i = 0; i < 15; i++) {
+      const price = 4650 + (i + 1) * 35;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(10 + i).padStart(2, "0")}`,
+        open: price - 8, high: price + 12, low: price - 5, close: price, volume: 1600,
+      }));
+      if (result.action === "entry") { entry = result; break; }
+    }
+    expect(entry?.reason).toContain("安値反転ブレイクLONG");
+
+    const blockedDate = "2026-09-11";
+    await prepareLowReversal(symbol, blockedDate, 0.25);
+    for (let i = 0; i < 15; i++) {
+      const price = 4650 + (i + 1) * 35;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate: blockedDate, candleTime: `10:${String(10 + i).padStart(2, "0")}`,
+        open: price - 8, high: price + 12, low: price - 5, close: price, volume: 1600,
+      }));
+      expect(result.reason?.includes("安値反転ブレイクLONG")).not.toBe(true);
+    }
+  });
+
+  it("高値失速ブレイクSHORTはMA8傾きが-0.20%超なら発火し、急落済みなら停止する", async () => {
+    const normal = await prepareHighFade("5803", "2026-09-12", 0.5, 5);
+    expect(normal?.reason).toContain("高値失速ブレイクSHORT");
+
+    const blocked = await prepareHighFade("5803", "2026-09-13", 0.5, 12);
+    expect(blocked?.reason?.includes("高値失速ブレイクSHORT")).not.toBe(true);
+  });
+});

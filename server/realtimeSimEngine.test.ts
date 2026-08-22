@@ -35,6 +35,7 @@ vi.mock("../shared/stocks", () => ({
     { symbol: "6976", ticker: "6976.T", name: "太陽誘電", basePrice: 14500, sector: "電子部品" },
     { symbol: "8035", ticker: "8035.T", name: "東京エレクトロン", basePrice: 24800, sector: "半導体" },
     { symbol: "285A", ticker: "285A.T", name: "キオクシア", basePrice: 50000, sector: "半導体" },
+    { symbol: "5803", ticker: "5803.T", name: "フジクラ", basePrice: 5000, sector: "非鉄金属" },
     { symbol: "TEST", ticker: "TEST.T", name: "テスト銀柄", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_WARMUP", ticker: "TEST_WARMUP.T", name: "テスト", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_DB", ticker: "TEST_DB.T", name: "テスト", basePrice: 1000, sector: "テスト" },
@@ -1923,5 +1924,116 @@ describe("キオクシア(285A) 反転LONG", () => {
     }
 
     expect(reversalShortTriggered).toBe(true);
+  });
+});
+
+describe("フジクラ(5803) 候補C 後場安値更新SHORT", () => {
+  async function prepareCandidateC(symbol: string, tradeDate: string) {
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue(null);
+    vi.mocked(analyzeOrderBook).mockReturnValue([]);
+    for (let i = 0; i < 30; i++) {
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${String(i).padStart(2, "0")}`,
+        open: 5000, high: 5010, low: 4990, close: 5000, volume: 1000,
+      }));
+    }
+    for (let i = 0; i < 40; i++) {
+      const totalMinutes = 12 * 60 + 50 + i;
+      const time = `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
+      const price = 5000 - (i + 1) * 10;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: time,
+        open: price + 5, high: price + 8, low: price - 4, close: price, volume: 1000,
+      }));
+    }
+  }
+
+  it("5803の候補C設定とショック足閾値が定義されている", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("5803");
+
+    expect(config.enableAfternoonLowBreakShort).toBe(true);
+    expect(config.afternoonLowBreakShortStartTime).toBe("13:30");
+    expect(config.afternoonLowBreakShortEndTime).toBe("14:00");
+    expect(config.afternoonLowBreakShortLowLookback).toBe(5);
+    expect(config.afternoonLowBreakShortMaxOpenGainPct).toBe(-1.0);
+    expect(config.afternoonLowBreakShortMaxMaSlopePct).toBe(-0.1);
+    expect(config.afternoonLowBreakShortMinVolumeRatio).toBe(1.0);
+    expect(config.afternoonLowBreakShortBprMax).toBe(1.0);
+    expect(config.afternoonLowBreakShortSlPct).toBe(0.6);
+    expect(config.afternoonLowBreakShortTpPct).toBe(1.5);
+    expect(config.afternoonLowBreakShortShockRangePct).toBe(0.75);
+    expect(config.afternoonLowBreakShortShockVolumeRatio).toBe(3.0);
+  });
+
+  it("通常の後場5本安値更新では候補CのSHORTが発火する", async () => {
+    const symbol = "5803";
+    const tradeDate = "2026-09-01";
+    await prepareCandidateC(symbol, tradeDate);
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "13:30",
+      open: 4600, high: 4605, low: 4580, close: 4575, volume: 1200,
+    }));
+
+    expect(result.action).toBe("entry");
+    expect(result.reason).toContain("後場安値更新SHORT");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.side).toBe("short");
+    expect(position?.slPctOverride).toBe(0.6);
+    expect(position?.tpPctOverride).toBe(1.5);
+  });
+
+  it("候補CはBPR0.8でも専用上限1.0の範囲なら発火する", async () => {
+    const symbol = "5803";
+    const tradeDate = "2026-09-03";
+    await prepareCandidateC(symbol, tradeDate);
+    const { getOrderBook, analyzeOrderBook } = await import("./kabuStation");
+    vi.mocked(getOrderBook).mockReturnValue({
+      bids: [{ price: 4580, qty: 800 }],
+      asks: [{ price: 4585, qty: 1000 }],
+      underBuyQty: 0,
+      overSellQty: 0,
+      marketOrderBuyQty: 0,
+      marketOrderSellQty: 0,
+    } as any);
+    vi.mocked(analyzeOrderBook).mockReturnValue([]);
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "13:30",
+      open: 4600, high: 4605, low: 4580, close: 4575, volume: 1200,
+    }));
+
+    expect(result.action).toBe("entry");
+    expect(result.reason).toContain("後場安値更新SHORT");
+    const history = getSignalHistory();
+    expect(history.find(item => item.action === "pm_bpr_block" && item.symbol === symbol && item.time === "13:30")).toBeUndefined();
+  });
+
+  it("候補Cだけはショック足で停止し、次の通常安値更新では発火できる", async () => {
+    const symbol = "5803";
+    const tradeDate = "2026-09-02";
+    await prepareCandidateC(symbol, tradeDate);
+
+    const shockResult = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "13:30",
+      open: 4600, high: 4650, low: 4300, close: 4300, volume: 4000,
+    }));
+    expect(shockResult.action).toBe("none");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
+
+    const normalResult = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "13:31",
+      open: 4300, high: 4310, low: 4288, close: 4295, volume: 1200,
+    }));
+    expect(normalResult.action).toBe("entry");
+    expect(normalResult.reason).toContain("後場安値更新SHORT");
+  });
+
+  it("候補Cの設定は他銘柄の既存方式へ追加されない", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    expect(getSymbolConfig("285A").enableAfternoonLowBreakShort).toBeUndefined();
+    expect(getSymbolConfig("8035").enableAfternoonLowBreakShort).toBeUndefined();
   });
 });

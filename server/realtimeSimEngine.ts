@@ -138,6 +138,19 @@ export interface SymbolConfig {
   trendShortMinVolumeRatio?: number;
   trendShortSlPct?: number;
   trendShortTpPct?: number;
+  // 後場安値更新SHORT設定（フジクラ候補C）
+  enableAfternoonLowBreakShort?: boolean;
+  afternoonLowBreakShortStartTime?: string;
+  afternoonLowBreakShortEndTime?: string;
+  afternoonLowBreakShortLowLookback?: number;
+  afternoonLowBreakShortMaxOpenGainPct?: number;
+  afternoonLowBreakShortMaxMaSlopePct?: number;
+  afternoonLowBreakShortMinVolumeRatio?: number;
+  afternoonLowBreakShortBprMax?: number;
+  afternoonLowBreakShortSlPct?: number;
+  afternoonLowBreakShortTpPct?: number;
+  afternoonLowBreakShortShockRangePct?: number;
+  afternoonLowBreakShortShockVolumeRatio?: number;
   // 高値反転SHORT設定（急騰後の初動反落を狙う）
   enablePeakReversalShort?: boolean;
   peakReversalShortStartTime?: string;
@@ -231,7 +244,22 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
   "6857": { sl: { long: 0.6, short: 0.6 } },
   "6976": { sl: { long: 0.6, short: 0.8 } },
   "6526": { sl: { long: 0.9, short: 1.0 } },
-  "5803": { sl: { long: 0.5, short: 0.6 } },
+  "5803": {
+    sl: { long: 0.5, short: 0.6 },
+    enableAfternoonLowBreakShort: true,
+    afternoonLowBreakShortStartTime: "13:30",
+    afternoonLowBreakShortEndTime: "14:00",
+    afternoonLowBreakShortLowLookback: 5,
+    afternoonLowBreakShortMaxOpenGainPct: -1.0,
+    afternoonLowBreakShortMaxMaSlopePct: -0.1,
+    afternoonLowBreakShortMinVolumeRatio: 1.0,
+    afternoonLowBreakShortBprMax: 1.0,
+    afternoonLowBreakShortSlPct: 0.6,
+    afternoonLowBreakShortTpPct: 1.5,
+    afternoonLowBreakShortShockRangePct: 0.75,
+    afternoonLowBreakShortShockVolumeRatio: 3.0,
+    notes: "フジクラ: 後場安値更新SHORT（候補C）。13:30〜14:00、5本安値更新、始値比-1%以下、MA8傾き<=-0.1%、出来高1.0倍、BPR<=1.0。発火足の値幅>=0.75%かつ出来高>=3.0倍は流動性ショックとして停止。SL0.6%/TP1.5%。",
+  },
   "6981": { sl: { long: 0.4, short: 0.9 } },
   "6920": { sl: { long: 0.9, short: 0.9 } },
   "6146": { sl: { long: 0.8, short: 0.8 } },
@@ -466,6 +494,8 @@ const reversalShortFired = new Set<string>();
 /** ★順張り: 銘柄ごとの順張りLONG/SHORTエントリー済みフラグ（各方向1日1回のみ） */
 const trendLongFired = new Set<string>();
 const trendShortFired = new Set<string>();
+/** ★後場安値更新SHORT: 銘柄ごとの候補Cエントリー済みフラグ（1日1回のみ） */
+const afternoonLowBreakShortFired = new Set<string>();
 /** ★高値反転SHORT: 銘柄ごとの急騰後反落エントリー済みフラグ（1日1回のみ） */
 const peakReversalShortFired = new Set<string>();
 
@@ -537,6 +567,7 @@ function resetIfNewDay(tradeDate: string): void {
     reversalShortFired.clear();
     trendLongFired.clear();
     trendShortFired.clear();
+    afternoonLowBreakShortFired.clear();
     peakReversalShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
@@ -671,6 +702,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
           if (!openPositions.has(entry.symbol)) {
             const symbolConfig = getSymbolConfig(entry.symbol);
             const isReversalShort = entry.side === "short" && entry.reason.includes("反転SHORT");
+            const isAfternoonLowBreakShort = entry.side === "short" && entry.reason.includes("後場安値更新SHORT");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -678,8 +710,16 @@ export async function restoreBuffersFromDb(): Promise<void> {
               shares: entry.shares,
               entryTime: entry.tradeTime,
               entryReason: entry.reason,
-              slPctOverride: isReversalShort ? symbolConfig.reversalShortSlPct : undefined,
-              tpPctOverride: isReversalShort ? symbolConfig.reversalShortTpPct : undefined,
+              slPctOverride: isReversalShort
+                ? symbolConfig.reversalShortSlPct
+                : isAfternoonLowBreakShort
+                  ? symbolConfig.afternoonLowBreakShortSlPct
+                  : undefined,
+              tpPctOverride: isReversalShort
+                ? symbolConfig.reversalShortTpPct
+                : isAfternoonLowBreakShort
+                  ? symbolConfig.afternoonLowBreakShortTpPct
+                  : undefined,
             });
           }
         }
@@ -1385,6 +1425,67 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           const tpPct = symConfig.trendLongTpPct ?? 0.8;
           console.log(`[RealtimeSim] ${symbol} ★順張りLONG発火: 始値比+${openGainPct.toFixed(1)}%・20本高値更新・出来高${volumeRatio.toFixed(1)}倍 (SL${slPct}%/TP${tpPct}%)`);
           return await enterPosition("long", candle, tradeDate, candleTime, `順張りLONG: 始値比+${openGainPct.toFixed(1)}%、20本高値更新、出来高${volumeRatio.toFixed(1)}倍`, trendBoard, { slPct, tpPct });
+        }
+      }
+    }
+
+    // ---- ★5803候補C: 後場の下落継続を5本安値更新で捉えるSHORT ----
+    // 急落・出来高急増が同時に起きた足は、投げ売り後の反発を避けるため候補Cだけ停止する。
+    if (
+      symConfig.enableAfternoonLowBreakShort &&
+      !afternoonLowBreakShortFired.has(symbol) &&
+      canCalcMa &&
+      candleTime >= (symConfig.afternoonLowBreakShortStartTime ?? "13:30") &&
+      candleTime <= (symConfig.afternoonLowBreakShortEndTime ?? "14:00")
+    ) {
+      const lookback = symConfig.afternoonLowBreakShortLowLookback ?? 5;
+      const recentLow = Math.min(...buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(item => item.low));
+      const lowBreak = candle.close < recentLow;
+      const cShortOk =
+        openGainPct <= (symConfig.afternoonLowBreakShortMaxOpenGainPct ?? -1.0) &&
+        maSlope2 <= (symConfig.afternoonLowBreakShortMaxMaSlopePct ?? -0.1) &&
+        lowBreak &&
+        candle.close < candle.open &&
+        volumeRatio >= (symConfig.afternoonLowBreakShortMinVolumeRatio ?? 1.0);
+
+      if (cShortOk) {
+        const cBoard = getBoardSnapshot(symbol);
+        const cBpr = cBoard?.buyPressureRatio ?? 0;
+        const cBprMax = symConfig.afternoonLowBreakShortBprMax ?? 1.0;
+        const candleRangePct = candle.high > 0
+          ? Math.abs((candle.low - candle.high) / candle.high * 100)
+          : 0;
+        const shockRangePct = symConfig.afternoonLowBreakShortShockRangePct ?? 0.75;
+        const shockVolumeRatio = symConfig.afternoonLowBreakShortShockVolumeRatio ?? 3.0;
+        const isShockCandle = candleRangePct >= shockRangePct && volumeRatio >= shockVolumeRatio;
+
+        if (cBoard?.signal === "buy_pressure") {
+          console.log(`[RealtimeSim] ${symbol} 後場安値更新SHORT: buy_pressureでブロック`);
+        } else if (cBpr > cBprMax) {
+          console.log(`[RealtimeSim] ${symbol} 後場安値更新SHORT: BPR買い優勢(${cBpr.toFixed(2)} > ${cBprMax})でブロック`);
+        } else if (isShockCandle) {
+          console.log(
+            `[RealtimeSim] ${symbol} 後場安値更新SHORT: ショック足でブロック ` +
+            `(値幅${candleRangePct.toFixed(3)}% >= ${shockRangePct}%、出来高${volumeRatio.toFixed(2)}倍 >= ${shockVolumeRatio}倍)`
+          );
+        } else {
+          afternoonLowBreakShortFired.add(symbol);
+          const slPct = symConfig.afternoonLowBreakShortSlPct ?? 0.6;
+          const tpPct = symConfig.afternoonLowBreakShortTpPct ?? 1.5;
+          console.log(
+            `[RealtimeSim] ${symbol} ★後場安値更新SHORT発火: 始値比${openGainPct.toFixed(1)}%・` +
+            `${lookback}本安値更新・MA傾き${maSlope2.toFixed(3)}%・出来高${volumeRatio.toFixed(2)}倍 ` +
+            `(SL${slPct}%/TP${tpPct}%)`
+          );
+          return await enterPosition(
+            "short",
+            candle,
+            tradeDate,
+            candleTime,
+            `後場安値更新SHORT: 始値比${openGainPct.toFixed(1)}%、${lookback}本安値更新、出来高${volumeRatio.toFixed(2)}倍`,
+            cBoard,
+            { slPct, tpPct },
+          );
         }
       }
     }
@@ -2147,6 +2248,7 @@ export async function enterPosition(
   const amount = price * shares;
   const action = side === "long" ? "buy" : "short";
   const boardSignal = boardSnapshot?.signal ?? undefined;
+  const isFujikuraAfternoonLowBreakShort = reason.startsWith("後場安値更新SHORT");
 
   // ---- ★v5.5応急フィルター: 出来高取得不可時のエントリー制限 ----
   const buffer = candleBuffers.get(symbol);
@@ -2193,7 +2295,7 @@ export async function enterPosition(
   }
 
   // ---- ★後場BPRフィルター: 13:00以降SHORTでBPR>=0.65ならブロック ----
-  if (side === "short" && candleTime >= PM_BPR_FILTER_START && boardSnapshot) {
+  if (side === "short" && !isFujikuraAfternoonLowBreakShort && candleTime >= PM_BPR_FILTER_START && boardSnapshot) {
     const bpr = boardSnapshot.buyPressureRatio;
     if (typeof bpr === "number" && bpr >= PM_BPR_BLOCK_THRESHOLD) {
       console.log(
@@ -2217,7 +2319,7 @@ export async function enterPosition(
   }
 
   // ---- ★午後安値圏フィルター: 13:00以降SHORTで始値比-5%以上下落済みならブロック ----
-  if (side === "short" && candleTime >= "13:00" && buffer && buffer.length > 0) {
+  if (side === "short" && !isFujikuraAfternoonLowBreakShort && candleTime >= "13:00" && buffer && buffer.length > 0) {
     const openPrice = buffer[0].open; // 当日始値（バッファ先頭 = 09:00台の最初の足）
     if (openPrice > 0) {
       const dropFromOpen = (price - openPrice) / openPrice;

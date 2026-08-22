@@ -56,7 +56,7 @@ vi.mock("../shared/stocks", () => ({
 import { getRtCandles } from "./db";
 import { processCandle } from "./realtimeSimEngine";
 
-describe("6857 高値失速SHORT 直近5営業日・未来情報なし再生", () => {
+describe("6857 LONG・SHORT・損切り後再評価 直近5営業日・未来情報なし再生", () => {
   it("保存済みKABU 1分足と同時点の板スナップショットだけを時刻順に処理する", async () => {
     const dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"];
     const events: Array<{ date: string; time: string; action: string; reason?: string; pnl?: number }> = [];
@@ -83,5 +83,26 @@ describe("6857 高値失速SHORT 直近5営業日・未来情報なし再生", (
 
     console.log("6857_5D_CAUSAL_REPLAY", JSON.stringify({ processedRows, events }));
     expect(processedRows).toBeGreaterThan(1_600);
+  }, 60_000);
+
+  it("2026-07-30のLONG損切り後に、確認済みのSHORTへ一度だけ再評価する", async () => {
+    const events: Array<{ time: string; action: string; reason?: string; pnl?: number }> = [];
+    const rows = await getRtCandles("6857", "2026-07-30");
+    for (const row of rows) {
+      currentSnapshot = (row.boardSnapshot as Snapshot | null) ?? null;
+      const result = await processCandle({
+        symbol: "6857",
+        tradeDate: "2026-07-30",
+        candleTime: row.candleTime,
+        open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close), volume: row.volume,
+      });
+      if (result.action !== "none") events.push({ time: row.candleTime, action: result.action, reason: result.reason, pnl: result.pnl });
+    }
+    const longEntryIndex = events.findIndex(event => event.reason?.startsWith("アドバンテスト確認型LONG"));
+    const stopIndex = events.findIndex(event => event.action === "stop_loss");
+    const shortReentryIndex = events.findIndex(event => event.reason?.startsWith("アドバンテスト高値失速SHORT（損切り後再評価）"));
+    expect(longEntryIndex).toBeGreaterThanOrEqual(0);
+    expect(stopIndex).toBeGreaterThan(longEntryIndex);
+    expect(shortReentryIndex).toBeGreaterThan(stopIndex);
   }, 60_000);
 });

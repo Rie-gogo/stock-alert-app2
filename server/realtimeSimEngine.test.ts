@@ -2378,3 +2378,74 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
     expect(result.action).toBe("none");
   });
 });
+
+describe("アドバンテスト(6857) 確認型LONG・損切り後再評価", () => {
+  async function prepareConfirmedLong(tradeDate: string) {
+    const symbol = "6857";
+    await warmup(symbol, tradeDate, 10000);
+    for (let i = 0; i < 30; i++) {
+      const minute = 30 + i;
+      const price = i < 24 ? 10000 : 10050 + (i - 24) * 25;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${String(minute).padStart(2, "0")}`,
+        open: price - 12, high: price + 10, low: price - 18, close: price, volume: 8000,
+      }));
+    }
+    return processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:00",
+      open: 10170, high: 10205, low: 10162, close: 10195, volume: 18000,
+    }));
+  }
+
+  it("6857専用LONGは確認型20本高値更新・VWAP上・SL0.5%/TP1.0%を持つ", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("6857");
+    expect(config.enableAdvantestConfirmedBreakLong).toBe(true);
+    expect(config.advantestConfirmedBreakLongHighLookback).toBe(20);
+    expect(config.advantestConfirmedBreakLongMinPriorBodyPct).toBe(0.10);
+    expect(config.advantestConfirmedBreakLongMinMaSlopePct).toBe(0.03);
+    expect(config.advantestConfirmedBreakLongSlPct).toBe(0.5);
+    expect(config.advantestConfirmedBreakLongTpPct).toBe(1.0);
+    expect(config.enableAdvantestPostStopReentry).toBe(true);
+  });
+
+  it("確認型20本高値更新LONGは前足ブレイクを確認して専用SL/TPで発火する", async () => {
+    const tradeDate = "2026-10-04";
+    const result = await prepareConfirmedLong(tradeDate);
+    expect(result.action).toBe("entry");
+    const position = getOpenPositions().find(item => item.symbol === "6857");
+    expect(position?.entryReason).toContain("アドバンテスト確認型LONG");
+    expect(position?.slPctOverride).toBe(0.5);
+    expect(position?.tpPctOverride).toBe(1.0);
+  });
+
+  it("初回LONGが損切り後、VWAP下・5本下落を再確認したSHORTだけを一度許可する", async () => {
+    const symbol = "6857";
+    const tradeDate = "2026-10-05";
+    await prepareConfirmedLong(tradeDate);
+    const longPosition = getOpenPositions().find(item => item.symbol === symbol);
+    expect(longPosition).toBeDefined();
+
+    const stop = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:01",
+      open: longPosition!.entryPrice, high: longPosition!.entryPrice + 10,
+      low: longPosition!.entryPrice * 0.994, close: longPosition!.entryPrice * 0.996, volume: 15000,
+    }));
+    expect(stop.action).toBe("stop_loss");
+
+    let reentry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    for (let i = 0; i < 7; i++) {
+      const price = longPosition!.entryPrice - 100 - i * 55;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(2 + i).padStart(2, "0")}`,
+        open: price + 30, high: price + 38, low: price - 20, close: price, volume: 22000,
+      }));
+      if (result.action === "entry") { reentry = result; break; }
+    }
+    expect(reentry?.reason).toContain("アドバンテスト高値失速SHORT（損切り後再評価）");
+    const shortPosition = getOpenPositions().find(item => item.symbol === symbol);
+    expect(shortPosition?.side).toBe("short");
+    expect(shortPosition?.slPctOverride).toBe(1.0);
+    expect(shortPosition?.tpPctOverride).toBe(1.2);
+  });
+});

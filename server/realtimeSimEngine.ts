@@ -228,6 +228,19 @@ export interface SymbolConfig {
   advantestHighFadeShortMinPriorBearBodyPct?: number;
   advantestHighFadeShortSlPct?: number;
   advantestHighFadeShortTpPct?: number;
+  // アドバンテスト: 確認型20本高値更新LONGと損切り後の反対方向再評価
+  enableAdvantestConfirmedBreakLong?: boolean;
+  advantestConfirmedBreakLongStartTime?: string;
+  advantestConfirmedBreakLongEndTime?: string;
+  advantestConfirmedBreakLongHighLookback?: number;
+  advantestConfirmedBreakLongMinPriorBodyPct?: number;
+  advantestConfirmedBreakLongMinMaSlopePct?: number;
+  advantestConfirmedBreakLongMinVolumeRatio?: number;
+  advantestConfirmedBreakLongMaxRecentRangePct?: number;
+  advantestConfirmedBreakLongSlPct?: number;
+  advantestConfirmedBreakLongTpPct?: number;
+  enableAdvantestPostStopReentry?: boolean;
+  advantestPostStopShortMaxFiveBarChangePct?: number;
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
   quietRiseBody?: number;     // 実体閾値
@@ -327,7 +340,19 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     advantestHighFadeShortMinPriorBearBodyPct: 0.05,
     advantestHighFadeShortSlPct: 1.0,
     advantestHighFadeShortTpPct: 1.2,
-    notes: "アドバンテスト: 高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上）。前足陰線実体0.05%未満は下落確認不足として停止。SL1.0%/TP1.2%、前場09:45〜11:15、1日1回。",
+    enableAdvantestConfirmedBreakLong: true,
+    advantestConfirmedBreakLongStartTime: "10:00",
+    advantestConfirmedBreakLongEndTime: "11:15",
+    advantestConfirmedBreakLongHighLookback: 20,
+    advantestConfirmedBreakLongMinPriorBodyPct: 0.10,
+    advantestConfirmedBreakLongMinMaSlopePct: 0.03,
+    advantestConfirmedBreakLongMinVolumeRatio: 1.0,
+    advantestConfirmedBreakLongMaxRecentRangePct: 1.5,
+    advantestConfirmedBreakLongSlPct: 0.5,
+    advantestConfirmedBreakLongTpPct: 1.0,
+    enableAdvantestPostStopReentry: true,
+    advantestPostStopShortMaxFiveBarChangePct: -0.3,
+    notes: "アドバンテスト: 確認型20本高値更新LONG（前足陽線実体0.10%・MA8傾き>=0.03%・VWAP上、SL0.5%/TP1.0%）＋高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上、前足陰線実体0.05%未満は停止、SL1.0%/TP1.2%）。初回損切り後のみ反対方向を一度再評価し、再評価LONGは5本値幅<=1.5%、再評価SHORTはVWAP下かつ5本変化率<=-0.3%を追加確認する。",
   },
   "6976": {
     sl: { long: 1.0, short: 1.0 },
@@ -683,6 +708,14 @@ const taiyoAfternoonReversalShortPending = new Map<string, StructureBreakPending
 const peakReversalShortFired = new Set<string>();
 /** ★6857高値失速SHORT: 1日1回のみのエントリー済みフラグ */
 const advantestHighFadeShortFired = new Set<string>();
+/** ★6857確認型LONG: 初回1回のみ。損切り後だけ反対側への再評価を許可する。 */
+const advantestConfirmedBreakLongFired = new Set<string>();
+interface AdvantestPostStopReentryState {
+  stoppedSide: "long" | "short";
+  stopTime: string;
+  reentryUsed: boolean;
+}
+const advantestPostStopReentry = new Map<string, AdvantestPostStopReentryState>();
 
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
@@ -766,6 +799,8 @@ function resetIfNewDay(tradeDate: string): void {
     taiyoAfternoonReversalShortPending.clear();
     peakReversalShortFired.clear();
     advantestHighFadeShortFired.clear();
+    advantestConfirmedBreakLongFired.clear();
+    advantestPostStopReentry.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -905,6 +940,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
             const isOpeningBreakShort = entry.side === "short" && entry.reason.includes("寄り付きブレイクSHORT");
             const isTaiyoStrategy = entry.reason.includes("太陽誘電朝初動SHORT") || entry.reason.includes("太陽誘電後場反転");
             const isAdvantestHighFadeShort = entry.side === "short" && entry.reason.includes("アドバンテスト高値失速SHORT");
+            const isAdvantestConfirmedBreakLong = entry.side === "long" && entry.reason.includes("アドバンテスト確認型LONG");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -926,6 +962,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
                           ? symbolConfig.taiyoAfternoonSlPct ?? symbolConfig.taiyoMorningInitialShortSlPct
                           : isAdvantestHighFadeShort
                             ? symbolConfig.advantestHighFadeShortSlPct
+                            : isAdvantestConfirmedBreakLong
+                              ? symbolConfig.advantestConfirmedBreakLongSlPct
                             : undefined,
               tpPctOverride: isReversalShort
                 ? symbolConfig.reversalShortTpPct
@@ -941,6 +979,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
                           ? symbolConfig.taiyoAfternoonTpPct ?? symbolConfig.taiyoMorningInitialShortTpPct
                           : isAdvantestHighFadeShort
                             ? symbolConfig.advantestHighFadeShortTpPct
+                            : isAdvantestConfirmedBreakLong
+                              ? symbolConfig.advantestConfirmedBreakLongTpPct
                             : undefined,
             });
           }
@@ -955,6 +995,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
     try {
       const allTrades = await getRtTradesForDate(today);
       if (allTrades.length > 0 && signalHistory.length === 0) {
+        let latestAdvantestSpecialSide: "long" | "short" | null = null;
         for (const t of allTrades.slice().reverse()) {
           signalHistory.push({
             time: t.tradeTime,
@@ -966,6 +1007,36 @@ export async function restoreBuffersFromDb(): Promise<void> {
             pnl: t.pnl !== null ? Number(t.pnl) : null,
             reason: t.reason,
           });
+
+          const isAdvantestShort = t.symbol === "6857" && t.reason.startsWith("アドバンテスト高値失速SHORT");
+          const isAdvantestLong = t.symbol === "6857" && t.reason.startsWith("アドバンテスト確認型LONG");
+          if (isAdvantestShort && t.action === "short") {
+            advantestHighFadeShortFired.add("6857");
+            latestAdvantestSpecialSide = "short";
+            if (t.reason.includes("損切り後再評価")) {
+              const state = advantestPostStopReentry.get("6857") ?? { stoppedSide: "long" as const, stopTime: t.tradeTime, reentryUsed: false };
+              state.reentryUsed = true;
+              advantestPostStopReentry.set("6857", state);
+            }
+          } else if (isAdvantestLong && t.action === "buy") {
+            advantestConfirmedBreakLongFired.add("6857");
+            latestAdvantestSpecialSide = "long";
+            if (t.reason.includes("損切り後再評価")) {
+              const state = advantestPostStopReentry.get("6857") ?? { stoppedSide: "short" as const, stopTime: t.tradeTime, reentryUsed: false };
+              state.reentryUsed = true;
+              advantestPostStopReentry.set("6857", state);
+            }
+          } else if (
+            t.symbol === "6857" &&
+            (t.action === "sell" || t.action === "cover") &&
+            t.reason.startsWith("損切り") &&
+            latestAdvantestSpecialSide !== null
+          ) {
+            advantestPostStopReentry.set("6857", { stoppedSide: latestAdvantestSpecialSide, stopTime: t.tradeTime, reentryUsed: false });
+            latestAdvantestSpecialSide = null;
+          } else if (t.symbol === "6857" && (t.action === "sell" || t.action === "cover")) {
+            latestAdvantestSpecialSide = null;
+          }
         }
         if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
         console.log(`[RealtimeSim] シグナル履歴復元: ${signalHistory.length}件`);
@@ -2043,12 +2114,74 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
   }
 
+  // ---- ★6857: 確認型20本高値更新LONG ----
+  // 前足の陽線ブレイクを確認してから、当足も20本高値を更新する上昇継続だけを狙う。
+  // 初回取引後は、損切りで反対方向の再評価権が生じた場合を除いて、同日反対側へ入らない。
+  const advantestReentryState = advantestPostStopReentry.get(symbol);
+  const isAdvantestLongReentry = advantestReentryState?.stoppedSide === "short" && !advantestReentryState.reentryUsed;
+  const hasNoAdvantestInitialEntry = !advantestHighFadeShortFired.has(symbol) && !advantestConfirmedBreakLongFired.has(symbol);
+  if (
+    symConfig.enableAdvantestConfirmedBreakLong &&
+    isEntryAllowed &&
+    (hasNoAdvantestInitialEntry || isAdvantestLongReentry) &&
+    buffer.length >= (symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD) + 22 &&
+    candleTime >= (symConfig.advantestConfirmedBreakLongStartTime ?? "10:00") &&
+    candleTime <= (symConfig.advantestConfirmedBreakLongEndTime ?? "11:15")
+  ) {
+    const maPeriod = symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD;
+    const currentMA = buffer.slice(buffer.length - maPeriod).reduce((sum, item) => sum + item.close, 0) / maPeriod;
+    const ma2Ago = buffer.slice(buffer.length - maPeriod - 2, buffer.length - 2).reduce((sum, item) => sum + item.close, 0) / maPeriod;
+    const maSlope2 = ma2Ago > 0 ? (currentMA - ma2Ago) / ma2Ago * 100 : 0;
+    const lookback = symConfig.advantestConfirmedBreakLongHighLookback ?? 20;
+    const priorCandle = buffer[buffer.length - 2];
+    const priorHigh = Math.max(...buffer.slice(buffer.length - 2 - lookback, buffer.length - 2).map(item => item.high));
+    const currentHigh = Math.max(...buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(item => item.high));
+    const priorBullBodyPct = priorCandle?.open > 0 ? (priorCandle.close - priorCandle.open) / priorCandle.open * 100 : 0;
+    const priorVolumes = buffer.slice(buffer.length - 21, buffer.length - 1);
+    const avgVolume = priorVolumes.reduce((sum, item) => sum + item.volume, 0) / priorVolumes.length;
+    const volumeRatio = avgVolume > 0 ? candle.volume / avgVolume : 0;
+    const dayOpen = buffer[0]?.open ?? candle.open;
+    const runningVolume = buffer.reduce((sum, item) => sum + item.volume, 0);
+    const dayVwap = runningVolume > 0
+      ? buffer.reduce((sum, item) => sum + ((item.high + item.low + item.close) / 3) * item.volume, 0) / runningVolume
+      : candle.close;
+    const recentSix = buffer.slice(Math.max(0, buffer.length - 6));
+    const recentRangePct = candle.close > 0
+      ? (Math.max(...recentSix.map(item => item.high)) - Math.min(...recentSix.map(item => item.low))) / candle.close * 100
+      : Number.POSITIVE_INFINITY;
+    const longOk =
+      candle.close > dayOpen &&
+      priorCandle.close > priorHigh &&
+      candle.close > currentHigh &&
+      candle.close > candle.open &&
+      priorBullBodyPct >= (symConfig.advantestConfirmedBreakLongMinPriorBodyPct ?? 0.10) &&
+      maSlope2 >= (symConfig.advantestConfirmedBreakLongMinMaSlopePct ?? 0.03) &&
+      volumeRatio >= (symConfig.advantestConfirmedBreakLongMinVolumeRatio ?? 1.0) &&
+      candle.close > dayVwap &&
+      (!isAdvantestLongReentry || recentRangePct <= (symConfig.advantestConfirmedBreakLongMaxRecentRangePct ?? 1.5));
+
+    if (longOk) {
+      const slPct = symConfig.advantestConfirmedBreakLongSlPct ?? 0.5;
+      const tpPct = symConfig.advantestConfirmedBreakLongTpPct ?? 1.0;
+      const result = await enterPosition(
+        "long", candle, tradeDate, candleTime,
+        `アドバンテスト確認型LONG${isAdvantestLongReentry ? "（損切り後再評価）" : ""}: ${lookback}本高値更新、前足陽線実体${priorBullBodyPct.toFixed(3)}%、VWAP上、出来高${volumeRatio.toFixed(2)}倍`,
+        boardSnapshot, { slPct, tpPct },
+      );
+      if (result.action === "entry") {
+        advantestConfirmedBreakLongFired.add(symbol);
+        if (isAdvantestLongReentry && advantestReentryState) advantestReentryState.reentryUsed = true;
+      }
+      return result;
+    }
+  }
+
   // ---- ★6857: 高値失速SHORT ----
   // 始値より上の高値形成後に、高値から0.8%以上反落して5本安値を更新する陰線を捉える。
   // 前足が実体0.05%未満の小陰線なら下落継続を確認できないため、この方式だけ停止する。
   if (
     symConfig.enableAdvantestHighFadeShort &&
-    !advantestHighFadeShortFired.has(symbol) &&
+    (hasNoAdvantestInitialEntry || (advantestReentryState?.stoppedSide === "long" && !advantestReentryState.reentryUsed)) &&
     isEntryAllowed &&
     buffer.length >= (symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD) + 2 &&
     candleTime >= (symConfig.advantestHighFadeShortStartTime ?? "09:45") &&
@@ -2073,6 +2206,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       ? (priorCandle.open - priorCandle.close) / priorCandle.open * 100
       : 0;
     const minPriorBearBodyPct = symConfig.advantestHighFadeShortMinPriorBearBodyPct ?? 0.05;
+    const dayVwap = buffer.reduce((sum, item) => sum + ((item.high + item.low + item.close) / 3) * item.volume, 0) /
+      Math.max(1, buffer.reduce((sum, item) => sum + item.volume, 0));
+    const recentSix = buffer.slice(Math.max(0, buffer.length - 6));
+    const fiveBarChangePct = recentSix[0]?.close > 0 ? (candle.close - recentSix[0].close) / recentSix[0].close * 100 : 0;
+    const isAdvantestShortReentry = advantestReentryState?.stoppedSide === "long" && !advantestReentryState.reentryUsed;
     const shortOk =
       riseFromOpenPct >= (symConfig.advantestHighFadeShortMinOpenGainPct ?? 1.0) &&
       dropFromHighPct >= (symConfig.advantestHighFadeShortDropPct ?? 0.8) &&
@@ -2081,24 +2219,32 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       priorBearBodyPct >= minPriorBearBodyPct &&
       currentMA < prevMA &&
       maSlope2 <= (symConfig.advantestHighFadeShortMaxMaSlopePct ?? -0.05) &&
-      volumeRatio >= (symConfig.advantestHighFadeShortMinVolumeRatio ?? 1.2);
+      volumeRatio >= (symConfig.advantestHighFadeShortMinVolumeRatio ?? 1.2) &&
+      (!isAdvantestShortReentry || (
+        candle.close < dayVwap &&
+        fiveBarChangePct <= (symConfig.advantestPostStopShortMaxFiveBarChangePct ?? -0.3)
+      ));
 
     if (shortOk) {
-      advantestHighFadeShortFired.add(symbol);
       const slPct = symConfig.advantestHighFadeShortSlPct ?? 1.0;
       const tpPct = symConfig.advantestHighFadeShortTpPct ?? 1.2;
       console.log(`[RealtimeSim] ${symbol} ★アドバンテスト高値失速SHORT発火: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足実体${priorBearBodyPct.toFixed(3)}% (SL${slPct}%/TP${tpPct}%)`);
-      return await enterPosition(
+      const result = await enterPosition(
         "short", candle, tradeDate, candleTime,
-        `アドバンテスト高値失速SHORT: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足陰線実体${priorBearBodyPct.toFixed(3)}%`,
+        `アドバンテスト高値失速SHORT${isAdvantestShortReentry ? "（損切り後再評価）" : ""}: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足陰線実体${priorBearBodyPct.toFixed(3)}%`,
         boardSnapshot, { slPct, tpPct },
       );
+      if (result.action === "entry") {
+        advantestHighFadeShortFired.add(symbol);
+        if (isAdvantestShortReentry && advantestReentryState) advantestReentryState.reentryUsed = true;
+      }
+      return result;
     }
   }
 
   // アドバンテストは検証済みの高値失速SHORTだけで運用する。
   // 後段の汎用ダウ理論・大台・VWAP系が迂回してエントリーすることは許可しない。
-  if (symConfig.enableAdvantestHighFadeShort) {
+  if (symConfig.enableAdvantestHighFadeShort || symConfig.enableAdvantestConfirmedBreakLong) {
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 
@@ -3173,6 +3319,15 @@ async function closePosition(
   // ★v5.5応急: 損切り時刻を記録（再エントリー禁止フィルター用）
   if (action === "stop_loss") {
     lastStopLossTime.set(symbol, candleTime);
+    const config = getSymbolConfig(symbol);
+    const isAdvantestSpecial = symbol === "6857" && (
+      pos.entryReason.startsWith("アドバンテスト高値失速SHORT") ||
+      pos.entryReason.startsWith("アドバンテスト確認型LONG")
+    );
+    if (config.enableAdvantestPostStopReentry && isAdvantestSpecial) {
+      advantestPostStopReentry.set(symbol, { stoppedSide: side, stopTime: candleTime, reentryUsed: false });
+      console.log(`[RealtimeSim] ${symbol} アドバンテスト損切り後再評価を許可: ${side}停止 @${candleTime}`);
+    }
   }
 
   await insertRtTrade({

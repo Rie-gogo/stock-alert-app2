@@ -2224,3 +2224,94 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
     expect(blocked.reason?.includes("寄り付きブレイクSHORT")).not.toBe(true);
   });
 });
+
+describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
+  it("6976の3方式設定は方向別出来高・SL/TP・回数制限を持ち、他銘柄へ影響しない", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("6976");
+    expect(config.enableTaiyoMorningInitialShort).toBe(true);
+    expect(config.taiyoMorningInitialShortMinVolumeRatio).toBe(2.2);
+    expect(config.enableTaiyoAfternoonReversalLong).toBe(true);
+    expect(config.enableTaiyoAfternoonReversalShort).toBe(true);
+    expect(config.taiyoAfternoonLongMinVolumeRatio).toBe(1.5);
+    expect(config.taiyoAfternoonShortMinVolumeRatio).toBe(1.2);
+    expect(config.sl).toEqual({ long: 1.0, short: 1.0 });
+    expect(config.tp).toEqual({ long: 1.5, short: 1.5 });
+    expect(getSymbolConfig("6981").enableTaiyoMorningInitialShort).toBeUndefined();
+  });
+
+  it("朝初動SHORTは5分安値下抜け後の陰線1本確認で発火する", async () => {
+    const symbol = "6976";
+    const tradeDate = "2026-09-25";
+    await warmup(symbol, tradeDate, 3000);
+
+    const trigger = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:30",
+      open: 2980, high: 2985, low: 2935, close: 2950, volume: 12000,
+    }));
+    expect(trigger.action).toBe("none");
+    const confirmed = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 2945, high: 2948, low: 2905, close: 2920, volume: 12000,
+    }));
+    expect(confirmed.action).toBe("entry");
+    expect(confirmed.reason).toContain("太陽誘電朝初動SHORT");
+  });
+
+  it("後場反転LONGは前場-3%後の高値更新を陽線1本確認して発火する", async () => {
+    const symbol = "6976";
+    const tradeDate = "2026-09-26";
+    await warmup(symbol, tradeDate, 3000);
+    for (let i = 0; i < 6; i++) {
+      const price = 3000 - (i + 1) * 70;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(i).padStart(2, "0")}`,
+        open: price + 12, high: price + 18, low: price - 10, close: price, volume: 700,
+      }));
+    }
+    let entry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    for (let i = 0; i < 10; i++) {
+      const price = 2620 + (i + 1) * 55;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `12:${String(50 + i).padStart(2, "0")}`,
+        open: price - 20, high: price + 12, low: price - 25, close: price, volume: 12000,
+      }));
+      if (result.action === "entry") { entry = result; break; }
+    }
+    expect(entry?.reason).toContain("太陽誘電後場反転LONG");
+  });
+
+  it("後場反転SHORTは前場+3%後の安値更新を陰線1本確認して発火する", async () => {
+    const symbol = "6976";
+    const tradeDate = "2026-09-27";
+    await warmup(symbol, tradeDate, 3000);
+    for (let i = 0; i < 6; i++) {
+      const price = 3000 + (i + 1) * 70;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `10:${String(i).padStart(2, "0")}`,
+        open: price - 12, high: price + 18, low: price - 10, close: price, volume: 700,
+      }));
+    }
+    let entry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    for (let i = 0; i < 10; i++) {
+      const price = 3400 - (i + 1) * 55;
+      const result = await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `12:${String(50 + i).padStart(2, "0")}`,
+        open: price + 20, high: price + 25, low: price - 12, close: price, volume: 10000,
+      }));
+      if (result.action === "entry") { entry = result; break; }
+    }
+    expect(entry?.reason).toContain("太陽誘電後場反転SHORT");
+  });
+
+  it("専用3方式の条件がない6976は汎用シグナルだけでエントリーしない", async () => {
+    const symbol = "6976";
+    const tradeDate = "2026-09-28";
+    await warmup(symbol, tradeDate, 3000);
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:20",
+      open: 3000, high: 3250, low: 2990, close: 3230, volume: 20000,
+    }));
+    expect(result.action).toBe("none");
+  });
+});

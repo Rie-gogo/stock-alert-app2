@@ -187,6 +187,25 @@ export interface SymbolConfig {
   openingBreakShortTpPct?: number;
   openingBreakShortShockRangePct?: number;
   openingBreakShortShockVolumeRatio?: number;
+  // 太陽誘電: 朝初動SHORT・前場偏り後の後場反転設定
+  enableTaiyoMorningInitialShort?: boolean;
+  taiyoMorningInitialShortStartTime?: string;
+  taiyoMorningInitialShortEndTime?: string;
+  taiyoMorningInitialShortRangeBars?: number;
+  taiyoMorningInitialShortMinVolumeRatio?: number;
+  taiyoMorningInitialShortSlPct?: number;
+  taiyoMorningInitialShortTpPct?: number;
+  enableTaiyoAfternoonReversalLong?: boolean;
+  enableTaiyoAfternoonReversalShort?: boolean;
+  taiyoAfternoonReversalStartTime?: string;
+  taiyoAfternoonReversalEndTime?: string;
+  taiyoAfternoonMinMorningMovePct?: number;
+  taiyoAfternoonMinReversalPct?: number;
+  taiyoAfternoonHighLowLookback?: number;
+  taiyoAfternoonLongMinVolumeRatio?: number;
+  taiyoAfternoonShortMinVolumeRatio?: number;
+  taiyoAfternoonSlPct?: number;
+  taiyoAfternoonTpPct?: number;
   // 高値反転SHORT設定（急騰後の初動反落を狙う）
   enablePeakReversalShort?: boolean;
   peakReversalShortStartTime?: string;
@@ -278,7 +297,34 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。",
   },
   "6857": { sl: { long: 0.6, short: 0.6 } },
-  "6976": { sl: { long: 0.6, short: 0.8 } },
+  "6976": {
+    sl: { long: 1.0, short: 1.0 },
+    tp: { long: 1.5, short: 1.5 },
+    enableFastEntryVol: false,
+    enableFastEntry4a: false,
+    enableLowBreakFast: false,
+    enableTrendLong: false,
+    enableTrendShort: false,
+    enableTaiyoMorningInitialShort: true,
+    taiyoMorningInitialShortStartTime: "09:30",
+    taiyoMorningInitialShortEndTime: "11:20",
+    taiyoMorningInitialShortRangeBars: 5,
+    taiyoMorningInitialShortMinVolumeRatio: 2.2,
+    taiyoMorningInitialShortSlPct: 1.0,
+    taiyoMorningInitialShortTpPct: 1.5,
+    enableTaiyoAfternoonReversalLong: true,
+    enableTaiyoAfternoonReversalShort: true,
+    taiyoAfternoonReversalStartTime: "12:50",
+    taiyoAfternoonReversalEndTime: "14:20",
+    taiyoAfternoonMinMorningMovePct: 3.0,
+    taiyoAfternoonMinReversalPct: 1.0,
+    taiyoAfternoonHighLowLookback: 5,
+    taiyoAfternoonLongMinVolumeRatio: 1.5,
+    taiyoAfternoonShortMinVolumeRatio: 1.2,
+    taiyoAfternoonSlPct: 1.0,
+    taiyoAfternoonTpPct: 1.5,
+    notes: "太陽誘電: 朝初動SHORT（最初の5分安値下抜け・出来高2.2倍・1本確認）＋前場始値比±3%後の後場反転LONG/SHORT（各出来高1.5倍/1.2倍・1本確認）。朝1回、後場はLONG/SHORT合計1回。全方式SL1.0%/TP1.5%。",
+  },
   "6526": { sl: { long: 0.9, short: 1.0 } },
   "5803": {
     sl: { long: 0.5, short: 0.6 },
@@ -595,6 +641,12 @@ const highFadeBreakShortPending = new Map<string, StructureBreakPendingState>();
 /** ★6981寄り付きブレイクSHORT: 1日1方向1回と1本確認待ち状態 */
 const openingBreakShortFired = new Set<string>();
 const openingBreakShortPending = new Map<string, StructureBreakPendingState>();
+/** ★6976: 朝初動SHORTは朝1回、後場反転はLONG/SHORT合計1回に制限する。 */
+const taiyoMorningInitialShortFired = new Set<string>();
+const taiyoAfternoonReversalFired = new Set<string>();
+const taiyoMorningInitialShortPending = new Map<string, StructureBreakPendingState>();
+const taiyoAfternoonReversalLongPending = new Map<string, StructureBreakPendingState>();
+const taiyoAfternoonReversalShortPending = new Map<string, StructureBreakPendingState>();
 /** ★高値反転SHORT: 銘柄ごとの急騰後反落エントリー済みフラグ（1日1回のみ） */
 const peakReversalShortFired = new Set<string>();
 
@@ -673,6 +725,11 @@ function resetIfNewDay(tradeDate: string): void {
     highFadeBreakShortPending.clear();
     openingBreakShortFired.clear();
     openingBreakShortPending.clear();
+    taiyoMorningInitialShortFired.clear();
+    taiyoAfternoonReversalFired.clear();
+    taiyoMorningInitialShortPending.clear();
+    taiyoAfternoonReversalLongPending.clear();
+    taiyoAfternoonReversalShortPending.clear();
     peakReversalShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
@@ -811,6 +868,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
             const isLowReversalBreakLong = entry.side === "long" && entry.reason.includes("安値反転ブレイクLONG");
             const isHighFadeBreakShort = entry.side === "short" && entry.reason.includes("高値失速ブレイクSHORT");
             const isOpeningBreakShort = entry.side === "short" && entry.reason.includes("寄り付きブレイクSHORT");
+            const isTaiyoStrategy = entry.reason.includes("太陽誘電朝初動SHORT") || entry.reason.includes("太陽誘電後場反転");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -828,6 +886,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
                       ? symbolConfig.highFadeBreakShortSlPct
                       : isOpeningBreakShort
                         ? symbolConfig.openingBreakShortSlPct
+                        : isTaiyoStrategy
+                          ? symbolConfig.taiyoAfternoonSlPct ?? symbolConfig.taiyoMorningInitialShortSlPct
                   : undefined,
               tpPctOverride: isReversalShort
                 ? symbolConfig.reversalShortTpPct
@@ -839,6 +899,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
                       ? symbolConfig.highFadeBreakShortTpPct
                       : isOpeningBreakShort
                         ? symbolConfig.openingBreakShortTpPct
+                        : isTaiyoStrategy
+                          ? symbolConfig.taiyoAfternoonTpPct ?? symbolConfig.taiyoMorningInitialShortTpPct
                   : undefined,
             });
           }
@@ -1549,6 +1611,115 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
     }
 
+    // ---- ★6976: 朝初動SHORT ----
+    // 寄り付き直後の最初の5分レンジを下抜け、出来高を伴って下落が継続した場合だけを1本確認で捉える。
+    if (
+      symConfig.enableTaiyoMorningInitialShort &&
+      !taiyoMorningInitialShortFired.has(symbol) &&
+      canCalcMa &&
+      candleTime >= (symConfig.taiyoMorningInitialShortStartTime ?? "09:30") &&
+      candleTime <= (symConfig.taiyoMorningInitialShortEndTime ?? "11:20")
+    ) {
+      const rangeBars = symConfig.taiyoMorningInitialShortRangeBars ?? 5;
+      const openingRange = buffer.slice(0, Math.min(rangeBars, buffer.length));
+      const openingRangeLow = Math.min(...openingRange.map(item => item.low));
+      const morningShortOk =
+        openingRange.length >= rangeBars &&
+        candle.close < openingRangeLow &&
+        candle.close < candle.open &&
+        currentMA < prevMA &&
+        maSlope2 <= -0.02 &&
+        volumeRatio >= (symConfig.taiyoMorningInitialShortMinVolumeRatio ?? 2.2);
+      const pending = taiyoMorningInitialShortPending.get(symbol);
+      if (pending && candleTime > pending.triggerTime) {
+        taiyoMorningInitialShortPending.delete(symbol);
+        if (candle.close < pending.triggerClose && candle.close < candle.open) {
+          taiyoMorningInitialShortFired.add(symbol);
+          const slPct = symConfig.taiyoMorningInitialShortSlPct ?? 1.0;
+          const tpPct = symConfig.taiyoMorningInitialShortTpPct ?? 1.5;
+          console.log(`[RealtimeSim] ${symbol} ★太陽誘電朝初動SHORT発火: 1本確認・5分安値下抜け・出来高${volumeRatio.toFixed(2)}倍 (SL${slPct}%/TP${tpPct}%)`);
+          return await enterPosition("short", candle, tradeDate, candleTime, `太陽誘電朝初動SHORT: 1本確認、5分安値下抜け、出来高${volumeRatio.toFixed(2)}倍`, boardSnapshot, { slPct, tpPct });
+        }
+        console.log(`[RealtimeSim] ${symbol} 太陽誘電朝初動SHORT: 1本確認が不成立で取消`);
+      } else if (morningShortOk) {
+        taiyoMorningInitialShortPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
+        console.log(`[RealtimeSim] ${symbol} 太陽誘電朝初動SHORT: 初動検出、次の1本を確認待ち`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+
+    // ---- ★6976: 前場偏り後の後場反転LONG/SHORT ----
+    // 前場で3%以上一方向に偏った日のみ、安値/高値から1%以上の反転と5本ブレイクを1本確認で捉える。
+    if (
+      (symConfig.enableTaiyoAfternoonReversalLong || symConfig.enableTaiyoAfternoonReversalShort) &&
+      !taiyoAfternoonReversalFired.has(symbol) &&
+      canCalcMa &&
+      candleTime >= (symConfig.taiyoAfternoonReversalStartTime ?? "12:50") &&
+      candleTime <= (symConfig.taiyoAfternoonReversalEndTime ?? "14:20")
+    ) {
+      const morningCandles = buffer.filter(item => item.time.slice(11, 16) < "12:00");
+      const morningClose = morningCandles[morningCandles.length - 1]?.close ?? dayOpen;
+      const morningMovePct = dayOpen > 0 ? (morningClose - dayOpen) / dayOpen * 100 : 0;
+      const dayLow = dayLowTracker.get(symbol) ?? candle.low;
+      const dayHigh = dayHighTracker.get(symbol) ?? candle.high;
+      const reversalPctFromLow = dayLow > 0 ? (candle.close - dayLow) / dayLow * 100 : 0;
+      const reversalPctFromHigh = dayHigh > 0 ? (dayHigh - candle.close) / dayHigh * 100 : 0;
+      const lookback = symConfig.taiyoAfternoonHighLowLookback ?? 5;
+      const recentHigh = Math.max(...buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(item => item.high));
+      const recentLow = Math.min(...buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(item => item.low));
+      const minMorningMove = symConfig.taiyoAfternoonMinMorningMovePct ?? 3.0;
+      const minReversal = symConfig.taiyoAfternoonMinReversalPct ?? 1.0;
+      const longTrigger =
+        symConfig.enableTaiyoAfternoonReversalLong &&
+        morningMovePct <= -minMorningMove &&
+        reversalPctFromLow >= minReversal &&
+        candle.close > recentHigh &&
+        candle.close > candle.open &&
+        currentMA > prevMA &&
+        maSlope2 >= 0.02 &&
+        volumeRatio >= (symConfig.taiyoAfternoonLongMinVolumeRatio ?? 1.5);
+      const shortTrigger =
+        symConfig.enableTaiyoAfternoonReversalShort &&
+        morningMovePct >= minMorningMove &&
+        reversalPctFromHigh >= minReversal &&
+        candle.close < recentLow &&
+        candle.close < candle.open &&
+        currentMA < prevMA &&
+        maSlope2 <= -0.02 &&
+        volumeRatio >= (symConfig.taiyoAfternoonShortMinVolumeRatio ?? 1.2);
+      const longPending = taiyoAfternoonReversalLongPending.get(symbol);
+      const shortPending = taiyoAfternoonReversalShortPending.get(symbol);
+      if (longPending && candleTime > longPending.triggerTime) {
+        taiyoAfternoonReversalLongPending.delete(symbol);
+        if (candle.close > longPending.triggerClose && candle.close > candle.open) {
+          taiyoAfternoonReversalFired.add(symbol);
+          const slPct = symConfig.taiyoAfternoonSlPct ?? 1.0;
+          const tpPct = symConfig.taiyoAfternoonTpPct ?? 1.5;
+          console.log(`[RealtimeSim] ${symbol} ★太陽誘電後場反転LONG発火: 1本確認・前場${morningMovePct.toFixed(2)}%・安値反発${reversalPctFromLow.toFixed(2)}% (SL${slPct}%/TP${tpPct}%)`);
+          return await enterPosition("long", candle, tradeDate, candleTime, `太陽誘電後場反転LONG: 1本確認、前場${morningMovePct.toFixed(2)}%、安値反発${reversalPctFromLow.toFixed(2)}%`, boardSnapshot, { slPct, tpPct });
+        }
+        console.log(`[RealtimeSim] ${symbol} 太陽誘電後場反転LONG: 1本確認が不成立で取消`);
+      } else if (shortPending && candleTime > shortPending.triggerTime) {
+        taiyoAfternoonReversalShortPending.delete(symbol);
+        if (candle.close < shortPending.triggerClose && candle.close < candle.open) {
+          taiyoAfternoonReversalFired.add(symbol);
+          const slPct = symConfig.taiyoAfternoonSlPct ?? 1.0;
+          const tpPct = symConfig.taiyoAfternoonTpPct ?? 1.5;
+          console.log(`[RealtimeSim] ${symbol} ★太陽誘電後場反転SHORT発火: 1本確認・前場+${morningMovePct.toFixed(2)}%・高値反落${reversalPctFromHigh.toFixed(2)}% (SL${slPct}%/TP${tpPct}%)`);
+          return await enterPosition("short", candle, tradeDate, candleTime, `太陽誘電後場反転SHORT: 1本確認、前場+${morningMovePct.toFixed(2)}%、高値反落${reversalPctFromHigh.toFixed(2)}%`, boardSnapshot, { slPct, tpPct });
+        }
+        console.log(`[RealtimeSim] ${symbol} 太陽誘電後場反転SHORT: 1本確認が不成立で取消`);
+      } else if (longTrigger) {
+        taiyoAfternoonReversalLongPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
+        console.log(`[RealtimeSim] ${symbol} 太陽誘電後場反転LONG: 初動検出、次の1本を確認待ち`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      } else if (shortTrigger) {
+        taiyoAfternoonReversalShortPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
+        console.log(`[RealtimeSim] ${symbol} 太陽誘電後場反転SHORT: 初動検出、次の1本を確認待ち`);
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+
     // ---- ★5803: 安値反転ブレイクLONG ----
     // 当日安値が始値を明確に下回った後の直近高値更新を、1本の陽線確認で捉える。
     // BPRが極端な売り優勢のときは、戻りではなく下落継続の可能性が高いためこの方式だけ停止する。
@@ -1830,6 +2001,17 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         }
       }
     }
+  }
+
+  // 太陽誘電は検証済みの朝初動SHORT・後場反転2方向だけで運用する。
+  // 上記の専用判定でエントリーしなかった足を、後段の汎用ダウ理論・大台・VWAP系が
+  // 迂回してエントリーすることは許可しない。
+  if (
+    symConfig.enableTaiyoMorningInitialShort ||
+    symConfig.enableTaiyoAfternoonReversalLong ||
+    symConfig.enableTaiyoAfternoonReversalShort
+  ) {
+    return { symbol, tradeDate, candleTime, action: "none" };
   }
 
   // 高値反転SHORT: 急騰後、当日高値の近傍から反落した初動を捉える。

@@ -34,6 +34,7 @@ vi.mock("../shared/stocks", () => ({
     { symbol: "6920", ticker: "6920.T", name: "レーザーテック", basePrice: 22400, sector: "半導体" },
     { symbol: "6976", ticker: "6976.T", name: "太陽誘電", basePrice: 14500, sector: "電子部品" },
     { symbol: "8035", ticker: "8035.T", name: "東京エレクトロン", basePrice: 24800, sector: "半導体" },
+    { symbol: "6857", ticker: "6857.T", name: "アドバンテスト", basePrice: 10000, sector: "半導体" },
     { symbol: "285A", ticker: "285A.T", name: "キオクシア", basePrice: 50000, sector: "半導体" },
     { symbol: "5803", ticker: "5803.T", name: "フジクラ", basePrice: 5000, sector: "非鉄金属" },
     { symbol: "6981", ticker: "6981.T", name: "村田製作所", basePrice: 8100, sector: "電子部品" },
@@ -2311,6 +2312,68 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
     const result = await processCandle(makeCandle({
       symbol, tradeDate, candleTime: "10:20",
       open: 3000, high: 3250, low: 2990, close: 3230, volume: 20000,
+    }));
+    expect(result.action).toBe("none");
+  });
+});
+
+describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロック", () => {
+  async function prepareHighFadeSequence(tradeDate: string, weakPriorBody = false) {
+    const symbol = "6857";
+    await warmup(symbol, tradeDate, 10000);
+    for (let i = 0; i < 6; i++) {
+      const price = 10000 + (i + 1) * 180;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${String(30 + i).padStart(2, "0")}`,
+        open: price - 20, high: price + 10, low: price - 30, close: price, volume: 10000,
+      }));
+    }
+    for (let i = 0; i < 10; i++) {
+      const price = 11080 - (i + 1) * 100;
+      const priorWeak = weakPriorBody && i === 8;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${String(36 + i).padStart(2, "0")}`,
+        open: price + (priorWeak ? 2 : 20), high: price + 25, low: price - 15,
+        close: price + (priorWeak ? 1 : 0), volume: 12000,
+      }));
+    }
+  }
+
+  it("6857専用SHORTは条件・SL/TP・前足実体ブロックを持ち、他銘柄へ影響しない", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("6857");
+    expect(config.enableAdvantestHighFadeShort).toBe(true);
+    expect(config.advantestHighFadeShortMinOpenGainPct).toBe(1.0);
+    expect(config.advantestHighFadeShortDropPct).toBe(0.8);
+    expect(config.advantestHighFadeShortMinPriorBearBodyPct).toBe(0.05);
+    expect(config.advantestHighFadeShortSlPct).toBe(1.0);
+    expect(config.advantestHighFadeShortTpPct).toBe(1.2);
+    expect(getSymbolConfig("8035").enableAdvantestHighFadeShort).toBeUndefined();
+  });
+
+  it("高値失速SHORTは前足陰線実体0.05%以上で発火し、専用SL/TPを設定する", async () => {
+    const tradeDate = "2026-10-01";
+    await prepareHighFadeSequence(tradeDate);
+    const positions = getOpenPositions().filter(position => position.symbol === "6857");
+    expect(positions).toHaveLength(1);
+    expect(positions[0].entryReason).toContain("アドバンテスト高値失速SHORT");
+    expect(positions[0].slPctOverride).toBe(1.0);
+    expect(positions[0].tpPctOverride).toBe(1.2);
+  });
+
+  it("前足が実体0.05%未満の小陰線なら高値失速SHORTを停止する", async () => {
+    const tradeDate = "2026-10-02";
+    await prepareHighFadeSequence(tradeDate, true);
+    expect(getOpenPositions().find(position => position.symbol === "6857")).toBeUndefined();
+  });
+
+  it("専用条件がない6857は後段の汎用シグナルでエントリーしない", async () => {
+    const symbol = "6857";
+    const tradeDate = "2026-10-03";
+    await warmup(symbol, tradeDate, 10000);
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:20",
+      open: 10000, high: 10400, low: 9980, close: 10350, volume: 30000,
     }));
     expect(result.action).toBe("none");
   });

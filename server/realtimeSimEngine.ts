@@ -216,6 +216,18 @@ export interface SymbolConfig {
   peakReversalShortMinVolumeRatio?: number;
   peakReversalShortSlPct?: number;
   peakReversalShortTpPct?: number;
+  // アドバンテスト: 高値形成後の失速SHORT（確認足の実体不足を停止）
+  enableAdvantestHighFadeShort?: boolean;
+  advantestHighFadeShortStartTime?: string;
+  advantestHighFadeShortEndTime?: string;
+  advantestHighFadeShortMinOpenGainPct?: number;
+  advantestHighFadeShortDropPct?: number;
+  advantestHighFadeShortLowLookback?: number;
+  advantestHighFadeShortMinVolumeRatio?: number;
+  advantestHighFadeShortMaxMaSlopePct?: number;
+  advantestHighFadeShortMinPriorBearBodyPct?: number;
+  advantestHighFadeShortSlPct?: number;
+  advantestHighFadeShortTpPct?: number;
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
   quietRiseBody?: number;     // 実体閾値
@@ -296,7 +308,27 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     peakReversalShortTpPct: 1.8,
     notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。",
   },
-  "6857": { sl: { long: 0.6, short: 0.6 } },
+  "6857": {
+    sl: { long: 1.0, short: 1.0 },
+    tp: { long: 0.5, short: 1.2 },
+    enableFastEntryVol: false,
+    enableFastEntry4a: false,
+    enableLowBreakFast: false,
+    enableTrendLong: false,
+    enableTrendShort: false,
+    enableAdvantestHighFadeShort: true,
+    advantestHighFadeShortStartTime: "09:45",
+    advantestHighFadeShortEndTime: "11:15",
+    advantestHighFadeShortMinOpenGainPct: 1.0,
+    advantestHighFadeShortDropPct: 0.8,
+    advantestHighFadeShortLowLookback: 5,
+    advantestHighFadeShortMinVolumeRatio: 1.2,
+    advantestHighFadeShortMaxMaSlopePct: -0.05,
+    advantestHighFadeShortMinPriorBearBodyPct: 0.05,
+    advantestHighFadeShortSlPct: 1.0,
+    advantestHighFadeShortTpPct: 1.2,
+    notes: "アドバンテスト: 高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上）。前足陰線実体0.05%未満は下落確認不足として停止。SL1.0%/TP1.2%、前場09:45〜11:15、1日1回。",
+  },
   "6976": {
     sl: { long: 1.0, short: 1.0 },
     tp: { long: 1.5, short: 1.5 },
@@ -649,6 +681,8 @@ const taiyoAfternoonReversalLongPending = new Map<string, StructureBreakPendingS
 const taiyoAfternoonReversalShortPending = new Map<string, StructureBreakPendingState>();
 /** ★高値反転SHORT: 銘柄ごとの急騰後反落エントリー済みフラグ（1日1回のみ） */
 const peakReversalShortFired = new Set<string>();
+/** ★6857高値失速SHORT: 1日1回のみのエントリー済みフラグ */
+const advantestHighFadeShortFired = new Set<string>();
 
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
@@ -731,6 +765,7 @@ function resetIfNewDay(tradeDate: string): void {
     taiyoAfternoonReversalLongPending.clear();
     taiyoAfternoonReversalShortPending.clear();
     peakReversalShortFired.clear();
+    advantestHighFadeShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -869,6 +904,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
             const isHighFadeBreakShort = entry.side === "short" && entry.reason.includes("高値失速ブレイクSHORT");
             const isOpeningBreakShort = entry.side === "short" && entry.reason.includes("寄り付きブレイクSHORT");
             const isTaiyoStrategy = entry.reason.includes("太陽誘電朝初動SHORT") || entry.reason.includes("太陽誘電後場反転");
+            const isAdvantestHighFadeShort = entry.side === "short" && entry.reason.includes("アドバンテスト高値失速SHORT");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -888,7 +924,9 @@ export async function restoreBuffersFromDb(): Promise<void> {
                         ? symbolConfig.openingBreakShortSlPct
                         : isTaiyoStrategy
                           ? symbolConfig.taiyoAfternoonSlPct ?? symbolConfig.taiyoMorningInitialShortSlPct
-                  : undefined,
+                          : isAdvantestHighFadeShort
+                            ? symbolConfig.advantestHighFadeShortSlPct
+                            : undefined,
               tpPctOverride: isReversalShort
                 ? symbolConfig.reversalShortTpPct
                 : isAfternoonLowBreakShort
@@ -901,7 +939,9 @@ export async function restoreBuffersFromDb(): Promise<void> {
                         ? symbolConfig.openingBreakShortTpPct
                         : isTaiyoStrategy
                           ? symbolConfig.taiyoAfternoonTpPct ?? symbolConfig.taiyoMorningInitialShortTpPct
-                  : undefined,
+                          : isAdvantestHighFadeShort
+                            ? symbolConfig.advantestHighFadeShortTpPct
+                            : undefined,
             });
           }
         }
@@ -2001,6 +2041,65 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         }
       }
     }
+  }
+
+  // ---- ★6857: 高値失速SHORT ----
+  // 始値より上の高値形成後に、高値から0.8%以上反落して5本安値を更新する陰線を捉える。
+  // 前足が実体0.05%未満の小陰線なら下落継続を確認できないため、この方式だけ停止する。
+  if (
+    symConfig.enableAdvantestHighFadeShort &&
+    !advantestHighFadeShortFired.has(symbol) &&
+    isEntryAllowed &&
+    buffer.length >= (symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD) + 2 &&
+    candleTime >= (symConfig.advantestHighFadeShortStartTime ?? "09:45") &&
+    candleTime <= (symConfig.advantestHighFadeShortEndTime ?? "11:15")
+  ) {
+    const maPeriod = symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD;
+    const currentMA = buffer.slice(buffer.length - maPeriod).reduce((sum, item) => sum + item.close, 0) / maPeriod;
+    const prevMA = buffer.slice(buffer.length - maPeriod - 1, buffer.length - 1).reduce((sum, item) => sum + item.close, 0) / maPeriod;
+    const ma2Ago = buffer.slice(buffer.length - maPeriod - 2, buffer.length - 2).reduce((sum, item) => sum + item.close, 0) / maPeriod;
+    const maSlope2 = ma2Ago > 0 ? (currentMA - ma2Ago) / ma2Ago * 100 : 0;
+    const dayOpen = buffer[0]?.open ?? candle.open;
+    const priorVolumes = buffer.slice(buffer.length - 21, buffer.length - 1);
+    const avgVolume = priorVolumes.reduce((sum, item) => sum + item.volume, 0) / priorVolumes.length;
+    const volumeRatio = avgVolume > 0 ? candle.volume / avgVolume : 0;
+    const lowLookback = symConfig.advantestHighFadeShortLowLookback ?? 5;
+    const recentLow = Math.min(...buffer.slice(buffer.length - 1 - lowLookback, buffer.length - 1).map(item => item.low));
+    const dayHigh = dayHighTracker.get(symbol) ?? candle.high;
+    const riseFromOpenPct = dayOpen > 0 ? (dayHigh - dayOpen) / dayOpen * 100 : 0;
+    const dropFromHighPct = dayHigh > 0 ? (dayHigh - candle.close) / dayHigh * 100 : 0;
+    const priorCandle = buffer[buffer.length - 2];
+    const priorBearBodyPct = priorCandle?.open > 0
+      ? (priorCandle.open - priorCandle.close) / priorCandle.open * 100
+      : 0;
+    const minPriorBearBodyPct = symConfig.advantestHighFadeShortMinPriorBearBodyPct ?? 0.05;
+    const shortOk =
+      riseFromOpenPct >= (symConfig.advantestHighFadeShortMinOpenGainPct ?? 1.0) &&
+      dropFromHighPct >= (symConfig.advantestHighFadeShortDropPct ?? 0.8) &&
+      candle.close < recentLow &&
+      candle.close < candle.open &&
+      priorBearBodyPct >= minPriorBearBodyPct &&
+      currentMA < prevMA &&
+      maSlope2 <= (symConfig.advantestHighFadeShortMaxMaSlopePct ?? -0.05) &&
+      volumeRatio >= (symConfig.advantestHighFadeShortMinVolumeRatio ?? 1.2);
+
+    if (shortOk) {
+      advantestHighFadeShortFired.add(symbol);
+      const slPct = symConfig.advantestHighFadeShortSlPct ?? 1.0;
+      const tpPct = symConfig.advantestHighFadeShortTpPct ?? 1.2;
+      console.log(`[RealtimeSim] ${symbol} ★アドバンテスト高値失速SHORT発火: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足実体${priorBearBodyPct.toFixed(3)}% (SL${slPct}%/TP${tpPct}%)`);
+      return await enterPosition(
+        "short", candle, tradeDate, candleTime,
+        `アドバンテスト高値失速SHORT: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足陰線実体${priorBearBodyPct.toFixed(3)}%`,
+        boardSnapshot, { slPct, tpPct },
+      );
+    }
+  }
+
+  // アドバンテストは検証済みの高値失速SHORTだけで運用する。
+  // 後段の汎用ダウ理論・大台・VWAP系が迂回してエントリーすることは許可しない。
+  if (symConfig.enableAdvantestHighFadeShort) {
+    return { symbol, tradeDate, candleTime, action: "none" };
   }
 
   // 太陽誘電は検証済みの朝初動SHORT・後場反転2方向だけで運用する。

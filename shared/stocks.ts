@@ -67,10 +67,19 @@ export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
  * 
  * 使い方:
  * - 1銘柄集中モード: new Set(['285A'])
- * - 複数銘柄モード: new Set(['285A', '6146', '5803'])
+ * - 複数銘柄モード: new Set(['285A', '8035', '5803'])
  * - 全銘柄モード: null
  */
-export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set(['285A']);
+// 2026-08-24 DRY_RUN: 個別最適化が完了した6銘柄だけをエントリー対象とする。
+// TARGET_STOCKSは変更しないため、他銘柄のリアルタイム受信・1分足・板保存は継続する。
+export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
+  '285A', // キオクシアHD
+  '8035', // 東京エレクトロン
+  '5803', // フジクラ
+  '6981', // 村田製作所
+  '6976', // 太陽誘電
+  '6857', // アドバンテスト
+]);
 
 /** 同時保有の上限（ハイブリッド運用） */
 export const MAX_CONCURRENT_POSITIONS = 3;

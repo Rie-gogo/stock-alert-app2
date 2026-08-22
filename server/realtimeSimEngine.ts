@@ -241,6 +241,8 @@ export interface SymbolConfig {
   advantestConfirmedBreakLongTpPct?: number;
   enableAdvantestPostStopReentry?: boolean;
   advantestPostStopShortMaxFiveBarChangePct?: number;
+  /** 個別最適化完了銘柄では、下段の汎用ダウ理論・大台・押し目等の入口を使わない */
+  exclusiveEntryRoutes?: boolean;
   // 静かな上昇バイパスのパラメータ
   quietRiseMaDev?: number;    // MA乖離閾値
   quietRiseBody?: number;     // 実体閾値
@@ -286,6 +288,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     trendShortMinVolumeRatio: 1.0,
     trendShortSlPct: 0.8,
     trendShortTpPct: 1.2,
+    exclusiveEntryRoutes: true,
     notes: "キオクシア: 反転LONG（高値落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA8傾き>=0.02%）＋安全CB SHORT＋反転SHORT（始値+3%→高値から1.5%反落、SL0.8%/TP1.2%、前場09:45〜11:27）＋順張りLONG（10:15〜、始値以上・20本高値更新・出来高1.2倍）＋順張りSHORT（10:15〜、始値比-1%以下・10本安値更新）。",
   },
   "8035": {
@@ -319,6 +322,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     peakReversalShortMinVolumeRatio: 1.0,
     peakReversalShortSlPct: 0.6,
     peakReversalShortTpPct: 1.8,
+    exclusiveEntryRoutes: true,
     notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。",
   },
   "6857": {
@@ -352,6 +356,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     advantestConfirmedBreakLongTpPct: 1.0,
     enableAdvantestPostStopReentry: true,
     advantestPostStopShortMaxFiveBarChangePct: -0.3,
+    exclusiveEntryRoutes: true,
     notes: "アドバンテスト: 確認型20本高値更新LONG（前足陽線実体0.10%・MA8傾き>=0.03%・VWAP上、SL0.5%/TP1.0%）＋高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上、前足陰線実体0.05%未満は停止、SL1.0%/TP1.2%）。初回損切り後のみ反対方向を一度再評価し、再評価LONGは5本値幅<=1.5%、再評価SHORTはVWAP下かつ5本変化率<=-0.3%を追加確認する。",
   },
   "6976": {
@@ -380,6 +385,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     taiyoAfternoonShortMinVolumeRatio: 1.2,
     taiyoAfternoonSlPct: 1.0,
     taiyoAfternoonTpPct: 1.5,
+    exclusiveEntryRoutes: true,
     notes: "太陽誘電: 朝初動SHORT（最初の5分安値下抜け・出来高2.2倍・1本確認）＋前場始値比±3%後の後場反転LONG/SHORT（各出来高1.5倍/1.2倍・1本確認）。朝1回、後場はLONG/SHORT合計1回。全方式SL1.0%/TP1.5%。",
   },
   "6526": { sl: { long: 0.9, short: 1.0 } },
@@ -417,6 +423,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     highFadeBreakShortMaSlopeFloor: -0.20,
     highFadeBreakShortSlPct: 0.6,
     highFadeBreakShortTpPct: 1.5,
+    exclusiveEntryRoutes: true,
     notes: "フジクラ: 候補C（後場安値更新SHORT）に加え、安値反転ブレイクLONGと高値失速ブレイクSHORTを追加。LONGはBPR<=0.25を極端な売り圧力として停止、SHORTはMA8傾き<=-0.20%を急落末端として停止。候補Cのショック足停止は維持。",
   },
   "6981": {
@@ -448,6 +455,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     openingBreakShortTpPct: 1.5,
     openingBreakShortShockRangePct: 1.0,
     openingBreakShortShockVolumeRatio: 2.0,
+    exclusiveEntryRoutes: true,
     notes: "村田製作所: 安値反転ブレイクLONG（当日安値が始値比-2%後、安値から1%反発・5本高値更新・1本確認、SL1.0%/TP1.5%）＋寄り付きブレイクSHORT（始値比-1.5%・20本安値更新・1本確認、SL0.6%/TP1.5%）。SHORTは値幅1.0%かつ出来高2.0倍以上のショック足を停止。各日1方向1回のみ。",
   },
   "6920": { sl: { long: 0.9, short: 0.9 } },
@@ -2309,6 +2317,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         return await enterPosition("short", candle, tradeDate, candleTime, `高値反転SHORT: 始値+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落`, peakBoard, { slPct, tpPct });
       }
     }
+  }
+
+  // 個別最適化が完了した銘柄は、上段で実装済みの専用方式だけを使用する。
+  // 専用方式がこの足で発火しなければ、後段の汎用ダウ理論・大台・押し目・VWAP系へは進めない。
+  if (symConfig.exclusiveEntryRoutes) {
+    return { symbol, tradeDate, candleTime, action: "none" };
   }
 
   if (!sig) {

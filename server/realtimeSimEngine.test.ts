@@ -2449,3 +2449,13 @@ describe("アドバンテスト(6857) 確認型LONG・損切り後再評価", ()
     expect(shortPosition?.tpPctOverride).toBe(1.2);
   });
 });
+
+describe("個別最適化完了銘柄の専用エントリー経路限定", () => {
+  it("完了済み6銘柄は後段の汎用ダウ理論・大台・押し目経路を使わない設定を持つ", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    for (const symbol of ["285A", "8035", "5803", "6981", "6976", "6857"]) {
+      expect(getSymbolConfig(symbol).exclusiveEntryRoutes).toBe(true);
+    }
+    expect(getSymbolConfig("6920").exclusiveEntryRoutes).not.toBe(true);
+  });
+});

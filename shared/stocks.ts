@@ -70,7 +70,7 @@ export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
  * - 複数銘柄モード: new Set(['285A', '8035', '5803'])
  * - 全銘柄モード: null
  */
-// 2026-08-24 DRY_RUN: 個別最適化が完了した6銘柄だけをエントリー対象とする。
+// 2026-08-25 DRY_RUN: 個別最適化が完了した7銘柄だけをエントリー対象とする。
 // TARGET_STOCKSは変更しないため、他銘柄のリアルタイム受信・1分足・板保存は継続する。
 export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
   '285A', // キオクシアHD
@@ -79,6 +79,7 @@ export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
   '6981', // 村田製作所
   '6976', // 太陽誘電
   '6857', // アドバンテスト
+  '6146', // ディスコ
 ]);
 
 /** 同時保有の上限（ハイブリッド運用） */

@@ -38,6 +38,7 @@ vi.mock("../shared/stocks", () => ({
     { symbol: "285A", ticker: "285A.T", name: "キオクシア", basePrice: 50000, sector: "半導体" },
     { symbol: "5803", ticker: "5803.T", name: "フジクラ", basePrice: 5000, sector: "非鉄金属" },
     { symbol: "6981", ticker: "6981.T", name: "村田製作所", basePrice: 8100, sector: "電子部品" },
+    { symbol: "6146", ticker: "6146.T", name: "ディスコ", basePrice: 60000, sector: "半導体製造装置" },
     { symbol: "TEST", ticker: "TEST.T", name: "テスト銀柄", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_WARMUP", ticker: "TEST_WARMUP.T", name: "テスト", basePrice: 1000, sector: "テスト" },
     { symbol: "TEST_DB", ticker: "TEST_DB.T", name: "テスト", basePrice: 1000, sector: "テスト" },
@@ -2481,11 +2482,132 @@ describe("アドバンテスト(6857) 確認型LONG・損切り後再評価", ()
 });
 
 describe("個別最適化完了銘柄の専用エントリー経路限定", () => {
-  it("完了済み6銘柄は後段の汎用ダウ理論・大台・押し目経路を使わない設定を持つ", async () => {
+  it("完了済み7銘柄は後段の汎用ダウ理論・大台・押し目経路を使わない設定を持つ", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
-    for (const symbol of ["285A", "8035", "5803", "6981", "6976", "6857"]) {
+    for (const symbol of ["285A", "8035", "5803", "6981", "6976", "6857", "6146"]) {
       expect(getSymbolConfig(symbol).exclusiveEntryRoutes).toBe(true);
     }
     expect(getSymbolConfig("6920").exclusiveEntryRoutes).not.toBe(true);
+  });
+});
+
+describe("ディスコ(6146) 専用LONG・SHORT", () => {
+  it("6146専用条件とSL/TPを設定し、時間上限を追加しない", async () => {
+    const { getSymbolConfig } = await import("./realtimeSimEngine");
+    const config = getSymbolConfig("6146");
+    expect(config.enableDiscoConfirmedBreakLong).toBe(true);
+    expect(config.discoConfirmedBreakLongHighLookback).toBe(10);
+    expect(config.discoConfirmedBreakLongMinMaSlopePct).toBe(0.02);
+    expect(config.discoConfirmedBreakLongMinVolumeRatio).toBe(1.2);
+    expect(config.discoConfirmedBreakLongSlPct).toBe(0.5);
+    expect(config.discoConfirmedBreakLongTpPct).toBe(1.8);
+    expect(config.enableDiscoOpeningBreakShort).toBe(true);
+    expect(config.discoOpeningBreakShortStartTime).toBe("09:30");
+    expect(config.discoOpeningBreakShortEndTime).toBe("10:45");
+    expect(config.discoOpeningBreakShortMaxOpenGainPct).toBe(-1.0);
+    expect(config.discoOpeningBreakShortLowLookback).toBe(10);
+    expect(config.discoOpeningBreakShortMaxMaSlopePct).toBe(0);
+    expect(config.discoOpeningBreakShortMinVolumeRatio).toBe(0.8);
+    expect(config.discoOpeningBreakShortSlPct).toBe(0.5);
+    expect(config.discoOpeningBreakShortTpPct).toBe(2.0);
+    expect(config.telMaxHoldingMinutes).toBeUndefined();
+  });
+
+  it("10本高値更新・VWAP上・MA8上向き・出来高増でLONGを発火する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2026-10-20";
+    await warmup(symbol, tradeDate, 60000, 20);
+
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "09:30",
+      open: 60100,
+      high: 60550,
+      low: 60080,
+      close: 60500,
+      volume: 12000,
+    }));
+
+    expect(result.action).toBe("entry");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.side).toBe("long");
+    expect(position?.entryReason).toContain("ディスコ確認型10本高値更新LONG");
+    expect(position?.slPctOverride).toBe(0.5);
+    expect(position?.tpPctOverride).toBe(1.8);
+  });
+
+  it("寄り付き前場に始値比-1%以上・10本安値更新・MA8非上昇・出来高増でSHORTを発火する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2026-10-21";
+    await warmup(symbol, tradeDate, 60000, 20);
+
+    const result = await processCandle(makeCandle({
+      symbol,
+      tradeDate,
+      candleTime: "09:30",
+      open: 59400,
+      high: 59420,
+      low: 58880,
+      close: 58900,
+      volume: 10000,
+    }));
+
+    expect(result.action).toBe("entry");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.side).toBe("short");
+    expect(position?.entryReason).toContain("ディスコ寄り付き10本安値更新SHORT");
+    expect(position?.slPctOverride).toBe(0.5);
+    expect(position?.tpPctOverride).toBe(2.0);
+  });
+
+  it("LONG決済後は同日のSHORTを再評価するが、LONGは1日1回に制限する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2026-10-22";
+    await warmup(symbol, tradeDate, 60000, 20);
+
+    const firstLong = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:30",
+      open: 60100, high: 60550, low: 60080, close: 60500, volume: 12000,
+    }));
+    expect(firstLong.action).toBe("entry");
+
+    const longExit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 60500, high: 61650, low: 60480, close: 61600, volume: 10000,
+    }));
+    expect(longExit.action).toBe("take_profit");
+
+    const oppositeShort = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 59400, high: 59420, low: 58880, close: 58900, volume: 12000,
+    }));
+    expect(oppositeShort.action).toBe("entry");
+    expect(getOpenPositions().find(item => item.symbol === symbol)?.side).toBe("short");
+
+    const shortExit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:33",
+      open: 58900, high: 58920, low: 57500, close: 57600, volume: 10000,
+    }));
+    expect(shortExit.action).toBe("take_profit");
+
+    const secondLong = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:34",
+      open: 61000, high: 62000, low: 60980, close: 61900, volume: 15000,
+    }));
+    expect(secondLong.action).toBe("none");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
+  });
+
+  it("専用条件が成立しない6146は後段の汎用経路でエントリーしない", async () => {
+    const symbol = "6146";
+    const tradeDate = "2026-10-23";
+    await warmup(symbol, tradeDate, 60000, 20);
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:20",
+      open: 60000, high: 60300, low: 59980, close: 60250, volume: 3000,
+    }));
+    expect(result.action).toBe("none");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
   });
 });

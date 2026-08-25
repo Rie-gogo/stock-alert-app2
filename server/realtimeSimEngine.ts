@@ -243,6 +243,24 @@ export interface SymbolConfig {
   advantestConfirmedBreakLongTpPct?: number;
   enableAdvantestPostStopReentry?: boolean;
   advantestPostStopShortMaxFiveBarChangePct?: number;
+  // ディスコ: 確認型10本高値更新LONGと寄り付き10本安値更新SHORT
+  enableDiscoConfirmedBreakLong?: boolean;
+  discoConfirmedBreakLongStartTime?: string;
+  discoConfirmedBreakLongEndTime?: string;
+  discoConfirmedBreakLongHighLookback?: number;
+  discoConfirmedBreakLongMinMaSlopePct?: number;
+  discoConfirmedBreakLongMinVolumeRatio?: number;
+  discoConfirmedBreakLongSlPct?: number;
+  discoConfirmedBreakLongTpPct?: number;
+  enableDiscoOpeningBreakShort?: boolean;
+  discoOpeningBreakShortStartTime?: string;
+  discoOpeningBreakShortEndTime?: string;
+  discoOpeningBreakShortMaxOpenGainPct?: number;
+  discoOpeningBreakShortLowLookback?: number;
+  discoOpeningBreakShortMaxMaSlopePct?: number;
+  discoOpeningBreakShortMinVolumeRatio?: number;
+  discoOpeningBreakShortSlPct?: number;
+  discoOpeningBreakShortTpPct?: number;
   /** 個別最適化完了銘柄では、下段の汎用ダウ理論・大台・押し目等の入口を使わない */
   exclusiveEntryRoutes?: boolean;
   // 静かな上昇バイパスのパラメータ
@@ -462,7 +480,29 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     notes: "村田製作所: 安値反転ブレイクLONG（当日安値が始値比-2%後、安値から1%反発・5本高値更新・1本確認、SL1.0%/TP1.5%）＋寄り付きブレイクSHORT（始値比-1.5%・20本安値更新・1本確認、SL0.6%/TP1.5%）。SHORTは値幅1.0%かつ出来高2.0倍以上のショック足を停止。各日1方向1回のみ。",
   },
   "6920": { sl: { long: 0.9, short: 0.9 } },
-  "6146": { sl: { long: 0.8, short: 0.8 } },
+  "6146": {
+    sl: { long: 0.5, short: 0.5 },
+    tp: { long: 1.8, short: 2.0 },
+    enableDiscoConfirmedBreakLong: true,
+    discoConfirmedBreakLongStartTime: "09:30",
+    discoConfirmedBreakLongEndTime: "14:30",
+    discoConfirmedBreakLongHighLookback: 10,
+    discoConfirmedBreakLongMinMaSlopePct: 0.02,
+    discoConfirmedBreakLongMinVolumeRatio: 1.2,
+    discoConfirmedBreakLongSlPct: 0.5,
+    discoConfirmedBreakLongTpPct: 1.8,
+    enableDiscoOpeningBreakShort: true,
+    discoOpeningBreakShortStartTime: "09:30",
+    discoOpeningBreakShortEndTime: "10:45",
+    discoOpeningBreakShortMaxOpenGainPct: -1.0,
+    discoOpeningBreakShortLowLookback: 10,
+    discoOpeningBreakShortMaxMaSlopePct: 0,
+    discoOpeningBreakShortMinVolumeRatio: 0.8,
+    discoOpeningBreakShortSlPct: 0.5,
+    discoOpeningBreakShortTpPct: 2.0,
+    exclusiveEntryRoutes: true,
+    notes: "ディスコ: 確認型10本高値更新LONG（VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）＋寄り付き10本安値更新SHORT（09:30〜10:45・始値比-1.0%以下・MA8傾き<=0%・出来高0.8倍以上、SL0.5%/TP2.0%）。各方向1日1回、同時保有なし、決済後は反対方向を再評価可能。時間上限なし。",
+  },
   "6594": { sl: { long: 0.5, short: 0.5 } },
   "8316": { sl: { long: 0.5, short: 0.5 } },
 };
@@ -727,6 +767,9 @@ interface AdvantestPostStopReentryState {
   reentryUsed: boolean;
 }
 const advantestPostStopReentry = new Map<string, AdvantestPostStopReentryState>();
+/** ★6146: 専用LONG/SHORTは各方向1日1回。決済後は未発火の反対方向を再評価できる。 */
+const discoConfirmedBreakLongFired = new Set<string>();
+const discoOpeningBreakShortFired = new Set<string>();
 
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
@@ -812,6 +855,8 @@ function resetIfNewDay(tradeDate: string): void {
     advantestHighFadeShortFired.clear();
     advantestConfirmedBreakLongFired.clear();
     advantestPostStopReentry.clear();
+    discoConfirmedBreakLongFired.clear();
+    discoOpeningBreakShortFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -952,6 +997,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
             const isTaiyoStrategy = entry.reason.includes("太陽誘電朝初動SHORT") || entry.reason.includes("太陽誘電後場反転");
             const isAdvantestHighFadeShort = entry.side === "short" && entry.reason.includes("アドバンテスト高値失速SHORT");
             const isAdvantestConfirmedBreakLong = entry.side === "long" && entry.reason.includes("アドバンテスト確認型LONG");
+            const isDiscoConfirmedBreakLong = entry.side === "long" && entry.reason.includes("ディスコ確認型10本高値更新LONG");
+            const isDiscoOpeningBreakShort = entry.side === "short" && entry.reason.includes("ディスコ寄り付き10本安値更新SHORT");
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -975,6 +1022,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
                             ? symbolConfig.advantestHighFadeShortSlPct
                             : isAdvantestConfirmedBreakLong
                               ? symbolConfig.advantestConfirmedBreakLongSlPct
+                              : isDiscoConfirmedBreakLong
+                                ? symbolConfig.discoConfirmedBreakLongSlPct
+                                : isDiscoOpeningBreakShort
+                                  ? symbolConfig.discoOpeningBreakShortSlPct
                             : undefined,
               tpPctOverride: isReversalShort
                 ? symbolConfig.reversalShortTpPct
@@ -992,6 +1043,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
                             ? symbolConfig.advantestHighFadeShortTpPct
                             : isAdvantestConfirmedBreakLong
                               ? symbolConfig.advantestConfirmedBreakLongTpPct
+                              : isDiscoConfirmedBreakLong
+                                ? symbolConfig.discoConfirmedBreakLongTpPct
+                                : isDiscoOpeningBreakShort
+                                  ? symbolConfig.discoOpeningBreakShortTpPct
                             : undefined,
             });
           }
@@ -1021,6 +1076,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
 
           const isAdvantestShort = t.symbol === "6857" && t.reason.startsWith("アドバンテスト高値失速SHORT");
           const isAdvantestLong = t.symbol === "6857" && t.reason.startsWith("アドバンテスト確認型LONG");
+          const isDiscoLong = t.symbol === "6146" && t.reason.startsWith("ディスコ確認型10本高値更新LONG");
+          const isDiscoShort = t.symbol === "6146" && t.reason.startsWith("ディスコ寄り付き10本安値更新SHORT");
+          if (isDiscoLong && t.action === "buy") discoConfirmedBreakLongFired.add("6146");
+          if (isDiscoShort && t.action === "short") discoOpeningBreakShortFired.add("6146");
           if (isAdvantestShort && t.action === "short") {
             advantestHighFadeShortFired.add("6857");
             latestAdvantestSpecialSide = "short";
@@ -1688,6 +1747,103 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     const recentVolumes = buffer.slice(buffer.length - 21, buffer.length - 1);
     const avgVolume = recentVolumes.reduce((sum, item) => sum + item.volume, 0) / recentVolumes.length;
     const volumeRatio = avgVolume > 0 ? candle.volume / avgVolume : 0;
+
+    // ---- ★6146: 確認型10本高値更新LONG ----
+    // 当該1分足の終値で高値更新・VWAP上・MA8上向き・出来高増を確認して直接エントリーする。
+    // 板情報は記録のみとし、過学習を避けるため新たな板フィルターは加えない。
+    if (
+      symConfig.enableDiscoConfirmedBreakLong &&
+      !discoConfirmedBreakLongFired.has(symbol) &&
+      canCalcMa &&
+      candleTime >= (symConfig.discoConfirmedBreakLongStartTime ?? "09:30") &&
+      candleTime <= (symConfig.discoConfirmedBreakLongEndTime ?? "14:30")
+    ) {
+      const lookback = symConfig.discoConfirmedBreakLongHighLookback ?? 10;
+      const priorCandles = buffer.slice(buffer.length - 1 - lookback, buffer.length - 1);
+      const recentHigh = priorCandles.length >= lookback
+        ? Math.max(...priorCandles.map(item => item.high))
+        : Number.POSITIVE_INFINITY;
+      const cumulativeVolume = buffer.reduce((sum, item) => sum + item.volume, 0);
+      const cumulativePriceVolume = buffer.reduce(
+        (sum, item) => sum + ((item.high + item.low + item.close) / 3) * item.volume,
+        0,
+      );
+      const vwap = cumulativeVolume > 0 ? cumulativePriceVolume / cumulativeVolume : candle.close;
+      // 6146の事前検証で用いた、現在MA8と直前MA8の1本差分を傾きとする。
+      const maSlopePct = prevMA > 0 ? (currentMA - prevMA) / prevMA * 100 : 0;
+      const longOk =
+        priorCandles.length >= lookback &&
+        candle.close > recentHigh &&
+        candle.close > vwap &&
+        maSlopePct >= (symConfig.discoConfirmedBreakLongMinMaSlopePct ?? 0.02) &&
+        volumeRatio >= (symConfig.discoConfirmedBreakLongMinVolumeRatio ?? 1.2);
+
+      if (longOk) {
+        const slPct = symConfig.discoConfirmedBreakLongSlPct ?? 0.5;
+        const tpPct = symConfig.discoConfirmedBreakLongTpPct ?? 1.8;
+        console.log(
+          `[RealtimeSim] ${symbol} ★ディスコ確認型10本高値更新LONG発火: ` +
+          `終値${candle.close} > 直前${lookback}本高値${recentHigh}・VWAP${vwap.toFixed(1)}・` +
+          `MA8傾き${maSlopePct.toFixed(3)}%・出来高${volumeRatio.toFixed(2)}倍 (SL${slPct}%/TP${tpPct}%)`,
+        );
+        const result = await enterPosition(
+          "long",
+          candle,
+          tradeDate,
+          candleTime,
+          `ディスコ確認型10本高値更新LONG: VWAP上、MA8傾き${maSlopePct.toFixed(3)}%、出来高${volumeRatio.toFixed(2)}倍`,
+          boardSnapshot,
+          { slPct, tpPct },
+        );
+        if (result.action === "entry") discoConfirmedBreakLongFired.add(symbol);
+        return result;
+      }
+    }
+
+    // ---- ★6146: 寄り付き10本安値更新SHORT ----
+    // 前場の下落初動のみを、当該1分足終値による安値更新で捉える。1本確認待ちは置かない。
+    if (
+      symConfig.enableDiscoOpeningBreakShort &&
+      !discoOpeningBreakShortFired.has(symbol) &&
+      canCalcMa &&
+      candleTime >= (symConfig.discoOpeningBreakShortStartTime ?? "09:30") &&
+      candleTime <= (symConfig.discoOpeningBreakShortEndTime ?? "10:45")
+    ) {
+      const lookback = symConfig.discoOpeningBreakShortLowLookback ?? 10;
+      const priorCandles = buffer.slice(buffer.length - 1 - lookback, buffer.length - 1);
+      const recentLow = priorCandles.length >= lookback
+        ? Math.min(...priorCandles.map(item => item.low))
+        : Number.NEGATIVE_INFINITY;
+      // LONGと同じく、事前検証に合わせて1本差分のMA8傾きを使う。
+      const maSlopePct = prevMA > 0 ? (currentMA - prevMA) / prevMA * 100 : 0;
+      const shortOk =
+        priorCandles.length >= lookback &&
+        openGainPct <= (symConfig.discoOpeningBreakShortMaxOpenGainPct ?? -1.0) &&
+        candle.close < recentLow &&
+        maSlopePct <= (symConfig.discoOpeningBreakShortMaxMaSlopePct ?? 0) &&
+        volumeRatio >= (symConfig.discoOpeningBreakShortMinVolumeRatio ?? 0.8);
+
+      if (shortOk) {
+        const slPct = symConfig.discoOpeningBreakShortSlPct ?? 0.5;
+        const tpPct = symConfig.discoOpeningBreakShortTpPct ?? 2.0;
+        console.log(
+          `[RealtimeSim] ${symbol} ★ディスコ寄り付き10本安値更新SHORT発火: ` +
+          `始値比${openGainPct.toFixed(2)}%・終値${candle.close} < 直前${lookback}本安値${recentLow}・` +
+          `MA8傾き${maSlopePct.toFixed(3)}%・出来高${volumeRatio.toFixed(2)}倍 (SL${slPct}%/TP${tpPct}%)`,
+        );
+        const result = await enterPosition(
+          "short",
+          candle,
+          tradeDate,
+          candleTime,
+          `ディスコ寄り付き10本安値更新SHORT: 始値比${openGainPct.toFixed(2)}%、MA8傾き${maSlopePct.toFixed(3)}%、出来高${volumeRatio.toFixed(2)}倍`,
+          boardSnapshot,
+          { slPct, tpPct },
+        );
+        if (result.action === "entry") discoOpeningBreakShortFired.add(symbol);
+        return result;
+      }
+    }
 
     // 順張りLONG: 10:15以降、始値以上、MA8上向き、20本高値更新、陽線、出来高1.2倍。
     if (

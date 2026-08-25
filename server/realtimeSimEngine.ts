@@ -104,6 +104,7 @@ export interface SymbolConfig {
   reversalLongAmOnly?: boolean;           // 前場のみに限定するか
   reversalLongStartTime?: string;         // 開始時間（例: "09:45"）
   reversalLongMinSlope?: number;          // MA傾き最小閾値（%）
+  reversalLongSlPct?: number;             // 反転LONG専用SL（%）
   disableRoundUpLong?: boolean;           // 大台超えLONGを無効にするか
   // 安全CB SHORT設定（大幅下落の追撃と底値反発後の大台割れを回避）
   enableSafeCbShort?: boolean;
@@ -281,6 +282,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     reversalLongAmOnly: true,         // 前場のみ（09:30〜11:27）
     reversalLongStartTime: "09:45",   // 09:45以降に限定（09:30-09:44は勝率低い）
     reversalLongMinSlope: 0.02,       // MA8傾き>=0.02%（反転の勢いが弱すぎる場合を除外）
+    reversalLongSlPct: 0.6,           // 承認済みの反転LONG専用SL
     disableRoundUpLong: true,         // 大台超えLONGを無効化（全敗のため）
     enableSafeCbShort: true,
     safeCbMaxDropFromOpenPct: -8.0,       // 始値比-8%以下は下落末端の追撃としてCB SHORTを停止
@@ -989,12 +991,14 @@ export async function restoreBuffersFromDb(): Promise<void> {
         for (const entry of dbOpenTrades) {
           if (!openPositions.has(entry.symbol)) {
             const symbolConfig = getSymbolConfig(entry.symbol);
+            const isReversalLong = entry.side === "long" && entry.reason.includes("反転LONG");
             const isReversalShort = entry.side === "short" && entry.reason.includes("反転SHORT");
             const isAfternoonLowBreakShort = entry.side === "short" && entry.reason.includes("後場安値更新SHORT");
             const isLowReversalBreakLong = entry.side === "long" && entry.reason.includes("安値反転ブレイクLONG");
             const isHighFadeBreakShort = entry.side === "short" && entry.reason.includes("高値失速ブレイクSHORT");
             const isOpeningBreakShort = entry.side === "short" && entry.reason.includes("寄り付きブレイクSHORT");
-            const isTaiyoStrategy = entry.reason.includes("太陽誘電朝初動SHORT") || entry.reason.includes("太陽誘電後場反転");
+            const isTaiyoMorningInitialShort = entry.side === "short" && entry.reason.includes("太陽誘電朝初動SHORT");
+            const isTaiyoAfternoonReversal = entry.reason.includes("太陽誘電後場反転");
             const isAdvantestHighFadeShort = entry.side === "short" && entry.reason.includes("アドバンテスト高値失速SHORT");
             const isAdvantestConfirmedBreakLong = entry.side === "long" && entry.reason.includes("アドバンテスト確認型LONG");
             const isDiscoConfirmedBreakLong = entry.side === "long" && entry.reason.includes("ディスコ確認型10本高値更新LONG");
@@ -1006,8 +1010,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
               shares: entry.shares,
               entryTime: entry.tradeTime,
               entryReason: entry.reason,
-              slPctOverride: isReversalShort
-                ? symbolConfig.reversalShortSlPct
+              slPctOverride: isReversalLong
+                ? symbolConfig.reversalLongSlPct
+                : isReversalShort
+                  ? symbolConfig.reversalShortSlPct
                 : isAfternoonLowBreakShort
                   ? symbolConfig.afternoonLowBreakShortSlPct
                   : isLowReversalBreakLong
@@ -1016,8 +1022,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
                       ? symbolConfig.highFadeBreakShortSlPct
                       : isOpeningBreakShort
                         ? symbolConfig.openingBreakShortSlPct
-                        : isTaiyoStrategy
-                          ? symbolConfig.taiyoAfternoonSlPct ?? symbolConfig.taiyoMorningInitialShortSlPct
+                        : isTaiyoMorningInitialShort
+                          ? symbolConfig.taiyoMorningInitialShortSlPct
+                          : isTaiyoAfternoonReversal
+                            ? symbolConfig.taiyoAfternoonSlPct
                           : isAdvantestHighFadeShort
                             ? symbolConfig.advantestHighFadeShortSlPct
                             : isAdvantestConfirmedBreakLong
@@ -1027,8 +1035,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
                                 : isDiscoOpeningBreakShort
                                   ? symbolConfig.discoOpeningBreakShortSlPct
                             : undefined,
-              tpPctOverride: isReversalShort
-                ? symbolConfig.reversalShortTpPct
+              tpPctOverride: isReversalLong
+                ? symbolConfig.tp?.long
+                : isReversalShort
+                  ? symbolConfig.reversalShortTpPct
                 : isAfternoonLowBreakShort
                   ? symbolConfig.afternoonLowBreakShortTpPct
                   : isLowReversalBreakLong
@@ -1037,8 +1047,10 @@ export async function restoreBuffersFromDb(): Promise<void> {
                       ? symbolConfig.highFadeBreakShortTpPct
                       : isOpeningBreakShort
                         ? symbolConfig.openingBreakShortTpPct
-                        : isTaiyoStrategy
-                          ? symbolConfig.taiyoAfternoonTpPct ?? symbolConfig.taiyoMorningInitialShortTpPct
+                        : isTaiyoMorningInitialShort
+                          ? symbolConfig.taiyoMorningInitialShortTpPct
+                          : isTaiyoAfternoonReversal
+                            ? symbolConfig.taiyoAfternoonTpPct
                           : isAdvantestHighFadeShort
                             ? symbolConfig.advantestHighFadeShortTpPct
                             : isAdvantestConfirmedBreakLong
@@ -1641,7 +1653,6 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const highBreak = candle.high > recent10High;
 
         if (maRising && highBreak && slopeOk) {
-          reversalLongFired.add(symbol);
           console.log(
             `[RealtimeSim] ${symbol} ★反転LONG発火: 高値${currentDayHigh}→現在${candle.close} ` +
             `(落${dropFromHigh.toFixed(1)}% >= ${dropPct}%) MA${maPeriod}上向き + 傾き>=0.02% + 直近10本高値更新`
@@ -1652,7 +1663,19 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             console.log(`[RealtimeSim] ${symbol} 反転LONG: sell_pressure時ブロック`);
             return { symbol, tradeDate, candleTime, action: "none" };
           }
-          return await enterPosition("long", candle, tradeDate, candleTime, `反転LONG: 高値${currentDayHigh}から${dropFromHigh.toFixed(1)}%下落後の反転 (前場)`, boardSnapshot);
+          const slPct = symConfig.reversalLongSlPct ?? 0.6;
+          const tpPct = symConfig.tp?.long ?? 0.8;
+          const result = await enterPosition(
+            "long",
+            candle,
+            tradeDate,
+            candleTime,
+            `反転LONG: 高値${currentDayHigh}から${dropFromHigh.toFixed(1)}%下落後の反転 (前場)`,
+            boardSnapshot,
+            { slPct, tpPct },
+          );
+          if (result.action === "entry") reversalLongFired.add(symbol);
+          return result;
         }
       }
     }
@@ -1670,6 +1693,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   const isRoundBreakdownSignal = sig?.type === "sell" && sig.reason.startsWith("大台割れ");
   // 安全CBをブロックする場面では、同一足の反転SHORTを評価できるようにする。
   const safeCbBlockedNow = isRoundBreakdownSignal && shouldBlockSafeCbShort(symbol, candle, buffer);
+  // 285Aは安全条件を満たした大台割れCBだけ、後段の既存CB確認・板・HTF経路へ通す。
+  const safeCbShortReady = Boolean(symConfig.enableSafeCbShort && isRoundBreakdownSignal && !safeCbBlockedNow);
 
   // ---- ★285A反転SHORT: 上昇後の明確な反落を捉える ----
   // 安全な大台割れCBが同じ足で出ている場合はCBを優先する。
@@ -1704,7 +1729,6 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         const lowBreak = candle.low < recent10Low;
 
         if (maFalling && lowBreak) {
-          reversalShortFired.add(symbol);
           const slPct = symConfig.reversalShortSlPct ?? 0.8;
           const tpPct = symConfig.reversalShortTpPct ?? 1.5;
           console.log(
@@ -1712,7 +1736,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             `高値${dayHigh}→現在${candle.close}（落${dropFromHighPct.toFixed(1)}%） ` +
             `MA${maPeriod}下向き + 直近10本安値更新 (SL${slPct}%/TP${tpPct}%)`
           );
-          return await enterPosition(
+          const result = await enterPosition(
             "short",
             candle,
             tradeDate,
@@ -1721,6 +1745,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             boardSnapshot,
             { slPct, tpPct },
           );
+          if (result.action === "entry") reversalShortFired.add(symbol);
+          return result;
         }
       }
     }
@@ -1880,11 +1906,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         } else if (trendBoardScore < BOARD_SCORE_THRESHOLD) {
           console.log(`[RealtimeSim] ${symbol} 順張りLONG: 板読みスコア不足(${trendBoardScore})でブロック`);
         } else {
-          trendLongFired.add(symbol);
           const slPct = symConfig.trendLongSlPct ?? 0.6;
           const tpPct = symConfig.trendLongTpPct ?? 0.8;
           console.log(`[RealtimeSim] ${symbol} ★順張りLONG発火: 始値比+${openGainPct.toFixed(1)}%・20本高値更新・出来高${volumeRatio.toFixed(1)}倍 (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition("long", candle, tradeDate, candleTime, `順張りLONG: 始値比+${openGainPct.toFixed(1)}%、20本高値更新、出来高${volumeRatio.toFixed(1)}倍`, trendBoard, { slPct, tpPct });
+          const result = await enterPosition("long", candle, tradeDate, candleTime, `順張りLONG: 始値比+${openGainPct.toFixed(1)}%、20本高値更新、出来高${volumeRatio.toFixed(1)}倍`, trendBoard, { slPct, tpPct });
+          if (result.action === "entry") trendLongFired.add(symbol);
+          return result;
         }
       }
     }
@@ -1912,11 +1939,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       if (pending && candleTime > pending.triggerTime) {
         taiyoMorningInitialShortPending.delete(symbol);
         if (candle.close < pending.triggerClose && candle.close < candle.open) {
-          taiyoMorningInitialShortFired.add(symbol);
           const slPct = symConfig.taiyoMorningInitialShortSlPct ?? 1.0;
           const tpPct = symConfig.taiyoMorningInitialShortTpPct ?? 1.5;
           console.log(`[RealtimeSim] ${symbol} ★太陽誘電朝初動SHORT発火: 1本確認・5分安値下抜け・出来高${volumeRatio.toFixed(2)}倍 (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition("short", candle, tradeDate, candleTime, `太陽誘電朝初動SHORT: 1本確認、5分安値下抜け、出来高${volumeRatio.toFixed(2)}倍`, boardSnapshot, { slPct, tpPct });
+          const result = await enterPosition("short", candle, tradeDate, candleTime, `太陽誘電朝初動SHORT: 1本確認、5分安値下抜け、出来高${volumeRatio.toFixed(2)}倍`, boardSnapshot, { slPct, tpPct });
+          if (result.action === "entry") taiyoMorningInitialShortFired.add(symbol);
+          return result;
         }
         console.log(`[RealtimeSim] ${symbol} 太陽誘電朝初動SHORT: 1本確認が不成立で取消`);
       } else if (morningShortOk) {
@@ -1970,21 +1998,23 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       if (longPending && candleTime > longPending.triggerTime) {
         taiyoAfternoonReversalLongPending.delete(symbol);
         if (candle.close > longPending.triggerClose && candle.close > candle.open) {
-          taiyoAfternoonReversalFired.add(symbol);
           const slPct = symConfig.taiyoAfternoonSlPct ?? 1.0;
           const tpPct = symConfig.taiyoAfternoonTpPct ?? 1.5;
           console.log(`[RealtimeSim] ${symbol} ★太陽誘電後場反転LONG発火: 1本確認・前場${morningMovePct.toFixed(2)}%・安値反発${reversalPctFromLow.toFixed(2)}% (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition("long", candle, tradeDate, candleTime, `太陽誘電後場反転LONG: 1本確認、前場${morningMovePct.toFixed(2)}%、安値反発${reversalPctFromLow.toFixed(2)}%`, boardSnapshot, { slPct, tpPct });
+          const result = await enterPosition("long", candle, tradeDate, candleTime, `太陽誘電後場反転LONG: 1本確認、前場${morningMovePct.toFixed(2)}%、安値反発${reversalPctFromLow.toFixed(2)}%`, boardSnapshot, { slPct, tpPct });
+          if (result.action === "entry") taiyoAfternoonReversalFired.add(symbol);
+          return result;
         }
         console.log(`[RealtimeSim] ${symbol} 太陽誘電後場反転LONG: 1本確認が不成立で取消`);
       } else if (shortPending && candleTime > shortPending.triggerTime) {
         taiyoAfternoonReversalShortPending.delete(symbol);
         if (candle.close < shortPending.triggerClose && candle.close < candle.open) {
-          taiyoAfternoonReversalFired.add(symbol);
           const slPct = symConfig.taiyoAfternoonSlPct ?? 1.0;
           const tpPct = symConfig.taiyoAfternoonTpPct ?? 1.5;
           console.log(`[RealtimeSim] ${symbol} ★太陽誘電後場反転SHORT発火: 1本確認・前場+${morningMovePct.toFixed(2)}%・高値反落${reversalPctFromHigh.toFixed(2)}% (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition("short", candle, tradeDate, candleTime, `太陽誘電後場反転SHORT: 1本確認、前場+${morningMovePct.toFixed(2)}%、高値反落${reversalPctFromHigh.toFixed(2)}%`, boardSnapshot, { slPct, tpPct });
+          const result = await enterPosition("short", candle, tradeDate, candleTime, `太陽誘電後場反転SHORT: 1本確認、前場+${morningMovePct.toFixed(2)}%、高値反落${reversalPctFromHigh.toFixed(2)}%`, boardSnapshot, { slPct, tpPct });
+          if (result.action === "entry") taiyoAfternoonReversalFired.add(symbol);
+          return result;
         }
         console.log(`[RealtimeSim] ${symbol} 太陽誘電後場反転SHORT: 1本確認が不成立で取消`);
       } else if (longTrigger) {
@@ -2044,15 +2074,16 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         } else if (reversalBpr <= bprFloor) {
           console.log(`[RealtimeSim] ${symbol} 安値反転ブレイクLONG: 極端な売り圧力(BPR${reversalBpr.toFixed(2)} <= ${bprFloor})でブロック`);
         } else {
-          lowReversalBreakLongFired.add(symbol);
           const slPct = symConfig.lowReversalBreakLongSlPct ?? 0.5;
           const tpPct = symConfig.lowReversalBreakLongTpPct ?? 0.5;
           console.log(`[RealtimeSim] ${symbol} ★安値反転ブレイクLONG発火: 1本確認・当日安値始値比${dayLowDropPct.toFixed(2)}%・${highLookback}本高値更新・BPR${reversalBpr.toFixed(2)} (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition(
+          const result = await enterPosition(
             "long", candle, tradeDate, candleTime,
             `安値反転ブレイクLONG: 1本確認、当日安値始値比${dayLowDropPct.toFixed(2)}%、${highLookback}本高値更新、BPR${reversalBpr.toFixed(2)}`,
             reversalBoard, { slPct, tpPct },
           );
+          if (result.action === "entry") lowReversalBreakLongFired.add(symbol);
+          return result;
         }
       } else if (reversalLongOk) {
         lowReversalBreakLongPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
@@ -2099,15 +2130,16 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         } else if (openingBpr > bprMax) {
           console.log(`[RealtimeSim] ${symbol} 寄り付きブレイクSHORT: BPR買い優勢(${openingBpr.toFixed(2)} > ${bprMax})でブロック`);
         } else {
-          openingBreakShortFired.add(symbol);
           const slPct = symConfig.openingBreakShortSlPct ?? 0.6;
           const tpPct = symConfig.openingBreakShortTpPct ?? 1.5;
           console.log(`[RealtimeSim] ${symbol} ★寄り付きブレイクSHORT発火: 1本確認・始値比${openGainPct.toFixed(2)}%・${lowLookback}本安値更新 (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition(
+          const result = await enterPosition(
             "short", candle, tradeDate, candleTime,
             `寄り付きブレイクSHORT: 1本確認、始値比${openGainPct.toFixed(2)}%、${lowLookback}本安値更新`,
             openingBoard, { slPct, tpPct },
           );
+          if (result.action === "entry") openingBreakShortFired.add(symbol);
+          return result;
         }
         return { symbol, tradeDate, candleTime, action: "none" };
       } else if (isShockCandle && openGainPct <= (symConfig.openingBreakShortMaxOpenGainPct ?? -1.5) && candle.close < recentLow) {
@@ -2157,15 +2189,16 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         } else if (maSlope2 <= maSlopeFloor) {
           console.log(`[RealtimeSim] ${symbol} 高値失速ブレイクSHORT: 急落末端(MA8傾き${maSlope2.toFixed(3)}% <= ${maSlopeFloor}%)でブロック`);
         } else {
-          highFadeBreakShortFired.add(symbol);
           const slPct = symConfig.highFadeBreakShortSlPct ?? 0.6;
           const tpPct = symConfig.highFadeBreakShortTpPct ?? 1.5;
           console.log(`[RealtimeSim] ${symbol} ★高値失速ブレイクSHORT発火: 1本確認・始値比+${openGainPct.toFixed(2)}%・${lowLookback}本安値更新・MA傾き${maSlope2.toFixed(3)}% (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition(
+          const result = await enterPosition(
             "short", candle, tradeDate, candleTime,
             `高値失速ブレイクSHORT: 1本確認、始値比+${openGainPct.toFixed(2)}%、${lowLookback}本安値更新、MA傾き${maSlope2.toFixed(3)}%`,
             fadeBoard, { slPct, tpPct },
           );
+          if (result.action === "entry") highFadeBreakShortFired.add(symbol);
+          return result;
         }
       } else if (highFadeShortOk) {
         highFadeBreakShortPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
@@ -2213,7 +2246,6 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             `(値幅${candleRangePct.toFixed(3)}% >= ${shockRangePct}%、出来高${volumeRatio.toFixed(2)}倍 >= ${shockVolumeRatio}倍)`
           );
         } else {
-          afternoonLowBreakShortFired.add(symbol);
           const slPct = symConfig.afternoonLowBreakShortSlPct ?? 0.6;
           const tpPct = symConfig.afternoonLowBreakShortTpPct ?? 1.5;
           console.log(
@@ -2221,7 +2253,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             `${lookback}本安値更新・MA傾き${maSlope2.toFixed(3)}%・出来高${volumeRatio.toFixed(2)}倍 ` +
             `(SL${slPct}%/TP${tpPct}%)`
           );
-          return await enterPosition(
+          const result = await enterPosition(
             "short",
             candle,
             tradeDate,
@@ -2230,6 +2262,8 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             cBoard,
             { slPct, tpPct },
           );
+          if (result.action === "entry") afternoonLowBreakShortFired.add(symbol);
+          return result;
         }
       }
     }
@@ -2271,11 +2305,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         } else if (trendBoardScore < BOARD_SCORE_THRESHOLD && isNeutralBoard) {
           console.log(`[RealtimeSim] ${symbol} 順張りSHORT: neutral時の板読みスコア不足(${trendBoardScore})でブロック`);
         } else {
-          trendShortFired.add(symbol);
           const slPct = symConfig.trendShortSlPct ?? 0.8;
           const tpPct = symConfig.trendShortTpPct ?? 1.2;
           console.log(`[RealtimeSim] ${symbol} ★順張りSHORT発火: 始値比${openGainPct.toFixed(1)}%・10本安値更新・出来高${volumeRatio.toFixed(1)}倍 (SL${slPct}%/TP${tpPct}%)`);
-          return await enterPosition("short", candle, tradeDate, candleTime, `順張りSHORT: 始値比${openGainPct.toFixed(1)}%、10本安値更新、出来高${volumeRatio.toFixed(1)}倍`, trendBoard, { slPct, tpPct });
+          const result = await enterPosition("short", candle, tradeDate, candleTime, `順張りSHORT: 始値比${openGainPct.toFixed(1)}%、10本安値更新、出来高${volumeRatio.toFixed(1)}倍`, trendBoard, { slPct, tpPct });
+          if (result.action === "entry") trendShortFired.add(symbol);
+          return result;
         }
       }
     }
@@ -2469,18 +2504,19 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       } else if (peakBoardScore < BOARD_SCORE_THRESHOLD && isNeutralBoard) {
         console.log(`[RealtimeSim] ${symbol} 高値反転SHORT: neutral時の板読みスコア不足(${peakBoardScore})でブロック`);
       } else {
-        peakReversalShortFired.add(symbol);
         const slPct = symConfig.peakReversalShortSlPct ?? 0.6;
         const tpPct = symConfig.peakReversalShortTpPct ?? 1.8;
         console.log(`[RealtimeSim] ${symbol} ★高値反転SHORT発火: 始値比+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落 (SL${slPct}%/TP${tpPct}%)`);
-        return await enterPosition("short", candle, tradeDate, candleTime, `高値反転SHORT: 始値+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落`, peakBoard, { slPct, tpPct });
+        const result = await enterPosition("short", candle, tradeDate, candleTime, `高値反転SHORT: 始値+${riseFromOpenPct.toFixed(1)}%後、高値から${dropFromHighPct.toFixed(1)}%反落`, peakBoard, { slPct, tpPct });
+        if (result.action === "entry") peakReversalShortFired.add(symbol);
+        return result;
       }
     }
   }
 
   // 個別最適化が完了した銘柄は、上段で実装済みの専用方式だけを使用する。
   // 専用方式がこの足で発火しなければ、後段の汎用ダウ理論・大台・押し目・VWAP系へは進めない。
-  if (symConfig.exclusiveEntryRoutes) {
+  if (symConfig.exclusiveEntryRoutes && !safeCbShortReady) {
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 

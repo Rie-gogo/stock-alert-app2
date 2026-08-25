@@ -1674,6 +1674,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.enableReversalLong).toBe(true);
     expect(config.reversalLongDropPct).toBe(2.5);
     expect(config.reversalLongAmOnly).toBe(true);
+    expect(config.reversalLongSlPct).toBe(0.6);
     expect(config.disableRoundUpLong).toBe(true);
     expect(config.tp).toBeDefined();
     expect(config.tp!.long).toBe(0.8);
@@ -1903,6 +1904,8 @@ describe("キオクシア(285A) 反転LONG", () => {
         const pos = positions.find(p => p.symbol === symbol);
         expect(pos).toBeDefined();
         expect(pos!.side).toBe("long");
+        expect(pos!.slPctOverride).toBe(0.6);
+        expect(pos!.tpPctOverride).toBe(0.8);
         return; // テスト成功
       }
     }
@@ -2288,6 +2291,9 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
     }));
     expect(confirmed.action).toBe("entry");
     expect(confirmed.reason).toContain("太陽誘電朝初動SHORT");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.slPctOverride).toBe(1.0);
+    expect(position?.tpPctOverride).toBe(1.5);
   });
 
   it("後場反転LONGは前場-3%後の高値更新を陽線1本確認して発火する", async () => {
@@ -2311,6 +2317,9 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
       if (result.action === "entry") { entry = result; break; }
     }
     expect(entry?.reason).toContain("太陽誘電後場反転LONG");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.slPctOverride).toBe(1.0);
+    expect(position?.tpPctOverride).toBe(1.2);
   });
 
   it("後場反転SHORTは前場+3%後の安値更新を陰線1本確認して発火する", async () => {
@@ -2334,6 +2343,9 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
       if (result.action === "entry") { entry = result; break; }
     }
     expect(entry?.reason).toContain("太陽誘電後場反転SHORT");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.slPctOverride).toBe(1.0);
+    expect(position?.tpPctOverride).toBe(1.2);
   });
 
   it("専用3方式の条件がない6976は汎用シグナルだけでエントリーしない", async () => {

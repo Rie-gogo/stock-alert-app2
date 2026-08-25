@@ -58,7 +58,7 @@ import { processCandle } from "./realtimeSimEngine";
 
 const dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"];
 
-describe("キオクシア(285A) 専用4方式の保存KABU 5営業日再生", () => {
+describe("キオクシア(285A) 専用5方式の保存KABU 5営業日再生", () => {
   it("汎用経路を使わず、保存1分足・板スナップショットを時刻順に処理する", async () => {
     const events: Array<{ date: string; time: string; action: string; reason?: string; pnl?: number }> = [];
     let processedRows = 0;
@@ -85,10 +85,10 @@ describe("キオクシア(285A) 専用4方式の保存KABU 5営業日再生", ()
     console.log("KIOXIA_EXCLUSIVE_5D", JSON.stringify({ processedRows, events }));
     expect(processedRows).toBeGreaterThan(1_500);
     const entries = events.filter(event => event.action === "entry");
-    expect(entries).toHaveLength(8);
+    expect(entries).toHaveLength(12);
     for (const entry of entries) {
-      expect(entry.reason).toMatch(/反転LONG|反転SHORT|順張りLONG|順張りSHORT/);
-      expect(entry.reason).not.toMatch(/安値更新即|大台確認|大台割れ|押し目確認/);
+      expect(entry.reason).toMatch(/反転LONG|反転SHORT|順張りLONG|順張りSHORT|大台確認|大台割れ/);
+      expect(entry.reason).not.toMatch(/安値更新即|押し目確認/);
     }
   }, 120_000);
 });

@@ -15,7 +15,11 @@ describe("DRY_RUNエントリー対象", () => {
     ]);
 
     const receivedSymbols = new Set(TARGET_STOCKS.map(stock => stock.symbol));
-    expect(receivedSymbols.size).toBeGreaterThan(ACTIVE_ENTRY_SYMBOLS!.size);
+    expect(TARGET_STOCKS).toHaveLength(22);
+    expect(receivedSymbols.size).toBe(22);
+    expect(receivedSymbols.has("6920")).toBe(true);
+    expect(receivedSymbols.has("6758")).toBe(true);
+    expect(receivedSymbols.size - ACTIVE_ENTRY_SYMBOLS!.size).toBe(15);
     for (const symbol of ACTIVE_ENTRY_SYMBOLS!) {
       expect(receivedSymbols.has(symbol as typeof TARGET_STOCKS[number]["symbol"])).toBe(true);
     }

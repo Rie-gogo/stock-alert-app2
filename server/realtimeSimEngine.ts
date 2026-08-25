@@ -773,6 +773,27 @@ const advantestPostStopReentry = new Map<string, AdvantestPostStopReentryState>(
 const discoConfirmedBreakLongFired = new Set<string>();
 const discoOpeningBreakShortFired = new Set<string>();
 
+function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKey): void {
+  const target = {
+    reversalLong: reversalLongFired,
+    reversalShort: reversalShortFired,
+    trendLong: trendLongFired,
+    trendShort: trendShortFired,
+    afternoonLowBreakShort: afternoonLowBreakShortFired,
+    lowReversalBreakLong: lowReversalBreakLongFired,
+    highFadeBreakShort: highFadeBreakShortFired,
+    openingBreakShort: openingBreakShortFired,
+    taiyoMorningInitialShort: taiyoMorningInitialShortFired,
+    taiyoAfternoonReversal: taiyoAfternoonReversalFired,
+    peakReversalShort: peakReversalShortFired,
+    advantestHighFadeShort: advantestHighFadeShortFired,
+    advantestConfirmedBreakLong: advantestConfirmedBreakLongFired,
+    discoConfirmedBreakLong: discoConfirmedBreakLongFired,
+    discoOpeningBreakShort: discoOpeningBreakShortFired,
+  } satisfies Record<SpecializedFiredStateKey, Set<string>>;
+  target[key].add(symbol);
+}
+
 /** 当日の全シグナル履歴（最新200件まで） */
 const signalHistory: Array<{
   time: string;       // HH:MM
@@ -959,6 +980,64 @@ export function resolveRestoredRiskOverrides(
   return {};
 }
 
+export type SpecializedFiredStateKey =
+  | "reversalLong"
+  | "reversalShort"
+  | "trendLong"
+  | "trendShort"
+  | "afternoonLowBreakShort"
+  | "lowReversalBreakLong"
+  | "highFadeBreakShort"
+  | "openingBreakShort"
+  | "taiyoMorningInitialShort"
+  | "taiyoAfternoonReversal"
+  | "peakReversalShort"
+  | "advantestHighFadeShort"
+  | "advantestConfirmedBreakLong"
+  | "discoConfirmedBreakLong"
+  | "discoOpeningBreakShort";
+
+/** DBの当日エントリー履歴から、再起動後に復元すべき専用方式を識別する。 */
+export function resolveSpecializedFiredStateKeys(
+  symbol: string,
+  action: string,
+  reason: string,
+): SpecializedFiredStateKey[] {
+  if (symbol === "285A") {
+    if (action === "buy" && reason.startsWith("反転LONG")) return ["reversalLong"];
+    if (action === "short" && reason.startsWith("反転SHORT")) return ["reversalShort"];
+    if (action === "buy" && reason.startsWith("順張りLONG")) return ["trendLong"];
+    if (action === "short" && reason.startsWith("順張りSHORT")) return ["trendShort"];
+  }
+  if (symbol === "8035") {
+    if (action === "buy" && reason.startsWith("順張りLONG")) return ["trendLong"];
+    if (action === "short" && reason.startsWith("順張りSHORT")) return ["trendShort"];
+    if (action === "short" && reason.startsWith("高値反転SHORT")) return ["peakReversalShort"];
+  }
+  if (symbol === "5803") {
+    if (action === "short" && reason.startsWith("フジクラ後場安値更新SHORT")) return ["afternoonLowBreakShort"];
+    if (action === "buy" && reason.startsWith("安値反転ブレイクLONG")) return ["lowReversalBreakLong"];
+    if (action === "short" && reason.startsWith("高値失速ブレイクSHORT")) return ["highFadeBreakShort"];
+  }
+  if (symbol === "6981") {
+    if (action === "buy" && reason.startsWith("安値反転ブレイクLONG")) return ["lowReversalBreakLong"];
+    if (action === "short" && reason.startsWith("寄り付きブレイクSHORT")) return ["openingBreakShort"];
+  }
+  if (symbol === "6976") {
+    if (action === "short" && reason.startsWith("太陽誘電朝初動SHORT")) return ["taiyoMorningInitialShort"];
+    if ((action === "buy" || action === "short") && reason.startsWith("太陽誘電後場反転")) return ["taiyoAfternoonReversal"];
+  }
+  if (symbol === "6857") {
+    if (action === "short" && reason.startsWith("アドバンテスト高値失速SHORT")) return ["advantestHighFadeShort"];
+    if (action === "buy" && reason.startsWith("アドバンテスト確認型LONG")) return ["advantestConfirmedBreakLong"];
+  }
+  if (symbol === "6146") {
+    if (action === "buy" && reason.startsWith("ディスコ確認型10本高値更新LONG")) return ["discoConfirmedBreakLong"];
+    if (action === "short" && reason.startsWith("ディスコ寄り付き10本安値更新SHORT")) return ["discoOpeningBreakShort"];
+  }
+  return [];
+}
+
 /**
  * サーバー起動時にDBから当日の1分足のみを読み込んでcandleBuffersを復元する（当日構築モード）
  *
@@ -1089,14 +1168,13 @@ export async function restoreBuffersFromDb(): Promise<void> {
             reason: t.reason,
           });
 
+          for (const key of resolveSpecializedFiredStateKeys(t.symbol, t.action, t.reason)) {
+            applySpecializedFiredState(t.symbol, key);
+          }
+
           const isAdvantestShort = t.symbol === "6857" && t.reason.startsWith("アドバンテスト高値失速SHORT");
           const isAdvantestLong = t.symbol === "6857" && t.reason.startsWith("アドバンテスト確認型LONG");
-          const isDiscoLong = t.symbol === "6146" && t.reason.startsWith("ディスコ確認型10本高値更新LONG");
-          const isDiscoShort = t.symbol === "6146" && t.reason.startsWith("ディスコ寄り付き10本安値更新SHORT");
-          if (isDiscoLong && t.action === "buy") discoConfirmedBreakLongFired.add("6146");
-          if (isDiscoShort && t.action === "short") discoOpeningBreakShortFired.add("6146");
           if (isAdvantestShort && t.action === "short") {
-            advantestHighFadeShortFired.add("6857");
             latestAdvantestSpecialSide = "short";
             if (t.reason.includes("損切り後再評価")) {
               const state = advantestPostStopReentry.get("6857") ?? { stoppedSide: "long" as const, stopTime: t.tradeTime, reentryUsed: false };
@@ -1104,7 +1182,6 @@ export async function restoreBuffersFromDb(): Promise<void> {
               advantestPostStopReentry.set("6857", state);
             }
           } else if (isAdvantestLong && t.action === "buy") {
-            advantestConfirmedBreakLongFired.add("6857");
             latestAdvantestSpecialSide = "long";
             if (t.reason.includes("損切り後再評価")) {
               const state = advantestPostStopReentry.get("6857") ?? { stoppedSide: "short" as const, stopTime: t.tradeTime, reentryUsed: false };

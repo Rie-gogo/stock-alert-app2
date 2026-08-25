@@ -75,7 +75,7 @@ function makeCandle(overrides: Partial<RtCandle1Min> = {}): RtCandle1Min {
 /**
  * ウォームアップ用に30本の足を送信する（シグナル判定に必要なMA25計算のため）
  */
-async function warmup(symbol: string, tradeDate: string, basePrice = 3000): Promise<void> {
+async function warmup(symbol: string, tradeDate: string, basePrice = 3000, range = 10): Promise<void> {
   for (let i = 0; i < 30; i++) {
     const hour = 9 + Math.floor(i / 60);
     const minute = i % 60;
@@ -85,8 +85,8 @@ async function warmup(symbol: string, tradeDate: string, basePrice = 3000): Prom
       tradeDate,
       candleTime,
       open: basePrice,
-      high: basePrice + 10,
-      low: basePrice - 10,
+      high: basePrice + range,
+      low: basePrice - range,
       close: basePrice,
       volume: 5000,
     }));
@@ -1809,6 +1809,35 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.peakReversalShortDropPct).toBe(0.4);
     expect(config.peakReversalShortSlPct).toBe(0.6);
     expect(config.peakReversalShortTpPct).toBe(1.8);
+    expect(config.telMaxHoldingMinutes).toBe(22);
+  });
+
+  it("東京エレクトロンは22本の確定足経過後、TP・SL未到達なら次足始値で決済する", async () => {
+    const symbol = "8035";
+    const tradeDate = "2026-10-01";
+    const { enterPosition } = await import("./realtimeSimEngine");
+    await warmup(symbol, tradeDate, 70000, 100);
+
+    const entryCandle = makeCandle({
+      symbol, tradeDate, candleTime: "10:00",
+      open: 70000, high: 70020, low: 69980, close: 70000, volume: 1000,
+    });
+    await enterPosition("long", entryCandle, tradeDate, "10:00", "時間決済テスト", null, { slPct: 0.7, tpPct: 1.0 });
+
+    const beforeLimit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:22",
+      open: 70010, high: 70030, low: 69990, close: 70010, volume: 1000,
+    }));
+    expect(beforeLimit.action).toBe("none");
+    expect(getOpenPositions().find(position => position.symbol === symbol)).toBeDefined();
+
+    const afterLimit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:23",
+      open: 70050, high: 70080, low: 70020, close: 70060, volume: 1000,
+    }));
+    expect(afterLimit.action).toBe("exit");
+    expect(afterLimit.reason).toContain("最大保有22分");
+    expect(getOpenPositions().find(position => position.symbol === symbol)).toBeUndefined();
   });
 
   it("東京エレクトロンの急騰後反落で高値反転SHORTが発火する", async () => {
@@ -2234,10 +2263,11 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
     expect(config.taiyoMorningInitialShortMinVolumeRatio).toBe(2.2);
     expect(config.enableTaiyoAfternoonReversalLong).toBe(true);
     expect(config.enableTaiyoAfternoonReversalShort).toBe(true);
-    expect(config.taiyoAfternoonLongMinVolumeRatio).toBe(1.5);
+    expect(config.taiyoAfternoonLongMinVolumeRatio).toBe(1.0);
     expect(config.taiyoAfternoonShortMinVolumeRatio).toBe(1.2);
     expect(config.sl).toEqual({ long: 1.0, short: 1.0 });
     expect(config.tp).toEqual({ long: 1.5, short: 1.5 });
+    expect(config.taiyoAfternoonTpPct).toBe(1.2);
     expect(getSymbolConfig("6981").enableTaiyoMorningInitialShort).toBeUndefined();
   });
 

@@ -216,6 +216,8 @@ export interface SymbolConfig {
   peakReversalShortMinVolumeRatio?: number;
   peakReversalShortSlPct?: number;
   peakReversalShortTpPct?: number;
+  // 東京エレクトロン: 最大保有時間。TP・SL・既存決済がなければ、経過後の次足始値で決済
+  telMaxHoldingMinutes?: number;
   // アドバンテスト: 高値形成後の失速SHORT（確認足の実体不足を停止）
   enableAdvantestHighFadeShort?: boolean;
   advantestHighFadeShortStartTime?: string;
@@ -322,8 +324,9 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     peakReversalShortMinVolumeRatio: 1.0,
     peakReversalShortSlPct: 0.6,
     peakReversalShortTpPct: 1.8,
+    telMaxHoldingMinutes: 22,
     exclusiveEntryRoutes: true,
-    notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。",
+    notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。TP・SL・既存決済がなければ22分確定後の次足始値で決済。",
   },
   "6857": {
     sl: { long: 1.0, short: 1.0 },
@@ -381,12 +384,12 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     taiyoAfternoonMinMorningMovePct: 3.0,
     taiyoAfternoonMinReversalPct: 1.0,
     taiyoAfternoonHighLowLookback: 5,
-    taiyoAfternoonLongMinVolumeRatio: 1.5,
+    taiyoAfternoonLongMinVolumeRatio: 1.0,
     taiyoAfternoonShortMinVolumeRatio: 1.2,
     taiyoAfternoonSlPct: 1.0,
-    taiyoAfternoonTpPct: 1.5,
+    taiyoAfternoonTpPct: 1.2,
     exclusiveEntryRoutes: true,
-    notes: "太陽誘電: 朝初動SHORT（最初の5分安値下抜け・出来高2.2倍・1本確認）＋前場始値比±3%後の後場反転LONG/SHORT（各出来高1.5倍/1.2倍・1本確認）。朝1回、後場はLONG/SHORT合計1回。全方式SL1.0%/TP1.5%。",
+    notes: "太陽誘電: 朝初動SHORT（最初の5分安値下抜け・出来高2.2倍・1本確認、SL1.0%/TP1.5%）＋前場始値比±3%後の後場反転LONG/SHORT（出来高1.0倍/1.2倍・1本確認、SL1.0%/TP1.2%）。朝1回、後場はLONG/SHORT合計1回。",
   },
   "6526": { sl: { long: 0.9, short: 1.0 } },
   "5803": {
@@ -3285,6 +3288,17 @@ async function checkExitConditions(
     exitReason = `板読み早期利確 (逆方向板圧力検出)`;
     action = "take_profit";
     console.log(`[RealtimeSim] ${symbol} 板読み早期利確: @${close}円 (bpr:${boardSnapshot?.buyPressureRatio}, signal:${boardSnapshot?.signal})`);
+  }
+
+  // 東京エレクトロン: 22本の確定足を経過してもTP・SL・既存決済がなければ次足始値で決済する。
+  // 当足でSL/TP等が先に成立した場合はそれらを優先し、未来情報は参照しない。
+  if (exitPrice === null && symCfgExit.telMaxHoldingMinutes !== undefined) {
+    const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
+    if (elapsedMinutes > symCfgExit.telMaxHoldingMinutes) {
+      exitPrice = candle.open;
+      exitReason = `最大保有${symCfgExit.telMaxHoldingMinutes}分経過後の次足始値決済`;
+      action = "exit";
+    }
   }
 
   if (exitPrice === null) {

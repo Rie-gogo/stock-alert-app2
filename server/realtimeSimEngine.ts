@@ -897,6 +897,69 @@ function shouldBlockSafeCbShort(symbol: string, candle: RtCandle1Min, buffer: Ca
 }
 
 /**
+ * DBエントリー理由から、専用経路で実際に使用したSL/TPを復元する。
+ * 具体的な銘柄・理由を先に判定し、名称が似た別経路（例: 太陽誘電後場反転LONGと285A反転LONG）を混同しない。
+ */
+export function resolveRestoredRiskOverrides(
+  symbol: string,
+  side: "long" | "short",
+  reason: string,
+): { slPct?: number; tpPct?: number } {
+  const config = getSymbolConfig(symbol);
+
+  if (symbol === "6976" && reason.startsWith("太陽誘電朝初動SHORT")) {
+    return { slPct: config.taiyoMorningInitialShortSlPct, tpPct: config.taiyoMorningInitialShortTpPct };
+  }
+  if (symbol === "6976" && reason.startsWith("太陽誘電後場反転")) {
+    return { slPct: config.taiyoAfternoonSlPct, tpPct: config.taiyoAfternoonTpPct };
+  }
+  if (symbol === "285A" && side === "long" && reason.startsWith("反転LONG")) {
+    return { slPct: config.reversalLongSlPct, tpPct: config.tp?.long };
+  }
+  if (symbol === "285A" && side === "short" && reason.startsWith("反転SHORT")) {
+    return { slPct: config.reversalShortSlPct, tpPct: config.reversalShortTpPct };
+  }
+  if (reason.startsWith("順張りLONG")) {
+    return { slPct: config.trendLongSlPct, tpPct: config.trendLongTpPct };
+  }
+  if (reason.startsWith("順張りSHORT")) {
+    return { slPct: config.trendShortSlPct, tpPct: config.trendShortTpPct };
+  }
+  if (symbol === "285A" && side === "short" && (reason.startsWith("大台割れ") || reason.startsWith("大台確認"))) {
+    return { slPct: config.sl?.short, tpPct: config.tp?.short };
+  }
+  if (symbol === "8035" && side === "short" && reason.startsWith("高値反転SHORT")) {
+    return { slPct: config.peakReversalShortSlPct, tpPct: config.peakReversalShortTpPct };
+  }
+  if (reason.includes("後場安値更新SHORT")) {
+    return { slPct: config.afternoonLowBreakShortSlPct, tpPct: config.afternoonLowBreakShortTpPct };
+  }
+  if (reason.includes("安値反転ブレイクLONG")) {
+    return { slPct: config.lowReversalBreakLongSlPct, tpPct: config.lowReversalBreakLongTpPct };
+  }
+  if (reason.includes("高値失速ブレイクSHORT")) {
+    return { slPct: config.highFadeBreakShortSlPct, tpPct: config.highFadeBreakShortTpPct };
+  }
+  if (reason.includes("寄り付きブレイクSHORT")) {
+    return { slPct: config.openingBreakShortSlPct, tpPct: config.openingBreakShortTpPct };
+  }
+  if (symbol === "6857" && reason.startsWith("アドバンテスト高値失速SHORT")) {
+    return { slPct: config.advantestHighFadeShortSlPct, tpPct: config.advantestHighFadeShortTpPct };
+  }
+  if (symbol === "6857" && reason.startsWith("アドバンテスト確認型LONG")) {
+    return { slPct: config.advantestConfirmedBreakLongSlPct, tpPct: config.advantestConfirmedBreakLongTpPct };
+  }
+  if (symbol === "6146" && reason.startsWith("ディスコ確認型10本高値更新LONG")) {
+    return { slPct: config.discoConfirmedBreakLongSlPct, tpPct: config.discoConfirmedBreakLongTpPct };
+  }
+  if (symbol === "6146" && reason.startsWith("ディスコ寄り付き10本安値更新SHORT")) {
+    return { slPct: config.discoOpeningBreakShortSlPct, tpPct: config.discoOpeningBreakShortTpPct };
+  }
+
+  return {};
+}
+
+/**
  * サーバー起動時にDBから当日の1分足のみを読み込んでcandleBuffersを復元する（当日構築モード）
  *
  * 前日以前のバッファは一切引き継がない。サーバーが取引時間中に再起動した場合でも、
@@ -990,19 +1053,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
       if (dbOpenTrades.length > 0) {
         for (const entry of dbOpenTrades) {
           if (!openPositions.has(entry.symbol)) {
-            const symbolConfig = getSymbolConfig(entry.symbol);
-            const isReversalLong = entry.side === "long" && entry.reason.includes("反転LONG");
-            const isReversalShort = entry.side === "short" && entry.reason.includes("反転SHORT");
-            const isAfternoonLowBreakShort = entry.side === "short" && entry.reason.includes("後場安値更新SHORT");
-            const isLowReversalBreakLong = entry.side === "long" && entry.reason.includes("安値反転ブレイクLONG");
-            const isHighFadeBreakShort = entry.side === "short" && entry.reason.includes("高値失速ブレイクSHORT");
-            const isOpeningBreakShort = entry.side === "short" && entry.reason.includes("寄り付きブレイクSHORT");
-            const isTaiyoMorningInitialShort = entry.side === "short" && entry.reason.includes("太陽誘電朝初動SHORT");
-            const isTaiyoAfternoonReversal = entry.reason.includes("太陽誘電後場反転");
-            const isAdvantestHighFadeShort = entry.side === "short" && entry.reason.includes("アドバンテスト高値失速SHORT");
-            const isAdvantestConfirmedBreakLong = entry.side === "long" && entry.reason.includes("アドバンテスト確認型LONG");
-            const isDiscoConfirmedBreakLong = entry.side === "long" && entry.reason.includes("ディスコ確認型10本高値更新LONG");
-            const isDiscoOpeningBreakShort = entry.side === "short" && entry.reason.includes("ディスコ寄り付き10本安値更新SHORT");
+            const risk = resolveRestoredRiskOverrides(entry.symbol, entry.side as "long" | "short", entry.reason);
             openPositions.set(entry.symbol, {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
@@ -1010,56 +1061,8 @@ export async function restoreBuffersFromDb(): Promise<void> {
               shares: entry.shares,
               entryTime: entry.tradeTime,
               entryReason: entry.reason,
-              slPctOverride: isReversalLong
-                ? symbolConfig.reversalLongSlPct
-                : isReversalShort
-                  ? symbolConfig.reversalShortSlPct
-                : isAfternoonLowBreakShort
-                  ? symbolConfig.afternoonLowBreakShortSlPct
-                  : isLowReversalBreakLong
-                    ? symbolConfig.lowReversalBreakLongSlPct
-                    : isHighFadeBreakShort
-                      ? symbolConfig.highFadeBreakShortSlPct
-                      : isOpeningBreakShort
-                        ? symbolConfig.openingBreakShortSlPct
-                        : isTaiyoMorningInitialShort
-                          ? symbolConfig.taiyoMorningInitialShortSlPct
-                          : isTaiyoAfternoonReversal
-                            ? symbolConfig.taiyoAfternoonSlPct
-                          : isAdvantestHighFadeShort
-                            ? symbolConfig.advantestHighFadeShortSlPct
-                            : isAdvantestConfirmedBreakLong
-                              ? symbolConfig.advantestConfirmedBreakLongSlPct
-                              : isDiscoConfirmedBreakLong
-                                ? symbolConfig.discoConfirmedBreakLongSlPct
-                                : isDiscoOpeningBreakShort
-                                  ? symbolConfig.discoOpeningBreakShortSlPct
-                            : undefined,
-              tpPctOverride: isReversalLong
-                ? symbolConfig.tp?.long
-                : isReversalShort
-                  ? symbolConfig.reversalShortTpPct
-                : isAfternoonLowBreakShort
-                  ? symbolConfig.afternoonLowBreakShortTpPct
-                  : isLowReversalBreakLong
-                    ? symbolConfig.lowReversalBreakLongTpPct
-                    : isHighFadeBreakShort
-                      ? symbolConfig.highFadeBreakShortTpPct
-                      : isOpeningBreakShort
-                        ? symbolConfig.openingBreakShortTpPct
-                        : isTaiyoMorningInitialShort
-                          ? symbolConfig.taiyoMorningInitialShortTpPct
-                          : isTaiyoAfternoonReversal
-                            ? symbolConfig.taiyoAfternoonTpPct
-                          : isAdvantestHighFadeShort
-                            ? symbolConfig.advantestHighFadeShortTpPct
-                            : isAdvantestConfirmedBreakLong
-                              ? symbolConfig.advantestConfirmedBreakLongTpPct
-                              : isDiscoConfirmedBreakLong
-                                ? symbolConfig.discoConfirmedBreakLongTpPct
-                                : isDiscoOpeningBreakShort
-                                  ? symbolConfig.discoOpeningBreakShortTpPct
-                            : undefined,
+              slPctOverride: risk.slPct,
+              tpPctOverride: risk.tpPct,
             });
           }
         }
@@ -3680,6 +3683,7 @@ export function restoreOpenPositions(entries: Array<{
 }>): void {
   for (const entry of entries) {
     if (!openPositions.has(entry.symbol)) {
+      const risk = resolveRestoredRiskOverrides(entry.symbol, entry.side, entry.reason);
       openPositions.set(entry.symbol, {
         symbol: entry.symbol,
         side: entry.side,
@@ -3687,6 +3691,8 @@ export function restoreOpenPositions(entries: Array<{
         shares: entry.shares,
         entryTime: entry.tradeTime,
         entryReason: entry.reason,
+        slPctOverride: risk.slPct,
+        tpPctOverride: risk.tpPct,
       });
       console.log(`[RealtimeSim] Restored open position from DB: ${entry.symbol} ${entry.side} @${entry.price}円 ×${entry.shares}株`);
     }

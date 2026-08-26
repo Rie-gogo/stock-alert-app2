@@ -54,7 +54,7 @@ vi.mock("../shared/stocks", () => ({
 
 // ===== テスト対象をインポート =====
 // モック設定後にインポートする
-import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct } from "./realtimeSimEngine";
+import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockOpeningBreakShortByMaSlope } from "./realtimeSimEngine";
 import type { RtCandle1Min } from "./realtimeSimEngine";
 
 // ===== ヘルパー =====
@@ -2194,11 +2194,17 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
     expect(config.lowReversalBreakLongSlPct).toBe(1.0);
     expect(config.lowReversalBreakLongTpPct).toBe(1.5);
     expect(config.enableOpeningBreakShort).toBe(true);
+    expect(config.openingBreakShortBlockMinMaSlopePct).toBe(-0.15);
     expect(config.openingBreakShortSlPct).toBe(0.6);
     expect(config.openingBreakShortTpPct).toBe(1.5);
     expect(config.openingBreakShortShockRangePct).toBe(1.0);
     expect(config.openingBreakShortShockVolumeRatio).toBe(2.0);
     expect(getSymbolConfig("5803").enableOpeningBreakShort).toBeUndefined();
+    expect(getSymbolConfig("5803").openingBreakShortBlockMinMaSlopePct).toBeUndefined();
+    expect(shouldBlockOpeningBreakShortByMaSlope(-0.14, config.openingBreakShortBlockMinMaSlopePct)).toBe(true);
+    expect(shouldBlockOpeningBreakShortByMaSlope(-0.15, config.openingBreakShortBlockMinMaSlopePct)).toBe(true);
+    expect(shouldBlockOpeningBreakShortByMaSlope(-0.151, config.openingBreakShortBlockMinMaSlopePct)).toBe(false);
+    expect(shouldBlockOpeningBreakShortByMaSlope(-0.14, undefined)).toBe(false);
   });
 
   it("安値反転ブレイクLONGは始値比-2%後の反発を1本確認して発火する", async () => {

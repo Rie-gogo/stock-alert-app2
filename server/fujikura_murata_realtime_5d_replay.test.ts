@@ -60,11 +60,18 @@ import { getRtCandles } from "./db";
 import { processCandle } from "./realtimeSimEngine";
 
 const dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"];
+const allMurataCompleteDates = [
+  "2026-06-17", "2026-06-18", "2026-06-19", "2026-06-22", "2026-06-25", "2026-06-26", "2026-06-29", "2026-06-30",
+  "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-09", "2026-07-10", "2026-07-13",
+  "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24",
+  "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-08-03", "2026-08-06", "2026-08-07", "2026-08-10",
+  "2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-26",
+];
 
-async function replay(symbol: "5803" | "6981") {
+async function replay(symbol: "5803" | "6981", replayDates = dates) {
   const events: Array<{ date: string; time: string; action: string; reason?: string; pnl?: number }> = [];
   let processedRows = 0;
-  for (const tradeDate of dates) {
+  for (const tradeDate of replayDates) {
     const rows = await getRtCandles(symbol, tradeDate);
     for (const row of rows) {
       currentSnapshot = (row.boardSnapshot as Snapshot | null) ?? null;
@@ -116,4 +123,49 @@ describe("5803・6981専用経路 保存KABU 5営業日・未来情報なし再�
     expect(result.pnl).toBe(73_246);
     expect(result.entries.every(event => /安値反転ブレイクLONG|寄り付きブレイクSHORT/.test(event.reason ?? ""))).toBe(true);
   }, 60_000);
+
+  it("6981寄り付きSHORTはMA8二本傾き-0.15%以上の3損失日を停止する", async () => {
+    const blockedDates = ["2026-07-15", "2026-07-21", "2026-08-26"];
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    });
+
+    try {
+      const result = await replay("6981", blockedDates);
+      const openingShortEntries = result.entries.filter(event => event.reason?.startsWith("寄り付きブレイクSHORT"));
+      expect(result.processedRows).toBeGreaterThan(900);
+      expect(openingShortEntries).toHaveLength(0);
+      for (const tradeDate of blockedDates) {
+        expect(logs.some(message =>
+          message.includes("6981 寄り付きブレイクSHORT: MA8二本傾き") && message.includes(tradeDate)
+        )).toBe(true);
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
+  }, 60_000);
+
+  it("6981寄り付きSHORTは全40完全保存日で8件7勝1敗・+217,803円を維持する", async () => {
+    const result = await replay("6981", allMurataCompleteDates);
+    const openingShortPnls: number[] = [];
+    let activeEntryReason: string | undefined;
+
+    for (const event of result.events) {
+      if (event.action === "entry") {
+        activeEntryReason = event.reason;
+      } else if (event.pnl !== undefined) {
+        if (activeEntryReason?.startsWith("寄り付きブレイクSHORT")) {
+          openingShortPnls.push(event.pnl);
+        }
+        activeEntryReason = undefined;
+      }
+    }
+
+    expect(result.processedRows).toBeGreaterThan(13_000);
+    expect(openingShortPnls).toHaveLength(8);
+    expect(openingShortPnls.filter(pnl => pnl > 0)).toHaveLength(7);
+    expect(openingShortPnls.filter(pnl => pnl < 0)).toHaveLength(1);
+    expect(openingShortPnls.reduce((sum, pnl) => sum + pnl, 0)).toBe(217_803);
+  }, 120_000);
 });

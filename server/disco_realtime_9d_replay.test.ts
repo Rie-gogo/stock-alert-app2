@@ -105,7 +105,8 @@ describe("6146専用LONG・SHORT 9営業日・未来情報なし再生", () => {
     expect(exits).toHaveLength(12);
     expect(wins).toBe(9);
     expect(losses).toBe(3);
-    expect(pnl).toBe(692_498);
+    // 0.8%到達後0.7%利益保護を含む現行出口の固定値。
+    expect(pnl).toBe(531_948);
     expect(entries.every(event => event.reason?.startsWith("ディスコ確認型10本高値更新LONG") || event.reason?.startsWith("ディスコ寄り付き10本安値更新SHORT"))).toBe(true);
   }, 60_000);
 });

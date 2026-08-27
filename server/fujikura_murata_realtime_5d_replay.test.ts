@@ -108,7 +108,8 @@ describe("5803・6981専用経路 保存KABU 5営業日・未来情報なし再�
     expect(result.exits).toHaveLength(10);
     expect(result.wins).toBe(8);
     expect(result.losses).toBe(2);
-    expect(result.pnl).toBe(115_646);
+    // 安値反転LONGの板読み早期利確無効化後も勝敗を維持し、固定TPまで保有する。
+    expect(result.pnl).toBe(141_288);
     expect(result.entries.every(event => /後場安値更新SHORT|安値反転ブレイクLONG|高値失速ブレイクSHORT/.test(event.reason ?? ""))).toBe(true);
   }, 60_000);
 

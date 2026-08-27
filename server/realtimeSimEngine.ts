@@ -165,6 +165,7 @@ export interface SymbolConfig {
   lowReversalBreakLongMinReboundPct?: number;
   lowReversalBreakLongSlPct?: number;
   lowReversalBreakLongTpPct?: number;
+  disableLowReversalBreakLongBoardEarlyExit?: boolean;
   // 構造失速SHORT設定（フジクラ: 上昇後の安値更新）
   enableHighFadeBreakShort?: boolean;
   highFadeBreakShortStartTime?: string;
@@ -263,6 +264,8 @@ export interface SymbolConfig {
   discoOpeningBreakShortMinVolumeRatio?: number;
   discoOpeningBreakShortSlPct?: number;
   discoOpeningBreakShortTpPct?: number;
+  discoOpeningBreakShortProfitProtectionTriggerPct?: number;
+  discoOpeningBreakShortProfitProtectionFloorPct?: number;
   /** 個別最適化完了銘柄では、下段の汎用ダウ理論・大台・押し目等の入口を使わない */
   exclusiveEntryRoutes?: boolean;
   // 静かな上昇バイパスのパラメータ
@@ -437,6 +440,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     lowReversalBreakLongBprFloor: 0.25,
     lowReversalBreakLongSlPct: 0.5,
     lowReversalBreakLongTpPct: 0.5,
+    disableLowReversalBreakLongBoardEarlyExit: true,
     enableHighFadeBreakShort: true,
     highFadeBreakShortStartTime: "09:45",
     highFadeBreakShortEndTime: "14:30",
@@ -448,7 +452,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     highFadeBreakShortSlPct: 0.6,
     highFadeBreakShortTpPct: 1.5,
     exclusiveEntryRoutes: true,
-    notes: "フジクラ: 候補C（後場安値更新SHORT）に加え、安値反転ブレイクLONGと高値失速ブレイクSHORTを追加。LONGはBPR<=0.25を極端な売り圧力として停止、SHORTはMA8傾き<=-0.20%を急落末端として停止。候補Cのショック足停止は維持。",
+    notes: "フジクラ: 候補C（後場安値更新SHORT）に加え、安値反転ブレイクLONGと高値失速ブレイクSHORTを追加。LONGはBPR<=0.25を極端な売り圧力として停止し、安値反転LONGでは板読み早期利確を使わず固定TP/SLを優先。SHORTはMA8傾き<=-0.20%を急落末端として停止。候補Cのショック足停止は維持。",
   },
   "6981": {
     sl: { long: 1.0, short: 0.6 },
@@ -504,8 +508,10 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     discoOpeningBreakShortMinVolumeRatio: 0.8,
     discoOpeningBreakShortSlPct: 0.5,
     discoOpeningBreakShortTpPct: 2.0,
+    discoOpeningBreakShortProfitProtectionTriggerPct: 0.8,
+    discoOpeningBreakShortProfitProtectionFloorPct: 0.7,
     exclusiveEntryRoutes: true,
-    notes: "ディスコ: 確認型10本高値更新LONG（VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）＋寄り付き10本安値更新SHORT（09:30〜10:45・始値比-1.0%以下・MA8傾き<=0%・出来高0.8倍以上、SL0.5%/TP2.0%）。各方向1日1回、同時保有なし、決済後は反対方向を再評価可能。時間上限なし。",
+    notes: "ディスコ: 確認型10本高値更新LONG（VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）＋寄り付き10本安値更新SHORT（09:30〜10:45・始値比-1.0%以下・MA8傾き<=0%・出来高0.8倍以上、SL0.5%/TP2.0%）。寄り付きSHORTは+0.8%到達後、次足以降+0.7%へ戻れば利益保護決済。各方向1日1回、同時保有なし、決済後は反対方向を再評価可能。時間上限なし。",
   },
   "6594": { sl: { long: 0.5, short: 0.5 } },
   "8316": { sl: { long: 0.5, short: 0.5 } },
@@ -604,6 +610,8 @@ interface OpenPosition {
   confidence?: SignalConfidence;
   slPctOverride?: number;
   tpPctOverride?: number;
+  /** 6146寄り付きSHORT利益保護が初めて発動条件へ到達した足。 */
+  profitProtectionArmedAt?: string;
   // BEストップ撤廃済み（+D構成）
 }
 
@@ -1143,7 +1151,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
         for (const entry of dbOpenTrades) {
           if (!openPositions.has(entry.symbol)) {
             const risk = resolveRestoredRiskOverrides(entry.symbol, entry.side as "long" | "short", entry.reason);
-            openPositions.set(entry.symbol, {
+            const restoredPosition: OpenPosition = {
               symbol: entry.symbol,
               side: entry.side as "long" | "short",
               entryPrice: Number(entry.price),
@@ -1152,7 +1160,9 @@ export async function restoreBuffersFromDb(): Promise<void> {
               entryReason: entry.reason,
               slPctOverride: risk.slPct,
               tpPctOverride: risk.tpPct,
-            });
+            };
+            restoreDiscoProfitProtectionState(restoredPosition);
+            openPositions.set(entry.symbol, restoredPosition);
           }
         }
         console.log(`[RealtimeSim] オープンポジション復元: ${dbOpenTrades.length}件 (${dbOpenTrades.map(t => t.symbol).join(", ")})`);
@@ -1520,6 +1530,15 @@ export function detectMarketMode(symbol: string, snapshot: BoardSnapshot): "acti
 export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, snapshot: BoardSnapshot | null): boolean {
   if (!snapshot) return false;
 
+  const config = getSymbolConfig(pos.symbol);
+  if (
+    config.disableLowReversalBreakLongBoardEarlyExit &&
+    pos.side === "long" &&
+    pos.entryReason.startsWith("安値反転ブレイクLONG")
+  ) {
+    return false;
+  }
+
   const pnlPct = pos.side === "long"
     ? (currentPrice - pos.entryPrice) / pos.entryPrice * 100
     : (pos.entryPrice - currentPrice) / pos.entryPrice * 100;
@@ -1535,6 +1554,36 @@ export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, sn
     // ショート保有中に買い圧力が強い
     return snapshot.signal === "buy_pressure" || snapshot.signal === "large_buy_wall";
   }
+}
+
+/** 6146寄り付きSHORT利益保護の対象ポジションかを判定する。 */
+function isDiscoOpeningShortProfitProtectionPosition(pos: OpenPosition): boolean {
+  const config = getSymbolConfig(pos.symbol);
+  return pos.symbol === "6146"
+    && pos.side === "short"
+    && pos.entryReason.startsWith("ディスコ寄り付き10本安値更新SHORT")
+    && config.discoOpeningBreakShortProfitProtectionTriggerPct !== undefined
+    && config.discoOpeningBreakShortProfitProtectionFloorPct !== undefined;
+}
+
+/**
+ * 再起動時、保存済みのエントリー後1分足だけから利益保護の発動状態を再構築する。
+ * エントリー足はエントリー前の値動きを含むため対象外とする。
+ */
+function restoreDiscoProfitProtectionState(pos: OpenPosition): void {
+  if (!isDiscoOpeningShortProfitProtectionPosition(pos)) return;
+  const config = getSymbolConfig(pos.symbol);
+  const triggerPct = config.discoOpeningBreakShortProfitProtectionTriggerPct!;
+  const triggerLine = pos.entryPrice * (1 - triggerPct / 100);
+  const buffer = candleBuffers.get(pos.symbol) ?? [];
+  const armedCandle = buffer.find(candle => {
+    const candleTime = candle.time.includes("T") ? candle.time.slice(11, 16) : candle.time.slice(-5);
+    return candleTime > pos.entryTime && candle.low <= triggerLine;
+  });
+  if (!armedCandle) return;
+  pos.profitProtectionArmedAt = armedCandle.time.includes("T")
+    ? armedCandle.time.slice(11, 16)
+    : armedCandle.time.slice(-5);
 }
 
 // ============================================================
@@ -3548,6 +3597,29 @@ async function checkExitConditions(
     }
   }
 
+  // 6146寄り付きSHORT利益保護。
+  // SLは常に最優先。発動足では決済せず、後続足から+0.7%戻りを評価する。
+  // TPと保護が同一足なら時系列不明のため、利益の小さい保護決済を採用する。
+  if (isDiscoOpeningShortProfitProtectionPosition(pos)) {
+    const triggerPct = symCfgExit.discoOpeningBreakShortProfitProtectionTriggerPct!;
+    const floorPct = symCfgExit.discoOpeningBreakShortProfitProtectionFloorPct!;
+    const triggerLine = entryPrice * (1 - triggerPct / 100);
+    const protectLine = entryPrice * (1 - floorPct / 100);
+    const armedBeforeThisCandle = pos.profitProtectionArmedAt !== undefined
+      && pos.profitProtectionArmedAt !== candleTime;
+
+    if (armedBeforeThisCandle && high >= protectLine && action !== "stop_loss") {
+      // SHORTの買戻しは高いほど不利。窓上げ時は指値ではなく当足始値を採る。
+      exitPrice = Math.max(candle.open, protectLine);
+      exitReason = `利益保護 (+${triggerPct.toFixed(1)}%到達後、+${floorPct.toFixed(1)}%戻り)`;
+      action = "take_profit";
+    }
+
+    if (pos.profitProtectionArmedAt === undefined && low <= triggerLine) {
+      pos.profitProtectionArmedAt = candleTime;
+    }
+  }
+
   // シグナル反転による決済
   if (exitPrice === null) {
     const buffer = candleBuffers.get(symbol);
@@ -3774,7 +3846,7 @@ export function restoreOpenPositions(entries: Array<{
   for (const entry of entries) {
     if (!openPositions.has(entry.symbol)) {
       const risk = resolveRestoredRiskOverrides(entry.symbol, entry.side, entry.reason);
-      openPositions.set(entry.symbol, {
+      const restoredPosition: OpenPosition = {
         symbol: entry.symbol,
         side: entry.side,
         entryPrice: Number(entry.price),
@@ -3783,7 +3855,9 @@ export function restoreOpenPositions(entries: Array<{
         entryReason: entry.reason,
         slPctOverride: risk.slPct,
         tpPctOverride: risk.tpPct,
-      });
+      };
+      restoreDiscoProfitProtectionState(restoredPosition);
+      openPositions.set(entry.symbol, restoredPosition);
       console.log(`[RealtimeSim] Restored open position from DB: ${entry.symbol} ${entry.side} @${entry.price}円 ×${entry.shares}株`);
     }
   }

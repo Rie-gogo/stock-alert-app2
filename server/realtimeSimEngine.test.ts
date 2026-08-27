@@ -54,7 +54,7 @@ vi.mock("../shared/stocks", () => ({
 
 // ===== テスト対象をインポート =====
 // モック設定後にインポートする
-import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockOpeningBreakShortByMaSlope } from "./realtimeSimEngine";
+import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockOpeningBreakShortByMaSlope, shouldBoardEarlyExit } from "./realtimeSimEngine";
 import type { RtCandle1Min } from "./realtimeSimEngine";
 
 // ===== ヘルパー =====
@@ -2528,7 +2528,142 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     expect(config.discoOpeningBreakShortMinVolumeRatio).toBe(0.8);
     expect(config.discoOpeningBreakShortSlPct).toBe(0.5);
     expect(config.discoOpeningBreakShortTpPct).toBe(2.0);
+    expect(config.discoOpeningBreakShortProfitProtectionTriggerPct).toBe(0.8);
+    expect(config.discoOpeningBreakShortProfitProtectionFloorPct).toBe(0.7);
     expect(config.telMaxHoldingMinutes).toBeUndefined();
+  });
+
+  it("利益保護は+0.8%到達足では決済せず、次足の+0.7%戻りで決済する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2027-01-04";
+    await warmup(symbol, tradeDate, 60000, 10);
+    restoreOpenPositions([{
+      symbol, side: "short", price: 60000, shares: 100, tradeTime: "09:30",
+      reason: "ディスコ寄り付き10本安値更新SHORT: テスト",
+    }]);
+
+    const armed = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 60000, high: 60050, low: 59500, close: 59520, volume: 10000,
+    }));
+    expect(armed.action).toBe("none");
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.profitProtectionArmedAt).toBe("09:31");
+
+    const protectedExit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 59550, high: 59600, low: 59520, close: 59590, volume: 10000,
+    }));
+    expect(protectedExit.action).toBe("take_profit");
+    expect(protectedExit.reason).toContain("利益保護");
+    expect(protectedExit.pnl).toBe(42000);
+  });
+
+  it("利益保護とTPが同一足なら保守的に+0.7%保護を優先する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2027-01-05";
+    await warmup(symbol, tradeDate, 60000, 10);
+    restoreOpenPositions([{
+      symbol, side: "short", price: 60000, shares: 100, tradeTime: "09:30",
+      reason: "ディスコ寄り付き10本安値更新SHORT: テスト",
+    }]);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 60000, high: 60020, low: 59500, close: 59520, volume: 10000,
+    }));
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 59500, high: 59600, low: 58700, close: 58800, volume: 10000,
+    }));
+    expect(result.action).toBe("take_profit");
+    expect(result.reason).toContain("利益保護");
+    expect(result.pnl).toBe(42000);
+  });
+
+  it("利益保護とSLが同一足ならSLを優先する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2027-01-06";
+    await warmup(symbol, tradeDate, 60000, 10);
+    restoreOpenPositions([{
+      symbol, side: "short", price: 60000, shares: 100, tradeTime: "09:30",
+      reason: "ディスコ寄り付き10本安値更新SHORT: テスト",
+    }]);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 60000, high: 60020, low: 59500, close: 59520, volume: 10000,
+    }));
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 60000, high: 60350, low: 59500, close: 60000, volume: 10000,
+    }));
+    expect(result.action).toBe("stop_loss");
+    expect(result.reason).toContain("損切り");
+    expect(result.pnl).toBe(-30000);
+  });
+
+  it("利益保護の窓上げでは+0.7%ラインより不利な当足始値で決済する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2027-01-07";
+    await warmup(symbol, tradeDate, 60000, 10);
+    restoreOpenPositions([{
+      symbol, side: "short", price: 60000, shares: 100, tradeTime: "09:30",
+      reason: "ディスコ寄り付き10本安値更新SHORT: テスト",
+    }]);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 60000, high: 60020, low: 59500, close: 59520, volume: 10000,
+    }));
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 59800, high: 59850, low: 59750, close: 59820, volume: 10000,
+    }));
+    expect(result.action).toBe("take_profit");
+    expect(result.reason).toContain("利益保護");
+    expect(result.pnl).toBe(20000);
+  });
+
+  it("再起動復元ではエントリー後の保存足から利益保護発動状態を再構築する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2027-01-08";
+    await warmup(symbol, tradeDate, 60000, 10);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 60000, high: 60020, low: 59500, close: 59520, volume: 10000,
+    }));
+    restoreOpenPositions([{
+      symbol, side: "short", price: 60000, shares: 100, tradeTime: "09:30",
+      reason: "ディスコ寄り付き10本安値更新SHORT: テスト",
+    }]);
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.profitProtectionArmedAt).toBe("09:31");
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 59550, high: 59600, low: 59520, close: 59590, volume: 10000,
+    }));
+    expect(result.action).toBe("take_profit");
+    expect(result.pnl).toBe(42000);
+  });
+
+  it("5803安値反転LONGだけ板読み早期利確を無効化し、他銘柄・他方式は維持する", () => {
+    const sellPressure = { signal: "sell_pressure" } as Parameters<typeof shouldBoardEarlyExit>[2];
+    const buyPressure = { signal: "buy_pressure" } as Parameters<typeof shouldBoardEarlyExit>[2];
+    const fujikuraLowReversal = {
+      symbol: "5803", side: "long", entryPrice: 5000, shares: 100, entryTime: "10:00",
+      entryReason: "安値反転ブレイクLONG: 1本確認",
+    } as Parameters<typeof shouldBoardEarlyExit>[0];
+    const murataLowReversal = {
+      ...fujikuraLowReversal, symbol: "6981",
+    } as Parameters<typeof shouldBoardEarlyExit>[0];
+    const fujikuraShort = {
+      symbol: "5803", side: "short", entryPrice: 5000, shares: 100, entryTime: "10:00",
+      entryReason: "高値失速ブレイクSHORT: 1本確認",
+    } as Parameters<typeof shouldBoardEarlyExit>[0];
+
+    expect(shouldBoardEarlyExit(fujikuraLowReversal, 5005, sellPressure)).toBe(false);
+    expect(shouldBoardEarlyExit(murataLowReversal, 5005, sellPressure)).toBe(true);
+    expect(shouldBoardEarlyExit(fujikuraShort, 4995, buyPressure)).toBe(true);
   });
 
   it("10本高値更新・VWAP上・MA8上向き・出来高増でLONGを発火する", async () => {

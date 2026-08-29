@@ -9,7 +9,8 @@ export const TAIYO_CANDIDATE_A_SPEC = Object.freeze({
   productionEnabled: false,
   primary: Object.freeze({
     startTime: "09:45",
-    endTime: "10:30",
+    initialTriggerEndTime: "10:29",
+    confirmationEndTime: "10:30",
     lookback: 5,
     maPeriod: 8,
     minVolumeRatio: 1.0,
@@ -24,9 +25,9 @@ export const TAIYO_CANDIDATE_A_SPEC = Object.freeze({
     slPct: 0.8,
     tpPct: 1.1,
     maxHoldingMinutes: 5,
-    maxHoldingExit: "next_candle_open",
+    maxHoldingExit: "elapsed_boundary_completed_candle_close",
     sameMinuteTpSlPriority: "stop_loss_first",
-    boardEarlyExit: true,
+    boardEarlyExit: false,
   }),
   board: Object.freeze({
     evaluatedOn: "initial_break_candle",
@@ -37,7 +38,7 @@ export const TAIYO_CANDIDATE_A_SPEC = Object.freeze({
     shortRejectedMarketOrderDirection: "buy",
     longRejectedSignals: Object.freeze(["sell_pressure", "large_sell_wall"]),
     shortRejectedSignals: Object.freeze(["buy_pressure", "large_buy_wall"]),
-    missingSnapshot: "allow_as_neutral_score_1",
+    missingSnapshot: "reject",
   }),
   fallback: Object.freeze({
     startTime: "10:31",
@@ -80,6 +81,16 @@ export interface TaiyoCandidateAPending {
   boardDetail?: string;
 }
 
+export function isTaiyoCandidateAInitialTriggerTime(time: string): boolean {
+  const spec = TAIYO_CANDIDATE_A_SPEC.primary;
+  return time >= spec.startTime && time <= spec.initialTriggerEndTime;
+}
+
+export function isTaiyoCandidateAConfirmationTime(time: string): boolean {
+  const spec = TAIYO_CANDIDATE_A_SPEC.primary;
+  return time > spec.startTime && time <= spec.confirmationEndTime;
+}
+
 export type TaiyoCandidateARejectionCode =
   | "confirm_price"
   | "confirm_candle_color"
@@ -87,13 +98,14 @@ export type TaiyoCandidateARejectionCode =
   | "confirm_open_move"
   | "confirm_body"
   | "confirm_volume"
+  | "board_missing"
   | "board_signal"
   | "board_bpr"
   | "board_score";
 
 export type TaiyoCandidateABoardDecision =
-  | { allowed: true; source: "snapshot" | "missing_snapshot"; detail: string }
-  | { allowed: false; code: "board_signal" | "board_bpr"; detail: string };
+  | { allowed: true; source: "snapshot"; detail: string }
+  | { allowed: false; code: "board_missing" | "board_signal" | "board_bpr"; detail: string };
 
 function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -156,7 +168,7 @@ export function evaluateTaiyoCandidateABoard(
 ): TaiyoCandidateABoardDecision {
   const spec = TAIYO_CANDIDATE_A_SPEC.board;
   if (!snapshot) {
-    return { allowed: true, source: "missing_snapshot", detail: "boardSnapshot=null" };
+    return { allowed: false, code: "board_missing", detail: "boardSnapshot=null" };
   }
 
   const rejectedSignals = side === "long" ? spec.longRejectedSignals : spec.shortRejectedSignals;

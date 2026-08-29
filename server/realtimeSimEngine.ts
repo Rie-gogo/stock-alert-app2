@@ -36,6 +36,8 @@ import {
   calculateTaiyoCandidateAMetrics,
   evaluateTaiyoCandidateABoard,
   evaluateTaiyoCandidateAConfirmation,
+  isTaiyoCandidateAConfirmationTime,
+  isTaiyoCandidateAInitialTriggerTime,
   type TaiyoCandidateAPending,
   type TaiyoCandidateARejectionCode,
   type TaiyoCandidateASide,
@@ -1592,6 +1594,9 @@ export function detectMarketMode(symbol: string, snapshot: BoardSnapshot): "acti
 export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, snapshot: BoardSnapshot | null): boolean {
   if (!snapshot) return false;
 
+  // 6976候補Aは短期出口をTP・SL・因果的時間決済へ限定する監査仕様。
+  if (pos.entryReason.startsWith("太陽誘電候補A")) return false;
+
   const config = getSymbolConfig(pos.symbol);
   if (
     config.disableTelShortBreakBoardEarlyExit &&
@@ -1836,7 +1841,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
-    if (candleTime >= spec.startTime && candleTime <= spec.endTime) {
+    if (isTaiyoCandidateAConfirmationTime(candleTime) || isTaiyoCandidateAInitialTriggerTime(candleTime)) {
       const candidateBuffer = buffer.map(item => ({
         time: item.time.slice(11, 16),
         open: item.open,
@@ -1894,7 +1899,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         // 候補A固有仕様: 確認不成立でもreturnせず、同じ確認足を新しい初動候補として再評価する。
       }
 
-      if (metrics?.side) {
+      if (metrics?.side && isTaiyoCandidateAInitialTriggerTime(candleTime)) {
         const boardDecision = evaluateTaiyoCandidateABoard(metrics.side, boardSnapshot);
         if (!boardDecision.allowed) {
           taiyoCandidateAAuditEvents.push({
@@ -3914,14 +3919,15 @@ async function checkExitConditions(
     }
   }
 
-  // 6976候補A監査経路: エントリー足から5分経過した足では保持し、次足の始値で決済する。
-  // SL/TP・反転決済・板読み早期利確が同じ足で成立した場合は、上段の既存優先順位を維持する。
+  // 6976候補A監査経路: 完成した1分足をクラウドが受信した時点で、
+  // エントリー足から5分以上経過していれば、その確定足終値を約定近似値として決済する。
+  // 完成済み足の始値へ遡らないため因果的だが、実成行約定との差は別途スリッページで評価する。
   if (exitPrice === null && pos.entryReason.startsWith("太陽誘電候補A")) {
     const maxHoldingMinutes = TAIYO_CANDIDATE_A_SPEC.primary.maxHoldingMinutes;
     const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
-    if (elapsedMinutes > maxHoldingMinutes) {
-      exitPrice = candle.open;
-      exitReason = `候補A最大保有${maxHoldingMinutes}分経過後の次足始値決済`;
+    if (elapsedMinutes >= maxHoldingMinutes) {
+      exitPrice = candle.close;
+      exitReason = `候補A最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
       action = "exit";
     }
   }

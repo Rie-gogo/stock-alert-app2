@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import auditFixture from "./fixtures/taiyoCandidateA.audit.fixture.json";
 import {
   TAIYO_CANDIDATE_A_EXPECTED_BOARD_REJECTIONS,
   TAIYO_CANDIDATE_A_EXPECTED_SUMMARY,
   TAIYO_CANDIDATE_A_EXPECTED_TRADES,
+  TAIYO_CANDIDATE_A_FIXTURE_SHA256,
+  TAIYO_CANDIDATE_A_SLIPPAGE_EXPECTATIONS,
   type TaiyoCandidateAExpectedTrade,
 } from "./fixtures/taiyoCandidateA.expected";
 
@@ -19,10 +23,8 @@ type Snapshot = {
 
 type FixtureRow = [string, number, number, number, number, number, Snapshot | null];
 type FixtureSegment = {
-  purpose: "expected_trade" | "board_rejection_only";
+  purpose: "full_saved_day";
   tradeDate: string;
-  expectedEntryTime: string | null;
-  expectedExitTime: string | null;
   candles: FixtureRow[];
 };
 
@@ -82,13 +84,41 @@ afterEach(() => {
 });
 
 describe("6976候補A Git fixture実エンジン監査", () => {
-  it("KABU由来24区間を未来情報なしで再生し、全21取引と全18板拒否初動を厳密再現する", async () => {
+  it("全46日fixtureのSHA-256を生バイトで固定する", () => {
+    const bytes = readFileSync(new URL("./fixtures/taiyoCandidateA.audit.fixture.json", import.meta.url));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(TAIYO_CANDIDATE_A_FIXTURE_SHA256);
+  });
+
+  it("全21取引の0.05%・0.10%約定悪化を原案と同じ片道総悪化モデルで固定する", () => {
+    const summarize = (adversePct: number) => {
+      const adjusted = TAIYO_CANDIDATE_A_EXPECTED_TRADES.map(
+        trade => trade.pnlPer100 - trade.entryPrice * adversePct,
+      );
+      const wins = adjusted.filter(pnl => pnl > 0).length;
+      return {
+        wins,
+        losses: adjusted.filter(pnl => pnl < 0).length,
+        winRatePct: Math.round(wins / adjusted.length * 10_000) / 100,
+        pnlPer100: Math.round(adjusted.reduce((sum, pnl) => sum + pnl, 0) * 100) / 100,
+      };
+    };
+
+    expect(summarize(0.05)).toEqual(TAIYO_CANDIDATE_A_SLIPPAGE_EXPECTATIONS.adverse005Pct);
+    expect(summarize(0.10)).toEqual(TAIYO_CANDIDATE_A_SLIPPAGE_EXPECTATIONS.adverse010Pct);
+  });
+
+  it("KABU由来の全46保存日・14,719足を因果順再生し、全21取引・決済理由・全19板拒否初動を厳密再現する", async () => {
     setTaiyoCandidateAAuditEnabledForTest(true);
     const actualTrades: TaiyoCandidateAExpectedTrade[] = [];
     let activeEntry: { date: string; time: string; price: number; shares: number; side: "long" | "short"; reason: string } | null = null;
+    let processedRows = 0;
+
+    expect(auditFixture.dateCount).toBe(TAIYO_CANDIDATE_A_EXPECTED_SUMMARY.dates);
+    expect(auditFixture.rowCount).toBe(TAIYO_CANDIDATE_A_EXPECTED_SUMMARY.rows);
 
     for (const segment of auditFixture.segments as FixtureSegment[]) {
       for (const [candleTime, open, high, low, close, volume, snapshot] of segment.candles) {
+        processedRows++;
         currentSnapshot = snapshot;
         const result = await processCandle({
           symbol: "6976",
@@ -121,6 +151,7 @@ describe("6976候補A Git fixture実エンジン監査", () => {
             entryPrice: activeEntry.price,
             exitTime: candleTime,
             exitAction: result.action as "exit" | "stop_loss" | "take_profit",
+            exitReason: result.reason ?? "",
             pnlPer100: Math.round(((result.pnl ?? 0) / activeEntry.shares * 100) * 100) / 100,
           });
           activeEntry = null;
@@ -135,12 +166,13 @@ describe("6976候補A Git fixture実エンジン監査", () => {
         date: event.tradeDate,
         time: event.candleTime,
         side: event.side,
-        code: event.rejectionCodes![0] as "board_bpr" | "board_signal",
+        code: event.rejectionCodes![0] as "board_missing" | "board_bpr" | "board_signal",
         detail: event.detail!,
       }))
       .sort((a, b) => `${a.date}/${a.time}`.localeCompare(`${b.date}/${b.time}`));
 
     expect(actualTrades).toEqual(TAIYO_CANDIDATE_A_EXPECTED_TRADES);
+    expect(processedRows).toBe(TAIYO_CANDIDATE_A_EXPECTED_SUMMARY.rows);
     expect(boardRejections).toEqual(TAIYO_CANDIDATE_A_EXPECTED_BOARD_REJECTIONS);
     expect(actualTrades.filter(trade => trade.route === "primary")).toHaveLength(TAIYO_CANDIDATE_A_EXPECTED_SUMMARY.primaryTrades);
     expect(actualTrades.filter(trade => trade.route === "fallback_short")).toHaveLength(TAIYO_CANDIDATE_A_EXPECTED_SUMMARY.fallbackShortTrades);
@@ -187,7 +219,7 @@ describe("6976候補A Git fixture実エンジン監査", () => {
     expect(getTaiyoCandidateAAuditEventsForTest()).toEqual([]);
   });
 
-  it("候補Aポジションでは既存の板読み早期利確を無効化しない", () => {
+  it("候補Aポジションでは原案どおり板読み早期利確を無効化する", () => {
     const candidatePosition = {
       symbol: "6976",
       side: "long" as const,
@@ -203,6 +235,6 @@ describe("6976候補A Git fixture実エンジン監査", () => {
       marketOrderRatio: 0,
       signal: "sell_pressure" as const,
     };
-    expect(shouldBoardEarlyExit(candidatePosition, 10_010, adverseBoard)).toBe(true);
+    expect(shouldBoardEarlyExit(candidatePosition, 10_010, adverseBoard)).toBe(false);
   });
 });

@@ -5,6 +5,8 @@ import {
   calculateTaiyoCandidateAMetrics,
   evaluateTaiyoCandidateABoard,
   evaluateTaiyoCandidateAConfirmation,
+  isTaiyoCandidateAConfirmationTime,
+  isTaiyoCandidateAInitialTriggerTime,
   type TaiyoCandidateAMetrics,
 } from "./taiyoCandidateA";
 
@@ -38,7 +40,8 @@ describe("6976候補A 監査仕様", () => {
     expect(TAIYO_CANDIDATE_A_SPEC.productionEnabled).toBe(false);
     expect(TAIYO_CANDIDATE_A_SPEC.primary).toMatchObject({
       startTime: "09:45",
-      endTime: "10:30",
+      initialTriggerEndTime: "10:29",
+      confirmationEndTime: "10:30",
       lookback: 5,
       maPeriod: 8,
       minVolumeRatio: 1,
@@ -48,7 +51,8 @@ describe("6976候補A 監査仕様", () => {
       slPct: 0.8,
       tpPct: 1.1,
       maxHoldingMinutes: 5,
-      boardEarlyExit: true,
+      maxHoldingExit: "elapsed_boundary_completed_candle_close",
+      boardEarlyExit: false,
     });
     expect(TAIYO_CANDIDATE_A_SPEC.board.evaluatedOn).toBe("initial_break_candle");
     expect(TAIYO_CANDIDATE_A_SPEC.board.genericBoardReadingScoreUsedForEntry).toBe(false);
@@ -65,6 +69,14 @@ describe("6976候補A 監査仕様", () => {
       atrPeriod: 7,
       minAtrPct: 0.12,
     });
+  });
+
+  it("10:29は初動可、10:30は既存pendingの確認だけ可、10:31は候補A時間窓外と固定する", () => {
+    expect(isTaiyoCandidateAInitialTriggerTime("09:45")).toBe(true);
+    expect(isTaiyoCandidateAInitialTriggerTime("10:29")).toBe(true);
+    expect(isTaiyoCandidateAInitialTriggerTime("10:30")).toBe(false);
+    expect(isTaiyoCandidateAConfirmationTime("10:30")).toBe(true);
+    expect(isTaiyoCandidateAConfirmationTime("10:31")).toBe(false);
   });
 
   it("初動は終値5本高値更新・陽線・MA8二本上向き・直前20本比出来高1.0倍でLONGになる", () => {
@@ -84,13 +96,13 @@ describe("6976候補A 監査仕様", () => {
     expect(metrics?.volumeRatio).toBe(1);
   });
 
-  it("LONG板はBPR 0.80を許可し0.79を拒否、sell方向と売りsignalを拒否、欠損を許可する", () => {
+  it("LONG板はBPR 0.80を許可し0.79を拒否、sell方向・売りsignal・板欠損を拒否する", () => {
     expect(evaluateTaiyoCandidateABoard("long", board({ buyPressureRatio: 0.8 })).allowed).toBe(true);
     expect(evaluateTaiyoCandidateABoard("long", board({ buyPressureRatio: 0.79 }))).toMatchObject({ allowed: false, code: "board_bpr" });
     expect(evaluateTaiyoCandidateABoard("long", board({ marketOrderDirection: "sell" }))).toMatchObject({ allowed: false, code: "board_signal" });
     expect(evaluateTaiyoCandidateABoard("long", board({ signal: "sell_pressure" }))).toMatchObject({ allowed: false, code: "board_signal" });
     expect(evaluateTaiyoCandidateABoard("long", board({ signal: "large_sell_wall" }))).toMatchObject({ allowed: false, code: "board_signal" });
-    expect(evaluateTaiyoCandidateABoard("long", null)).toEqual({ allowed: true, source: "missing_snapshot", detail: "boardSnapshot=null" });
+    expect(evaluateTaiyoCandidateABoard("long", null)).toEqual({ allowed: false, code: "board_missing", detail: "boardSnapshot=null" });
   });
 
   it("SHORT板はBPR 1.20を許可し1.21を拒否、buy方向と買いsignalを拒否する", () => {

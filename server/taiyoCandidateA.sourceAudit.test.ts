@@ -115,7 +115,7 @@ interface SourceCandidate {
 }
 
 function sourceBoardAllows(side: "long" | "short", snapshot: Snapshot | null): boolean {
-  if (!snapshot) return true;
+  if (!snapshot) return false;
   const bpr = Number(snapshot.buyPressureRatio ?? 1);
   const direction = snapshot.marketOrderDirection ?? "neutral";
   const signal = snapshot.signal ?? "neutral";
@@ -251,7 +251,7 @@ describe("6976候補A 保存KABUソース監査", () => {
         date: event.tradeDate,
         time: event.candleTime,
         side: event.side,
-        code: event.rejectionCodes![0] as "board_bpr" | "board_signal",
+        code: event.rejectionCodes![0] as "board_missing" | "board_bpr" | "board_signal",
         detail: event.detail!,
       }));
     console.log("TAIYO_CANDIDATE_A_SOURCE_TRADES", JSON.stringify(trades));
@@ -271,8 +271,7 @@ describe("6976候補A 保存KABUソース監査", () => {
 
     expect(processedRows).toBeGreaterThan(14_000);
     expect(looseBoardCandidates).toHaveLength(16);
-    const comparableTrades = trades.map(({ exitReason: _exitReason, ...trade }) => trade);
-    expect(comparableTrades).toEqual(TAIYO_CANDIDATE_A_EXPECTED_TRADES);
+    expect(trades).toEqual(TAIYO_CANDIDATE_A_EXPECTED_TRADES);
     expect(engineBoardRejections).toEqual(TAIYO_CANDIDATE_A_EXPECTED_BOARD_REJECTIONS);
     expect(trades).toHaveLength(TAIYO_CANDIDATE_A_EXPECTED_SUMMARY.trades);
     setTaiyoCandidateAAuditEnabledForTest(false);

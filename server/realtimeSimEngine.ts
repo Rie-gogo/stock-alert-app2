@@ -31,6 +31,15 @@ import {
 
 import type { BoardSnapshot } from "../drizzle/schema";
 import { processThreePeakCandle, resetThreePeakState, forceCloseThreePeakPosition } from "./threePeakDetector";
+import {
+  TAIYO_CANDIDATE_A_SPEC,
+  calculateTaiyoCandidateAMetrics,
+  evaluateTaiyoCandidateABoard,
+  evaluateTaiyoCandidateAConfirmation,
+  type TaiyoCandidateAPending,
+  type TaiyoCandidateARejectionCode,
+  type TaiyoCandidateASide,
+} from "./taiyoCandidateA";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -798,6 +807,25 @@ const taiyoAfternoonReversalFired = new Set<string>();
 const taiyoMorningInitialShortPending = new Map<string, StructureBreakPendingState>();
 const taiyoAfternoonReversalLongPending = new Map<string, StructureBreakPendingState>();
 const taiyoAfternoonReversalShortPending = new Map<string, StructureBreakPendingState>();
+/**
+ * 6976候補Aはテスト監査専用。既定値falseで、本番API・環境変数から変更する経路は持たない。
+ * Vitestの明示的なsetterからだけ有効化し、現行6976の3方式を通常運用では一切変更しない。
+ */
+let taiyoCandidateAAuditEnabled = false;
+const taiyoCandidateAPrimaryFired = new Set<string>();
+const taiyoCandidateAPending = new Map<string, TaiyoCandidateAPending>();
+export interface TaiyoCandidateAAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: string;
+  event: "trigger" | "trigger_rejected" | "confirmation_rejected" | "entry" | "engine_rejected";
+  side: TaiyoCandidateASide;
+  triggerTime: string;
+  rejectionCodes?: TaiyoCandidateARejectionCode[];
+  boardScore?: number;
+  detail?: string;
+}
+const taiyoCandidateAAuditEvents: TaiyoCandidateAAuditEvent[] = [];
 /** ★高値反転SHORT: 銘柄ごとの急騰後反落エントリー済みフラグ（1日1回のみ） */
 const peakReversalShortFired = new Set<string>();
 /** ★6857高値失速SHORT: 1日1回のみのエントリー済みフラグ */
@@ -918,6 +946,8 @@ function resetIfNewDay(tradeDate: string): void {
     taiyoMorningInitialShortPending.clear();
     taiyoAfternoonReversalLongPending.clear();
     taiyoAfternoonReversalShortPending.clear();
+    taiyoCandidateAPrimaryFired.clear();
+    taiyoCandidateAPending.clear();
     peakReversalShortFired.clear();
     advantestHighFadeShortFired.clear();
     advantestConfirmedBreakLongFired.clear();
@@ -1792,6 +1822,119 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // 大台超えLONGの代替として、当日高値からの下落後に反転上昇を検出してLONGエントリー
   const symConfig = getSymbolConfig(symbol);
 
+  // ---- 6976候補A: Git監査専用の休眠経路 ----
+  // 通常運用ではtaiyoCandidateAAuditEnabled=falseのため到達しない。
+  // 有効時も保存KABUの現足・過去足・同時点板だけを使用し、未来足を参照しない。
+  if (taiyoCandidateAAuditEnabled && symbol === TAIYO_CANDIDATE_A_SPEC.symbol) {
+    const spec = TAIYO_CANDIDATE_A_SPEC.primary;
+
+    if (taiyoCandidateAPrimaryFired.has(symbol)) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    if (candleTime < spec.startTime) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    if (candleTime >= spec.startTime && candleTime <= spec.endTime) {
+      const candidateBuffer = buffer.map(item => ({
+        time: item.time.slice(11, 16),
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+      }));
+      const candidateDayOpen = buffer[0]?.open ?? candle.open;
+      const metrics = calculateTaiyoCandidateAMetrics(candidateBuffer, candidateDayOpen);
+      const pending = taiyoCandidateAPending.get(symbol);
+
+      if (pending && candleTime > pending.triggerTime) {
+        taiyoCandidateAPending.delete(symbol);
+        if (metrics) {
+          const confirmation = evaluateTaiyoCandidateAConfirmation({
+            pending,
+            candle: { time: candleTime, open: candle.open, high: candle.high, low: candle.low, close: candle.close, volume: candle.volume },
+            metrics,
+          });
+
+          if (confirmation.allowed) {
+            const result = await enterPosition(
+              pending.side,
+              candle,
+              tradeDate,
+              candleTime,
+              `太陽誘電候補A${pending.side === "long" ? "LONG" : "SHORT"}: 5本終値ブレイク後1本確認、始値方向${metrics.directionalOpenMovePct.toFixed(2)}%、実体${metrics.bodyPct.toFixed(3)}%、初動足板=${pending.boardDetail ?? "欠損許可"}`,
+              boardSnapshot,
+              { slPct: spec.slPct, tpPct: spec.tpPct },
+            );
+            taiyoCandidateAAuditEvents.push({
+              tradeDate,
+              candleTime,
+              symbol,
+              event: result.action === "entry" ? "entry" : "engine_rejected",
+              side: pending.side,
+              triggerTime: pending.triggerTime,
+              detail: result.reason,
+            });
+            if (result.action === "entry") taiyoCandidateAPrimaryFired.add(symbol);
+            return result;
+          }
+
+          taiyoCandidateAAuditEvents.push({
+            tradeDate,
+            candleTime,
+            symbol,
+            event: "confirmation_rejected",
+            side: pending.side,
+            triggerTime: pending.triggerTime,
+            rejectionCodes: confirmation.codes,
+          });
+        }
+        // 候補A固有仕様: 確認不成立でもreturnせず、同じ確認足を新しい初動候補として再評価する。
+      }
+
+      if (metrics?.side) {
+        const boardDecision = evaluateTaiyoCandidateABoard(metrics.side, boardSnapshot);
+        if (!boardDecision.allowed) {
+          taiyoCandidateAAuditEvents.push({
+            tradeDate,
+            candleTime,
+            symbol,
+            event: "trigger_rejected",
+            side: metrics.side,
+            triggerTime: candleTime,
+            rejectionCodes: [boardDecision.code],
+            detail: boardDecision.detail,
+          });
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
+        const nextPending: TaiyoCandidateAPending = {
+          side: metrics.side,
+          triggerClose: candle.close,
+          triggerTime: candleTime,
+          boardDetail: boardDecision.detail,
+        };
+        taiyoCandidateAPending.set(symbol, nextPending);
+        taiyoCandidateAAuditEvents.push({
+          tradeDate,
+          candleTime,
+          symbol,
+          event: "trigger",
+          side: metrics.side,
+          triggerTime: candleTime,
+        });
+      }
+
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    taiyoCandidateAPending.delete(symbol);
+    if (candleTime < TAIYO_CANDIDATE_A_SPEC.fallback.startTime) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+  }
+
   // ---- ★8035短期ブレイク: 現行3方式より優先 ----
   // 10:00〜10:30に確定した現足の終値だけで判定し、未来足は参照しない。
   // 実エントリー済みなら当日の現行予備経路へは入らず、未発火時だけ10:31以降に現行3方式を使う。
@@ -2212,6 +2355,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       const minReversal = symConfig.taiyoAfternoonMinReversalPct ?? 1.0;
       const longTrigger =
         symConfig.enableTaiyoAfternoonReversalLong &&
+        !(taiyoCandidateAAuditEnabled && symbol === TAIYO_CANDIDATE_A_SPEC.symbol) &&
         morningMovePct <= -minMorningMove &&
         reversalPctFromLow >= minReversal &&
         candle.close > recentHigh &&
@@ -3770,6 +3914,18 @@ async function checkExitConditions(
     }
   }
 
+  // 6976候補A監査経路: エントリー足から5分経過した足では保持し、次足の始値で決済する。
+  // SL/TP・反転決済・板読み早期利確が同じ足で成立した場合は、上段の既存優先順位を維持する。
+  if (exitPrice === null && pos.entryReason.startsWith("太陽誘電候補A")) {
+    const maxHoldingMinutes = TAIYO_CANDIDATE_A_SPEC.primary.maxHoldingMinutes;
+    const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
+    if (elapsedMinutes > maxHoldingMinutes) {
+      exitPrice = candle.open;
+      exitReason = `候補A最大保有${maxHoldingMinutes}分経過後の次足始値決済`;
+      action = "exit";
+    }
+  }
+
   if (exitPrice === null) {
     return { symbol, tradeDate, candleTime, action: "none" };
   }
@@ -4009,6 +4165,30 @@ export function getSymbolPnlMap(): Record<string, number> {
  */
 export function getSignalHistory(limit = 50): typeof signalHistory {
   return signalHistory.slice(0, limit);
+}
+
+/**
+ * 6976候補Aの監査経路をVitestからだけ切り替える。
+ * 本番・開発サーバーから呼び出す経路はなく、NODE_ENV=test以外では例外にする。
+ */
+export function setTaiyoCandidateAAuditEnabledForTest(enabled: boolean): void {
+  if (process.env.VITEST !== "true") {
+    throw new Error("6976候補A監査経路はVitest専用です");
+  }
+  taiyoCandidateAAuditEnabled = enabled;
+  taiyoCandidateAPrimaryFired.clear();
+  taiyoCandidateAPending.clear();
+  taiyoCandidateAAuditEvents.length = 0;
+}
+
+export function getTaiyoCandidateAAuditEventsForTest(): TaiyoCandidateAAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("6976候補A監査イベントはVitest専用です");
+  }
+  return taiyoCandidateAAuditEvents.map(event => ({
+    ...event,
+    rejectionCodes: event.rejectionCodes ? [...event.rejectionCodes] : undefined,
+  }));
 }
 
 /**

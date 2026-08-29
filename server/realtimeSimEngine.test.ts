@@ -1870,6 +1870,88 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.peakReversalShortSlPct).toBe(0.6);
     expect(config.peakReversalShortTpPct).toBe(1.8);
     expect(config.telMaxHoldingMinutes).toBe(22);
+    expect(config.enableTelShortBreak).toBe(true);
+    expect(config.telShortBreakStartTime).toBe("10:00");
+    expect(config.telShortBreakEndTime).toBe("10:30");
+    expect(config.telShortBreakFallbackStartTime).toBe("10:31");
+    expect(config.telShortBreakLookback).toBe(5);
+    expect(config.telShortBreakMaPeriod).toBe(8);
+    expect(config.telShortBreakMinVolumeRatio).toBe(1.2);
+    expect(config.telShortBreakSlPct).toBe(0.6);
+    expect(config.telShortBreakTpPct).toBe(0.5);
+    expect(config.telShortBreakMaxHoldingMinutes).toBe(15);
+    expect(config.disableTelShortBreakBoardEarlyExit).toBe(true);
+  });
+
+  it("東京エレクトロン短期ブレイクLONGは10:00に終値5本高値更新・MA8上向き・出来高1.2倍以上で発火する", async () => {
+    const symbol = "8035";
+    const tradeDate = "2027-02-01";
+    await warmup(symbol, tradeDate, 70000, 100);
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:00",
+      open: 70000, high: 70130, low: 69995, close: 70120, volume: 6000,
+    }));
+
+    expect(result.action).toBe("entry");
+    const position = getOpenPositions().find(item => item.symbol === symbol);
+    expect(position?.entryReason).toContain("東京エレクトロン短期ブレイクLONG");
+    expect(position?.slPctOverride).toBe(0.6);
+    expect(position?.tpPctOverride).toBe(0.5);
+  });
+
+  it("東京エレクトロン短期ブレイクは板読み早期利確を使わない", () => {
+    const pos = {
+      symbol: "8035",
+      side: "long" as const,
+      entryPrice: 70000,
+      shares: 100,
+      entryTime: "10:00",
+      entryReason: "東京エレクトロン短期ブレイクLONG: テスト",
+    };
+    expect(shouldBoardEarlyExit(pos, 70100, { signal: "sell_pressure" } as Parameters<typeof shouldBoardEarlyExit>[2])).toBe(false);
+  });
+
+  it("東京エレクトロン短期ブレイクは15分到達足では保持し、次足始値で決済する", async () => {
+    const symbol = "8035";
+    const tradeDate = "2027-02-02";
+    await warmup(symbol, tradeDate, 70000, 10);
+    restoreOpenPositions([{
+      symbol, side: "long", price: 70000, shares: 100, tradeTime: "10:00",
+      reason: "東京エレクトロン短期ブレイクLONG: テスト",
+    }]);
+
+    const hold = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:15",
+      open: 70010, high: 70100, low: 69950, close: 70020, volume: 5000,
+    }));
+    expect(hold.action).toBe("none");
+
+    const exit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "10:16",
+      open: 70030, high: 70100, low: 69950, close: 70040, volume: 5000,
+    }));
+    expect(exit.action).toBe("exit");
+    expect(exit.reason).toContain("最大保有15分経過後の次足始値決済");
+    expect(exit.pnl).toBe(3000);
+  });
+
+  it("証拠金不足で見送った候補をmargin_blockとして当日シグナル履歴へ残す", async () => {
+    const tradeDate = "2027-02-03";
+    await warmup("8035", tradeDate, 70000, 100);
+    restoreOpenPositions([{
+      symbol: "285A", side: "long", price: 88000, shares: 100, tradeTime: "09:40", reason: "テスト",
+    }]);
+    const { enterPosition } = await import("./realtimeSimEngine");
+    const result = await enterPosition("long", makeCandle({
+      symbol: "8035", tradeDate, candleTime: "10:00",
+      open: 70000, high: 70020, low: 69980, close: 70000, volume: 6000,
+    }), tradeDate, "10:00", "東京エレクトロン短期ブレイクLONG: テスト", null, { slPct: 0.6, tpPct: 0.5 });
+
+    expect(result.action).toBe("none");
+    const blocked = getSignalHistory().find(item => item.symbol === "8035" && item.action === "margin_block");
+    expect(blocked?.reason).toContain("証拠金使用率制限");
+    expect(blocked?.shares).toBe(0);
   });
 
   it("東京エレクトロンは22本の確定足経過後、TP・SL未到達なら次足始値で決済する", async () => {
@@ -1900,7 +1982,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(getOpenPositions().find(position => position.symbol === symbol)).toBeUndefined();
   });
 
-  it("東京エレクトロンの急騰後反落で高値反転SHORTが発火する", async () => {
+  it("東京エレクトロンは10:00〜10:30の急騰後反落でも現行高値反転SHORTを発火させない", async () => {
     const symbol = "8035";
     const tradeDate = "2026-08-28";
     const { getOrderBook } = await import("./kabuStation");
@@ -1919,7 +2001,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     const result = await processCandle(makeCandle({ symbol, tradeDate, candleTime: "10:02", open: 71700, high: 71720, low: 71480, close: 71500, volume: 700 }));
 
     expect(result.action).toBe("none");
-    expect(getOpenPositions().find(position => position.symbol === symbol)?.side).toBe("short");
+    expect(getOpenPositions().find(position => position.symbol === symbol)).toBeUndefined();
   });
 
   it("当日高値から2.5%以上下落→MA上向き→直近高値更新で反転LONG発火", async () => {

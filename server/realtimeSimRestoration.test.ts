@@ -18,6 +18,8 @@ describe("7銘柄の専用ポジション再起動復元", () => {
     ["8035", "long", "順張りLONG: 20本高値更新", 0.7, 1.0],
     ["8035", "short", "順張りSHORT: 5本安値更新", 0.6, 1.8],
     ["8035", "short", "高値反転SHORT: 高値から反落", 0.6, 1.8],
+    ["8035", "long", "東京エレクトロン短期ブレイクLONG: 終値5本更新", 0.6, 0.5],
+    ["8035", "short", "東京エレクトロン短期ブレイクSHORT: 終値5本更新", 0.6, 0.5],
     ["5803", "short", "フジクラ後場安値更新SHORT: 5本安値更新", 0.6, 1.5],
     ["5803", "long", "安値反転ブレイクLONG: 1本確認", 0.5, 0.5],
     ["5803", "short", "高値失速ブレイクSHORT: 1本確認", 0.6, 1.5],
@@ -52,6 +54,7 @@ describe("7銘柄の専用ポジション再起動復元", () => {
 
   it("8035の最大保有22分設定は再起動後も銘柄設定から解決される", () => {
     expect(getSymbolConfig("8035").telMaxHoldingMinutes).toBe(22);
+    expect(getSymbolConfig("8035").telShortBreakMaxHoldingMinutes).toBe(15);
   });
 
   const firedStateCases = [
@@ -62,6 +65,8 @@ describe("7銘柄の専用ポジション再起動復元", () => {
     ["8035", "buy", "順張りLONG: 20本高値更新", "trendLong"],
     ["8035", "short", "順張りSHORT: 5本安値更新", "trendShort"],
     ["8035", "short", "高値反転SHORT: 高値から反落", "peakReversalShort"],
+    ["8035", "buy", "東京エレクトロン短期ブレイクLONG: 終値5本更新", "telShortBreak"],
+    ["8035", "short", "東京エレクトロン短期ブレイクSHORT: 終値5本更新", "telShortBreak"],
     ["5803", "short", "フジクラ後場安値更新SHORT: 5本安値更新", "afternoonLowBreakShort"],
     ["5803", "buy", "安値反転ブレイクLONG: 1本確認", "lowReversalBreakLong"],
     ["5803", "short", "高値失速ブレイクSHORT: 1本確認", "highFadeBreakShort"],

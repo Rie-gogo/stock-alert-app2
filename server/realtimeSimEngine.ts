@@ -221,6 +221,18 @@ export interface SymbolConfig {
   peakReversalShortTpPct?: number;
   // 東京エレクトロン: 最大保有時間。TP・SL・既存決済がなければ、経過後の次足始値で決済
   telMaxHoldingMinutes?: number;
+  // 東京エレクトロン: 10:00〜10:30の短期ブレイクを優先し、未発火時だけ現行3方式を予備利用
+  enableTelShortBreak?: boolean;
+  telShortBreakStartTime?: string;
+  telShortBreakEndTime?: string;
+  telShortBreakFallbackStartTime?: string;
+  telShortBreakLookback?: number;
+  telShortBreakMaPeriod?: number;
+  telShortBreakMinVolumeRatio?: number;
+  telShortBreakSlPct?: number;
+  telShortBreakTpPct?: number;
+  telShortBreakMaxHoldingMinutes?: number;
+  disableTelShortBreakBoardEarlyExit?: boolean;
   // アドバンテスト: 高値形成後の失速SHORT（確認足の実体不足を停止）
   enableAdvantestHighFadeShort?: boolean;
   advantestHighFadeShortStartTime?: string;
@@ -349,8 +361,19 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     peakReversalShortSlPct: 0.6,
     peakReversalShortTpPct: 1.8,
     telMaxHoldingMinutes: 22,
+    enableTelShortBreak: true,
+    telShortBreakStartTime: "10:00",
+    telShortBreakEndTime: "10:30",
+    telShortBreakFallbackStartTime: "10:31",
+    telShortBreakLookback: 5,
+    telShortBreakMaPeriod: 8,
+    telShortBreakMinVolumeRatio: 1.2,
+    telShortBreakSlPct: 0.6,
+    telShortBreakTpPct: 0.5,
+    telShortBreakMaxHoldingMinutes: 15,
+    disableTelShortBreakBoardEarlyExit: true,
     exclusiveEntryRoutes: true,
-    notes: "東京エレクトロン: 上昇幅上限付き順張りLONG（始値+1.5〜+2.5%、20本高値更新）＋下落継続SHORT（始値-0.5〜-4.0%、5本安値更新）＋高値反転SHORT（始値+2.5%後、高値から0.4%反落）。LONG SL0.7%/TP1.0%、SHORT SL0.6%/TP1.8%。TP・SL・既存決済がなければ22分確定後の次足始値で決済。",
+    notes: "東京エレクトロン: 10:00〜10:30の短期ブレイク（終値5本更新・MA8二本傾き方向一致・出来高1.2倍、SL0.6%/TP0.5%、最大15分、板読み早期利確なし）を優先。非発火時のみ10:31以降に、上昇幅上限付き順張りLONG＋下落継続SHORT＋高値反転SHORTの現行3方式を予備利用。現行方式は最大22分。",
   },
   "6857": {
     sl: { long: 1.0, short: 1.0 },
@@ -790,6 +813,8 @@ const advantestPostStopReentry = new Map<string, AdvantestPostStopReentryState>(
 /** ★6146: 専用LONG/SHORTは各方向1日1回。決済後は未発火の反対方向を再評価できる。 */
 const discoConfirmedBreakLongFired = new Set<string>();
 const discoOpeningBreakShortFired = new Set<string>();
+/** ★8035短期ブレイク: 実エントリー成功後は当日の現行予備経路も使用しない。 */
+const telShortBreakFired = new Set<string>();
 
 function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKey): void {
   const target = {
@@ -808,6 +833,7 @@ function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKe
     advantestConfirmedBreakLong: advantestConfirmedBreakLongFired,
     discoConfirmedBreakLong: discoConfirmedBreakLongFired,
     discoOpeningBreakShort: discoOpeningBreakShortFired,
+    telShortBreak: telShortBreakFired,
   } satisfies Record<SpecializedFiredStateKey, Set<string>>;
   target[key].add(symbol);
 }
@@ -817,7 +843,7 @@ const signalHistory: Array<{
   time: string;       // HH:MM
   symbol: string;
   symbolName: string;
-  action: string;     // buy/sell/short/cover/stop_loss/take_profit/forced_close
+  action: string;     // buy/sell/short/cover/stop_loss/take_profit/forced_close/margin_block
   price: number;
   shares: number;
   pnl: number | null;
@@ -898,6 +924,7 @@ function resetIfNewDay(tradeDate: string): void {
     advantestPostStopReentry.clear();
     discoConfirmedBreakLongFired.clear();
     discoOpeningBreakShortFired.clear();
+    telShortBreakFired.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -951,6 +978,9 @@ export function resolveRestoredRiskOverrides(
   }
   if (symbol === "6976" && reason.startsWith("太陽誘電後場反転")) {
     return { slPct: config.taiyoAfternoonSlPct, tpPct: config.taiyoAfternoonTpPct };
+  }
+  if (symbol === "8035" && reason.startsWith("東京エレクトロン短期ブレイク")) {
+    return { slPct: config.telShortBreakSlPct, tpPct: config.telShortBreakTpPct };
   }
   if (symbol === "285A" && side === "long" && reason.startsWith("反転LONG")) {
     return { slPct: config.reversalLongSlPct, tpPct: config.tp?.long };
@@ -1013,7 +1043,8 @@ export type SpecializedFiredStateKey =
   | "advantestHighFadeShort"
   | "advantestConfirmedBreakLong"
   | "discoConfirmedBreakLong"
-  | "discoOpeningBreakShort";
+  | "discoOpeningBreakShort"
+  | "telShortBreak";
 
 /** DBの当日エントリー履歴から、再起動後に復元すべき専用方式を識別する。 */
 export function resolveSpecializedFiredStateKeys(
@@ -1028,6 +1059,7 @@ export function resolveSpecializedFiredStateKeys(
     if (action === "short" && reason.startsWith("順張りSHORT")) return ["trendShort"];
   }
   if (symbol === "8035") {
+    if ((action === "buy" || action === "short") && reason.startsWith("東京エレクトロン短期ブレイク")) return ["telShortBreak"];
     if (action === "buy" && reason.startsWith("順張りLONG")) return ["trendLong"];
     if (action === "short" && reason.startsWith("順張りSHORT")) return ["trendShort"];
     if (action === "short" && reason.startsWith("高値反転SHORT")) return ["peakReversalShort"];
@@ -1532,6 +1564,12 @@ export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, sn
 
   const config = getSymbolConfig(pos.symbol);
   if (
+    config.disableTelShortBreakBoardEarlyExit &&
+    pos.entryReason.startsWith("東京エレクトロン短期ブレイク")
+  ) {
+    return false;
+  }
+  if (
     config.disableLowReversalBreakLongBoardEarlyExit &&
     pos.side === "long" &&
     pos.entryReason.startsWith("安値反転ブレイクLONG")
@@ -1753,6 +1791,64 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // ---- ★反転LONG: 銘柄別設定で反転LONGが有効な場合の検出 ----
   // 大台超えLONGの代替として、当日高値からの下落後に反転上昇を検出してLONGエントリー
   const symConfig = getSymbolConfig(symbol);
+
+  // ---- ★8035短期ブレイク: 現行3方式より優先 ----
+  // 10:00〜10:30に確定した現足の終値だけで判定し、未来足は参照しない。
+  // 実エントリー済みなら当日の現行予備経路へは入らず、未発火時だけ10:31以降に現行3方式を使う。
+  if (symConfig.enableTelShortBreak) {
+    const startTime = symConfig.telShortBreakStartTime ?? "10:00";
+    const endTime = symConfig.telShortBreakEndTime ?? "10:30";
+    const fallbackStartTime = symConfig.telShortBreakFallbackStartTime ?? "10:31";
+
+    if (telShortBreakFired.has(symbol)) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    if (candleTime >= startTime && candleTime <= endTime) {
+      const lookback = symConfig.telShortBreakLookback ?? 5;
+      const maPeriod = symConfig.telShortBreakMaPeriod ?? 8;
+      const minVolumeRatio = symConfig.telShortBreakMinVolumeRatio ?? 1.2;
+      const requiredBars = Math.max(21, maPeriod + 2, lookback + 1);
+
+      if (buffer.length >= requiredBars) {
+        const currentMaSlice = buffer.slice(buffer.length - maPeriod);
+        const twoBarsAgoMaSlice = buffer.slice(buffer.length - maPeriod - 2, buffer.length - 2);
+        const currentMa = currentMaSlice.reduce((sum, item) => sum + item.close, 0) / maPeriod;
+        const twoBarsAgoMa = twoBarsAgoMaSlice.reduce((sum, item) => sum + item.close, 0) / maPeriod;
+        const maSlope2Pct = twoBarsAgoMa > 0 ? (currentMa - twoBarsAgoMa) / twoBarsAgoMa * 100 : 0;
+
+        const previousBars = buffer.slice(buffer.length - lookback - 1, buffer.length - 1);
+        const previousTwenty = buffer.slice(buffer.length - 21, buffer.length - 1);
+        const avgVolume = previousTwenty.reduce((sum, item) => sum + item.volume, 0) / previousTwenty.length;
+        const volumeRatio = avgVolume > 0 ? candle.volume / avgVolume : 0;
+        const closeBreaksHigh = candle.close > Math.max(...previousBars.map(item => item.high));
+        const closeBreaksLow = candle.close < Math.min(...previousBars.map(item => item.low));
+        const longSignal = candle.close > candle.open && closeBreaksHigh && maSlope2Pct > 0 && volumeRatio >= minVolumeRatio;
+        const shortSignal = candle.close < candle.open && closeBreaksLow && maSlope2Pct < 0 && volumeRatio >= minVolumeRatio;
+
+        if (longSignal || shortSignal) {
+          const side = longSignal ? "long" : "short";
+          const result = await enterPosition(
+            side,
+            candle,
+            tradeDate,
+            candleTime,
+            `東京エレクトロン短期ブレイク${side === "long" ? "LONG" : "SHORT"}: 終値${lookback}本更新、MA${maPeriod}二本傾き${maSlope2Pct.toFixed(3)}%、出来高${volumeRatio.toFixed(2)}倍`,
+            boardSnapshot,
+            { slPct: symConfig.telShortBreakSlPct ?? 0.6, tpPct: symConfig.telShortBreakTpPct ?? 0.5 },
+          );
+          if (result.action === "entry") telShortBreakFired.add(symbol);
+          return result;
+        }
+      }
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+
+    if (candleTime < fallbackStartTime) {
+      return { symbol, tradeDate, candleTime, action: "none" };
+    }
+  }
+
   if (symConfig.enableReversalLong && !reversalLongFired.has(symbol) && isEntryAllowed) {
     const dropPct = symConfig.reversalLongDropPct ?? 2.5;
     const amOnly = symConfig.reversalLongAmOnly ?? true;
@@ -3458,6 +3554,19 @@ export async function enterPosition(
       `(現在${(currentExposure / 10000).toFixed(0)}万円 + 今回${(amount / 10000).toFixed(0)}万円 = ` +
       `${((currentExposure + amount) / 10000).toFixed(0)}万円 > 上限${(MAX_TOTAL_EXPOSURE / 10000).toFixed(0)}万円)`
     );
+    signalHistory.unshift({
+      time: candleTime,
+      symbol,
+      symbolName: getStockName(symbol),
+      action: "margin_block",
+      price,
+      shares: 0,
+      pnl: null,
+      reason:
+        `証拠金使用率制限: 現在${Math.round(currentExposure)}円 + 候補${Math.round(amount)}円 ` +
+        `> 上限${Math.round(MAX_TOTAL_EXPOSURE)}円 (${reason})`,
+    });
+    if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 
@@ -3647,13 +3756,16 @@ async function checkExitConditions(
     console.log(`[RealtimeSim] ${symbol} 板読み早期利確: @${close}円 (bpr:${boardSnapshot?.buyPressureRatio}, signal:${boardSnapshot?.signal})`);
   }
 
-  // 東京エレクトロン: 22本の確定足を経過してもTP・SL・既存決済がなければ次足始値で決済する。
+  // 東京エレクトロン: 短期ブレイクは15分、現行3方式は22分経過後の次足始値で決済する。
   // 当足でSL/TP等が先に成立した場合はそれらを優先し、未来情報は参照しない。
-  if (exitPrice === null && symCfgExit.telMaxHoldingMinutes !== undefined) {
+  const telMaxHoldingMinutes = pos.entryReason.startsWith("東京エレクトロン短期ブレイク")
+    ? symCfgExit.telShortBreakMaxHoldingMinutes
+    : symCfgExit.telMaxHoldingMinutes;
+  if (exitPrice === null && telMaxHoldingMinutes !== undefined) {
     const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
-    if (elapsedMinutes > symCfgExit.telMaxHoldingMinutes) {
+    if (elapsedMinutes > telMaxHoldingMinutes) {
       exitPrice = candle.open;
-      exitReason = `最大保有${symCfgExit.telMaxHoldingMinutes}分経過後の次足始値決済`;
+      exitReason = `最大保有${telMaxHoldingMinutes}分経過後の次足始値決済`;
       action = "exit";
     }
   }

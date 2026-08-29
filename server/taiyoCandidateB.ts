@@ -45,6 +45,21 @@ export const TAIYO_CANDIDATE_B_SPEC = Object.freeze({
   }),
 });
 
+export const TAIYO_CANDIDATE_B_REASON_PREFIX = "太陽誘電候補B";
+
+export function evaluateTaiyoCandidateBOrderApproval(input: {
+  reason: string;
+  instructionType: "entry" | "exit" | "force_close";
+  isDryRun: boolean;
+}): { allowed: true } | { allowed: false; code: "candidate_b_live_not_approved" } {
+  const isCandidateBEntry = input.instructionType === "entry"
+    && input.reason.startsWith(TAIYO_CANDIDATE_B_REASON_PREFIX);
+  if (!isCandidateBEntry || input.isDryRun || TAIYO_CANDIDATE_B_SPEC.liveOrderApproved) {
+    return { allowed: true };
+  }
+  return { allowed: false, code: "candidate_b_live_not_approved" };
+}
+
 export type TaiyoCandidateBSide = "long" | "short";
 
 export interface TaiyoCandidateBCandle {

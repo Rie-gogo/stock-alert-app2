@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -835,8 +835,30 @@ export interface TaiyoCandidateBAuditEvent {
   triggerTime: string;
   rejectionCodes?: TaiyoCandidateBRejectionCode[];
   detail?: string;
+  referencePrice?: number;
 }
 const taiyoCandidateBAuditEvents: TaiyoCandidateBAuditEvent[] = [];
+
+async function recordTaiyoCandidateBAuditEvent(event: TaiyoCandidateBAuditEvent): Promise<void> {
+  taiyoCandidateBAuditEvents.push(event);
+  if (event.event !== "confirmation_rejected" && event.event !== "engine_rejected") return;
+  if (typeof upsertTaiyoCandidateBEvent !== "function" || event.referencePrice === undefined) return;
+  try {
+    await upsertTaiyoCandidateBEvent({
+      tradeDate: event.tradeDate,
+      symbol: event.symbol,
+      candleTime: event.candleTime,
+      eventType: event.event,
+      side: event.side,
+      triggerTime: event.triggerTime,
+      rejectionCodes: event.rejectionCodes ?? null,
+      detail: event.detail ?? null,
+      referencePrice: event.referencePrice.toString(),
+    });
+  } catch (error) {
+    console.error("[RealtimeSim] 候補B監査イベントDB保存失敗:", error);
+  }
+}
 /**
  * 6976候補Aはテスト監査専用。既定値falseで、本番API・環境変数から変更する経路は持たない。
  * Vitestの明示的なsetterからだけ有効化し、現行6976の3方式を通常運用では一切変更しない。
@@ -1950,7 +1972,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           boardSnapshot,
           { slPct: spec.slPct, tpPct: spec.tpPct },
         );
-        taiyoCandidateBAuditEvents.push({
+        await recordTaiyoCandidateBAuditEvent({
           tradeDate,
           candleTime,
           symbol,
@@ -1958,6 +1980,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           side: pending.side,
           triggerTime: pending.triggerTime,
           detail: result.reason,
+          referencePrice: candle.close,
         });
         if (result.action === "entry") {
           taiyoCandidateBPrimaryFired.add(symbol);
@@ -1977,7 +2000,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         return result;
       }
 
-      taiyoCandidateBAuditEvents.push({
+      await recordTaiyoCandidateBAuditEvent({
         tradeDate,
         candleTime,
         symbol,
@@ -1985,6 +2008,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         side: pending.side,
         triggerTime: pending.triggerTime,
         rejectionCodes: confirmation.codes,
+        referencePrice: candle.close,
       });
       // 確認不成立でも同じ足を新しい初動候補として再評価する。
     }
@@ -1998,7 +2022,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         triggerVolumeRatio: metrics.volumeRatio,
         triggerOpenMovePct: metrics.openMovePct,
       });
-      taiyoCandidateBAuditEvents.push({
+      await recordTaiyoCandidateBAuditEvent({
         tradeDate,
         candleTime,
         symbol,
@@ -2006,6 +2030,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         side: metrics.side,
         triggerTime: candleTime,
         detail: `openMove=${metrics.openMovePct.toFixed(3)}%,maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x`,
+        referencePrice: candle.close,
       });
     }
 

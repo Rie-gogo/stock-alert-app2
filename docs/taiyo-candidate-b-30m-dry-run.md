@@ -4,7 +4,7 @@
 
 候補Bは、太陽誘電（6976）について**前場の10本終値ブレイクを1本確認して入る新方式**と、既存の**後場反転SHORT**を組み合わせたDRY_RUN専用ハイブリッドです。通常運用では旧朝初動SHORTと後場反転LONGを停止します。
 
-> **LIVE注文は承認されていません。** クラウド側は架空取引を記録し、Windows Executor参照版は `DRY_RUN = True` を維持します。
+> **LIVE注文は承認されていません。** クラウドの注文指示作成境界とWindows Executor/relay参照版の双方で、候補BのLIVE新規注文を明示的に拒否します。決済注文は安全のため止めません。Windows参照版は引き続き `DRY_RUN = True` です。
 
 ## 固定仕様
 
@@ -30,7 +30,7 @@
 
 初動後の確認足が不成立なら、同じ確認足を新しい初動候補として再評価します。確認が成立しても共通エンジンのATR、証拠金、対象銘柄などのゲートで拒否された場合は、primaryの日次枠を消費しません。次の確定足以降も候補探索を継続し、**実エントリー成功時だけ**発火済みとします。
 
-証拠金拒否は既存の `margin_block`、ATR等の拒否は `candidate_b_block` として当日のメモリー上のシグナル履歴へ残ります。16時の日次通知には、候補Bのエントリー、決済、証拠金拒否、ATR等の拒否を「6976候補B30分 DRY_RUN乖離監視」欄として表示します。
+証拠金拒否は既存の `margin_block`、ATR等の拒否は `candidate_b_block` として当日のメモリー上のシグナル履歴へ残します。加えて、確認失敗とATR・証拠金等の共通ゲート拒否を専用の `rt_taiyo_candidate_b_events` テーブルへ冪等保存します。16時の日次通知はDBイベントも読み込むため、通知前にサーバーが再起動しても拒否・再探索履歴を復元できます。
 
 ## Git固定データと期待値
 
@@ -53,6 +53,8 @@
 
 全33取引の日付、経路、方向、入口時刻・価格、出口時刻・理由、100株損益は `server/fixtures/taiyoCandidateB.expected.ts` に固定しています。確認失敗イベント列は正規化SHA-256でも固定し、取引だけが偶然一致する状態を防ぎます。
 
+fixtureは `.gitattributes` で `text eol=lf` を指定しています。WindowsチェックアウトでもCRLF変換を受けず、生バイトSHA-256が同じ値になります。MA8二本傾き±0.05%は今回追加した条件ではなく、候補Bの残存原検証コードに含まれていた既存条件です。
+
 ## 再監査コマンド
 
 DBなしで、Gitだけから仕様境界、全46日、全33取引、拒否後再探索、再起動リスク復元、日次乖離表示を確認できます。
@@ -62,7 +64,8 @@ pnpm vitest run \
   server/taiyoCandidateB.spec.test.ts \
   server/taiyoCandidateB.auditReplay.test.ts \
   server/taiyoCandidateBDryRunReport.test.ts \
-  server/realtimeSimRestoration.test.ts
+  server/realtimeSimRestoration.test.ts \
+  server/orderBridge.test.ts
 ```
 
 全体非回帰は次で確認します。

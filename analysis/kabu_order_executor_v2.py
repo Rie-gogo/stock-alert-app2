@@ -54,6 +54,10 @@ KABU_API_URL_TEST = "http://localhost:18081/kabusapi"  # 検証用
 # ドライランモード（True=実際の発注を行わない）
 DRY_RUN = True
 
+# 6976候補BはDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+TAIYO_CANDIDATE_B_LIVE_APPROVED = False
+TAIYO_CANDIDATE_B_REASON_PREFIX = "太陽誘電候補B"
+
 # KABUステーションAPIパスワード（トークン取得用）
 KABU_API_PASSWORD = ""  # ← 本番時にここに設定
 
@@ -733,6 +737,14 @@ def preflight_check(instruction: dict) -> tuple[bool, str]:
     side = instruction["oi_side"]
     symbol = instruction["symbol"]
     instruction_type = instruction["oi_instruction_type"]
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not TAIYO_CANDIDATE_B_LIVE_APPROVED
+        and str(instruction.get("reason", "")).startswith(TAIYO_CANDIDATE_B_REASON_PREFIX)
+    ):
+        return False, "6976候補BはLIVE未承認: 新規注文を強制拒否"
 
     # 1. ローカル緊急停止チェック
     if local_emergency_stop and instruction_type == "entry":

@@ -468,19 +468,24 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     let score0Section = "";
     let taiyoCandidateBSection = "";
     try {
-      const { getRtCandlesAllForDate } = await import("./db");
+      const { getRtCandlesAllForDate, getTaiyoCandidateBEventsForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
       const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport, runScore0DailySimulation, formatScore0Report } = await import("./cbV2Simulation");
       const { formatTaiyoCandidateBDryRunReport } = await import("./taiyoCandidateBDryRunReport");
 
       const allCandles = await getRtCandlesAllForDate(todayStr);
       const currentSignals = getSignalHistory(200);
+      const persistedTaiyoCandidateBEvents = await getTaiyoCandidateBEventsForDate(todayStr);
       // signalHistoryからround_distance_block SHORTを抽出
       const signalBlocks = currentSignals
         .filter(s => s.action === "round_distance_block" && s.reason.includes("SHORTブロック"))
         .map(s => ({ time: s.time, symbol: s.symbol, price: s.price, reason: s.reason }));
 
-      taiyoCandidateBSection = formatTaiyoCandidateBDryRunReport(trades, currentSignals).section;
+      taiyoCandidateBSection = formatTaiyoCandidateBDryRunReport(
+        trades,
+        currentSignals,
+        persistedTaiyoCandidateBEvents,
+      ).section;
 
       const cbV2Result = runCBv2DailySimulation(todayStr, allCandles, signalBlocks);
       cbV2Section = formatCBv2Report(cbV2Result);

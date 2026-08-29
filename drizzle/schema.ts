@@ -8,6 +8,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
 
@@ -568,3 +569,33 @@ export const rtScore0Blocks = mysqlTable("rt_score0_blocks", {
 });
 export type RtScore0Block = typeof rtScore0Blocks.$inferSelect;
 export type InsertRtScore0Block = typeof rtScore0Blocks.$inferInsert;
+
+/**
+ * 6976候補B DRY_RUN監査イベント。
+ * 確認失敗・ATR/証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
+ */
+export const rtTaiyoCandidateBEvents = mysqlTable("rt_taiyo_candidate_b_events", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  eventType: mysqlEnum("taiyo_candidate_b_event_type", ["confirmation_rejected", "engine_rejected"]).notNull(),
+  side: mysqlEnum("taiyo_candidate_b_event_side", ["long", "short"]).notNull(),
+  triggerTime: varchar("trigger_time", { length: 5 }).notNull(),
+  rejectionCodes: json("rejection_codes").$type<string[] | null>(),
+  detail: text("detail"),
+  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_taiyo_candidate_b_event_identity").on(
+    table.tradeDate,
+    table.symbol,
+    table.candleTime,
+    table.eventType,
+    table.side,
+    table.triggerTime,
+  ),
+}));
+
+export type RtTaiyoCandidateBEvent = typeof rtTaiyoCandidateBEvents.$inferSelect;
+export type InsertRtTaiyoCandidateBEvent = typeof rtTaiyoCandidateBEvents.$inferInsert;

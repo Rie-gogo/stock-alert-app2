@@ -41,6 +41,7 @@ vi.mock("./db", () => ({
   getRtCandlesAllForDate: vi.fn().mockResolvedValue([]),
   getRtOpenPositionsFromDb: vi.fn().mockResolvedValue([]),
   insertScore0Block: vi.fn().mockResolvedValue(undefined),
+  upsertTaiyoCandidateBEvent: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./kabuStation", () => ({
   getOrderBook: vi.fn(() => makeBook(currentSnapshot)),
@@ -65,10 +66,12 @@ import {
   setTaiyoCandidateAAuditEnabledForTest,
   shouldBoardEarlyExit,
 } from "./realtimeSimEngine";
+import { upsertTaiyoCandidateBEvent } from "./db";
 
 afterEach(() => {
   setTaiyoCandidateAAuditEnabledForTest(false);
   currentSnapshot = null;
+  vi.clearAllMocks();
 });
 
 describe("6976候補B30分 Git fixture実エンジン監査", () => {
@@ -151,6 +154,8 @@ describe("6976候補B30分 Git fixture実エンジン監査", () => {
     expect(rejectedEvents).toHaveLength(TAIYO_CANDIDATE_B_EXPECTED_SUMMARY.confirmationRejected);
     expect(rejectedEvents.filter(event => event.event === "engine_rejected"))
       .toHaveLength(TAIYO_CANDIDATE_B_EXPECTED_SUMMARY.engineRejectedWithoutCapitalLimit);
+    expect(vi.mocked(upsertTaiyoCandidateBEvent))
+      .toHaveBeenCalledTimes(TAIYO_CANDIDATE_B_EXPECTED_SUMMARY.confirmationRejected);
     expect(createHash("sha256").update(JSON.stringify(rejectedEvents)).digest("hex"))
       .toBe(TAIYO_CANDIDATE_B_REJECTION_STREAM_SHA256);
 
@@ -192,6 +197,14 @@ describe("6976候補B30分 Git fixture実エンジン監査", () => {
 
     const events = getTaiyoCandidateBAuditEventsForTest();
     expect(events.some(event => event.event === "engine_rejected" && event.detail === "margin_block")).toBe(true);
+    expect(vi.mocked(upsertTaiyoCandidateBEvent)).toHaveBeenCalledWith(expect.objectContaining({
+      tradeDate,
+      candleTime: "09:46",
+      eventType: "engine_rejected",
+      detail: "margin_block",
+      triggerTime: "09:45",
+      referencePrice: "101.5",
+    }));
     expect(events.filter(event => event.event === "entry")).toHaveLength(1);
     await processCandle({ symbol: "6976", tradeDate, candleTime: "09:49", open: 102.5, high: 104, low: 102.4, close: 103.5, volume: 100 });
   });
@@ -211,6 +224,13 @@ describe("6976候補B30分 Git fixture実エンジン監査", () => {
     expect(getTaiyoCandidateBAuditEventsForTest().some(
       event => event.event === "engine_rejected" && event.detail?.startsWith("atr_block:"),
     )).toBe(true);
+    expect(vi.mocked(upsertTaiyoCandidateBEvent)).toHaveBeenCalledWith(expect.objectContaining({
+      tradeDate,
+      candleTime: "09:46",
+      eventType: "engine_rejected",
+      triggerTime: "09:45",
+      referencePrice: "100.6",
+    }));
     await processCandle({ symbol: "6976", tradeDate, candleTime: "09:49", open: 100.8, high: 102, low: 100.7, close: 101.8, volume: 100 });
   });
 });

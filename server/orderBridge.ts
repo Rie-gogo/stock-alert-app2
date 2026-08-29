@@ -20,6 +20,7 @@ import { getDb } from "./db";
 import { orderInstructions, autoTradeDaily, rtTrades, type OrderInstruction, type AutoTradeDaily, type InsertOrderInstruction } from "../drizzle/schema";
 import { eq, and, desc, inArray, gte, lt } from "drizzle-orm";
 import { getStockName } from "../shared/stocks";
+import { evaluateTaiyoCandidateBOrderApproval } from "./taiyoCandidateB";
 
 // ============================================================
 // 定数
@@ -39,6 +40,15 @@ const FIXED_QTY = 100;
  * 発注指示を作成する
  */
 export async function createOrderInstruction(data: Omit<InsertOrderInstruction, "id" | "createdAt" | "updatedAt">): Promise<OrderInstruction> {
+  const strategyApproval = evaluateTaiyoCandidateBOrderApproval({
+    reason: data.reason,
+    instructionType: data.instructionType,
+    isDryRun: data.isDryRun !== false,
+  });
+  if (!strategyApproval.allowed) {
+    throw new Error(strategyApproval.code);
+  }
+
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 

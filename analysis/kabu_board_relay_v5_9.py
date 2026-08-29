@@ -134,6 +134,10 @@ MAX_REGISTER_RETRIES = 5  # プッシュ配信登録の最大リトライ回数
 # ドライランモード（True=実際の発注を行わない）
 DRY_RUN = True
 
+# 6976候補BはDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+TAIYO_CANDIDATE_B_LIVE_APPROVED = False
+TAIYO_CANDIDATE_B_REASON_PREFIX = "太陽誘電候補B"
+
 # executorポーリング間隔（秒）
 EXECUTOR_POLL_INTERVAL = 1.0
 
@@ -1683,6 +1687,14 @@ def executor_preflight_check(instruction: dict) -> tuple:
     side = instruction["side"]
     symbol = instruction["symbol"]
     instruction_type = instruction["instructionType"]
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not TAIYO_CANDIDATE_B_LIVE_APPROVED
+        and str(instruction.get("reason", "")).startswith(TAIYO_CANDIDATE_B_REASON_PREFIX)
+    ):
+        return False, "6976候補BはLIVE未承認: 新規注文を強制拒否"
 
     # 1. 取引有効チェック（緊急停止中でないか）
     # → クラウド側で既にチェック済みだが、ローカルでも二重チェック

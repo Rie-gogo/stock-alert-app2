@@ -550,12 +550,15 @@ import {
   rtTrades,
   rtDailySummaries,
   rtScore0Blocks,
+  rtTaiyoCandidateBEvents,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
   type RtDailySummary,
   type InsertRtScore0Block,
   type RtScore0Block,
+  type InsertRtTaiyoCandidateBEvent,
+  type RtTaiyoCandidateBEvent,
 } from "../drizzle/schema";
 
 /**
@@ -779,4 +782,37 @@ export async function getScore0BlocksForDate(tradeDate: string): Promise<RtScore
     .from(rtScore0Blocks)
     .where(eq(rtScore0Blocks.tradeDate, tradeDate))
     .orderBy(rtScore0Blocks.id);
+}
+
+// ============================================================
+// 6976候補B DRY_RUN監査イベント helpers
+// ============================================================
+
+export async function upsertTaiyoCandidateBEvent(
+  data: Omit<InsertRtTaiyoCandidateBEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(rtTaiyoCandidateBEvents)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        rejectionCodes: data.rejectionCodes ?? null,
+        detail: data.detail ?? null,
+        referencePrice: data.referencePrice,
+      },
+    });
+}
+
+export async function getTaiyoCandidateBEventsForDate(
+  tradeDate: string,
+): Promise<RtTaiyoCandidateBEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtTaiyoCandidateBEvents)
+    .where(eq(rtTaiyoCandidateBEvents.tradeDate, tradeDate))
+    .orderBy(rtTaiyoCandidateBEvents.id);
 }

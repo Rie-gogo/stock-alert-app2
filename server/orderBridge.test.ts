@@ -60,6 +60,57 @@ vi.mock("../shared/stocks", () => ({
 }));
 
 describe("orderBridge", () => {
+  describe("6976候補Bの戦略単位LIVE拒否", () => {
+    it("DRY_RUNのentryは許可するが、LIVEのentryは承認フラグfalseなら拒否する", async () => {
+      const { evaluateTaiyoCandidateBOrderApproval } = await import("./taiyoCandidateB");
+      const reason = "太陽誘電候補BLONG: 10本終値ブレイク後1本確認";
+
+      expect(evaluateTaiyoCandidateBOrderApproval({ reason, instructionType: "entry", isDryRun: true }))
+        .toEqual({ allowed: true });
+      expect(evaluateTaiyoCandidateBOrderApproval({ reason, instructionType: "entry", isDryRun: false }))
+        .toEqual({ allowed: false, code: "candidate_b_live_not_approved" });
+    });
+
+    it("他戦略のLIVE entryと候補Bの決済はこの戦略ガードでは止めない", async () => {
+      const { evaluateTaiyoCandidateBOrderApproval } = await import("./taiyoCandidateB");
+
+      expect(evaluateTaiyoCandidateBOrderApproval({
+        reason: "東京エレクトロン短期ブレイクLONG",
+        instructionType: "entry",
+        isDryRun: false,
+      })).toEqual({ allowed: true });
+      expect(evaluateTaiyoCandidateBOrderApproval({
+        reason: "太陽誘電候補Bの決済",
+        instructionType: "exit",
+        isDryRun: false,
+      })).toEqual({ allowed: true });
+    });
+
+    it("注文指示作成境界でも候補BのLIVE entryをDB書込み前に拒否する", async () => {
+      const { createOrderInstruction } = await import("./orderBridge");
+      await expect(createOrderInstruction({
+        tradeDate: "2026-08-31",
+        symbol: "6976",
+        symbolName: "太陽誘電",
+        side: "buy",
+        instructionType: "entry",
+        qty: 100,
+        status: "pending",
+        reason: "太陽誘電候補BLONG: ガードテスト",
+        referencePrice: "10000",
+        expiresAt: null,
+        kabuOrderId: null,
+        executedPrice: null,
+        executedAt: null,
+        pnl: null,
+        rtTradeId: 1,
+        errorMessage: null,
+        isDryRun: false,
+        executorLog: null,
+      })).rejects.toThrow("candidate_b_live_not_approved");
+    });
+  });
+
   describe("canTrade", () => {
     it("exit/force_closeは常に許可される", async () => {
       // canTrade is tested via the module's logic

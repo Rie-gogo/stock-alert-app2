@@ -93,16 +93,16 @@ export const TAIYO_CANDIDATE_A_PORTFOLIO_SOURCE_EXPECTATIONS = Object.freeze({
   order: "tradeDate_then_saved_id",
   processedRows: 93_072,
   baseline: Object.freeze({
-    trades: 206,
-    wins: 154,
-    losses: 52,
-    pnl: 3_748_384,
+    trades: 214,
+    wins: 164,
+    losses: 50,
+    pnl: 3_831_483,
     bySymbol: Object.freeze({
       "285A": Object.freeze({ trades: 57, wins: 43, losses: 14, pnl: 1_755_735 }),
       "8035": Object.freeze({ trades: 30, wins: 22, losses: 8, pnl: 358_369 }),
-      "5803": Object.freeze({ trades: 41, wins: 32, losses: 9, pnl: 510_685 }),
-      "6981": Object.freeze({ trades: 22, wins: 18, losses: 4, pnl: 284_461 }),
-      "6976": Object.freeze({ trades: 20, wins: 13, losses: 7, pnl: 126_499 }),
+      "5803": Object.freeze({ trades: 41, wins: 30, losses: 11, pnl: 462_493 }),
+      "6981": Object.freeze({ trades: 22, wins: 18, losses: 4, pnl: 277_861 }),
+      "6976": Object.freeze({ trades: 28, wins: 25, losses: 3, pnl: 264_390 }),
       "6857": Object.freeze({ trades: 21, wins: 17, losses: 4, pnl: 362_678 }),
       "6146": Object.freeze({ trades: 15, wins: 9, losses: 6, pnl: 349_957 }),
     }),
@@ -122,7 +122,7 @@ export const TAIYO_CANDIDATE_A_PORTFOLIO_SOURCE_EXPECTATIONS = Object.freeze({
       "6146": Object.freeze({ trades: 15, wins: 9, losses: 6, pnl: 349_957 }),
     }),
   }),
-  delta: Object.freeze({ trades: -1, wins: 0, losses: -1, pnl: -49_623 }),
+  delta: Object.freeze({ trades: -9, wins: -10, losses: 1, pnl: -132_722 }),
 });
 
 export const TAIYO_CANDIDATE_A_FIXTURE_SHA256 = "8ba72c0fbdb043135bf3c8677e82a2205a6b1f644c958e0d49ac7e6cda3c244e";

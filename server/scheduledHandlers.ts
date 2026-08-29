@@ -466,16 +466,21 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     let cbV2Section = "";
     let branchSection = "";
     let score0Section = "";
+    let taiyoCandidateBSection = "";
     try {
       const { getRtCandlesAllForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
       const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport, runScore0DailySimulation, formatScore0Report } = await import("./cbV2Simulation");
+      const { formatTaiyoCandidateBDryRunReport } = await import("./taiyoCandidateBDryRunReport");
 
       const allCandles = await getRtCandlesAllForDate(todayStr);
+      const currentSignals = getSignalHistory(200);
       // signalHistoryからround_distance_block SHORTを抽出
-      const signalBlocks = getSignalHistory(200)
+      const signalBlocks = currentSignals
         .filter(s => s.action === "round_distance_block" && s.reason.includes("SHORTブロック"))
         .map(s => ({ time: s.time, symbol: s.symbol, price: s.price, reason: s.reason }));
+
+      taiyoCandidateBSection = formatTaiyoCandidateBDryRunReport(trades, currentSignals).section;
 
       const cbV2Result = runCBv2DailySimulation(todayStr, allCandles, signalBlocks);
       cbV2Section = formatCBv2Report(cbV2Result);
@@ -503,6 +508,7 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       cbV2Section = "\n【CB v2 SHORTシミュレーション】\n  エラーが発生しました\n";
       branchSection = "\n【分岐型シミュレーション】\n  エラーが発生しました\n";
       score0Section = "\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n  エラーが発生しました\n";
+      taiyoCandidateBSection = "\n【6976候補B30分 DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
     }
 
     const body = `${subject}
@@ -519,6 +525,7 @@ ${symbolLines || "  （取引なし）"}
 
 【取引詳細（最大20件）】
 ${tradeLines || "  （取引なし）"}
+${taiyoCandidateBSection}
 ${cbV2Section}
 ${branchSection}
 ${score0Section}

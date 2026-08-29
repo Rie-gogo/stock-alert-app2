@@ -42,6 +42,17 @@ import {
   type TaiyoCandidateARejectionCode,
   type TaiyoCandidateASide,
 } from "./taiyoCandidateA";
+import {
+  TAIYO_CANDIDATE_B_SPEC,
+  calculateTaiyoCandidateBMetrics,
+  evaluateTaiyoCandidateBConfirmation,
+  getTaiyoCandidateBDayOpen,
+  isTaiyoCandidateBConfirmationTime,
+  isTaiyoCandidateBInitialTriggerTime,
+  type TaiyoCandidateBPending,
+  type TaiyoCandidateBRejectionCode,
+  type TaiyoCandidateBSide,
+} from "./taiyoCandidateB";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -220,6 +231,8 @@ export interface SymbolConfig {
   taiyoAfternoonShortMinVolumeRatio?: number;
   taiyoAfternoonSlPct?: number;
   taiyoAfternoonTpPct?: number;
+  // 太陽誘電候補B: 10本確認型ブレイク＋最大30分（DRY_RUN限定）
+  enableTaiyoCandidateB?: boolean;
   // 高値反転SHORT設定（急騰後の初動反落を狙う）
   enablePeakReversalShort?: boolean;
   peakReversalShortStartTime?: string;
@@ -428,14 +441,15 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     enableLowBreakFast: false,
     enableTrendLong: false,
     enableTrendShort: false,
-    enableTaiyoMorningInitialShort: true,
+    enableTaiyoCandidateB: true,
+    enableTaiyoMorningInitialShort: false,
     taiyoMorningInitialShortStartTime: "09:30",
     taiyoMorningInitialShortEndTime: "11:20",
     taiyoMorningInitialShortRangeBars: 5,
     taiyoMorningInitialShortMinVolumeRatio: 2.2,
     taiyoMorningInitialShortSlPct: 1.0,
     taiyoMorningInitialShortTpPct: 1.5,
-    enableTaiyoAfternoonReversalLong: true,
+    enableTaiyoAfternoonReversalLong: false,
     enableTaiyoAfternoonReversalShort: true,
     taiyoAfternoonReversalStartTime: "12:50",
     taiyoAfternoonReversalEndTime: "14:20",
@@ -447,7 +461,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     taiyoAfternoonSlPct: 1.0,
     taiyoAfternoonTpPct: 1.2,
     exclusiveEntryRoutes: true,
-    notes: "太陽誘電: 朝初動SHORT（最初の5分安値下抜け・出来高2.2倍・1本確認、SL1.0%/TP1.5%）＋前場始値比±3%後の後場反転LONG/SHORT（出来高1.0倍/1.2倍・1本確認、SL1.0%/TP1.2%）。朝1回、後場はLONG/SHORT合計1回。",
+    notes: "太陽誘電DRY_RUN候補B: 09:45〜11:00の10本終値ブレイクを1本確認、09:00以降最初の足を始値基準、MA8二本傾き±0.05%以上・初動出来高1.0倍、SL1.0%/TP0.6%、最大30分確定足終値、板入口/板利確なし。共通ゲート拒否では枠を消費せず後続候補を再探索。朝初動SHORTと後場LONGは停止し、既存後場SHORTだけ維持。LIVE未承認。",
   },
   "6526": { sl: { long: 0.9, short: 1.0 } },
   "5803": {
@@ -809,6 +823,20 @@ const taiyoAfternoonReversalFired = new Set<string>();
 const taiyoMorningInitialShortPending = new Map<string, StructureBreakPendingState>();
 const taiyoAfternoonReversalLongPending = new Map<string, StructureBreakPendingState>();
 const taiyoAfternoonReversalShortPending = new Map<string, StructureBreakPendingState>();
+/** ★6976候補B: DRY_RUN実エントリー成功時だけ当日枠を消費し、拒否後は再探索する。 */
+const taiyoCandidateBPrimaryFired = new Set<string>();
+const taiyoCandidateBPending = new Map<string, TaiyoCandidateBPending>();
+export interface TaiyoCandidateBAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: string;
+  event: "trigger" | "confirmation_rejected" | "entry" | "engine_rejected";
+  side: TaiyoCandidateBSide;
+  triggerTime: string;
+  rejectionCodes?: TaiyoCandidateBRejectionCode[];
+  detail?: string;
+}
+const taiyoCandidateBAuditEvents: TaiyoCandidateBAuditEvent[] = [];
 /**
  * 6976候補Aはテスト監査専用。既定値falseで、本番API・環境変数から変更する経路は持たない。
  * Vitestの明示的なsetterからだけ有効化し、現行6976の3方式を通常運用では一切変更しない。
@@ -856,6 +884,7 @@ function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKe
     lowReversalBreakLong: lowReversalBreakLongFired,
     highFadeBreakShort: highFadeBreakShortFired,
     openingBreakShort: openingBreakShortFired,
+    taiyoCandidateB: taiyoCandidateBPrimaryFired,
     taiyoMorningInitialShort: taiyoMorningInitialShortFired,
     taiyoAfternoonReversal: taiyoAfternoonReversalFired,
     peakReversalShort: peakReversalShortFired,
@@ -948,6 +977,9 @@ function resetIfNewDay(tradeDate: string): void {
     taiyoMorningInitialShortPending.clear();
     taiyoAfternoonReversalLongPending.clear();
     taiyoAfternoonReversalShortPending.clear();
+    taiyoCandidateBPrimaryFired.clear();
+    taiyoCandidateBPending.clear();
+    taiyoCandidateBAuditEvents.length = 0;
     taiyoCandidateAPrimaryFired.clear();
     taiyoCandidateAPending.clear();
     peakReversalShortFired.clear();
@@ -1005,6 +1037,12 @@ export function resolveRestoredRiskOverrides(
 ): { slPct?: number; tpPct?: number } {
   const config = getSymbolConfig(symbol);
 
+  if (symbol === "6976" && reason.startsWith("太陽誘電候補B")) {
+    return {
+      slPct: TAIYO_CANDIDATE_B_SPEC.primary.slPct,
+      tpPct: TAIYO_CANDIDATE_B_SPEC.primary.tpPct,
+    };
+  }
   if (symbol === "6976" && reason.startsWith("太陽誘電朝初動SHORT")) {
     return { slPct: config.taiyoMorningInitialShortSlPct, tpPct: config.taiyoMorningInitialShortTpPct };
   }
@@ -1069,6 +1107,7 @@ export type SpecializedFiredStateKey =
   | "lowReversalBreakLong"
   | "highFadeBreakShort"
   | "openingBreakShort"
+  | "taiyoCandidateB"
   | "taiyoMorningInitialShort"
   | "taiyoAfternoonReversal"
   | "peakReversalShort"
@@ -1106,6 +1145,7 @@ export function resolveSpecializedFiredStateKeys(
     if (action === "short" && reason.startsWith("寄り付きブレイクSHORT")) return ["openingBreakShort"];
   }
   if (symbol === "6976") {
+    if ((action === "buy" || action === "short") && reason.startsWith("太陽誘電候補B")) return ["taiyoCandidateB"];
     if (action === "short" && reason.startsWith("太陽誘電朝初動SHORT")) return ["taiyoMorningInitialShort"];
     if ((action === "buy" || action === "short") && reason.startsWith("太陽誘電後場反転")) return ["taiyoAfternoonReversal"];
   }
@@ -1289,6 +1329,37 @@ export async function restoreBuffersFromDb(): Promise<void> {
       }
     } catch (sigErr) {
       console.error("[RealtimeSim] シグナル履歴復元エラー:", sigErr);
+    }
+
+    // ---- 6976候補Bの1本確認待ちを最新保存足から再構築 ----
+    // 最新足そのものが初動条件を満たす場合だけ次の1分足を待つ。
+    // 既に当日エントリー済み、またはポジション保有中なら再作成しない。
+    if (!taiyoCandidateBPrimaryFired.has("6976") && !openPositions.has("6976")) {
+      const restored = candleBuffers.get("6976") ?? [];
+      const candidateBuffer = restored.map(item => ({
+        time: item.time.slice(11, 16),
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+      }));
+      const latest = candidateBuffer[candidateBuffer.length - 1];
+      const dayOpen = getTaiyoCandidateBDayOpen(candidateBuffer);
+      if (latest && dayOpen !== null && isTaiyoCandidateBInitialTriggerTime(latest.time)) {
+        const metrics = calculateTaiyoCandidateBMetrics(candidateBuffer, dayOpen);
+        if (metrics?.side) {
+          taiyoCandidateBPending.set("6976", {
+            side: metrics.side,
+            triggerClose: latest.close,
+            triggerTime: latest.time,
+            triggerMaSlope2Pct: metrics.maSlope2Pct,
+            triggerVolumeRatio: metrics.volumeRatio,
+            triggerOpenMovePct: metrics.openMovePct,
+          });
+          console.log(`[RealtimeSim] 6976候補B確認待ち復元: ${metrics.side} 初動 ${latest.time}`);
+        }
+      }
     }
 
   } catch (err) {
@@ -1594,8 +1665,11 @@ export function detectMarketMode(symbol: string, snapshot: BoardSnapshot): "acti
 export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, snapshot: BoardSnapshot | null): boolean {
   if (!snapshot) return false;
 
-  // 6976候補Aは短期出口をTP・SL・因果的時間決済へ限定する監査仕様。
-  if (pos.entryReason.startsWith("太陽誘電候補A")) return false;
+  // 6976候補A/Bは出口をTP・SL・因果的時間決済へ限定する仕様。
+  if (
+    pos.entryReason.startsWith("太陽誘電候補A") ||
+    pos.entryReason.startsWith("太陽誘電候補B")
+  ) return false;
 
   const config = getSymbolConfig(pos.symbol);
   if (
@@ -1826,6 +1900,126 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // ---- ★反転LONG: 銘柄別設定で反転LONGが有効な場合の検出 ----
   // 大台超えLONGの代替として、当日高値からの下落後に反転上昇を検出してLONGエントリー
   const symConfig = getSymbolConfig(symbol);
+
+  // ---- 6976候補B: DRY_RUN正式経路 ----
+  // 候補Aの監査再生時は候補Bを止め、通常DRY_RUNでは候補Bを優先する。
+  // 実エントリー成功時だけ当日枠を消費するため、ATR・証拠金等で拒否された後も後続候補を再探索する。
+  if (
+    !taiyoCandidateAAuditEnabled &&
+    symConfig.enableTaiyoCandidateB &&
+    symbol === TAIYO_CANDIDATE_B_SPEC.symbol &&
+    !taiyoCandidateBPrimaryFired.has(symbol) &&
+    (isTaiyoCandidateBConfirmationTime(candleTime) || isTaiyoCandidateBInitialTriggerTime(candleTime))
+  ) {
+    const spec = TAIYO_CANDIDATE_B_SPEC.primary;
+    const candidateBuffer = buffer.map(item => ({
+      time: item.time.slice(11, 16),
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
+    }));
+    const candidateDayOpen = getTaiyoCandidateBDayOpen(candidateBuffer);
+    const metrics = candidateDayOpen === null
+      ? null
+      : calculateTaiyoCandidateBMetrics(candidateBuffer, candidateDayOpen);
+    const pending = taiyoCandidateBPending.get(symbol);
+
+    if (pending && candleTime > pending.triggerTime) {
+      taiyoCandidateBPending.delete(symbol);
+      const confirmation = evaluateTaiyoCandidateBConfirmation({
+        pending,
+        candle: {
+          time: candleTime,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume,
+        },
+      });
+
+      if (confirmation.allowed) {
+        const result = await enterPosition(
+          pending.side,
+          candle,
+          tradeDate,
+          candleTime,
+          `太陽誘電候補B${pending.side === "long" ? "LONG" : "SHORT"}: 10本終値ブレイク後1本確認、MA8二本傾き${pending.triggerMaSlope2Pct.toFixed(3)}%、初動出来高${pending.triggerVolumeRatio.toFixed(2)}倍、初動始値比${pending.triggerOpenMovePct.toFixed(2)}%`,
+          boardSnapshot,
+          { slPct: spec.slPct, tpPct: spec.tpPct },
+        );
+        taiyoCandidateBAuditEvents.push({
+          tradeDate,
+          candleTime,
+          symbol,
+          event: result.action === "entry" ? "entry" : "engine_rejected",
+          side: pending.side,
+          triggerTime: pending.triggerTime,
+          detail: result.reason,
+        });
+        if (result.action === "entry") {
+          taiyoCandidateBPrimaryFired.add(symbol);
+        } else if (result.reason !== "margin_block") {
+          signalHistory.unshift({
+            time: candleTime,
+            symbol,
+            symbolName: getStockName(symbol),
+            action: "candidate_b_block",
+            price: candle.close,
+            shares: 0,
+            pnl: null,
+            reason: `太陽誘電候補B拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+          });
+          if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        }
+        return result;
+      }
+
+      taiyoCandidateBAuditEvents.push({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: "confirmation_rejected",
+        side: pending.side,
+        triggerTime: pending.triggerTime,
+        rejectionCodes: confirmation.codes,
+      });
+      // 確認不成立でも同じ足を新しい初動候補として再評価する。
+    }
+
+    if (metrics?.side && isTaiyoCandidateBInitialTriggerTime(candleTime)) {
+      taiyoCandidateBPending.set(symbol, {
+        side: metrics.side,
+        triggerClose: candle.close,
+        triggerTime: candleTime,
+        triggerMaSlope2Pct: metrics.maSlope2Pct,
+        triggerVolumeRatio: metrics.volumeRatio,
+        triggerOpenMovePct: metrics.openMovePct,
+      });
+      taiyoCandidateBAuditEvents.push({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: "trigger",
+        side: metrics.side,
+        triggerTime: candleTime,
+        detail: `openMove=${metrics.openMovePct.toFixed(3)}%,maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x`,
+      });
+    }
+
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
+
+  if (
+    !taiyoCandidateAAuditEnabled &&
+    symConfig.enableTaiyoCandidateB &&
+    symbol === TAIYO_CANDIDATE_B_SPEC.symbol &&
+    candleTime > TAIYO_CANDIDATE_B_SPEC.primary.confirmationEndTime
+  ) {
+    taiyoCandidateBPending.delete(symbol);
+  }
 
   // ---- 6976候補A: Git監査専用の休眠経路 ----
   // 通常運用ではtaiyoCandidateAAuditEnabled=falseのため到達しない。
@@ -2302,7 +2496,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     // ---- ★6976: 朝初動SHORT ----
     // 寄り付き直後の最初の5分レンジを下抜け、出来高を伴って下落が継続した場合だけを1本確認で捉える。
     if (
-      symConfig.enableTaiyoMorningInitialShort &&
+      (symConfig.enableTaiyoMorningInitialShort || (taiyoCandidateAAuditEnabled && symbol === TAIYO_CANDIDATE_A_SPEC.symbol)) &&
       !taiyoMorningInitialShortFired.has(symbol) &&
       canCalcMa &&
       candleTime >= (symConfig.taiyoMorningInitialShortStartTime ?? "09:30") &&
@@ -3564,7 +3758,7 @@ export async function enterPosition(
 
   // エントリー対象銘柄制限チェック
   if (ACTIVE_ENTRY_SYMBOLS !== null && !ACTIVE_ENTRY_SYMBOLS.has(symbol)) {
-    return { symbol, tradeDate, candleTime, action: "none" as const };
+    return { symbol, tradeDate, candleTime, action: "none" as const, reason: "entry_symbol_block" };
   }
 
   const price = candle.close;
@@ -3613,7 +3807,13 @@ export async function enterPosition(
           `[RealtimeSim] ATRフィルター: ${symbol} エントリーブロック ` +
           `(ATR率=${(atrRatio * 100).toFixed(4)}% < 閾値${(ATR_FILTER_THRESHOLD * 100).toFixed(2)}%)`
         );
-        return { symbol, tradeDate, candleTime, action: "none" };
+        return {
+          symbol,
+          tradeDate,
+          candleTime,
+          action: "none",
+          reason: `atr_block:${(atrRatio * 100).toFixed(4)}%<${(ATR_FILTER_THRESHOLD * 100).toFixed(2)}%`,
+        };
       }
     }
   }
@@ -3716,7 +3916,7 @@ export async function enterPosition(
         `> 上限${Math.round(MAX_TOTAL_EXPOSURE)}円 (${reason})`,
     });
     if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
-    return { symbol, tradeDate, candleTime, action: "none" };
+    return { symbol, tradeDate, candleTime, action: "none", reason: "margin_block" };
   }
 
   // ---- 信頼度（confidence）を計算 ----
@@ -3878,8 +4078,10 @@ async function checkExitConditions(
     }
   }
 
-  // シグナル反転による決済
-  if (exitPrice === null) {
+  const isTaiyoCandidateBPosition = pos.entryReason.startsWith("太陽誘電候補B");
+
+  // シグナル反転による決済。候補BはTP・SL・時間決済だけに限定する。
+  if (exitPrice === null && !isTaiyoCandidateBPosition) {
     const buffer = candleBuffers.get(symbol);
     if (buffer && buffer.length > 0) {
       const latest = buffer[buffer.length - 1];
@@ -3897,8 +4099,8 @@ async function checkExitConditions(
     }
   }
 
-  // ★v6: 板読み早期利確
-  if (exitPrice === null && shouldBoardEarlyExit(pos, close, boardSnapshot)) {
+  // ★v6: 板読み早期利確。候補Bでは使用しない。
+  if (exitPrice === null && !isTaiyoCandidateBPosition && shouldBoardEarlyExit(pos, close, boardSnapshot)) {
     exitPrice = close;
     exitReason = `板読み早期利確 (逆方向板圧力検出)`;
     action = "take_profit";
@@ -3928,6 +4130,18 @@ async function checkExitConditions(
     if (elapsedMinutes >= maxHoldingMinutes) {
       exitPrice = candle.close;
       exitReason = `候補A最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
+      action = "exit";
+    }
+  }
+
+  // 6976候補B DRY_RUN: 30分境界の完成足終値を約定近似値として決済する。
+  // 完成済み足の始値へ遡らず、実成行約定との差は前向きDRY_RUNで計測する。
+  if (exitPrice === null && isTaiyoCandidateBPosition) {
+    const maxHoldingMinutes = TAIYO_CANDIDATE_B_SPEC.primary.maxHoldingMinutes;
+    const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
+    if (elapsedMinutes >= maxHoldingMinutes) {
+      exitPrice = candle.close;
+      exitReason = `候補B最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
       action = "exit";
     }
   }
@@ -4192,6 +4406,17 @@ export function getTaiyoCandidateAAuditEventsForTest(): TaiyoCandidateAAuditEven
     throw new Error("6976候補A監査イベントはVitest専用です");
   }
   return taiyoCandidateAAuditEvents.map(event => ({
+    ...event,
+    rejectionCodes: event.rejectionCodes ? [...event.rejectionCodes] : undefined,
+  }));
+}
+
+/** 6976候補Bの当日DRY_RUN監査イベントをVitestから取得する。 */
+export function getTaiyoCandidateBAuditEventsForTest(): TaiyoCandidateBAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("6976候補B監査イベントはVitest専用です");
+  }
+  return taiyoCandidateBAuditEvents.map(event => ({
     ...event,
     rejectionCodes: event.rejectionCodes ? [...event.rejectionCodes] : undefined,
   }));

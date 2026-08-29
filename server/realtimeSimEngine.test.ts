@@ -2408,13 +2408,14 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
   });
 });
 
-describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
-  it("6976の3方式設定は方向別出来高・SL/TP・回数制限を持ち、他銘柄へ影響しない", async () => {
+describe("太陽誘電(6976) 候補B30分・後場反転SHORT", () => {
+  it("6976は候補Bと後場SHORTだけを有効化し、朝SHORT・後場LONGを停止する", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config = getSymbolConfig("6976");
-    expect(config.enableTaiyoMorningInitialShort).toBe(true);
+    expect(config.enableTaiyoCandidateB).toBe(true);
+    expect(config.enableTaiyoMorningInitialShort).toBe(false);
     expect(config.taiyoMorningInitialShortMinVolumeRatio).toBe(2.2);
-    expect(config.enableTaiyoAfternoonReversalLong).toBe(true);
+    expect(config.enableTaiyoAfternoonReversalLong).toBe(false);
     expect(config.enableTaiyoAfternoonReversalShort).toBe(true);
     expect(config.taiyoAfternoonLongMinVolumeRatio).toBe(1.0);
     expect(config.taiyoAfternoonShortMinVolumeRatio).toBe(1.2);
@@ -2424,7 +2425,7 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
     expect(getSymbolConfig("6981").enableTaiyoMorningInitialShort).toBeUndefined();
   });
 
-  it("朝初動SHORTは5分安値下抜け後の陰線1本確認で発火する", async () => {
+  it("旧朝初動SHORT条件を満たしても通常DRY_RUNでは発火しない", async () => {
     const symbol = "6976";
     const tradeDate = "2026-09-25";
     await warmup(symbol, tradeDate, 3000);
@@ -2438,14 +2439,11 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
       symbol, tradeDate, candleTime: "09:31",
       open: 2945, high: 2948, low: 2905, close: 2920, volume: 12000,
     }));
-    expect(confirmed.action).toBe("entry");
-    expect(confirmed.reason).toContain("太陽誘電朝初動SHORT");
-    const position = getOpenPositions().find(item => item.symbol === symbol);
-    expect(position?.slPctOverride).toBe(1.0);
-    expect(position?.tpPctOverride).toBe(1.5);
+    expect(confirmed.action).toBe("none");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
   });
 
-  it("後場反転LONGは前場-3%後の高値更新を陽線1本確認して発火する", async () => {
+  it("旧後場反転LONG条件を満たしても通常DRY_RUNでは発火しない", async () => {
     const symbol = "6976";
     const tradeDate = "2026-09-26";
     await warmup(symbol, tradeDate, 3000);
@@ -2465,10 +2463,8 @@ describe("太陽誘電(6976) 朝初動SHORT・後場反転LONG/SHORT", () => {
       }));
       if (result.action === "entry") { entry = result; break; }
     }
-    expect(entry?.reason).toContain("太陽誘電後場反転LONG");
-    const position = getOpenPositions().find(item => item.symbol === symbol);
-    expect(position?.slPctOverride).toBe(1.0);
-    expect(position?.tpPctOverride).toBe(1.2);
+    expect(entry).toBeNull();
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
   });
 
   it("後場反転SHORTは前場+3%後の安値更新を陰線1本確認して発火する", async () => {

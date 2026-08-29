@@ -2334,6 +2334,7 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
     expect(config.lowReversalBreakLongSlPct).toBe(1.0);
     expect(config.lowReversalBreakLongTpPct).toBe(1.5);
     expect(config.enableOpeningBreakShort).toBe(true);
+    expect(config.openingBreakShortStartTime).toBe("09:55");
     expect(config.openingBreakShortBlockMinMaSlopePct).toBe(-0.15);
     expect(config.openingBreakShortSlPct).toBe(0.6);
     expect(config.openingBreakShortTpPct).toBe(1.5);
@@ -2377,12 +2378,14 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
     await setNeutralBoard(0.5);
     await warmup(symbol, normalDate, 8100);
     let normalEntry = null as Awaited<ReturnType<typeof processCandle>> | null;
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 20; i++) {
       const price = 8100 - (i + 1) * 38;
+      const minute = 40 + i;
       const result = await processCandle(makeCandle({
-        symbol, tradeDate: normalDate, candleTime: `09:${String(30 + i).padStart(2, "0")}`,
+        symbol, tradeDate: normalDate, candleTime: `09:${String(minute).padStart(2, "0")}`,
         open: price + 8, high: price + 12, low: price - 5, close: price, volume: 8000,
       }));
+      if (minute < 55) expect(result.action).not.toBe("entry");
       if (result.action === "entry") { normalEntry = result; break; }
     }
     expect(normalEntry?.reason).toContain("寄り付きブレイクSHORT");
@@ -2393,15 +2396,15 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
     for (let i = 0; i < 5; i++) {
       const price = 8100 - (i + 1) * 50;
       await processCandle(makeCandle({
-        symbol, tradeDate: shockDate, candleTime: `09:${String(30 + i).padStart(2, "0")}`,
+        symbol, tradeDate: shockDate, candleTime: `09:${String(50 + i).padStart(2, "0")}`,
         open: price + 8, high: price + 12, low: price - 5, close: price, volume: 1500,
       }));
     }
     const blocked = await processCandle(makeCandle({
-      symbol, tradeDate: shockDate, candleTime: "09:35",
+      symbol, tradeDate: shockDate, candleTime: "09:55",
       open: 7860, high: 7920, low: 7800, close: 7810, volume: 8000,
     }));
-    expect(blocked.reason?.includes("寄り付きブレイクSHORT")).not.toBe(true);
+    expect(blocked.action).not.toBe("entry");
   });
 });
 

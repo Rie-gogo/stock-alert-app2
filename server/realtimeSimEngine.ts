@@ -496,7 +496,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     lowReversalBreakLongSlPct: 1.0,
     lowReversalBreakLongTpPct: 1.5,
     enableOpeningBreakShort: true,
-    openingBreakShortStartTime: "09:45",
+    openingBreakShortStartTime: "09:55",
     openingBreakShortEndTime: "10:45",
     openingBreakShortMaxOpenGainPct: -1.5,
     openingBreakShortLowLookback: 20,
@@ -508,7 +508,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     openingBreakShortShockRangePct: 1.0,
     openingBreakShortShockVolumeRatio: 2.0,
     exclusiveEntryRoutes: true,
-    notes: "村田製作所: 安値反転ブレイクLONG（当日安値が始値比-2%後、安値から1%反発・5本高値更新・1本確認、SL1.0%/TP1.5%）＋寄り付きブレイクSHORT（始値比-1.5%・20本安値更新・1本確認、MA8二本傾きが-0.15%以上なら停止、SL0.6%/TP1.5%）。SHORTは値幅1.0%かつ出来高2.0倍以上のショック足を停止。各日1方向1回のみ。",
+    notes: "村田製作所: 安値反転ブレイクLONG（当日安値が始値比-2%後、安値から1%反発・5本高値更新・1本確認、SL1.0%/TP1.5%）＋寄り付きブレイクSHORT（09:55開始、始値比-1.5%・20本安値更新・1本確認、MA8二本傾きが-0.15%以上なら停止、SL0.6%/TP1.5%）。SHORTは値幅1.0%かつ出来高2.0倍以上のショック足を停止。各日1方向1回のみ。",
   },
   "6920": { sl: { long: 0.9, short: 0.9 } },
   "6146": {

@@ -125,29 +125,15 @@ describe("5803・6981専用経路 保存KABU 5営業日・未来情報なし再�
     expect(result.entries.every(event => /安値反転ブレイクLONG|寄り付きブレイクSHORT/.test(event.reason ?? ""))).toBe(true);
   }, 60_000);
 
-  it("6981寄り付きSHORTはMA8二本傾き-0.15%以上の3損失日を停止する", async () => {
+  it("6981寄り付きSHORTは09:55開始とMA8二本傾きで既存3損失日のSHORTを停止する", async () => {
     const blockedDates = ["2026-07-15", "2026-07-21", "2026-08-26"];
-    const logs: string[] = [];
-    const logSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    });
-
-    try {
-      const result = await replay("6981", blockedDates);
-      const openingShortEntries = result.entries.filter(event => event.reason?.startsWith("寄り付きブレイクSHORT"));
-      expect(result.processedRows).toBeGreaterThan(900);
-      expect(openingShortEntries).toHaveLength(0);
-      for (const tradeDate of blockedDates) {
-        expect(logs.some(message =>
-          message.includes("6981 寄り付きブレイクSHORT: MA8二本傾き") && message.includes(tradeDate)
-        )).toBe(true);
-      }
-    } finally {
-      logSpy.mockRestore();
-    }
+    const result = await replay("6981", blockedDates);
+    const openingShortEntries = result.entries.filter(event => event.reason?.startsWith("寄り付きブレイクSHORT"));
+    expect(result.processedRows).toBeGreaterThan(900);
+    expect(openingShortEntries).toHaveLength(0);
   }, 60_000);
 
-  it("6981寄り付きSHORTは全40完全保存日で8件7勝1敗・+217,803円を維持する", async () => {
+  it("6981寄り付きSHORTは09:55開始後も全40完全保存日で8件7勝1敗・+217,258円を維持する", async () => {
     const result = await replay("6981", allMurataCompleteDates);
     const openingShortPnls: number[] = [];
     let activeEntryReason: string | undefined;
@@ -167,6 +153,6 @@ describe("5803・6981専用経路 保存KABU 5営業日・未来情報なし再�
     expect(openingShortPnls).toHaveLength(8);
     expect(openingShortPnls.filter(pnl => pnl > 0)).toHaveLength(7);
     expect(openingShortPnls.filter(pnl => pnl < 0)).toHaveLength(1);
-    expect(openingShortPnls.reduce((sum, pnl) => sum + pnl, 0)).toBe(217_803);
+    expect(openingShortPnls.reduce((sum, pnl) => sum + pnl, 0)).toBe(217_258);
   }, 120_000);
 });

@@ -56,7 +56,7 @@ vi.mock("../shared/stocks", () => ({
 import { getRtCandles } from "./db";
 import { processCandle } from "./realtimeSimEngine";
 
-describe("6146専用LONG・SHORT 9営業日・未来情報なし再生", () => {
+describe("6146専用LONG・SHORT 13保存日・未来情報なし再生", () => {
   it("保存済みKABU 1分足と同時点板だけを時刻順に処理し、専用2方式だけを発火する", async () => {
     const dates = [
       "2026-08-07",
@@ -68,6 +68,10 @@ describe("6146専用LONG・SHORT 9営業日・未来情報なし再生", () => {
       "2026-08-19",
       "2026-08-20",
       "2026-08-21",
+      "2026-08-25",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28",
     ];
     const events: Array<{ date: string; time: string; action: string; reason?: string; pnl?: number }> = [];
     let processedRows = 0;
@@ -99,14 +103,14 @@ describe("6146専用LONG・SHORT 9営業日・未来情報なし再生", () => {
     const losses = exits.filter(event => (event.pnl ?? 0) < 0).length;
     const pnl = exits.reduce((sum, event) => sum + (event.pnl ?? 0), 0);
 
-    console.log("6146_9D_CAUSAL_REPLAY", JSON.stringify({ processedRows, entries, exits, wins, losses, pnl }));
-    expect(processedRows).toBeGreaterThan(2_600);
-    expect(entries).toHaveLength(12);
-    expect(exits).toHaveLength(12);
-    expect(wins).toBe(9);
+    console.log("6146_13D_CAUSAL_REPLAY", JSON.stringify({ processedRows, entries, exits, wins, losses, pnl }));
+    expect(processedRows).toBe(4_065);
+    expect(entries).toHaveLength(14);
+    expect(exits).toHaveLength(14);
+    expect(wins).toBe(11);
     expect(losses).toBe(3);
-    // 0.8%到達後0.7%利益保護を含む現行出口の固定値。
-    expect(pnl).toBe(531_948);
+    // LONG 09:45〜11:10、SHORT 0.8%到達後0.7%利益保護を含む固定値。
+    expect(pnl).toBe(709_680);
     expect(entries.every(event => event.reason?.startsWith("ディスコ確認型10本高値更新LONG") || event.reason?.startsWith("ディスコ寄り付き10本安値更新SHORT"))).toBe(true);
   }, 60_000);
 });

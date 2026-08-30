@@ -2655,6 +2655,8 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config = getSymbolConfig("6146");
     expect(config.enableDiscoConfirmedBreakLong).toBe(true);
+    expect(config.discoConfirmedBreakLongStartTime).toBe("09:45");
+    expect(config.discoConfirmedBreakLongEndTime).toBe("11:10");
     expect(config.discoConfirmedBreakLongHighLookback).toBe(10);
     expect(config.discoConfirmedBreakLongMinMaSlopePct).toBe(0.02);
     expect(config.discoConfirmedBreakLongMinVolumeRatio).toBe(1.2);
@@ -2807,7 +2809,7 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     expect(shouldBoardEarlyExit(fujikuraShort, 4995, buyPressure)).toBe(true);
   });
 
-  it("10本高値更新・VWAP上・MA8上向き・出来高増でLONGを発火する", async () => {
+  it("09:45以降に10本高値更新・VWAP上・MA8上向き・出来高増でLONGを発火する", async () => {
     const symbol = "6146";
     const tradeDate = "2026-10-20";
     await warmup(symbol, tradeDate, 60000, 20);
@@ -2815,7 +2817,7 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     const result = await processCandle(makeCandle({
       symbol,
       tradeDate,
-      candleTime: "09:30",
+      candleTime: "09:45",
       open: 60100,
       high: 60550,
       low: 60080,
@@ -2829,6 +2831,46 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     expect(position?.entryReason).toContain("ディスコ確認型10本高値更新LONG");
     expect(position?.slPctOverride).toBe(0.5);
     expect(position?.tpPctOverride).toBe(1.8);
+  });
+
+  it("LONGは09:44まで発火せず、開始境界09:45では発火する", async () => {
+    const symbol = "6146";
+    const tradeDate = "2026-10-24";
+    await warmup(symbol, tradeDate, 60000, 20);
+
+    const beforeWindow = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:44",
+      open: 60100, high: 60550, low: 60080, close: 60500, volume: 12000,
+    }));
+    expect(beforeWindow.action).toBe("none");
+
+    const atStart = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:45",
+      open: 60500, high: 61100, low: 60480, close: 61000, volume: 12000,
+    }));
+    expect(atStart.action).toBe("entry");
+    expect(getOpenPositions().find(item => item.symbol === symbol)?.entryReason)
+      .toContain("ディスコ確認型10本高値更新LONG");
+  });
+
+  it("LONGは終了境界11:10では発火し、11:11以降は発火しない", async () => {
+    const symbol = "6146";
+    const atEndDate = "2026-10-25";
+    await warmup(symbol, atEndDate, 60000, 20);
+    const atEnd = await processCandle(makeCandle({
+      symbol, tradeDate: atEndDate, candleTime: "11:10",
+      open: 60100, high: 60550, low: 60080, close: 60500, volume: 12000,
+    }));
+    expect(atEnd.action).toBe("entry");
+
+    const afterEndDate = "2026-10-26";
+    await warmup(symbol, afterEndDate, 60000, 20);
+    const afterEnd = await processCandle(makeCandle({
+      symbol, tradeDate: afterEndDate, candleTime: "11:11",
+      open: 60100, high: 60550, low: 60080, close: 60500, volume: 12000,
+    }));
+    expect(afterEnd.action).toBe("none");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
   });
 
   it("寄り付き前場に始値比-1%以上・10本安値更新・MA8非上昇・出来高増でSHORTを発火する", async () => {
@@ -2861,32 +2903,32 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     await warmup(symbol, tradeDate, 60000, 20);
 
     const firstLong = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:30",
+      symbol, tradeDate, candleTime: "09:45",
       open: 60100, high: 60550, low: 60080, close: 60500, volume: 12000,
     }));
     expect(firstLong.action).toBe("entry");
 
     const longExit = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:31",
+      symbol, tradeDate, candleTime: "09:46",
       open: 60500, high: 61650, low: 60480, close: 61600, volume: 10000,
     }));
     expect(longExit.action).toBe("take_profit");
 
     const oppositeShort = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:32",
+      symbol, tradeDate, candleTime: "09:47",
       open: 59400, high: 59420, low: 58880, close: 58900, volume: 12000,
     }));
     expect(oppositeShort.action).toBe("entry");
     expect(getOpenPositions().find(item => item.symbol === symbol)?.side).toBe("short");
 
     const shortExit = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:33",
+      symbol, tradeDate, candleTime: "09:48",
       open: 58900, high: 58920, low: 57500, close: 57600, volume: 10000,
     }));
     expect(shortExit.action).toBe("take_profit");
 
     const secondLong = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:34",
+      symbol, tradeDate, candleTime: "09:49",
       open: 61000, high: 62000, low: 60980, close: 61900, volume: 15000,
     }));
     expect(secondLong.action).toBe("none");

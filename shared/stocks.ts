@@ -26,7 +26,7 @@ export const TARGET_STOCKS = [
   // --- 取引除外銘柄（データ受信は継続、TRADE_EXCLUDED_SYMBOLSで取引停止） ---
   { symbol: '6920', ticker: '6920.T', name: 'レーザーテック',          basePrice: 22400, sector: '半導体' },   // 除外: 8/6 勝率18.2%・-172,904円・12連敗
   { symbol: '6758', ticker: '6758.T', name: 'ソニーグループ',          basePrice: 3650,  sector: '電機' },     // 除外: 8/6 PF 0.04・方向正解率0%
-  { symbol: '9984', ticker: '9984.T', name: 'ソフトバンクグループ',    basePrice: 8420,  sector: '通信・投資' }, // 除外: 7/1以降0勝5敗、-61,758円
+  { symbol: '9984', ticker: '9984.T', name: 'ソフトバンクグループ',    basePrice: 8420,  sector: '通信・投資' }, // 専用10本高値更新LONG・DRY_RUN限定
   { symbol: '7011', ticker: '7011.T', name: '三菱重工業',              basePrice: 2900,  sector: '機械' },     // 除外: 7/1以降0勝2敗、-26,670円
   { symbol: '9107', ticker: '9107.T', name: '川崎汽船',               basePrice: 2100,  sector: '海運' },     // 除外: 7/1以降取引なし
   { symbol: '8306', ticker: '8306.T', name: '三菱UFJ FG',             basePrice: 1650,  sector: '銀行' },     // 除外: 7/1以降取引なし
@@ -46,7 +46,6 @@ export type TargetStock = typeof TARGET_STOCKS[number];
  */
 export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
   '6920',  // レーザーテック: 8/6除外 — 勝率18.2%・-172,904円・12連敗
-  '9984',  // ソフトバンクG: 7/1以降0勝5敗、-61,758円
   '7011',  // 三菱重工業: 7/1以降0勝2敗、-26,670円
   '9107',  // 川崎汽船: 7/1以降取引なし
   '8306',  // 三菱UFJ FG: 7/1以降取引なし
@@ -69,7 +68,7 @@ export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
  * - 複数銘柄モード: new Set(['285A', '8035', '5803'])
  * - 全銘柄モード: null
  */
-// 2026-08-25 DRY_RUN: 個別最適化が完了した7銘柄だけをエントリー対象とする。
+// DRY_RUN: 個別最適化が完了した10銘柄だけをエントリー対象とする。
 // TARGET_STOCKSは変更しないため、他銘柄のリアルタイム受信・1分足・板保存は継続する。
 export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
   '285A', // キオクシアHD
@@ -81,6 +80,7 @@ export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
   '6857', // アドバンテスト
   '6146', // ディスコ
   '3436', // SUMCO（15本安値更新SHORT・DRY_RUN限定）
+  '9984', // ソフトバンクグループ（10本高値更新LONG・DRY_RUN限定）
 ]);
 
 /** 同時保有の上限（ハイブリッド運用） */

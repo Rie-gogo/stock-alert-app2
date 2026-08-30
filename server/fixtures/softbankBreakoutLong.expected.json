@@ -1,0 +1,245 @@
+{
+  "summary": {
+    "sourceDates": 44,
+    "sourceRows": 14353,
+    "trades": 25,
+    "wins": 23,
+    "losses": 2,
+    "pnlPer100": 29675.8,
+    "recentFiveDates": [
+      "2026-08-20",
+      "2026-08-21",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28"
+    ]
+  },
+  "trades": [
+    {
+      "date": "2026-06-25",
+      "entryTime": "09:52",
+      "entryPrice": 6615,
+      "exitTime": "09:55",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:6635円)",
+      "pnlPer100": 1984.5
+    },
+    {
+      "date": "2026-06-29",
+      "entryTime": "10:06",
+      "entryPrice": 5913,
+      "exitTime": "10:07",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5931円)",
+      "pnlPer100": 1774
+    },
+    {
+      "date": "2026-06-30",
+      "entryTime": "10:16",
+      "entryPrice": 5806,
+      "exitTime": "10:17",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5823円)",
+      "pnlPer100": 1741.75
+    },
+    {
+      "date": "2026-07-02",
+      "entryTime": "10:00",
+      "entryPrice": 5965,
+      "exitTime": "10:01",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5983円)",
+      "pnlPer100": 1789.5
+    },
+    {
+      "date": "2026-07-03",
+      "entryTime": "09:59",
+      "entryPrice": 5989,
+      "exitTime": "10:02",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:6007円)",
+      "pnlPer100": 1796.75
+    },
+    {
+      "date": "2026-07-06",
+      "entryTime": "09:40",
+      "entryPrice": 5948,
+      "exitTime": "09:43",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5966円)",
+      "pnlPer100": 1784.5
+    },
+    {
+      "date": "2026-07-07",
+      "entryTime": "09:49",
+      "entryPrice": 6035,
+      "exitTime": "10:03",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:6053円)",
+      "pnlPer100": 1810.5
+    },
+    {
+      "date": "2026-07-09",
+      "entryTime": "10:06",
+      "entryPrice": 5896,
+      "exitTime": "10:07",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5914円)",
+      "pnlPer100": 1768.75
+    },
+    {
+      "date": "2026-07-10",
+      "entryTime": "09:47",
+      "entryPrice": 6277,
+      "exitTime": "09:51",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:6296円)",
+      "pnlPer100": 1883
+    },
+    {
+      "date": "2026-07-13",
+      "entryTime": "10:02",
+      "entryPrice": 6450,
+      "exitTime": "10:18",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:6398円)",
+      "pnlPer100": -5160
+    },
+    {
+      "date": "2026-07-17",
+      "entryTime": "09:54",
+      "entryPrice": 5504,
+      "exitTime": "09:55",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5521円)",
+      "pnlPer100": 1651.25
+    },
+    {
+      "date": "2026-07-21",
+      "entryTime": "10:08",
+      "entryPrice": 5581,
+      "exitTime": "10:15",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5598円)",
+      "pnlPer100": 1674.25
+    },
+    {
+      "date": "2026-07-22",
+      "entryTime": "10:25",
+      "entryPrice": 5941,
+      "exitTime": "10:33",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5959円)",
+      "pnlPer100": 1782.25
+    },
+    {
+      "date": "2026-07-28",
+      "entryTime": "10:03",
+      "entryPrice": 5050,
+      "exitTime": "10:04",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5065円)",
+      "pnlPer100": 1515
+    },
+    {
+      "date": "2026-07-30",
+      "entryTime": "10:04",
+      "entryPrice": 4677,
+      "exitTime": "10:06",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:4691円)",
+      "pnlPer100": 1403
+    },
+    {
+      "date": "2026-08-03",
+      "entryTime": "10:05",
+      "entryPrice": 5378,
+      "exitTime": "10:10",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5394円)",
+      "pnlPer100": 1613.4
+    },
+    {
+      "date": "2026-08-10",
+      "entryTime": "10:13",
+      "entryPrice": 5471,
+      "exitTime": "10:16",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5487円)",
+      "pnlPer100": 1641.25
+    },
+    {
+      "date": "2026-08-17",
+      "entryTime": "10:20",
+      "entryPrice": 5718,
+      "exitTime": "10:40",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5735円)",
+      "pnlPer100": 1715.5
+    },
+    {
+      "date": "2026-08-18",
+      "entryTime": "09:55",
+      "entryPrice": 6172,
+      "exitTime": "10:04",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:6191円)",
+      "pnlPer100": 1851.5
+    },
+    {
+      "date": "2026-08-19",
+      "entryTime": "10:09",
+      "entryPrice": 5483,
+      "exitTime": "10:10",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5499円)",
+      "pnlPer100": 1645
+    },
+    {
+      "date": "2026-08-20",
+      "entryTime": "09:50",
+      "entryPrice": 5429,
+      "exitTime": "09:51",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5445円)",
+      "pnlPer100": 1628.75
+    },
+    {
+      "date": "2026-08-21",
+      "entryTime": "09:51",
+      "entryPrice": 5302,
+      "exitTime": "09:56",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:5260円)",
+      "pnlPer100": -4241.6
+    },
+    {
+      "date": "2026-08-26",
+      "entryTime": "10:04",
+      "entryPrice": 5093,
+      "exitTime": "10:21",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5108円)",
+      "pnlPer100": 1527.8
+    },
+    {
+      "date": "2026-08-27",
+      "entryTime": "10:23",
+      "entryPrice": 5125,
+      "exitTime": "10:27",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5140円)",
+      "pnlPer100": 1537.4
+    },
+    {
+      "date": "2026-08-28",
+      "entryTime": "10:12",
+      "entryPrice": 5193,
+      "exitTime": "10:14",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:5209円)",
+      "pnlPer100": 1557.8
+    }
+  ],
+  "rejectedEvents": []
+}

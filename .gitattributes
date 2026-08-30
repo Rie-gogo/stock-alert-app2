@@ -4,3 +4,5 @@ server/fixtures/socionextConfirmedLong.audit.fixture.json text eol=lf
 server/fixtures/socionextConfirmedLong.expected.json text eol=lf
 server/fixtures/sumcoBreakdownShort.audit.fixture.json text eol=lf
 server/fixtures/sumcoBreakdownShort.expected.json text eol=lf
+server/fixtures/softbankBreakoutLong.audit.fixture.json text eol=lf
+server/fixtures/softbankBreakoutLong.expected.json text eol=lf

@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -71,6 +71,12 @@ import {
   calculateSumcoBreakdownShortMetrics,
   isSumcoBreakdownShortEntryTime,
 } from "./sumcoBreakdownShort";
+import {
+  SOFTBANK_BREAKOUT_LONG_REASON_PREFIX,
+  SOFTBANK_BREAKOUT_LONG_SPEC,
+  calculateSoftbankBreakoutLongMetrics,
+  isSoftbankBreakoutLongEntryTime,
+} from "./softbankBreakoutLong";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -255,6 +261,8 @@ export interface SymbolConfig {
   enableSocionextConfirmedLong?: boolean;
   // SUMCO: 前場15本安値更新SHORT（DRY_RUN限定）
   enableSumcoBreakdownShort?: boolean;
+  // ソフトバンクグループ: 前場10本高値更新LONG（DRY_RUN限定）
+  enableSoftbankBreakoutLong?: boolean;
   // 高値反転SHORT設定（急騰後の初動反落を狙う）
   enablePeakReversalShort?: boolean;
   peakReversalShortStartTime?: string;
@@ -502,6 +510,13 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     enableSumcoBreakdownShort: true,
     exclusiveEntryRoutes: true,
     notes: "SUMCO DRY_RUN専用SHORT: 09:30〜11:00、陰線終値で直前15本安値更新、MA8二本傾き-0.05%以下、出来高1.0倍以上。SL0.8%/TP0.7%、最大30分確定足終値、板入口/板利確/反転決済なし。共通ゲート拒否では枠を消費せず後続候補を再探索し、実エントリー成功時だけ日次枠消費。LIVE未承認。",
+  },
+  "9984": {
+    sl: { long: 0.8, short: 0.5 },
+    tp: { long: 0.3, short: 1.5 },
+    enableSoftbankBreakoutLong: true,
+    exclusiveEntryRoutes: true,
+    notes: "ソフトバンクG DRY_RUN専用LONG: 09:40〜10:30、陽線終値で直前10本高値更新、MA8二本傾き+0.02%以上、出来高1.2倍以上。SL0.8%/TP0.3%、最大45分確定足終値、板入口/板利確/反転決済/次足確認なし。共通ゲート拒否では枠を消費せず後続候補を再探索し、実エントリー成功時だけ日次枠消費。LIVE未承認。",
   },
   "5803": {
     sl: { long: 0.5, short: 0.6 },
@@ -907,6 +922,40 @@ export interface SumcoBreakdownShortAuditEvent {
 }
 const sumcoBreakdownShortAuditEvents: SumcoBreakdownShortAuditEvent[] = [];
 
+/** ★9984専用LONG: DRY_RUN実エントリー成功時だけ当日枠を消費し、拒否後は再探索する。 */
+const softbankBreakoutLongFired = new Set<string>();
+export interface SoftbankBreakoutLongAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: string;
+  event: "trigger" | "entry" | "engine_rejected";
+  side: "long";
+  detail?: string;
+  referencePrice?: number;
+}
+const softbankBreakoutLongAuditEvents: SoftbankBreakoutLongAuditEvent[] = [];
+
+async function recordSoftbankBreakoutLongAuditEvent(
+  event: SoftbankBreakoutLongAuditEvent,
+): Promise<void> {
+  softbankBreakoutLongAuditEvents.push(event);
+  if (event.event !== "engine_rejected" || event.referencePrice === undefined) return;
+  if (typeof upsertSoftbankBreakoutLongEvent !== "function") return;
+  try {
+    await upsertSoftbankBreakoutLongEvent({
+      tradeDate: event.tradeDate,
+      symbol: event.symbol,
+      candleTime: event.candleTime,
+      eventType: event.event,
+      side: event.side,
+      detail: event.detail ?? null,
+      referencePrice: event.referencePrice.toString(),
+    });
+  } catch (error) {
+    console.error("[RealtimeSim] 9984専用LONG監査イベントDB保存失敗:", error);
+  }
+}
+
 async function recordSumcoBreakdownShortAuditEvent(
   event: SumcoBreakdownShortAuditEvent,
 ): Promise<void> {
@@ -1028,6 +1077,7 @@ function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKe
     discoOpeningBreakShort: discoOpeningBreakShortFired,
     socionextConfirmedLong: socionextConfirmedLongFired,
     sumcoBreakdownShort: sumcoBreakdownShortFired,
+    softbankBreakoutLong: softbankBreakoutLongFired,
     telShortBreak: telShortBreakFired,
   } satisfies Record<SpecializedFiredStateKey, Set<string>>;
   target[key].add(symbol);
@@ -1121,6 +1171,8 @@ function resetIfNewDay(tradeDate: string): void {
     socionextConfirmedLongAuditEvents.length = 0;
     sumcoBreakdownShortFired.clear();
     sumcoBreakdownShortAuditEvents.length = 0;
+    softbankBreakoutLongFired.clear();
+    softbankBreakoutLongAuditEvents.length = 0;
     taiyoCandidateAPrimaryFired.clear();
     taiyoCandidateAPending.clear();
     peakReversalShortFired.clear();
@@ -1247,6 +1299,12 @@ export function resolveRestoredRiskOverrides(
       tpPct: SUMCO_BREAKDOWN_SHORT_SPEC.primary.tpPct,
     };
   }
+  if (symbol === SOFTBANK_BREAKOUT_LONG_SPEC.symbol && reason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)) {
+    return {
+      slPct: SOFTBANK_BREAKOUT_LONG_SPEC.primary.slPct,
+      tpPct: SOFTBANK_BREAKOUT_LONG_SPEC.primary.tpPct,
+    };
+  }
 
   return {};
 }
@@ -1270,6 +1328,7 @@ export type SpecializedFiredStateKey =
   | "discoOpeningBreakShort"
   | "socionextConfirmedLong"
   | "sumcoBreakdownShort"
+  | "softbankBreakoutLong"
   | "telShortBreak";
 
 /** DBの当日エントリー履歴から、再起動後に復元すべき専用方式を識別する。 */
@@ -1325,6 +1384,13 @@ export function resolveSpecializedFiredStateKeys(
     reason.startsWith(SUMCO_BREAKDOWN_SHORT_REASON_PREFIX)
   ) {
     return ["sumcoBreakdownShort"];
+  }
+  if (
+    symbol === SOFTBANK_BREAKOUT_LONG_SPEC.symbol &&
+    action === "buy" &&
+    reason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
+  ) {
+    return ["softbankBreakoutLong"];
   }
   return [];
 }
@@ -1866,12 +1932,13 @@ export function detectMarketMode(symbol: string, snapshot: BoardSnapshot): "acti
 export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, snapshot: BoardSnapshot | null): boolean {
   if (!snapshot) return false;
 
-  // 6976候補A/B・6526確認型LONG・3436専用SHORTは出口をTP・SL・因果的時間決済へ限定する仕様。
+  // 6976候補A/B・6526確認型LONG・3436専用SHORT・9984専用LONGは出口をTP・SL・因果的時間決済へ限定する仕様。
   if (
     pos.entryReason.startsWith("太陽誘電候補A") ||
     pos.entryReason.startsWith("太陽誘電候補B") ||
     pos.entryReason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX) ||
-    pos.entryReason.startsWith(SUMCO_BREAKDOWN_SHORT_REASON_PREFIX)
+    pos.entryReason.startsWith(SUMCO_BREAKDOWN_SHORT_REASON_PREFIX) ||
+    pos.entryReason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
   ) return false;
 
   const config = getSymbolConfig(pos.symbol);
@@ -2284,6 +2351,73 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           shares: 0,
           pnl: null,
           reason: `${SUMCO_BREAKDOWN_SHORT_REASON_PREFIX}拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+      }
+      return result;
+    }
+
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
+
+  // ---- 9984前場10本高値更新LONG: DRY_RUN正式経路 ----
+  // 共通ゲート拒否では日次枠を消費せず、後続候補を再探索する。
+  if (
+    symConfig.enableSoftbankBreakoutLong &&
+    symbol === SOFTBANK_BREAKOUT_LONG_SPEC.symbol &&
+    !softbankBreakoutLongFired.has(symbol) &&
+    isSoftbankBreakoutLongEntryTime(candleTime)
+  ) {
+    const spec = SOFTBANK_BREAKOUT_LONG_SPEC.primary;
+    const metrics = calculateSoftbankBreakoutLongMetrics(buffer.map(item => ({
+      time: item.time.slice(11, 16),
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
+    })));
+
+    if (metrics?.eligible) {
+      await recordSoftbankBreakoutLongAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: "trigger",
+        side: "long",
+        detail: `maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x`,
+        referencePrice: candle.close,
+      });
+      const result = await enterPosition(
+        "long",
+        candle,
+        tradeDate,
+        candleTime,
+        `${SOFTBANK_BREAKOUT_LONG_REASON_PREFIX}: 10本終値高値更新、MA8二本傾き${metrics.maSlope2Pct.toFixed(3)}%、出来高${metrics.volumeRatio.toFixed(2)}倍`,
+        boardSnapshot,
+        { slPct: spec.slPct, tpPct: spec.tpPct },
+      );
+      await recordSoftbankBreakoutLongAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: result.action === "entry" ? "entry" : "engine_rejected",
+        side: "long",
+        detail: result.reason,
+        referencePrice: candle.close,
+      });
+      if (result.action === "entry") {
+        softbankBreakoutLongFired.add(symbol);
+      } else if (result.reason !== "margin_block") {
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "softbank_breakout_long_block",
+          price: candle.close,
+          shares: 0,
+          pnl: null,
+          reason: `${SOFTBANK_BREAKOUT_LONG_REASON_PREFIX}拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
         });
         if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
       }
@@ -4493,9 +4627,13 @@ async function checkExitConditions(
   const isTaiyoCandidateBPosition = pos.entryReason.startsWith("太陽誘電候補B");
   const isSocionextConfirmedLongPosition = pos.entryReason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX);
   const isSumcoBreakdownShortPosition = pos.entryReason.startsWith(SUMCO_BREAKDOWN_SHORT_REASON_PREFIX);
-  const usesSpecializedExitOnly = isTaiyoCandidateBPosition || isSocionextConfirmedLongPosition || isSumcoBreakdownShortPosition;
+  const isSoftbankBreakoutLongPosition = pos.entryReason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX);
+  const usesSpecializedExitOnly = isTaiyoCandidateBPosition
+    || isSocionextConfirmedLongPosition
+    || isSumcoBreakdownShortPosition
+    || isSoftbankBreakoutLongPosition;
 
-  // シグナル反転による決済。候補B・6526確認型LONG・3436専用SHORTはTP・SL・時間決済だけに限定する。
+  // シグナル反転による決済。候補B・6526・3436・9984の専用経路はTP・SL・時間決済だけに限定する。
   if (exitPrice === null && !usesSpecializedExitOnly) {
     const buffer = candleBuffers.get(symbol);
     if (buffer && buffer.length > 0) {
@@ -4514,7 +4652,7 @@ async function checkExitConditions(
     }
   }
 
-  // ★v6: 板読み早期利確。候補B・6526確認型LONG・3436専用SHORTでは使用しない。
+  // ★v6: 板読み早期利確。候補B・6526・3436・9984の専用経路では使用しない。
   if (exitPrice === null && !usesSpecializedExitOnly && shouldBoardEarlyExit(pos, close, boardSnapshot)) {
     exitPrice = close;
     exitReason = `板読み早期利確 (逆方向板圧力検出)`;
@@ -4579,6 +4717,17 @@ async function checkExitConditions(
     if (elapsedMinutes >= maxHoldingMinutes) {
       exitPrice = candle.close;
       exitReason = `3436専用SHORT最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
+      action = "exit";
+    }
+  }
+
+  // 9984専用LONG DRY_RUN: 45分境界の完成足終値を約定近似値として決済する。
+  if (exitPrice === null && isSoftbankBreakoutLongPosition) {
+    const maxHoldingMinutes = SOFTBANK_BREAKOUT_LONG_SPEC.primary.maxHoldingMinutes;
+    const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
+    if (elapsedMinutes >= maxHoldingMinutes) {
+      exitPrice = candle.close;
+      exitReason = `9984専用LONG最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
       action = "exit";
     }
   }
@@ -4876,6 +5025,14 @@ export function getSumcoBreakdownShortAuditEventsForTest(): SumcoBreakdownShortA
     throw new Error("3436専用SHORT監査イベントはVitest専用です");
   }
   return sumcoBreakdownShortAuditEvents.map(event => ({ ...event }));
+}
+
+/** 9984専用LONGの当日DRY_RUN監査イベントをVitestから取得する。 */
+export function getSoftbankBreakoutLongAuditEventsForTest(): SoftbankBreakoutLongAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("9984専用LONG監査イベントはVitest専用です");
+  }
+  return softbankBreakoutLongAuditEvents.map(event => ({ ...event }));
 }
 
 /**

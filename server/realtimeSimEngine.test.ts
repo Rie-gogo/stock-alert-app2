@@ -2641,9 +2641,9 @@ describe("アドバンテスト(6857) 確認型LONG・損切り後再評価", ()
 });
 
 describe("個別最適化完了銘柄の専用エントリー経路限定", () => {
-  it("完了済み7銘柄は後段の汎用ダウ理論・大台・押し目経路を使わない設定を持つ", async () => {
+  it("完了済み10銘柄は後段の汎用ダウ理論・大台・押し目経路を使わない設定を持つ", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
-    for (const symbol of ["285A", "8035", "5803", "6981", "6976", "6857", "6146"]) {
+    for (const symbol of ["285A", "8035", "5803", "6981", "6976", "6857", "6146", "6526", "3436", "9984"]) {
       expect(getSymbolConfig(symbol).exclusiveEntryRoutes).toBe(true);
     }
     expect(getSymbolConfig("6920").exclusiveEntryRoutes).not.toBe(true);

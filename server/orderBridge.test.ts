@@ -187,6 +187,44 @@ describe("orderBridge", () => {
     });
   });
 
+  describe("9984専用LONGの戦略単位LIVE拒否", () => {
+    it("DRY_RUN entryは許可し、LIVE entryだけを拒否して決済は許可する", async () => {
+      const { evaluateSoftbankBreakoutLongOrderApproval } = await import("./softbankBreakoutLong");
+      const reason = "ソフトバンクG専用10本高値更新LONG: ガードテスト";
+
+      expect(evaluateSoftbankBreakoutLongOrderApproval({ reason, instructionType: "entry", isDryRun: true }))
+        .toEqual({ allowed: true });
+      expect(evaluateSoftbankBreakoutLongOrderApproval({ reason, instructionType: "entry", isDryRun: false }))
+        .toEqual({ allowed: false, code: "softbank_breakout_long_live_not_approved" });
+      expect(evaluateSoftbankBreakoutLongOrderApproval({ reason, instructionType: "exit", isDryRun: false }))
+        .toEqual({ allowed: true });
+    });
+
+    it("注文指示作成境界でも9984のLIVE entryをDB書込み前に拒否する", async () => {
+      const { createOrderInstruction } = await import("./orderBridge");
+      await expect(createOrderInstruction({
+        tradeDate: "2026-08-31",
+        symbol: "9984",
+        symbolName: "ソフトバンクグループ",
+        side: "buy",
+        instructionType: "entry",
+        qty: 100,
+        status: "pending",
+        reason: "ソフトバンクG専用10本高値更新LONG: ガードテスト",
+        referencePrice: "5200",
+        expiresAt: null,
+        kabuOrderId: null,
+        executedPrice: null,
+        executedAt: null,
+        pnl: null,
+        rtTradeId: 4,
+        errorMessage: null,
+        isDryRun: false,
+        executorLog: null,
+      })).rejects.toThrow("softbank_breakout_long_live_not_approved");
+    });
+  });
+
   describe("canTrade", () => {
     it("exit/force_closeは常に許可される", async () => {
       // canTrade is tested via the module's logic

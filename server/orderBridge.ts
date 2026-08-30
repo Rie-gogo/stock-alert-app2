@@ -23,6 +23,7 @@ import { getStockName } from "../shared/stocks";
 import { evaluateTaiyoCandidateBOrderApproval } from "./taiyoCandidateB";
 import { evaluateSocionextConfirmedLongOrderApproval } from "./socionextConfirmedLong";
 import { evaluateSumcoBreakdownShortOrderApproval } from "./sumcoBreakdownShort";
+import { evaluateSoftbankBreakoutLongOrderApproval } from "./softbankBreakoutLong";
 
 // ============================================================
 // 定数
@@ -51,6 +52,7 @@ export async function createOrderInstruction(data: Omit<InsertOrderInstruction, 
     evaluateTaiyoCandidateBOrderApproval(approvalInput),
     evaluateSocionextConfirmedLongOrderApproval(approvalInput),
     evaluateSumcoBreakdownShortOrderApproval(approvalInput),
+    evaluateSoftbankBreakoutLongOrderApproval(approvalInput),
   ];
   for (const strategyApproval of strategyApprovals) {
     if (!strategyApproval.allowed) {

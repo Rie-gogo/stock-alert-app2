@@ -146,6 +146,10 @@ SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX = "ソシオネクスト確認型LONG"
 SUMCO_BREAKDOWN_SHORT_LIVE_APPROVED = False
 SUMCO_BREAKDOWN_SHORT_REASON_PREFIX = "SUMCO専用15本安値更新SHORT"
 
+# 9984専用LONGもDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+SOFTBANK_BREAKOUT_LONG_LIVE_APPROVED = False
+SOFTBANK_BREAKOUT_LONG_REASON_PREFIX = "ソフトバンクG専用10本高値更新LONG"
+
 # executorポーリング間隔（秒）
 EXECUTOR_POLL_INTERVAL = 1.0
 
@@ -1719,6 +1723,14 @@ def executor_preflight_check(instruction: dict) -> tuple:
         and str(instruction.get("reason", "")).startswith(SUMCO_BREAKDOWN_SHORT_REASON_PREFIX)
     ):
         return False, "3436専用SHORTはLIVE未承認: 新規注文を強制拒否"
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not SOFTBANK_BREAKOUT_LONG_LIVE_APPROVED
+        and str(instruction.get("reason", "")).startswith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
+    ):
+        return False, "9984専用LONGはLIVE未承認: 新規注文を強制拒否"
 
     # 1. 取引有効チェック（緊急停止中でないか）
     # → クラウド側で既にチェック済みだが、ローカルでも二重チェック

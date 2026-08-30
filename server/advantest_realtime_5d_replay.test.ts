@@ -105,4 +105,31 @@ describe("6857 LONG・SHORT・損切り後再評価 直近5営業日・未来情
     expect(stopIndex).toBeGreaterThan(longEntryIndex);
     expect(shortReentryIndex).toBeGreaterThan(stopIndex);
   }, 60_000);
+
+  it.each([
+    { tradeDate: "2026-08-21", expectedLongEntry: "10:26", expectedExit: "11:09" },
+    { tradeDate: "2026-08-26", expectedLongEntry: "10:55", expectedExit: "11:16" },
+  ])("$tradeDateは弱出来高の初回SHORTを見送り、日次枠を消費せず後続LONGへ再探索する", async ({ tradeDate, expectedLongEntry, expectedExit }) => {
+    const events: Array<{ time: string; action: string; reason?: string }> = [];
+    const rows = await getRtCandles("6857", tradeDate);
+
+    for (const row of rows) {
+      currentSnapshot = (row.boardSnapshot as Snapshot | null) ?? null;
+      const result = await processCandle({
+        symbol: "6857",
+        tradeDate,
+        candleTime: row.candleTime,
+        open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close), volume: row.volume,
+      });
+      if (result.action !== "none") events.push({ time: row.candleTime, action: result.action, reason: result.reason });
+    }
+
+    expect(events.some(event => event.reason?.startsWith("アドバンテスト高値失速SHORT:"))).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      time: expectedLongEntry,
+      action: "entry",
+      reason: expect.stringMatching(/^アドバンテスト確認型LONG:/),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({ time: expectedExit, action: "take_profit" }));
+  }, 60_000);
 });

@@ -37,6 +37,7 @@ vi.mock("./db", () => ({
   getRtCandlesAllForDate: vi.fn().mockResolvedValue([]),
   getRtOpenPositionsFromDb: vi.fn().mockResolvedValue([]),
   insertScore0Block: vi.fn().mockResolvedValue(undefined),
+  upsertTaiyoCandidateBEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./kabuStation", () => ({

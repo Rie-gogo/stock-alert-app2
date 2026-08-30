@@ -53,6 +53,7 @@ import {
   type TaiyoCandidateBRejectionCode,
   type TaiyoCandidateBSide,
 } from "./taiyoCandidateB";
+import { shouldBlockAdvantestInitialShortByWeakVolume } from "./advantestWeakVolumeFilter";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -267,6 +268,8 @@ export interface SymbolConfig {
   advantestHighFadeShortMinVolumeRatio?: number;
   advantestHighFadeShortMaxMaSlopePct?: number;
   advantestHighFadeShortMinPriorBearBodyPct?: number;
+  advantestInitialShortWeakVolumeBlockMinRisePct?: number;
+  advantestInitialShortWeakVolumeBlockMaxVolumeRatio?: number;
   advantestHighFadeShortSlPct?: number;
   advantestHighFadeShortTpPct?: number;
   // アドバンテスト: 確認型20本高値更新LONGと損切り後の反対方向再評価
@@ -416,6 +419,8 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     advantestHighFadeShortMinVolumeRatio: 1.2,
     advantestHighFadeShortMaxMaSlopePct: -0.05,
     advantestHighFadeShortMinPriorBearBodyPct: 0.05,
+    advantestInitialShortWeakVolumeBlockMinRisePct: 1.9,
+    advantestInitialShortWeakVolumeBlockMaxVolumeRatio: 2.2,
     advantestHighFadeShortSlPct: 1.0,
     advantestHighFadeShortTpPct: 1.2,
     enableAdvantestConfirmedBreakLong: true,
@@ -431,7 +436,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     enableAdvantestPostStopReentry: true,
     advantestPostStopShortMaxFiveBarChangePct: -0.3,
     exclusiveEntryRoutes: true,
-    notes: "アドバンテスト: 確認型20本高値更新LONG（前足陽線実体0.10%・MA8傾き>=0.03%・VWAP上、SL0.5%/TP1.0%）＋高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上、前足陰線実体0.05%未満は停止、SL1.0%/TP1.2%）。初回損切り後のみ反対方向を一度再評価し、再評価LONGは5本値幅<=1.5%、再評価SHORTはVWAP下かつ5本変化率<=-0.3%を追加確認する。",
+    notes: "アドバンテスト: 確認型20本高値更新LONG（前足陽線実体0.10%・MA8傾き>=0.03%・VWAP上、SL0.5%/TP1.0%）＋高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上、前足陰線実体0.05%未満は停止、SL1.0%/TP1.2%）。初回SHORTは当日高値が始値比+1.9%以上かつ初動出来高2.2倍未満なら見送り、枠を消費せず後続候補を再探索。初回損切り後のみ反対方向を一度再評価し、再評価LONGは5本値幅<=1.5%、再評価SHORTはVWAP下かつ5本変化率<=-0.3%を追加確認する。",
   },
   "6976": {
     sl: { long: 1.0, short: 1.0 },
@@ -3034,19 +3039,36 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       ));
 
     if (shortOk) {
-      const slPct = symConfig.advantestHighFadeShortSlPct ?? 1.0;
-      const tpPct = symConfig.advantestHighFadeShortTpPct ?? 1.2;
-      console.log(`[RealtimeSim] ${symbol} ★アドバンテスト高値失速SHORT発火: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足実体${priorBearBodyPct.toFixed(3)}% (SL${slPct}%/TP${tpPct}%)`);
-      const result = await enterPosition(
-        "short", candle, tradeDate, candleTime,
-        `アドバンテスト高値失速SHORT${isAdvantestShortReentry ? "（損切り後再評価）" : ""}: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足陰線実体${priorBearBodyPct.toFixed(3)}%`,
-        boardSnapshot, { slPct, tpPct },
-      );
-      if (result.action === "entry") {
-        advantestHighFadeShortFired.add(symbol);
-        if (isAdvantestShortReentry && advantestReentryState) advantestReentryState.reentryUsed = true;
+      const weakVolumeBlocked = shouldBlockAdvantestInitialShortByWeakVolume({
+        isReentry: isAdvantestShortReentry,
+        riseFromOpenPct,
+        volumeRatio,
+        minRiseFromOpenPct: symConfig.advantestInitialShortWeakVolumeBlockMinRisePct ?? 1.9,
+        maxVolumeRatioExclusive: symConfig.advantestInitialShortWeakVolumeBlockMaxVolumeRatio ?? 2.2,
+      });
+      if (weakVolumeBlocked) {
+        console.log(
+          `[RealtimeSim] ${symbol} アドバンテスト初回SHORT見送り: ` +
+          `当日高値の始値比+${riseFromOpenPct.toFixed(2)}% >= ` +
+          `${(symConfig.advantestInitialShortWeakVolumeBlockMinRisePct ?? 1.9).toFixed(1)}%、` +
+          `初動出来高${volumeRatio.toFixed(2)}倍 < ` +
+          `${(symConfig.advantestInitialShortWeakVolumeBlockMaxVolumeRatio ?? 2.2).toFixed(1)}倍（後続候補を再探索）`,
+        );
+      } else {
+        const slPct = symConfig.advantestHighFadeShortSlPct ?? 1.0;
+        const tpPct = symConfig.advantestHighFadeShortTpPct ?? 1.2;
+        console.log(`[RealtimeSim] ${symbol} ★アドバンテスト高値失速SHORT発火: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足実体${priorBearBodyPct.toFixed(3)}% (SL${slPct}%/TP${tpPct}%)`);
+        const result = await enterPosition(
+          "short", candle, tradeDate, candleTime,
+          `アドバンテスト高値失速SHORT${isAdvantestShortReentry ? "（損切り後再評価）" : ""}: 始値比+${riseFromOpenPct.toFixed(2)}%、高値から${dropFromHighPct.toFixed(2)}%反落、${lowLookback}本安値更新、前足陰線実体${priorBearBodyPct.toFixed(3)}%`,
+          boardSnapshot, { slPct, tpPct },
+        );
+        if (result.action === "entry") {
+          advantestHighFadeShortFired.add(symbol);
+          if (isAdvantestShortReentry && advantestReentryState) advantestReentryState.reentryUsed = true;
+        }
+        return result;
       }
-      return result;
     }
   }
 

@@ -2522,7 +2522,7 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
       await processCandle(makeCandle({
         symbol, tradeDate, candleTime: `09:${String(36 + i).padStart(2, "0")}`,
         open: price + (priorWeak ? 2 : 20), high: price + 25, low: price - 15,
-        close: price + (priorWeak ? 1 : 0), volume: 12000,
+        close: price + (priorWeak ? 1 : 0), volume: i === 9 ? 50000 : 12000,
       }));
     }
   }
@@ -2534,6 +2534,8 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
     expect(config.advantestHighFadeShortMinOpenGainPct).toBe(1.0);
     expect(config.advantestHighFadeShortDropPct).toBe(0.8);
     expect(config.advantestHighFadeShortMinPriorBearBodyPct).toBe(0.05);
+    expect(config.advantestInitialShortWeakVolumeBlockMinRisePct).toBe(1.9);
+    expect(config.advantestInitialShortWeakVolumeBlockMaxVolumeRatio).toBe(2.2);
     expect(config.advantestHighFadeShortSlPct).toBe(1.0);
     expect(config.advantestHighFadeShortTpPct).toBe(1.2);
     expect(getSymbolConfig("8035").enableAdvantestHighFadeShort).toBeUndefined();

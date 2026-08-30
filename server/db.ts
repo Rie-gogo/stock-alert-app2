@@ -552,6 +552,7 @@ import {
   rtScore0Blocks,
   rtTaiyoCandidateBEvents,
   rtSocionextConfirmedLongEvents,
+  rtSumcoBreakdownShortEvents,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -562,6 +563,8 @@ import {
   type RtTaiyoCandidateBEvent,
   type InsertRtSocionextConfirmedLongEvent,
   type RtSocionextConfirmedLongEvent,
+  type InsertRtSumcoBreakdownShortEvent,
+  type RtSumcoBreakdownShortEvent,
 } from "../drizzle/schema";
 
 /**
@@ -851,4 +854,36 @@ export async function getSocionextConfirmedLongEventsForDate(
     .from(rtSocionextConfirmedLongEvents)
     .where(eq(rtSocionextConfirmedLongEvents.tradeDate, tradeDate))
     .orderBy(rtSocionextConfirmedLongEvents.id);
+}
+
+// ============================================================
+// 3436専用SHORT DRY_RUN監査イベント helpers
+// ============================================================
+
+export async function upsertSumcoBreakdownShortEvent(
+  data: Omit<InsertRtSumcoBreakdownShortEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(rtSumcoBreakdownShortEvents)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        detail: data.detail ?? null,
+        referencePrice: data.referencePrice,
+      },
+    });
+}
+
+export async function getSumcoBreakdownShortEventsForDate(
+  tradeDate: string,
+): Promise<RtSumcoBreakdownShortEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtSumcoBreakdownShortEvents)
+    .where(eq(rtSumcoBreakdownShortEvents.tradeDate, tradeDate))
+    .orderBy(rtSumcoBreakdownShortEvents.id);
 }

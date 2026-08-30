@@ -629,3 +629,30 @@ export const rtSocionextConfirmedLongEvents = mysqlTable("rt_socionext_confirmed
 
 export type RtSocionextConfirmedLongEvent = typeof rtSocionextConfirmedLongEvents.$inferSelect;
 export type InsertRtSocionextConfirmedLongEvent = typeof rtSocionextConfirmedLongEvents.$inferInsert;
+
+/**
+ * 3436専用SHORT DRY_RUN監査イベント。
+ * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
+ */
+export const rtSumcoBreakdownShortEvents = mysqlTable("rt_sumco_breakdown_short_events", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  eventType: mysqlEnum("sumco_breakdown_short_event_type", ["engine_rejected"]).notNull(),
+  side: mysqlEnum("sumco_breakdown_short_event_side", ["short"]).notNull(),
+  detail: text("detail"),
+  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_sumco_breakdown_short_event_identity").on(
+    table.tradeDate,
+    table.symbol,
+    table.candleTime,
+    table.eventType,
+    table.side,
+  ),
+}));
+
+export type RtSumcoBreakdownShortEvent = typeof rtSumcoBreakdownShortEvents.$inferSelect;
+export type InsertRtSumcoBreakdownShortEvent = typeof rtSumcoBreakdownShortEvents.$inferInsert;

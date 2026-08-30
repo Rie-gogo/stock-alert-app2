@@ -1,0 +1,218 @@
+{
+  "summary": {
+    "sourceDates": 29,
+    "sourceRows": 9417,
+    "trades": 22,
+    "wins": 20,
+    "losses": 2,
+    "pnlPer100": 43984.96,
+    "recentFiveDates": [
+      "2026-08-20",
+      "2026-08-21",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28"
+    ]
+  },
+  "trades": [
+    {
+      "date": "2026-07-17",
+      "entryTime": "09:30",
+      "entryPrice": 4177,
+      "exitTime": "09:37",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:4148円)",
+      "pnlPer100": 2923.83
+    },
+    {
+      "date": "2026-07-21",
+      "entryTime": "09:37",
+      "entryPrice": 3754,
+      "exitTime": "09:39",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:3784円)",
+      "pnlPer100": -3003.14
+    },
+    {
+      "date": "2026-07-22",
+      "entryTime": "09:45",
+      "entryPrice": 4064,
+      "exitTime": "09:47",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:4036円)",
+      "pnlPer100": 2844.83
+    },
+    {
+      "date": "2026-07-23",
+      "entryTime": "10:31",
+      "entryPrice": 3917,
+      "exitTime": "10:44",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3890円)",
+      "pnlPer100": 2741.83
+    },
+    {
+      "date": "2026-07-24",
+      "entryTime": "10:48",
+      "entryPrice": 3645,
+      "exitTime": "10:51",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3619円)",
+      "pnlPer100": 2551.43
+    },
+    {
+      "date": "2026-07-27",
+      "entryTime": "09:33",
+      "entryPrice": 3774,
+      "exitTime": "09:36",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3748円)",
+      "pnlPer100": 2641.86
+    },
+    {
+      "date": "2026-07-28",
+      "entryTime": "10:25",
+      "entryPrice": 3336,
+      "exitTime": "10:51",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3313円)",
+      "pnlPer100": 2335.25
+    },
+    {
+      "date": "2026-07-30",
+      "entryTime": "09:39",
+      "entryPrice": 2840.5,
+      "exitTime": "09:43",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2821円)",
+      "pnlPer100": 1988.33
+    },
+    {
+      "date": "2026-08-03",
+      "entryTime": "09:56",
+      "entryPrice": 3304,
+      "exitTime": "10:00",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3281円)",
+      "pnlPer100": 2312.75
+    },
+    {
+      "date": "2026-08-06",
+      "entryTime": "09:43",
+      "entryPrice": 3561,
+      "exitTime": "09:44",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3536円)",
+      "pnlPer100": 2492.71
+    },
+    {
+      "date": "2026-08-07",
+      "entryTime": "09:40",
+      "entryPrice": 3525,
+      "exitTime": "09:41",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3500円)",
+      "pnlPer100": 2467.57
+    },
+    {
+      "date": "2026-08-10",
+      "entryTime": "09:41",
+      "entryPrice": 3318,
+      "exitTime": "09:43",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3295円)",
+      "pnlPer100": 2322.63
+    },
+    {
+      "date": "2026-08-13",
+      "entryTime": "09:32",
+      "entryPrice": 3851,
+      "exitTime": "09:38",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3824円)",
+      "pnlPer100": 2695.71
+    },
+    {
+      "date": "2026-08-14",
+      "entryTime": "09:48",
+      "entryPrice": 4023,
+      "exitTime": "09:50",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:4055円)",
+      "pnlPer100": -3218.33
+    },
+    {
+      "date": "2026-08-17",
+      "entryTime": "09:33",
+      "entryPrice": 3835,
+      "exitTime": "09:35",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3808円)",
+      "pnlPer100": 2684.43
+    },
+    {
+      "date": "2026-08-18",
+      "entryTime": "09:59",
+      "entryPrice": 3975,
+      "exitTime": "10:09",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3947円)",
+      "pnlPer100": 2782.5
+    },
+    {
+      "date": "2026-08-19",
+      "entryTime": "10:48",
+      "entryPrice": 3532,
+      "exitTime": "11:16",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3507円)",
+      "pnlPer100": 2472.43
+    },
+    {
+      "date": "2026-08-20",
+      "entryTime": "10:10",
+      "entryPrice": 3452,
+      "exitTime": "10:14",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3428円)",
+      "pnlPer100": 2416.43
+    },
+    {
+      "date": "2026-08-21",
+      "entryTime": "09:57",
+      "entryPrice": 3288,
+      "exitTime": "10:05",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3265円)",
+      "pnlPer100": 2301.63
+    },
+    {
+      "date": "2026-08-26",
+      "entryTime": "09:38",
+      "entryPrice": 3382,
+      "exitTime": "09:40",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3358円)",
+      "pnlPer100": 2367.43
+    },
+    {
+      "date": "2026-08-27",
+      "entryTime": "09:36",
+      "entryPrice": 3431,
+      "exitTime": "09:46",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3407円)",
+      "pnlPer100": 2401.71
+    },
+    {
+      "date": "2026-08-28",
+      "entryTime": "10:25",
+      "entryPrice": 3516,
+      "exitTime": "10:41",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:3491円)",
+      "pnlPer100": 2461.14
+    }
+  ],
+  "rejectedEvents": []
+}

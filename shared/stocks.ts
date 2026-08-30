@@ -55,7 +55,6 @@ export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
   '6758',  // ソニーグループ: 8/6除外 — PF 0.04・方向正解率0%
   '7203',  // トヨタ自動車: 7/1以降取引なし
   '3778',  // さくらインターネット: 2026-06-19除外
-  '3436',  // SUMCO: 2026-06-19除外
   '6723',  // ルネサスエレクトロニクス: 2026-06-19除外
 ]);
 
@@ -81,6 +80,7 @@ export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
   '6976', // 太陽誘電
   '6857', // アドバンテスト
   '6146', // ディスコ
+  '3436', // SUMCO（15本安値更新SHORT・DRY_RUN限定）
 ]);
 
 /** 同時保有の上限（ハイブリッド運用） */

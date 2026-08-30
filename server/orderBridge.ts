@@ -22,6 +22,7 @@ import { eq, and, desc, inArray, gte, lt } from "drizzle-orm";
 import { getStockName } from "../shared/stocks";
 import { evaluateTaiyoCandidateBOrderApproval } from "./taiyoCandidateB";
 import { evaluateSocionextConfirmedLongOrderApproval } from "./socionextConfirmedLong";
+import { evaluateSumcoBreakdownShortOrderApproval } from "./sumcoBreakdownShort";
 
 // ============================================================
 // 定数
@@ -49,6 +50,7 @@ export async function createOrderInstruction(data: Omit<InsertOrderInstruction, 
   const strategyApprovals = [
     evaluateTaiyoCandidateBOrderApproval(approvalInput),
     evaluateSocionextConfirmedLongOrderApproval(approvalInput),
+    evaluateSumcoBreakdownShortOrderApproval(approvalInput),
   ];
   for (const strategyApproval of strategyApprovals) {
     if (!strategyApproval.allowed) {

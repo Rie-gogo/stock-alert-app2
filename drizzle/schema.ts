@@ -599,3 +599,33 @@ export const rtTaiyoCandidateBEvents = mysqlTable("rt_taiyo_candidate_b_events",
 
 export type RtTaiyoCandidateBEvent = typeof rtTaiyoCandidateBEvents.$inferSelect;
 export type InsertRtTaiyoCandidateBEvent = typeof rtTaiyoCandidateBEvents.$inferInsert;
+
+/**
+ * 6526確認型LONG DRY_RUN監査イベント。
+ * 確認失敗・ATR/証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
+ */
+export const rtSocionextConfirmedLongEvents = mysqlTable("rt_socionext_confirmed_long_events", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  eventType: mysqlEnum("socionext_confirmed_long_event_type", ["confirmation_rejected", "engine_rejected"]).notNull(),
+  side: mysqlEnum("socionext_confirmed_long_event_side", ["long"]).notNull(),
+  triggerTime: varchar("trigger_time", { length: 5 }).notNull(),
+  rejectionCodes: json("rejection_codes").$type<string[] | null>(),
+  detail: text("detail"),
+  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_socionext_confirmed_long_event_identity").on(
+    table.tradeDate,
+    table.symbol,
+    table.candleTime,
+    table.eventType,
+    table.side,
+    table.triggerTime,
+  ),
+}));
+
+export type RtSocionextConfirmedLongEvent = typeof rtSocionextConfirmedLongEvents.$inferSelect;
+export type InsertRtSocionextConfirmedLongEvent = typeof rtSocionextConfirmedLongEvents.$inferInsert;

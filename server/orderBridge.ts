@@ -21,6 +21,7 @@ import { orderInstructions, autoTradeDaily, rtTrades, type OrderInstruction, typ
 import { eq, and, desc, inArray, gte, lt } from "drizzle-orm";
 import { getStockName } from "../shared/stocks";
 import { evaluateTaiyoCandidateBOrderApproval } from "./taiyoCandidateB";
+import { evaluateSocionextConfirmedLongOrderApproval } from "./socionextConfirmedLong";
 
 // ============================================================
 // 定数
@@ -40,13 +41,19 @@ const FIXED_QTY = 100;
  * 発注指示を作成する
  */
 export async function createOrderInstruction(data: Omit<InsertOrderInstruction, "id" | "createdAt" | "updatedAt">): Promise<OrderInstruction> {
-  const strategyApproval = evaluateTaiyoCandidateBOrderApproval({
+  const approvalInput = {
     reason: data.reason,
     instructionType: data.instructionType,
     isDryRun: data.isDryRun !== false,
-  });
-  if (!strategyApproval.allowed) {
-    throw new Error(strategyApproval.code);
+  } as const;
+  const strategyApprovals = [
+    evaluateTaiyoCandidateBOrderApproval(approvalInput),
+    evaluateSocionextConfirmedLongOrderApproval(approvalInput),
+  ];
+  for (const strategyApproval of strategyApprovals) {
+    if (!strategyApproval.allowed) {
+      throw new Error(strategyApproval.code);
+    }
   }
 
   const db = await getDb();

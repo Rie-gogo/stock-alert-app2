@@ -58,6 +58,10 @@ DRY_RUN = True
 TAIYO_CANDIDATE_B_LIVE_APPROVED = False
 TAIYO_CANDIDATE_B_REASON_PREFIX = "太陽誘電候補B"
 
+# 6526確認型LONGもDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+SOCIONEXT_CONFIRMED_LONG_LIVE_APPROVED = False
+SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX = "ソシオネクスト確認型LONG"
+
 # KABUステーションAPIパスワード（トークン取得用）
 KABU_API_PASSWORD = ""  # ← 本番時にここに設定
 
@@ -745,6 +749,14 @@ def preflight_check(instruction: dict) -> tuple[bool, str]:
         and str(instruction.get("reason", "")).startswith(TAIYO_CANDIDATE_B_REASON_PREFIX)
     ):
         return False, "6976候補BはLIVE未承認: 新規注文を強制拒否"
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not SOCIONEXT_CONFIRMED_LONG_LIVE_APPROVED
+        and str(instruction.get("reason", "")).startswith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX)
+    ):
+        return False, "6526確認型LONGはLIVE未承認: 新規注文を強制拒否"
 
     # 1. ローカル緊急停止チェック
     if local_emergency_stop and instruction_type == "entry":

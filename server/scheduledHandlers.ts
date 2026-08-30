@@ -467,15 +467,18 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     let branchSection = "";
     let score0Section = "";
     let taiyoCandidateBSection = "";
+    let socionextConfirmedLongSection = "";
     try {
-      const { getRtCandlesAllForDate, getTaiyoCandidateBEventsForDate } = await import("./db");
+      const { getRtCandlesAllForDate, getTaiyoCandidateBEventsForDate, getSocionextConfirmedLongEventsForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
       const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport, runScore0DailySimulation, formatScore0Report } = await import("./cbV2Simulation");
       const { formatTaiyoCandidateBDryRunReport } = await import("./taiyoCandidateBDryRunReport");
+      const { formatSocionextConfirmedLongDryRunReport } = await import("./socionextConfirmedLongDryRunReport");
 
       const allCandles = await getRtCandlesAllForDate(todayStr);
       const currentSignals = getSignalHistory(200);
       const persistedTaiyoCandidateBEvents = await getTaiyoCandidateBEventsForDate(todayStr);
+      const persistedSocionextConfirmedLongEvents = await getSocionextConfirmedLongEventsForDate(todayStr);
       // signalHistoryからround_distance_block SHORTを抽出
       const signalBlocks = currentSignals
         .filter(s => s.action === "round_distance_block" && s.reason.includes("SHORTブロック"))
@@ -485,6 +488,11 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
         trades,
         currentSignals,
         persistedTaiyoCandidateBEvents,
+      ).section;
+      socionextConfirmedLongSection = formatSocionextConfirmedLongDryRunReport(
+        trades,
+        currentSignals,
+        persistedSocionextConfirmedLongEvents,
       ).section;
 
       const cbV2Result = runCBv2DailySimulation(todayStr, allCandles, signalBlocks);
@@ -514,6 +522,7 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       branchSection = "\n【分岐型シミュレーション】\n  エラーが発生しました\n";
       score0Section = "\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n  エラーが発生しました\n";
       taiyoCandidateBSection = "\n【6976候補B30分 DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
+      socionextConfirmedLongSection = "\n【6526確認型ブレイクLONG DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
     }
 
     const body = `${subject}
@@ -531,6 +540,7 @@ ${symbolLines || "  （取引なし）"}
 【取引詳細（最大20件）】
 ${tradeLines || "  （取引なし）"}
 ${taiyoCandidateBSection}
+${socionextConfirmedLongSection}
 ${cbV2Section}
 ${branchSection}
 ${score0Section}

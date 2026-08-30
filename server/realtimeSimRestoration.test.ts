@@ -8,7 +8,7 @@ import {
   restoreOpenPositions,
 } from "./realtimeSimEngine";
 
-describe("7銘柄の専用ポジション再起動復元", () => {
+describe("8銘柄の専用ポジション再起動復元", () => {
   const cases = [
     ["285A", "long", "反転LONG: 高値から下落後の反転", 0.6, 0.8],
     ["285A", "short", "反転SHORT: 高値から反落", 0.8, 1.2],
@@ -34,6 +34,7 @@ describe("7銘柄の専用ポジション再起動復元", () => {
     ["6857", "long", "アドバンテスト確認型LONG: 20本高値更新", 0.5, 1.0],
     ["6146", "long", "ディスコ確認型10本高値更新LONG: VWAP上", 0.5, 1.8],
     ["6146", "short", "ディスコ寄り付き10本安値更新SHORT: 始値比-1%", 0.5, 2.0],
+    ["6526", "long", "ソシオネクスト確認型LONG: 10本終値高値更新後1本確認", 0.8, 0.5],
   ] as const;
 
   it.each(cases)("%s %s の理由別SL/TPを復元する", (symbol, side, reason, slPct, tpPct) => {
@@ -83,6 +84,7 @@ describe("7銘柄の専用ポジション再起動復元", () => {
     ["6857", "buy", "アドバンテスト確認型LONG: 20本高値更新", "advantestConfirmedBreakLong"],
     ["6146", "buy", "ディスコ確認型10本高値更新LONG: VWAP上", "discoConfirmedBreakLong"],
     ["6146", "short", "ディスコ寄り付き10本安値更新SHORT: 始値比-1%", "discoOpeningBreakShort"],
+    ["6526", "buy", "ソシオネクスト確認型LONG: 10本終値高値更新後1本確認", "socionextConfirmedLong"],
   ] as const;
 
   it.each(firedStateCases)("%s %s の方式別発火済み状態を復元する", (symbol, action, reason, key) => {

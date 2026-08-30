@@ -111,6 +111,44 @@ describe("orderBridge", () => {
     });
   });
 
+  describe("6526確認型LONGの戦略単位LIVE拒否", () => {
+    it("DRY_RUN entryは許可し、LIVE entryだけを拒否して決済は許可する", async () => {
+      const { evaluateSocionextConfirmedLongOrderApproval } = await import("./socionextConfirmedLong");
+      const reason = "ソシオネクスト確認型LONG: 10本高値更新後1本確認";
+
+      expect(evaluateSocionextConfirmedLongOrderApproval({ reason, instructionType: "entry", isDryRun: true }))
+        .toEqual({ allowed: true });
+      expect(evaluateSocionextConfirmedLongOrderApproval({ reason, instructionType: "entry", isDryRun: false }))
+        .toEqual({ allowed: false, code: "socionext_confirmed_long_live_not_approved" });
+      expect(evaluateSocionextConfirmedLongOrderApproval({ reason, instructionType: "exit", isDryRun: false }))
+        .toEqual({ allowed: true });
+    });
+
+    it("注文指示作成境界でも6526のLIVE entryをDB書込み前に拒否する", async () => {
+      const { createOrderInstruction } = await import("./orderBridge");
+      await expect(createOrderInstruction({
+        tradeDate: "2026-08-31",
+        symbol: "6526",
+        symbolName: "ソシオネクスト",
+        side: "buy",
+        instructionType: "entry",
+        qty: 100,
+        status: "pending",
+        reason: "ソシオネクスト確認型LONG: ガードテスト",
+        referencePrice: "2000",
+        expiresAt: null,
+        kabuOrderId: null,
+        executedPrice: null,
+        executedAt: null,
+        pnl: null,
+        rtTradeId: 2,
+        errorMessage: null,
+        isDryRun: false,
+        executorLog: null,
+      })).rejects.toThrow("socionext_confirmed_long_live_not_approved");
+    });
+  });
+
   describe("canTrade", () => {
     it("exit/force_closeは常に許可される", async () => {
       // canTrade is tested via the module's logic

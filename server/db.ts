@@ -551,6 +551,7 @@ import {
   rtDailySummaries,
   rtScore0Blocks,
   rtTaiyoCandidateBEvents,
+  rtSocionextConfirmedLongEvents,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -559,6 +560,8 @@ import {
   type RtScore0Block,
   type InsertRtTaiyoCandidateBEvent,
   type RtTaiyoCandidateBEvent,
+  type InsertRtSocionextConfirmedLongEvent,
+  type RtSocionextConfirmedLongEvent,
 } from "../drizzle/schema";
 
 /**
@@ -815,4 +818,37 @@ export async function getTaiyoCandidateBEventsForDate(
     .from(rtTaiyoCandidateBEvents)
     .where(eq(rtTaiyoCandidateBEvents.tradeDate, tradeDate))
     .orderBy(rtTaiyoCandidateBEvents.id);
+}
+
+// ============================================================
+// 6526確認型LONG DRY_RUN監査イベント helpers
+// ============================================================
+
+export async function upsertSocionextConfirmedLongEvent(
+  data: Omit<InsertRtSocionextConfirmedLongEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(rtSocionextConfirmedLongEvents)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        rejectionCodes: data.rejectionCodes ?? null,
+        detail: data.detail ?? null,
+        referencePrice: data.referencePrice,
+      },
+    });
+}
+
+export async function getSocionextConfirmedLongEventsForDate(
+  tradeDate: string,
+): Promise<RtSocionextConfirmedLongEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtSocionextConfirmedLongEvents)
+    .where(eq(rtSocionextConfirmedLongEvents.tradeDate, tradeDate))
+    .orderBy(rtSocionextConfirmedLongEvents.id);
 }

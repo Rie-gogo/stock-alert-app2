@@ -1,0 +1,368 @@
+{
+  "summary": {
+    "sourceDates": 46,
+    "sourceRows": 15079,
+    "trades": 19,
+    "wins": 16,
+    "losses": 3,
+    "pnlPer100": 11823.89,
+    "recentFiveDates": [
+      "2026-08-20",
+      "2026-08-21",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28"
+    ],
+    "recentFiveTrades": 3,
+    "recentFiveWins": 3,
+    "recentFiveLosses": 0,
+    "recentFivePnlPer100": 2953.73,
+    "confirmationRejected": 17,
+    "engineRejectedWithoutCapitalLimit": 0
+  },
+  "trades": [
+    {
+      "date": "2026-07-01",
+      "entryTime": "09:44",
+      "entryPrice": 2654,
+      "exitTime": "09:50",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2667円)",
+      "pnlPer100": 1327
+    },
+    {
+      "date": "2026-07-02",
+      "entryTime": "10:27",
+      "entryPrice": 2827,
+      "exitTime": "10:29",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2841円)",
+      "pnlPer100": 1413.44
+    },
+    {
+      "date": "2026-07-03",
+      "entryTime": "10:05",
+      "entryPrice": 2732,
+      "exitTime": "10:07",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2746円)",
+      "pnlPer100": 1366
+    },
+    {
+      "date": "2026-07-07",
+      "entryTime": "10:38",
+      "entryPrice": 2687.5,
+      "exitTime": "10:44",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2701円)",
+      "pnlPer100": 1343.7
+    },
+    {
+      "date": "2026-07-09",
+      "entryTime": "10:17",
+      "entryPrice": 2713.5,
+      "exitTime": "10:33",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:2692円)",
+      "pnlPer100": -2170.78
+    },
+    {
+      "date": "2026-07-10",
+      "entryTime": "09:42",
+      "entryPrice": 2864,
+      "exitTime": "09:44",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2878円)",
+      "pnlPer100": 1432
+    },
+    {
+      "date": "2026-07-14",
+      "entryTime": "09:56",
+      "entryPrice": 2682.5,
+      "exitTime": "10:01",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2696円)",
+      "pnlPer100": 1341.2
+    },
+    {
+      "date": "2026-07-21",
+      "entryTime": "10:16",
+      "entryPrice": 2331,
+      "exitTime": "10:27",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2343円)",
+      "pnlPer100": 1165.45
+    },
+    {
+      "date": "2026-07-22",
+      "entryTime": "10:48",
+      "entryPrice": 2529,
+      "exitTime": "10:55",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2542円)",
+      "pnlPer100": 1264.5
+    },
+    {
+      "date": "2026-07-23",
+      "entryTime": "10:10",
+      "entryPrice": 2604.5,
+      "exitTime": "10:12",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:2584円)",
+      "pnlPer100": -2083.6
+    },
+    {
+      "date": "2026-07-30",
+      "entryTime": "10:05",
+      "entryPrice": 1968,
+      "exitTime": "10:06",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:1978円)",
+      "pnlPer100": 984
+    },
+    {
+      "date": "2026-08-03",
+      "entryTime": "09:39",
+      "entryPrice": 1938,
+      "exitTime": "09:40",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:1948円)",
+      "pnlPer100": 969
+    },
+    {
+      "date": "2026-08-06",
+      "entryTime": "09:36",
+      "entryPrice": 2039,
+      "exitTime": "09:51",
+      "exitAction": "stop_loss",
+      "exitReason": "損切り (損切りライン:2023円)",
+      "pnlPer100": -1631.23
+    },
+    {
+      "date": "2026-08-13",
+      "entryTime": "09:53",
+      "entryPrice": 2002.5,
+      "exitTime": "10:08",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2013円)",
+      "pnlPer100": 1001.23
+    },
+    {
+      "date": "2026-08-14",
+      "entryTime": "09:40",
+      "entryPrice": 2096.5,
+      "exitTime": "09:43",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2107円)",
+      "pnlPer100": 1048.25
+    },
+    {
+      "date": "2026-08-19",
+      "entryTime": "10:10",
+      "entryPrice": 1935,
+      "exitTime": "10:30",
+      "exitAction": "exit",
+      "exitReason": "6526確認型LONG最大保有20分境界の確定足終値決済",
+      "pnlPer100": 100
+    },
+    {
+      "date": "2026-08-20",
+      "entryTime": "09:38",
+      "entryPrice": 1919,
+      "exitTime": "09:52",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:1929円)",
+      "pnlPer100": 959.5
+    },
+    {
+      "date": "2026-08-21",
+      "entryTime": "10:40",
+      "entryPrice": 1934,
+      "exitTime": "10:45",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:1944円)",
+      "pnlPer100": 967
+    },
+    {
+      "date": "2026-08-27",
+      "entryTime": "10:18",
+      "entryPrice": 2054.5,
+      "exitTime": "10:25",
+      "exitAction": "take_profit",
+      "exitReason": "利確 (利確ライン:2065円)",
+      "pnlPer100": 1027.23
+    }
+  ],
+  "rejectedEvents": [
+    {
+      "tradeDate": "2026-06-26",
+      "candleTime": "10:16",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:15",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-02",
+      "candleTime": "10:06",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:05",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-02",
+      "candleTime": "10:15",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:14",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-02",
+      "candleTime": "10:25",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:24",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-03",
+      "candleTime": "09:58",
+      "event": "confirmation_rejected",
+      "triggerTime": "09:57",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-03",
+      "candleTime": "10:03",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:02",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-07",
+      "candleTime": "10:13",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:12",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-08",
+      "candleTime": "10:48",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:47",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-09",
+      "candleTime": "09:44",
+      "event": "confirmation_rejected",
+      "triggerTime": "09:43",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-09",
+      "candleTime": "09:46",
+      "event": "confirmation_rejected",
+      "triggerTime": "09:45",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-14",
+      "candleTime": "09:37",
+      "event": "confirmation_rejected",
+      "triggerTime": "09:36",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-21",
+      "candleTime": "10:10",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:09",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-22",
+      "candleTime": "10:41",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:40",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-23",
+      "candleTime": "10:08",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:07",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-07-27",
+      "candleTime": "09:52",
+      "event": "confirmation_rejected",
+      "triggerTime": "09:51",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-08-17",
+      "candleTime": "09:37",
+      "event": "confirmation_rejected",
+      "triggerTime": "09:36",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    },
+    {
+      "tradeDate": "2026-08-21",
+      "candleTime": "10:37",
+      "event": "confirmation_rejected",
+      "triggerTime": "10:36",
+      "rejectionCodes": [
+        "confirm_price"
+      ],
+      "detail": null
+    }
+  ]
+}

@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -54,6 +54,17 @@ import {
   type TaiyoCandidateBSide,
 } from "./taiyoCandidateB";
 import { shouldBlockAdvantestInitialShortByWeakVolume } from "./advantestWeakVolumeFilter";
+import {
+  SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX,
+  SOCIONEXT_CONFIRMED_LONG_SPEC,
+  calculateSocionextConfirmedLongMetrics,
+  evaluateSocionextConfirmedLongConfirmation,
+  getSocionextConfirmedLongDayOpen,
+  isSocionextConfirmedLongConfirmationTime,
+  isSocionextConfirmedLongInitialTriggerTime,
+  type SocionextConfirmedLongPending,
+  type SocionextConfirmedLongRejectionCode,
+} from "./socionextConfirmedLong";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -234,6 +245,8 @@ export interface SymbolConfig {
   taiyoAfternoonTpPct?: number;
   // 太陽誘電候補B: 10本確認型ブレイク＋最大30分（DRY_RUN限定）
   enableTaiyoCandidateB?: boolean;
+  // ソシオネクスト: 前場確認型10本高値更新LONG（DRY_RUN限定）
+  enableSocionextConfirmedLong?: boolean;
   // 高値反転SHORT設定（急騰後の初動反落を狙う）
   enablePeakReversalShort?: boolean;
   peakReversalShortStartTime?: string;
@@ -468,7 +481,13 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     exclusiveEntryRoutes: true,
     notes: "太陽誘電DRY_RUN候補B: 09:45〜11:00の10本終値ブレイクを1本確認、09:00以降最初の足を始値基準、MA8二本傾き±0.05%以上・初動出来高1.0倍、SL1.0%/TP0.6%、最大30分確定足終値、板入口/板利確なし。共通ゲート拒否では枠を消費せず後続候補を再探索。朝初動SHORTと後場LONGは停止し、既存後場SHORTだけ維持。LIVE未承認。",
   },
-  "6526": { sl: { long: 0.9, short: 1.0 } },
+  "6526": {
+    sl: { long: 0.8, short: 1.0 },
+    tp: { long: 0.5, short: 1.5 },
+    enableSocionextConfirmedLong: true,
+    exclusiveEntryRoutes: true,
+    notes: "ソシオネクストDRY_RUN確認型LONG: 09:30〜11:00、09:00以降最初の足を当日始値、陽線終値で直前10本高値更新、MA8二本傾き+0.05%以上、出来高1.2倍以上、次足終値が初動終値を上回ればLONG。SL0.8%/TP0.5%、最大20分確定足終値、板入口/板利確/反転決済なし、実エントリー成功時だけ日次枠消費。LIVE未承認。",
+  },
   "5803": {
     sl: { long: 0.5, short: 0.6 },
     enableAfternoonLowBreakShort: true,
@@ -844,6 +863,45 @@ export interface TaiyoCandidateBAuditEvent {
 }
 const taiyoCandidateBAuditEvents: TaiyoCandidateBAuditEvent[] = [];
 
+/** ★6526確認型LONG: DRY_RUN実エントリー成功時だけ当日枠を消費し、拒否後は再探索する。 */
+const socionextConfirmedLongFired = new Set<string>();
+const socionextConfirmedLongPending = new Map<string, SocionextConfirmedLongPending>();
+export interface SocionextConfirmedLongAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: string;
+  event: "trigger" | "confirmation_rejected" | "entry" | "engine_rejected";
+  side: "long";
+  triggerTime: string;
+  rejectionCodes?: SocionextConfirmedLongRejectionCode[];
+  detail?: string;
+  referencePrice?: number;
+}
+const socionextConfirmedLongAuditEvents: SocionextConfirmedLongAuditEvent[] = [];
+
+async function recordSocionextConfirmedLongAuditEvent(
+  event: SocionextConfirmedLongAuditEvent,
+): Promise<void> {
+  socionextConfirmedLongAuditEvents.push(event);
+  if (event.event !== "confirmation_rejected" && event.event !== "engine_rejected") return;
+  if (typeof upsertSocionextConfirmedLongEvent !== "function" || event.referencePrice === undefined) return;
+  try {
+    await upsertSocionextConfirmedLongEvent({
+      tradeDate: event.tradeDate,
+      symbol: event.symbol,
+      candleTime: event.candleTime,
+      eventType: event.event,
+      side: event.side,
+      triggerTime: event.triggerTime,
+      rejectionCodes: event.rejectionCodes ?? null,
+      detail: event.detail ?? null,
+      referencePrice: event.referencePrice.toString(),
+    });
+  } catch (error) {
+    console.error("[RealtimeSim] 6526確認型LONG監査イベントDB保存失敗:", error);
+  }
+}
+
 async function recordTaiyoCandidateBAuditEvent(event: TaiyoCandidateBAuditEvent): Promise<void> {
   taiyoCandidateBAuditEvents.push(event);
   if (event.event !== "confirmation_rejected" && event.event !== "engine_rejected") return;
@@ -919,6 +977,7 @@ function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKe
     advantestConfirmedBreakLong: advantestConfirmedBreakLongFired,
     discoConfirmedBreakLong: discoConfirmedBreakLongFired,
     discoOpeningBreakShort: discoOpeningBreakShortFired,
+    socionextConfirmedLong: socionextConfirmedLongFired,
     telShortBreak: telShortBreakFired,
   } satisfies Record<SpecializedFiredStateKey, Set<string>>;
   target[key].add(symbol);
@@ -1007,6 +1066,9 @@ function resetIfNewDay(tradeDate: string): void {
     taiyoCandidateBPrimaryFired.clear();
     taiyoCandidateBPending.clear();
     taiyoCandidateBAuditEvents.length = 0;
+    socionextConfirmedLongFired.clear();
+    socionextConfirmedLongPending.clear();
+    socionextConfirmedLongAuditEvents.length = 0;
     taiyoCandidateAPrimaryFired.clear();
     taiyoCandidateAPending.clear();
     peakReversalShortFired.clear();
@@ -1121,6 +1183,12 @@ export function resolveRestoredRiskOverrides(
   if (symbol === "6146" && reason.startsWith("ディスコ寄り付き10本安値更新SHORT")) {
     return { slPct: config.discoOpeningBreakShortSlPct, tpPct: config.discoOpeningBreakShortTpPct };
   }
+  if (symbol === SOCIONEXT_CONFIRMED_LONG_SPEC.symbol && reason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX)) {
+    return {
+      slPct: SOCIONEXT_CONFIRMED_LONG_SPEC.primary.slPct,
+      tpPct: SOCIONEXT_CONFIRMED_LONG_SPEC.primary.tpPct,
+    };
+  }
 
   return {};
 }
@@ -1142,6 +1210,7 @@ export type SpecializedFiredStateKey =
   | "advantestConfirmedBreakLong"
   | "discoConfirmedBreakLong"
   | "discoOpeningBreakShort"
+  | "socionextConfirmedLong"
   | "telShortBreak";
 
 /** DBの当日エントリー履歴から、再起動後に復元すべき専用方式を識別する。 */
@@ -1183,6 +1252,13 @@ export function resolveSpecializedFiredStateKeys(
   if (symbol === "6146") {
     if (action === "buy" && reason.startsWith("ディスコ確認型10本高値更新LONG")) return ["discoConfirmedBreakLong"];
     if (action === "short" && reason.startsWith("ディスコ寄り付き10本安値更新SHORT")) return ["discoOpeningBreakShort"];
+  }
+  if (
+    symbol === SOCIONEXT_CONFIRMED_LONG_SPEC.symbol &&
+    action === "buy" &&
+    reason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX)
+  ) {
+    return ["socionextConfirmedLong"];
   }
   return [];
 }
@@ -1385,6 +1461,38 @@ export async function restoreBuffersFromDb(): Promise<void> {
             triggerOpenMovePct: metrics.openMovePct,
           });
           console.log(`[RealtimeSim] 6976候補B確認待ち復元: ${metrics.side} 初動 ${latest.time}`);
+        }
+      }
+    }
+
+    // ---- 6526確認型LONGの1本確認待ちを最新保存足から再構築 ----
+    // 09:00以降最初の足を当日始値とし、最新足そのものが初動条件を満たす場合だけ次足を待つ。
+    if (
+      !socionextConfirmedLongFired.has(SOCIONEXT_CONFIRMED_LONG_SPEC.symbol) &&
+      !openPositions.has(SOCIONEXT_CONFIRMED_LONG_SPEC.symbol)
+    ) {
+      const restored = candleBuffers.get(SOCIONEXT_CONFIRMED_LONG_SPEC.symbol) ?? [];
+      const candidateBuffer = restored.map(item => ({
+        time: item.time.slice(11, 16),
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+      }));
+      const latest = candidateBuffer[candidateBuffer.length - 1];
+      const dayOpen = getSocionextConfirmedLongDayOpen(candidateBuffer);
+      if (latest && dayOpen !== null && isSocionextConfirmedLongInitialTriggerTime(latest.time)) {
+        const metrics = calculateSocionextConfirmedLongMetrics(candidateBuffer, dayOpen);
+        if (metrics?.eligible) {
+          socionextConfirmedLongPending.set(SOCIONEXT_CONFIRMED_LONG_SPEC.symbol, {
+            triggerClose: latest.close,
+            triggerTime: latest.time,
+            triggerMaSlope2Pct: metrics.maSlope2Pct,
+            triggerVolumeRatio: metrics.volumeRatio,
+            triggerOpenMovePct: metrics.openMovePct,
+          });
+          console.log(`[RealtimeSim] 6526確認型LONG確認待ち復元: 初動 ${latest.time}`);
         }
       }
     }
@@ -1692,10 +1800,11 @@ export function detectMarketMode(symbol: string, snapshot: BoardSnapshot): "acti
 export function shouldBoardEarlyExit(pos: OpenPosition, currentPrice: number, snapshot: BoardSnapshot | null): boolean {
   if (!snapshot) return false;
 
-  // 6976候補A/Bは出口をTP・SL・因果的時間決済へ限定する仕様。
+  // 6976候補A/Bと6526確認型LONGは出口をTP・SL・因果的時間決済へ限定する仕様。
   if (
     pos.entryReason.startsWith("太陽誘電候補A") ||
-    pos.entryReason.startsWith("太陽誘電候補B")
+    pos.entryReason.startsWith("太陽誘電候補B") ||
+    pos.entryReason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX)
   ) return false;
 
   const config = getSymbolConfig(pos.symbol);
@@ -1927,6 +2036,128 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // ---- ★反転LONG: 銘柄別設定で反転LONGが有効な場合の検出 ----
   // 大台超えLONGの代替として、当日高値からの下落後に反転上昇を検出してLONGエントリー
   const symConfig = getSymbolConfig(symbol);
+
+  // ---- 6526確認型ブレイクLONG: DRY_RUN正式経路 ----
+  // 確認失敗・共通ゲート拒否では日次枠を消費せず、後続候補を再探索する。
+  if (
+    symConfig.enableSocionextConfirmedLong &&
+    symbol === SOCIONEXT_CONFIRMED_LONG_SPEC.symbol &&
+    !socionextConfirmedLongFired.has(symbol) &&
+    (
+      isSocionextConfirmedLongConfirmationTime(candleTime) ||
+      isSocionextConfirmedLongInitialTriggerTime(candleTime)
+    )
+  ) {
+    const spec = SOCIONEXT_CONFIRMED_LONG_SPEC.primary;
+    const candidateBuffer = buffer.map(item => ({
+      time: item.time.slice(11, 16),
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
+    }));
+    const candidateDayOpen = getSocionextConfirmedLongDayOpen(candidateBuffer);
+    const metrics = candidateDayOpen === null
+      ? null
+      : calculateSocionextConfirmedLongMetrics(candidateBuffer, candidateDayOpen);
+    const pending = socionextConfirmedLongPending.get(symbol);
+
+    if (pending && candleTime > pending.triggerTime) {
+      socionextConfirmedLongPending.delete(symbol);
+      const confirmation = evaluateSocionextConfirmedLongConfirmation({
+        pending,
+        candle: {
+          time: candleTime,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume,
+        },
+      });
+
+      if (confirmation.allowed) {
+        const result = await enterPosition(
+          "long",
+          candle,
+          tradeDate,
+          candleTime,
+          `${SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX}: 10本終値高値更新後1本確認、MA8二本傾き${pending.triggerMaSlope2Pct.toFixed(3)}%、初動出来高${pending.triggerVolumeRatio.toFixed(2)}倍、初動始値比${pending.triggerOpenMovePct.toFixed(2)}%`,
+          boardSnapshot,
+          { slPct: spec.slPct, tpPct: spec.tpPct },
+        );
+        await recordSocionextConfirmedLongAuditEvent({
+          tradeDate,
+          candleTime,
+          symbol,
+          event: result.action === "entry" ? "entry" : "engine_rejected",
+          side: "long",
+          triggerTime: pending.triggerTime,
+          detail: result.reason,
+          referencePrice: candle.close,
+        });
+        if (result.action === "entry") {
+          socionextConfirmedLongFired.add(symbol);
+        } else if (result.reason !== "margin_block") {
+          signalHistory.unshift({
+            time: candleTime,
+            symbol,
+            symbolName: getStockName(symbol),
+            action: "socionext_confirmed_long_block",
+            price: candle.close,
+            shares: 0,
+            pnl: null,
+            reason: `${SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX}拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+          });
+          if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        }
+        return result;
+      }
+
+      await recordSocionextConfirmedLongAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: "confirmation_rejected",
+        side: "long",
+        triggerTime: pending.triggerTime,
+        rejectionCodes: confirmation.codes,
+        referencePrice: candle.close,
+      });
+      // 確認不成立でも同じ足を新しい初動候補として再評価する。
+    }
+
+    if (metrics?.eligible && isSocionextConfirmedLongInitialTriggerTime(candleTime)) {
+      socionextConfirmedLongPending.set(symbol, {
+        triggerClose: candle.close,
+        triggerTime: candleTime,
+        triggerMaSlope2Pct: metrics.maSlope2Pct,
+        triggerVolumeRatio: metrics.volumeRatio,
+        triggerOpenMovePct: metrics.openMovePct,
+      });
+      await recordSocionextConfirmedLongAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: "trigger",
+        side: "long",
+        triggerTime: candleTime,
+        detail: `openMove=${metrics.openMovePct.toFixed(3)}%,maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x`,
+        referencePrice: candle.close,
+      });
+    }
+
+    return { symbol, tradeDate, candleTime, action: "none" };
+  }
+
+  if (
+    symConfig.enableSocionextConfirmedLong &&
+    symbol === SOCIONEXT_CONFIRMED_LONG_SPEC.symbol &&
+    candleTime > SOCIONEXT_CONFIRMED_LONG_SPEC.primary.confirmationEndTime
+  ) {
+    socionextConfirmedLongPending.delete(symbol);
+  }
 
   // ---- 6976候補B: DRY_RUN正式経路 ----
   // 候補Aの監査再生時は候補Bを止め、通常DRY_RUNでは候補Bを優先する。
@@ -4126,9 +4357,11 @@ async function checkExitConditions(
   }
 
   const isTaiyoCandidateBPosition = pos.entryReason.startsWith("太陽誘電候補B");
+  const isSocionextConfirmedLongPosition = pos.entryReason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX);
+  const usesSpecializedExitOnly = isTaiyoCandidateBPosition || isSocionextConfirmedLongPosition;
 
-  // シグナル反転による決済。候補BはTP・SL・時間決済だけに限定する。
-  if (exitPrice === null && !isTaiyoCandidateBPosition) {
+  // シグナル反転による決済。候補Bと6526確認型LONGはTP・SL・時間決済だけに限定する。
+  if (exitPrice === null && !usesSpecializedExitOnly) {
     const buffer = candleBuffers.get(symbol);
     if (buffer && buffer.length > 0) {
       const latest = buffer[buffer.length - 1];
@@ -4146,8 +4379,8 @@ async function checkExitConditions(
     }
   }
 
-  // ★v6: 板読み早期利確。候補Bでは使用しない。
-  if (exitPrice === null && !isTaiyoCandidateBPosition && shouldBoardEarlyExit(pos, close, boardSnapshot)) {
+  // ★v6: 板読み早期利確。候補Bと6526確認型LONGでは使用しない。
+  if (exitPrice === null && !usesSpecializedExitOnly && shouldBoardEarlyExit(pos, close, boardSnapshot)) {
     exitPrice = close;
     exitReason = `板読み早期利確 (逆方向板圧力検出)`;
     action = "take_profit";
@@ -4189,6 +4422,17 @@ async function checkExitConditions(
     if (elapsedMinutes >= maxHoldingMinutes) {
       exitPrice = candle.close;
       exitReason = `候補B最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
+      action = "exit";
+    }
+  }
+
+  // 6526確認型LONG DRY_RUN: 20分境界の完成足終値を約定近似値として決済する。
+  if (exitPrice === null && isSocionextConfirmedLongPosition) {
+    const maxHoldingMinutes = SOCIONEXT_CONFIRMED_LONG_SPEC.primary.maxHoldingMinutes;
+    const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
+    if (elapsedMinutes >= maxHoldingMinutes) {
+      exitPrice = candle.close;
+      exitReason = `6526確認型LONG最大保有${maxHoldingMinutes}分境界の確定足終値決済`;
       action = "exit";
     }
   }
@@ -4464,6 +4708,17 @@ export function getTaiyoCandidateBAuditEventsForTest(): TaiyoCandidateBAuditEven
     throw new Error("6976候補B監査イベントはVitest専用です");
   }
   return taiyoCandidateBAuditEvents.map(event => ({
+    ...event,
+    rejectionCodes: event.rejectionCodes ? [...event.rejectionCodes] : undefined,
+  }));
+}
+
+/** 6526確認型LONGの当日DRY_RUN監査イベントをVitestから取得する。 */
+export function getSocionextConfirmedLongAuditEventsForTest(): SocionextConfirmedLongAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("6526確認型LONG監査イベントはVitest専用です");
+  }
+  return socionextConfirmedLongAuditEvents.map(event => ({
     ...event,
     rejectionCodes: event.rejectionCodes ? [...event.rejectionCodes] : undefined,
   }));

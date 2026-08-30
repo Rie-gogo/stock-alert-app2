@@ -1,2 +1,4 @@
 server/fixtures/taiyoCandidateA.audit.fixture.json text eol=lf
 server/fixtures/advantestWeakVolume.expected.json text eol=lf
+server/fixtures/socionextConfirmedLong.audit.fixture.json text eol=lf
+server/fixtures/socionextConfirmedLong.expected.json text eol=lf

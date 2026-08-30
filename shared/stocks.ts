@@ -75,6 +75,7 @@ export const TRADE_EXCLUDED_SYMBOLS: ReadonlySet<string> = new Set([
 export const ACTIVE_ENTRY_SYMBOLS: ReadonlySet<string> | null = new Set([
   '285A', // キオクシアHD
   '8035', // 東京エレクトロン
+  '6526', // ソシオネクスト（確認型ブレイクLONG・DRY_RUN限定）
   '5803', // フジクラ
   '6981', // 村田製作所
   '6976', // 太陽誘電

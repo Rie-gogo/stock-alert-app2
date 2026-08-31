@@ -61,14 +61,14 @@ import { getOpenPositions, processCandle } from "./realtimeSimEngine";
 
 const sourceAuditIt = process.env.RUN_ADVANTEST_WEAK_VOLUME_SOURCE_AUDIT === "1" ? it : it.skip;
 
-describe("6857 弱出来高案・保存KABU全47日ソース監査", () => {
-  sourceAuditIt("重複除去済み保存足を実エンジンへ投入し、全23取引と決済理由を再現する", async () => {
+describe("6857 弱出来高＋利益保護・保存KABU全48日ソース監査", () => {
+  sourceAuditIt("重複除去済み保存足を実エンジンへ投入し、全取引と決済理由を再現する", async () => {
     const db = await getDb();
     if (!db) throw new Error("DATABASE_URL required");
     const dateRows = await db.execute(sql`
       SELECT DISTINCT tradeDate
       FROM rt_candles
-      WHERE symbol = '6857' AND tradeDate <= '2026-08-28'
+      WHERE symbol = '6857' AND tradeDate <= '2026-08-31'
       ORDER BY tradeDate
     `);
     const dates = (dateRows[0] as Array<{ tradeDate: string }>).map(row => String(row.tradeDate));
@@ -124,8 +124,23 @@ describe("6857 弱出来高案・保存KABU全47日ソース監査", () => {
       losses: trades.filter(trade => Number(trade.pnlPer100) < 0).length,
       pnlPer100: trades.reduce((sum, trade) => sum + Number(trade.pnlPer100), 0),
     };
+    const highFadeShorts = trades.filter(trade => String(trade.entryReason).startsWith("アドバンテスト高値失速SHORT"));
 
-    expect(summary).toEqual({ dates: 47, trades: 23, wins: 20, losses: 3, pnlPer100: 486_137 });
+    expect(summary).toEqual({ dates: 48, trades: 24, wins: 21, losses: 3, pnlPer100: 475_851 });
+    expect({
+      trades: highFadeShorts.length,
+      wins: highFadeShorts.filter(trade => Number(trade.pnlPer100) > 0).length,
+      losses: highFadeShorts.filter(trade => Number(trade.pnlPer100) < 0).length,
+      pnlPer100: highFadeShorts.reduce((sum, trade) => sum + Number(trade.pnlPer100), 0),
+    }).toEqual({ trades: 14, wins: 12, losses: 2, pnlPer100: 260_476 });
+    expect(highFadeShorts).toContainEqual(expect.objectContaining({
+      date: "2026-08-31",
+      entryTime: "09:57",
+      exitTime: "10:12",
+      pnlPer100: 22_974,
+      exitAction: "take_profit",
+      exitReason: "アドバンテスト利益保護 (+0.8%到達後、+0.7%戻り)",
+    }));
     expect(trades).toEqual(expectedTrades);
   }, 180_000);
 });

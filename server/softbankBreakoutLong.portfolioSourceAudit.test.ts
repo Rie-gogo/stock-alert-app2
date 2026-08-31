@@ -109,7 +109,7 @@ describe("9984専用LONG 10銘柄保存ID順ソース監査", () => {
         INNER JOIN (
           SELECT tradeDate, candleTime, MAX(id) AS maxId
           FROM rt_candles
-          WHERE symbol = ? AND tradeDate <= '2026-08-28'
+          WHERE symbol = ? AND tradeDate <= '2026-08-31'
           GROUP BY tradeDate, candleTime
         ) latest ON latest.maxId = c.id
       `, [symbol]);
@@ -119,32 +119,51 @@ describe("9984専用LONG 10銘柄保存ID順ソース監査", () => {
     allRows.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || a.id - b.id);
     const baselineRows = allRows.filter(row => row.symbol !== "9984");
 
-    expect(baselineRows).toHaveLength(117_568);
-    expect(allRows).toHaveLength(131_921);
+    expect(baselineRows).toHaveLength(120_535);
+    expect(allRows).toHaveLength(135_217);
 
     const baseline = await replay(baselineRows);
     const candidate = await replay(allRows);
     const candidateExisting = candidate.trades.filter(trade => trade.symbol !== "9984");
     const softbankTrades = candidate.trades.filter(trade => trade.symbol === "9984");
 
-    expect(baseline.trades).toHaveLength(249);
-    expect(baseline.trades.filter(trade => trade.pnl > 0)).toHaveLength(200);
-    expect(baseline.trades.filter(trade => trade.pnl < 0)).toHaveLength(49);
-    expect(baseline.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_589_426);
+    expect(baseline.trades).toHaveLength(258);
+    expect(baseline.trades.filter(trade => trade.pnl > 0)).toHaveLength(208);
+    expect(baseline.trades.filter(trade => trade.pnl < 0)).toHaveLength(50);
+    expect(baseline.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_817_702);
 
-    expect(softbankTrades).toHaveLength(22);
-    expect(softbankTrades.filter(trade => trade.pnl > 0)).toHaveLength(20);
+    expect(softbankTrades).toHaveLength(23);
+    expect(softbankTrades.filter(trade => trade.pnl > 0)).toHaveLength(21);
     expect(softbankTrades.filter(trade => trade.pnl < 0)).toHaveLength(2);
-    expect(softbankTrades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(101_809);
-    expect(candidate.trades).toHaveLength(270);
-    expect(candidate.trades.filter(trade => trade.pnl > 0)).toHaveLength(220);
-    expect(candidate.trades.filter(trade => trade.pnl < 0)).toHaveLength(50);
-    expect(candidate.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_726_287);
+    expect(softbankTrades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(105_309);
+    expect(candidate.trades).toHaveLength(280);
+    expect(candidate.trades.filter(trade => trade.pnl > 0)).toHaveLength(229);
+    expect(candidate.trades.filter(trade => trade.pnl < 0)).toHaveLength(51);
+    expect(candidate.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_958_063);
 
-    expect(candidateExisting).toHaveLength(248);
-    expect(candidateExisting.filter(trade => trade.pnl > 0)).toHaveLength(200);
-    expect(candidateExisting.filter(trade => trade.pnl < 0)).toHaveLength(48);
-    expect(candidateExisting.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_624_478);
+    expect(candidateExisting).toHaveLength(257);
+    expect(candidateExisting.filter(trade => trade.pnl > 0)).toHaveLength(208);
+    expect(candidateExisting.filter(trade => trade.pnl < 0)).toHaveLength(49);
+    expect(candidateExisting.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_852_754);
     expect(candidate.marginBlocks.filter(block => block.symbol === "9984").length).toBeGreaterThan(0);
+
+    const recent3 = candidate.trades.filter(trade => ["2026-08-27", "2026-08-28", "2026-08-31"].includes(trade.date));
+    expect(recent3).toHaveLength(21);
+    expect(recent3.filter(trade => trade.pnl > 0)).toHaveLength(18);
+    expect(recent3.filter(trade => trade.pnl < 0)).toHaveLength(3);
+
+    const recent5 = candidate.trades.filter(trade => ["2026-08-21", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-31"].includes(trade.date));
+    expect(recent5).toHaveLength(37);
+    expect(recent5.filter(trade => trade.pnl > 0)).toHaveLength(32);
+    expect(recent5.filter(trade => trade.pnl < 0)).toHaveLength(5);
+
+    const today = candidate.trades.filter(trade => trade.date === "2026-08-31");
+    expect(today).toHaveLength(8);
+    expect(today.filter(trade => trade.pnl > 0)).toHaveLength(6);
+    expect(today.filter(trade => trade.pnl < 0)).toHaveLength(2);
+    expect(today.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(123_694);
+    expect(today).toContainEqual(expect.objectContaining({ symbol: "6857", entryTime: "09:57", exitTime: "10:12", pnl: 22_974 }));
+    expect(today).toContainEqual(expect.objectContaining({ symbol: "8035", entryTime: "10:16", pnl: 27_065 }));
+    expect(today).not.toContainEqual(expect.objectContaining({ symbol: "6857", entryTime: "11:05" }));
   }, 300_000);
 });

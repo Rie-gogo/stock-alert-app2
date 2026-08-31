@@ -2538,6 +2538,8 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
     expect(config.advantestInitialShortWeakVolumeBlockMaxVolumeRatio).toBe(2.2);
     expect(config.advantestHighFadeShortSlPct).toBe(1.0);
     expect(config.advantestHighFadeShortTpPct).toBe(1.2);
+    expect(config.advantestHighFadeShortProfitProtectionTriggerPct).toBe(0.8);
+    expect(config.advantestHighFadeShortProfitProtectionFloorPct).toBe(0.7);
     expect(getSymbolConfig("8035").enableAdvantestHighFadeShort).toBeUndefined();
   });
 
@@ -2566,6 +2568,94 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
       open: 10000, high: 10400, low: 9980, close: 10350, volume: 30000,
     }));
     expect(result.action).toBe("none");
+  });
+});
+
+describe("アドバンテスト(6857) 高値失速SHORT利益保護", () => {
+  function restoreAdvantestShort(tradeDate: string) {
+    restoreOpenPositions([{
+      symbol: "6857", side: "short", price: 10000, shares: 100, tradeTime: "09:30",
+      reason: "アドバンテスト高値失速SHORT: テスト",
+    }]);
+  }
+
+  it("+0.8%到達足では決済せず、次足の+0.7%戻りで決済する", async () => {
+    const symbol = "6857";
+    const tradeDate = "2027-02-10";
+    await warmup(symbol, tradeDate, 10000, 10);
+    restoreAdvantestShort(tradeDate);
+
+    const armed = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 10000, high: 10020, low: 9910, close: 9920, volume: 10000,
+    }));
+    expect(armed.action).toBe("none");
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.profitProtectionArmedAt).toBe("09:31");
+
+    const protectedExit = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 9920, high: 9940, low: 9910, close: 9935, volume: 10000,
+    }));
+    expect(protectedExit.action).toBe("take_profit");
+    expect(protectedExit.reason).toContain("アドバンテスト利益保護");
+    expect(protectedExit.pnl).toBe(7000);
+  });
+
+  it("利益保護とSLが同一足ならSLを優先する", async () => {
+    const symbol = "6857";
+    const tradeDate = "2027-02-11";
+    await warmup(symbol, tradeDate, 10000, 10);
+    restoreAdvantestShort(tradeDate);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 10000, high: 10020, low: 9910, close: 9920, volume: 10000,
+    }));
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 9930, high: 10110, low: 9870, close: 10050, volume: 10000,
+    }));
+    expect(result.action).toBe("stop_loss");
+    expect(result.reason).toContain("損切り");
+    expect(result.pnl).toBe(-10000);
+  });
+
+  it("利益保護とTPが同一足なら保守的に+0.7%保護を優先する", async () => {
+    const symbol = "6857";
+    const tradeDate = "2027-02-12";
+    await warmup(symbol, tradeDate, 10000, 10);
+    restoreAdvantestShort(tradeDate);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 10000, high: 10020, low: 9910, close: 9920, volume: 10000,
+    }));
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 9920, high: 9940, low: 9870, close: 9890, volume: 10000,
+    }));
+    expect(result.action).toBe("take_profit");
+    expect(result.reason).toContain("アドバンテスト利益保護");
+    expect(result.pnl).toBe(7000);
+  });
+
+  it("再起動復元ではエントリー後の保存足から発動状態を再構築する", async () => {
+    const symbol = "6857";
+    const tradeDate = "2027-02-13";
+    await warmup(symbol, tradeDate, 10000, 10);
+    await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:31",
+      open: 10000, high: 10020, low: 9910, close: 9920, volume: 10000,
+    }));
+    restoreAdvantestShort(tradeDate);
+    expect(getOpenPositions().find(position => position.symbol === symbol)?.profitProtectionArmedAt).toBe("09:31");
+
+    const result = await processCandle(makeCandle({
+      symbol, tradeDate, candleTime: "09:32",
+      open: 9920, high: 9940, low: 9910, close: 9935, volume: 10000,
+    }));
+    expect(result.action).toBe("take_profit");
+    expect(result.pnl).toBe(7000);
   });
 });
 

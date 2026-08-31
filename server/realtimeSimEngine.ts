@@ -301,6 +301,8 @@ export interface SymbolConfig {
   advantestInitialShortWeakVolumeBlockMaxVolumeRatio?: number;
   advantestHighFadeShortSlPct?: number;
   advantestHighFadeShortTpPct?: number;
+  advantestHighFadeShortProfitProtectionTriggerPct?: number;
+  advantestHighFadeShortProfitProtectionFloorPct?: number;
   // アドバンテスト: 確認型20本高値更新LONGと損切り後の反対方向再評価
   enableAdvantestConfirmedBreakLong?: boolean;
   advantestConfirmedBreakLongStartTime?: string;
@@ -452,6 +454,8 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     advantestInitialShortWeakVolumeBlockMaxVolumeRatio: 2.2,
     advantestHighFadeShortSlPct: 1.0,
     advantestHighFadeShortTpPct: 1.2,
+    advantestHighFadeShortProfitProtectionTriggerPct: 0.8,
+    advantestHighFadeShortProfitProtectionFloorPct: 0.7,
     enableAdvantestConfirmedBreakLong: true,
     advantestConfirmedBreakLongStartTime: "10:00",
     advantestConfirmedBreakLongEndTime: "11:15",
@@ -465,7 +469,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     enableAdvantestPostStopReentry: true,
     advantestPostStopShortMaxFiveBarChangePct: -0.3,
     exclusiveEntryRoutes: true,
-    notes: "アドバンテスト: 確認型20本高値更新LONG（前足陽線実体0.10%・MA8傾き>=0.03%・VWAP上、SL0.5%/TP1.0%）＋高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上、前足陰線実体0.05%未満は停止、SL1.0%/TP1.2%）。初回SHORTは当日高値が始値比+1.9%以上かつ初動出来高2.2倍未満なら見送り、枠を消費せず後続候補を再探索。初回損切り後のみ反対方向を一度再評価し、再評価LONGは5本値幅<=1.5%、再評価SHORTはVWAP下かつ5本変化率<=-0.3%を追加確認する。",
+    notes: "アドバンテスト: 確認型20本高値更新LONG（前足陽線実体0.10%・MA8傾き>=0.03%・VWAP上、SL0.5%/TP1.0%）＋高値失速SHORT（始値比+1%以上の高値形成後、高値から0.8%以上反落、5本安値更新、陰線、MA8の2本傾き<=-0.05%、出来高1.2倍以上、前足陰線実体0.05%未満は停止、SL1.0%/TP1.2%）。高値失速SHORTは+0.8%到達後、発動足では決済せず次足以降+0.7%へ戻れば利益保護決済。初回SHORTは当日高値が始値比+1.9%以上かつ初動出来高2.2倍未満なら見送り、枠を消費せず後続候補を再探索。初回損切り後のみ反対方向を一度再評価し、再評価LONGは5本値幅<=1.5%、再評価SHORTはVWAP下かつ5本変化率<=-0.3%を追加確認する。",
   },
   "6976": {
     sl: { long: 1.0, short: 1.0 },
@@ -712,7 +716,7 @@ interface OpenPosition {
   confidence?: SignalConfidence;
   slPctOverride?: number;
   tpPctOverride?: number;
-  /** 6146寄り付きSHORT利益保護が初めて発動条件へ到達した足。 */
+  /** 銘柄別SHORT利益保護が初めて発動条件へ到達した足。 */
   profitProtectionArmedAt?: string;
   // BEストップ撤廃済み（+D構成）
 }
@@ -1501,6 +1505,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
               tpPctOverride: risk.tpPct,
             };
             restoreDiscoProfitProtectionState(restoredPosition);
+            restoreAdvantestProfitProtectionState(restoredPosition);
             openPositions.set(entry.symbol, restoredPosition);
           }
         }
@@ -1991,6 +1996,33 @@ function restoreDiscoProfitProtectionState(pos: OpenPosition): void {
   if (!isDiscoOpeningShortProfitProtectionPosition(pos)) return;
   const config = getSymbolConfig(pos.symbol);
   const triggerPct = config.discoOpeningBreakShortProfitProtectionTriggerPct!;
+  const triggerLine = pos.entryPrice * (1 - triggerPct / 100);
+  const buffer = candleBuffers.get(pos.symbol) ?? [];
+  const armedCandle = buffer.find(candle => {
+    const candleTime = candle.time.includes("T") ? candle.time.slice(11, 16) : candle.time.slice(-5);
+    return candleTime > pos.entryTime && candle.low <= triggerLine;
+  });
+  if (!armedCandle) return;
+  pos.profitProtectionArmedAt = armedCandle.time.includes("T")
+    ? armedCandle.time.slice(11, 16)
+    : armedCandle.time.slice(-5);
+}
+
+/** 6857高値失速SHORT利益保護の対象ポジションかを判定する。 */
+function isAdvantestHighFadeShortProfitProtectionPosition(pos: OpenPosition): boolean {
+  const config = getSymbolConfig(pos.symbol);
+  return pos.symbol === "6857"
+    && pos.side === "short"
+    && pos.entryReason.startsWith("アドバンテスト高値失速SHORT")
+    && config.advantestHighFadeShortProfitProtectionTriggerPct !== undefined
+    && config.advantestHighFadeShortProfitProtectionFloorPct !== undefined;
+}
+
+/** 再起動時、保存済みのエントリー後1分足から6857利益保護の発動状態を再構築する。 */
+function restoreAdvantestProfitProtectionState(pos: OpenPosition): void {
+  if (!isAdvantestHighFadeShortProfitProtectionPosition(pos)) return;
+  const config = getSymbolConfig(pos.symbol);
+  const triggerPct = config.advantestHighFadeShortProfitProtectionTriggerPct!;
   const triggerLine = pos.entryPrice * (1 - triggerPct / 100);
   const buffer = candleBuffers.get(pos.symbol) ?? [];
   const armedCandle = buffer.find(candle => {
@@ -4624,6 +4656,29 @@ async function checkExitConditions(
     }
   }
 
+  // 6857高値失速SHORT利益保護。
+  // SLは常に最優先。発動足では決済せず、後続足から+0.7%戻りを評価する。
+  // TPと保護が同一足なら時系列不明のため、利益の小さい保護決済を採用する。
+  if (isAdvantestHighFadeShortProfitProtectionPosition(pos)) {
+    const triggerPct = symCfgExit.advantestHighFadeShortProfitProtectionTriggerPct!;
+    const floorPct = symCfgExit.advantestHighFadeShortProfitProtectionFloorPct!;
+    const triggerLine = entryPrice * (1 - triggerPct / 100);
+    const protectLine = entryPrice * (1 - floorPct / 100);
+    const armedBeforeThisCandle = pos.profitProtectionArmedAt !== undefined
+      && pos.profitProtectionArmedAt !== candleTime;
+
+    if (armedBeforeThisCandle && high >= protectLine && action !== "stop_loss") {
+      // SHORTの買戻しは高いほど不利。窓上げ時は指値ではなく当足始値を採る。
+      exitPrice = Math.max(candle.open, protectLine);
+      exitReason = `アドバンテスト利益保護 (+${triggerPct.toFixed(1)}%到達後、+${floorPct.toFixed(1)}%戻り)`;
+      action = "take_profit";
+    }
+
+    if (pos.profitProtectionArmedAt === undefined && low <= triggerLine) {
+      pos.profitProtectionArmedAt = candleTime;
+    }
+  }
+
   const isTaiyoCandidateBPosition = pos.entryReason.startsWith("太陽誘電候補B");
   const isSocionextConfirmedLongPosition = pos.entryReason.startsWith(SOCIONEXT_CONFIRMED_LONG_REASON_PREFIX);
   const isSumcoBreakdownShortPosition = pos.entryReason.startsWith(SUMCO_BREAKDOWN_SHORT_REASON_PREFIX);
@@ -4931,6 +4986,7 @@ export function restoreOpenPositions(entries: Array<{
         tpPctOverride: risk.tpPct,
       };
       restoreDiscoProfitProtectionState(restoredPosition);
+      restoreAdvantestProfitProtectionState(restoredPosition);
       openPositions.set(entry.symbol, restoredPosition);
       console.log(`[RealtimeSim] Restored open position from DB: ${entry.symbol} ${entry.side} @${entry.price}円 ×${entry.shares}株`);
     }

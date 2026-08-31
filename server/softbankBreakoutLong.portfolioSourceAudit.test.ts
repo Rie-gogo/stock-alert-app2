@@ -51,6 +51,8 @@ vi.mock("./db", () => ({
   upsertSocionextConfirmedLongEvent: vi.fn().mockResolvedValue(undefined),
   upsertSumcoBreakdownShortEvent: vi.fn().mockResolvedValue(undefined),
   upsertSoftbankBreakoutLongEvent: vi.fn().mockResolvedValue(undefined),
+  upsertKioxiaShortGuardEvent: vi.fn().mockResolvedValue(undefined),
+  getKioxiaShortGuardEventsForDate: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("./kabuStation", () => ({
   getOrderBook: vi.fn(() => makeBook(currentSnapshot)),
@@ -127,24 +129,24 @@ describe("9984専用LONG 10銘柄保存ID順ソース監査", () => {
     const candidateExisting = candidate.trades.filter(trade => trade.symbol !== "9984");
     const softbankTrades = candidate.trades.filter(trade => trade.symbol === "9984");
 
-    expect(baseline.trades).toHaveLength(258);
+    expect(baseline.trades).toHaveLength(255);
     expect(baseline.trades.filter(trade => trade.pnl > 0)).toHaveLength(208);
-    expect(baseline.trades.filter(trade => trade.pnl < 0)).toHaveLength(50);
-    expect(baseline.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_817_702);
+    expect(baseline.trades.filter(trade => trade.pnl < 0)).toHaveLength(47);
+    expect(baseline.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_961_320);
 
     expect(softbankTrades).toHaveLength(23);
     expect(softbankTrades.filter(trade => trade.pnl > 0)).toHaveLength(21);
     expect(softbankTrades.filter(trade => trade.pnl < 0)).toHaveLength(2);
     expect(softbankTrades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(105_309);
-    expect(candidate.trades).toHaveLength(280);
+    expect(candidate.trades).toHaveLength(277);
     expect(candidate.trades.filter(trade => trade.pnl > 0)).toHaveLength(229);
-    expect(candidate.trades.filter(trade => trade.pnl < 0)).toHaveLength(51);
-    expect(candidate.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_958_063);
+    expect(candidate.trades.filter(trade => trade.pnl < 0)).toHaveLength(48);
+    expect(candidate.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_101_681);
 
-    expect(candidateExisting).toHaveLength(257);
+    expect(candidateExisting).toHaveLength(254);
     expect(candidateExisting.filter(trade => trade.pnl > 0)).toHaveLength(208);
-    expect(candidateExisting.filter(trade => trade.pnl < 0)).toHaveLength(49);
-    expect(candidateExisting.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_852_754);
+    expect(candidateExisting.filter(trade => trade.pnl < 0)).toHaveLength(46);
+    expect(candidateExisting.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(4_996_372);
     expect(candidate.marginBlocks.filter(block => block.symbol === "9984").length).toBeGreaterThan(0);
 
     const recent3 = candidate.trades.filter(trade => ["2026-08-27", "2026-08-28", "2026-08-31"].includes(trade.date));

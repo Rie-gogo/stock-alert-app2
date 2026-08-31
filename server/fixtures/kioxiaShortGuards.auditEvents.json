@@ -1,0 +1,42 @@
+[
+  {
+    "tradeDate": "2026-06-23",
+    "candleTime": "09:44",
+    "guardType": "safe_cb_volume",
+    "observedValue": 0,
+    "thresholdValue": 0.45,
+    "averageVolume": 0,
+    "zeroVolumeBars": 20,
+    "referencePrice": 106900
+  },
+  {
+    "tradeDate": "2026-06-30",
+    "candleTime": "10:35",
+    "guardType": "reversal_short_bpr",
+    "observedValue": 0.66,
+    "thresholdValue": 0.7,
+    "averageVolume": null,
+    "zeroVolumeBars": 0,
+    "referencePrice": 87800
+  },
+  {
+    "tradeDate": "2026-07-21",
+    "candleTime": "09:45",
+    "guardType": "reversal_short_bpr",
+    "observedValue": 0.66,
+    "thresholdValue": 0.7,
+    "averageVolume": null,
+    "zeroVolumeBars": 0,
+    "referencePrice": 54260
+  },
+  {
+    "tradeDate": "2026-08-19",
+    "candleTime": "14:31",
+    "guardType": "safe_cb_volume",
+    "observedValue": 0.4028594832079827,
+    "thresholdValue": 0.45,
+    "averageVolume": 134290,
+    "zeroVolumeBars": 0,
+    "referencePrice": 49950
+  }
+]

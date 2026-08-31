@@ -16,6 +16,15 @@ vi.mock("./db", () => ({
   insertRtTrade: vi.fn().mockResolvedValue(undefined),
   upsertRtDailySummary: vi.fn().mockResolvedValue(undefined),
   getRtTradesForDate: vi.fn().mockResolvedValue([]),
+  getRtCandlesAllForDate: vi.fn().mockResolvedValue([]),
+  getRtOpenPositionsFromDb: vi.fn().mockResolvedValue([]),
+  insertScore0Block: vi.fn().mockResolvedValue(undefined),
+  upsertTaiyoCandidateBEvent: vi.fn().mockResolvedValue(undefined),
+  upsertSocionextConfirmedLongEvent: vi.fn().mockResolvedValue(undefined),
+  upsertSumcoBreakdownShortEvent: vi.fn().mockResolvedValue(undefined),
+  upsertSoftbankBreakoutLongEvent: vi.fn().mockResolvedValue(undefined),
+  upsertKioxiaShortGuardEvent: vi.fn().mockResolvedValue(undefined),
+  getKioxiaShortGuardEventsForDate: vi.fn().mockResolvedValue([]),
 }));
 
 // kabuStation をモック化（板情報なし）
@@ -54,7 +63,7 @@ vi.mock("../shared/stocks", () => ({
 
 // ===== テスト対象をインポート =====
 // モック設定後にインポートする
-import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockOpeningBreakShortByMaSlope, shouldBoardEarlyExit } from "./realtimeSimEngine";
+import { processCandle, getOpenPositions, getCandleCounters, restoreOpenPositions, getSignalHistory, calculateRoundDistancePct, shouldBlockOpeningBreakShortByMaSlope, shouldBoardEarlyExit, KIOXIA_SHORT_GUARD_SPEC, calculateKioxiaSafeCbVolumeMetrics, shouldBlockKioxiaReversalShortByBpr, shouldBlockKioxiaSafeCbByVolume, applyKioxiaShortGuardRestoredEvents, getKioxiaShortGuardAuditEventsForTest, getKioxiaShortGuardStateForTest } from "./realtimeSimEngine";
 import type { RtCandle1Min } from "./realtimeSimEngine";
 
 // ===== ヘルパー =====
@@ -1699,6 +1708,30 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.reversalShortDropPct).toBe(1.5);
     expect(config.reversalShortSlPct).toBe(0.8);
     expect(config.reversalShortTpPct).toBe(1.2);
+    expect(KIOXIA_SHORT_GUARD_SPEC).toEqual({
+      reversalShortMinBpr: 0.70,
+      safeCbMinVolumeRatio: 0.45,
+      safeCbVolumeLookback: 20,
+    });
+  });
+
+  it("285A反転SHORTはBPR0.69を停止し、境界0.70を許可する", () => {
+    expect(shouldBlockKioxiaReversalShortByBpr(0.69)).toBe(true);
+    expect(shouldBlockKioxiaReversalShortByBpr(0.70)).toBe(false);
+    expect(shouldBlockKioxiaReversalShortByBpr(0.75)).toBe(false);
+  });
+
+  it("285A安全CBは出来高比0.44を停止し、境界0.45を許可し、出来高ゼロ本数を返す", () => {
+    const prior = Array.from({ length: 20 }, (_, index) => ({ volume: index < 12 ? 0 : 1000 }));
+    const blocked = calculateKioxiaSafeCbVolumeMetrics({ volume: 176 }, [...prior, { volume: 176 }]);
+    expect(blocked.averageVolume).toBe(400);
+    expect(blocked.volumeRatio).toBeCloseTo(0.44, 8);
+    expect(blocked.zeroVolumeBars).toBe(12);
+    expect(shouldBlockKioxiaSafeCbByVolume(blocked)).toBe(true);
+
+    const boundary = calculateKioxiaSafeCbVolumeMetrics({ volume: 180 }, [...prior, { volume: 180 }]);
+    expect(boundary.volumeRatio).toBeCloseTo(0.45, 8);
+    expect(shouldBlockKioxiaSafeCbByVolume(boundary)).toBe(false);
   });
 
   it("285Aの順張りLONG・SHORT設定が正しく定義されている", async () => {
@@ -2099,6 +2132,49 @@ describe("キオクシア(285A) 反転LONG", () => {
     }
 
     expect(reversalShortTriggered).toBe(true);
+  });
+
+  it("285A反転SHORTは最初の適格候補BPR0.66で当日終了し、監査イベントをDB保存する", async () => {
+    const symbol = "285A";
+    const tradeDate = "2026-08-24";
+    const { getOrderBook } = await import("./kabuStation");
+    const { upsertKioxiaShortGuardEvent } = await import("./db");
+    vi.mocked(upsertKioxiaShortGuardEvent).mockClear();
+    vi.mocked(getOrderBook).mockReturnValue({
+      bids: [{ price: 1, qty: 660 }],
+      asks: [{ price: 1, qty: 1000 }],
+      underBuyQty: 0,
+      overSellQty: 0,
+      marketOrderBuyQty: 0,
+      marketOrderSellQty: 0,
+    } as never);
+
+    for (let i = 0; i < 20; i++) {
+      const price = 50000 + i * 180;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${String(i).padStart(2, "0")}`,
+        open: price, high: price + 80, low: price - 30, close: price + 60, volume: 15000,
+      }));
+    }
+    for (let i = 0; i < 30; i++) {
+      const price = 53400 - i * 150;
+      await processCandle(makeCandle({
+        symbol, tradeDate, candleTime: `09:${String(20 + i).padStart(2, "0")}`,
+        open: price, high: price + 20, low: price - 110, close: price - 90, volume: 18000,
+      }));
+    }
+
+    expect(getOpenPositions().find(position => position.symbol === symbol)).toBeUndefined();
+    const event = getKioxiaShortGuardAuditEventsForTest().find(item =>
+      item.tradeDate === tradeDate && item.guardType === "reversal_short_bpr",
+    );
+    expect(event?.observedValue).toBe(0.66);
+    expect(vi.mocked(upsertKioxiaShortGuardEvent)).toHaveBeenCalledWith(expect.objectContaining({
+      tradeDate,
+      guardType: "reversal_short_bpr",
+      observedValue: "0.660000",
+      thresholdValue: "0.700000",
+    }));
   });
 });
 
@@ -3035,5 +3111,18 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     }));
     expect(result.action).toBe("none");
     expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
+  });
+});
+
+describe("285A両SHORTガード再起動復元", () => {
+  it("DBから両ガードを復元すると、当日の両SHORT経路が終了状態になる", () => {
+    applyKioxiaShortGuardRestoredEvents([
+      { guardType: "reversal_short_bpr" },
+      { guardType: "safe_cb_volume" },
+    ]);
+    expect(getKioxiaShortGuardStateForTest()).toEqual({
+      reversalShortEnded: true,
+      safeCbShortEnded: true,
+    });
   });
 });

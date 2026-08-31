@@ -683,3 +683,33 @@ export const rtSoftbankBreakoutLongEvents = mysqlTable("rt_softbank_breakout_lon
 
 export type RtSoftbankBreakoutLongEvent = typeof rtSoftbankBreakoutLongEvents.$inferSelect;
 export type InsertRtSoftbankBreakoutLongEvent = typeof rtSoftbankBreakoutLongEvents.$inferInsert;
+
+/**
+ * 285A SHORTガード DRY_RUN監査イベント。
+ * 反転SHORTのBPR不足、安全CB SHORTの出来高不足による当日終了を再起動後も復元する。
+ */
+export const rtKioxiaShortGuardEvents = mysqlTable("rt_kioxia_short_guard_events", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  guardType: mysqlEnum("kioxia_short_guard_type", ["reversal_short_bpr", "safe_cb_volume"]).notNull(),
+  side: mysqlEnum("kioxia_short_guard_side", ["short"]).notNull(),
+  observedValue: decimal("observed_value", { precision: 12, scale: 6 }).notNull(),
+  thresholdValue: decimal("threshold_value", { precision: 12, scale: 6 }).notNull(),
+  averageVolume: decimal("average_volume", { precision: 16, scale: 4 }),
+  zeroVolumeBars: int("zero_volume_bars").notNull().default(0),
+  detail: text("detail"),
+  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_kioxia_short_guard_event_identity").on(
+    table.tradeDate,
+    table.symbol,
+    table.candleTime,
+    table.guardType,
+  ),
+}));
+
+export type RtKioxiaShortGuardEvent = typeof rtKioxiaShortGuardEvents.$inferSelect;
+export type InsertRtKioxiaShortGuardEvent = typeof rtKioxiaShortGuardEvents.$inferInsert;

@@ -35,6 +35,8 @@ vi.mock("./db", async () => {
     getRtCandlesAllForDate: vi.fn().mockResolvedValue([]),
     getRtOpenPositionsFromDb: vi.fn().mockResolvedValue([]),
     insertScore0Block: vi.fn().mockResolvedValue(undefined),
+    upsertKioxiaShortGuardEvent: vi.fn().mockResolvedValue(undefined),
+    getKioxiaShortGuardEventsForDate: vi.fn().mockResolvedValue([]),
   };
 });
 
@@ -85,7 +87,7 @@ describe("キオクシア(285A) 専用5方式の保存KABU 5営業日再生", ()
     console.log("KIOXIA_EXCLUSIVE_5D", JSON.stringify({ processedRows, events }));
     expect(processedRows).toBeGreaterThan(1_500);
     const entries = events.filter(event => event.action === "entry");
-    expect(entries).toHaveLength(12);
+    expect(entries).toHaveLength(11);
     for (const entry of entries) {
       expect(entry.reason).toMatch(/反転LONG|反転SHORT|順張りLONG|順張りSHORT|大台確認|大台割れ/);
       expect(entry.reason).not.toMatch(/安値更新即|押し目確認/);

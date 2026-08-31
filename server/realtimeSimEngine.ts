@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -666,7 +666,9 @@ const MARGIN_MULTIPLIER = 3.3;
 const MARGIN_USAGE_LIMIT = 0.9; // 90% → 990万 × 90% = 891万円
 
 /** 最大投資可能額 = 300万 × 3.3倍 × 90% = 8,910,000円 */
-const MAX_TOTAL_EXPOSURE = MARGIN_CAPITAL * MARGIN_MULTIPLIER * MARGIN_USAGE_LIMIT;
+const MAX_TOTAL_EXPOSURE = process.env.VITEST === "true" && process.env.KIOXIA_SHORT_GUARD_AUDIT_NO_MARGIN === "1"
+  ? Number.MAX_SAFE_INTEGER
+  : MARGIN_CAPITAL * MARGIN_MULTIPLIER * MARGIN_USAGE_LIMIT;
 
 /** 大引け強制決済の時刻 (HH:MM) */
 const MARKET_CLOSE_TIME = "15:25";
@@ -939,6 +941,67 @@ export interface SoftbankBreakoutLongAuditEvent {
 }
 const softbankBreakoutLongAuditEvents: SoftbankBreakoutLongAuditEvent[] = [];
 
+/** 285A SHORTガードは、最初の適格候補を拒否したら当日の同経路を終了する。 */
+export const KIOXIA_SHORT_GUARD_SPEC = Object.freeze({
+  reversalShortMinBpr: 0.70,
+  safeCbMinVolumeRatio: 0.45,
+  safeCbVolumeLookback: 20,
+});
+export type KioxiaShortGuardType = "reversal_short_bpr" | "safe_cb_volume";
+export interface KioxiaShortGuardAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: "285A";
+  guardType: KioxiaShortGuardType;
+  observedValue: number;
+  thresholdValue: number;
+  averageVolume?: number;
+  zeroVolumeBars: number;
+  detail: string;
+  referencePrice: number;
+}
+const kioxiaReversalShortGuardEnded = new Set<string>();
+const kioxiaSafeCbShortGuardEnded = new Set<string>();
+const kioxiaShortGuardAuditEvents: KioxiaShortGuardAuditEvent[] = [];
+
+export function applyKioxiaShortGuardRestoredEvents(
+  events: Array<{ guardType: KioxiaShortGuardType }>,
+): void {
+  for (const event of events) {
+    if (event.guardType === "reversal_short_bpr") kioxiaReversalShortGuardEnded.add("285A");
+    if (event.guardType === "safe_cb_volume") kioxiaSafeCbShortGuardEnded.add("285A");
+  }
+}
+
+export function shouldBlockKioxiaReversalShortByBpr(bpr: number): boolean {
+  return Number.isFinite(bpr) && bpr < KIOXIA_SHORT_GUARD_SPEC.reversalShortMinBpr;
+}
+
+export function shouldBlockKioxiaSafeCbByVolume(metrics: KioxiaSafeCbVolumeMetrics): boolean {
+  return metrics.enoughHistory && metrics.volumeRatio < KIOXIA_SHORT_GUARD_SPEC.safeCbMinVolumeRatio;
+}
+
+async function recordKioxiaShortGuardAuditEvent(event: KioxiaShortGuardAuditEvent): Promise<void> {
+  kioxiaShortGuardAuditEvents.push(event);
+  try {
+    await upsertKioxiaShortGuardEvent({
+      tradeDate: event.tradeDate,
+      symbol: event.symbol,
+      candleTime: event.candleTime,
+      guardType: event.guardType,
+      side: "short",
+      observedValue: event.observedValue.toFixed(6),
+      thresholdValue: event.thresholdValue.toFixed(6),
+      averageVolume: event.averageVolume === undefined ? null : event.averageVolume.toFixed(4),
+      zeroVolumeBars: event.zeroVolumeBars,
+      detail: event.detail,
+      referencePrice: event.referencePrice.toString(),
+    });
+  } catch (error) {
+    console.error("[RealtimeSim] 285A SHORTガード監査イベントDB保存失敗:", error);
+  }
+}
+
 async function recordSoftbankBreakoutLongAuditEvent(
   event: SoftbankBreakoutLongAuditEvent,
 ): Promise<void> {
@@ -1177,6 +1240,9 @@ function resetIfNewDay(tradeDate: string): void {
     sumcoBreakdownShortAuditEvents.length = 0;
     softbankBreakoutLongFired.clear();
     softbankBreakoutLongAuditEvents.length = 0;
+    kioxiaReversalShortGuardEnded.clear();
+    kioxiaSafeCbShortGuardEnded.clear();
+    kioxiaShortGuardAuditEvents.length = 0;
     taiyoCandidateAPrimaryFired.clear();
     taiyoCandidateAPending.clear();
     peakReversalShortFired.clear();
@@ -1221,6 +1287,112 @@ function shouldBlockSafeCbShort(symbol: string, candle: RtCandle1Min, buffer: Ca
     return true;
   }
   return false;
+}
+
+export interface KioxiaSafeCbVolumeMetrics {
+  volumeRatio: number;
+  averageVolume: number;
+  zeroVolumeBars: number;
+  enoughHistory: boolean;
+}
+
+export function calculateKioxiaSafeCbVolumeMetrics(
+  candle: Pick<RtCandle1Min, "volume">,
+  buffer: Array<Pick<CandleWithSignal, "volume">>,
+): KioxiaSafeCbVolumeMetrics {
+  const prior = buffer.slice(
+    Math.max(0, buffer.length - 1 - KIOXIA_SHORT_GUARD_SPEC.safeCbVolumeLookback),
+    Math.max(0, buffer.length - 1),
+  );
+  const averageVolume = prior.length > 0
+    ? prior.reduce((sum, item) => sum + item.volume, 0) / prior.length
+    : 0;
+  return {
+    volumeRatio: averageVolume > 0 ? candle.volume / averageVolume : 0,
+    averageVolume,
+    zeroVolumeBars: prior.filter(item => item.volume <= 0).length,
+    enoughHistory: prior.length >= KIOXIA_SHORT_GUARD_SPEC.safeCbVolumeLookback,
+  };
+}
+
+function addKioxiaShortGuardSignalHistory(event: KioxiaShortGuardAuditEvent): void {
+  signalHistory.unshift({
+    time: event.candleTime,
+    symbol: event.symbol,
+    symbolName: getStockName(event.symbol),
+    action: event.guardType === "reversal_short_bpr"
+      ? "kioxia_reversal_short_bpr_block"
+      : "kioxia_safe_cb_volume_block",
+    price: event.referencePrice,
+    shares: 0,
+    pnl: null,
+    reason: event.detail,
+  });
+  if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.pop();
+}
+
+async function shouldEndKioxiaReversalShortForBpr(
+  symbol: string,
+  candle: RtCandle1Min,
+  tradeDate: string,
+  candleTime: string,
+  snapshot: BoardSnapshot | null,
+): Promise<boolean> {
+  if (symbol !== "285A") return false;
+  if (kioxiaReversalShortGuardEnded.has(symbol)) return true;
+  const bpr = snapshot?.buyPressureRatio;
+  if (bpr === undefined || !shouldBlockKioxiaReversalShortByBpr(bpr)) return false;
+
+  kioxiaReversalShortGuardEnded.add(symbol);
+  const event: KioxiaShortGuardAuditEvent = {
+    tradeDate,
+    candleTime,
+    symbol: "285A",
+    guardType: "reversal_short_bpr",
+    observedValue: bpr,
+    thresholdValue: KIOXIA_SHORT_GUARD_SPEC.reversalShortMinBpr,
+    zeroVolumeBars: 0,
+    detail: `285A反転SHORT当日終了: 最初の適格候補BPR=${bpr.toFixed(2)} < ${KIOXIA_SHORT_GUARD_SPEC.reversalShortMinBpr.toFixed(2)}`,
+    referencePrice: candle.close,
+  };
+  addKioxiaShortGuardSignalHistory(event);
+  await recordKioxiaShortGuardAuditEvent(event);
+  console.log(`[RealtimeSim] ${event.detail}`);
+  return true;
+}
+
+async function shouldEndKioxiaSafeCbShortForVolume(
+  symbol: string,
+  candle: RtCandle1Min,
+  buffer: CandleWithSignal[],
+  tradeDate: string,
+  candleTime: string,
+): Promise<boolean> {
+  if (symbol !== "285A") return false;
+  if (kioxiaSafeCbShortGuardEnded.has(symbol)) return true;
+  const metrics = calculateKioxiaSafeCbVolumeMetrics(candle, buffer);
+  if (!shouldBlockKioxiaSafeCbByVolume(metrics)) return false;
+
+  kioxiaSafeCbShortGuardEnded.add(symbol);
+  const dataQuality = metrics.zeroVolumeBars >= KIOXIA_SHORT_GUARD_SPEC.safeCbVolumeLookback / 2
+    ? "（直前20本の出来高ゼロ多数: データ欠損疑い）"
+    : "";
+  const event: KioxiaShortGuardAuditEvent = {
+    tradeDate,
+    candleTime,
+    symbol: "285A",
+    guardType: "safe_cb_volume",
+    observedValue: metrics.volumeRatio,
+    thresholdValue: KIOXIA_SHORT_GUARD_SPEC.safeCbMinVolumeRatio,
+    averageVolume: metrics.averageVolume,
+    zeroVolumeBars: metrics.zeroVolumeBars,
+    detail: `285A安全CB SHORT当日終了: 最初の適格候補出来高比=${metrics.volumeRatio.toFixed(3)} < ${KIOXIA_SHORT_GUARD_SPEC.safeCbMinVolumeRatio.toFixed(2)}、直前20本平均=${metrics.averageVolume.toFixed(1)}、出来高ゼロ=${metrics.zeroVolumeBars}本${dataQuality}`,
+    referencePrice: candle.close,
+  };
+  addKioxiaShortGuardSignalHistory(event);
+  await recordKioxiaShortGuardAuditEvent(event);
+  console.log(`[RealtimeSim] ${event.detail}`);
+  return true;
 }
 
 /**
@@ -1486,6 +1658,17 @@ export async function restoreBuffersFromDb(): Promise<void> {
     currentTradeDate = today;
     bufferRestored = true;
     console.log(`[RealtimeSim] バッファ復元完了(当日構築): ${today} / ${grouped.size}銀柄 / 合計1分足${rows.length}本`);
+
+    // ---- 285A SHORTガードの当日終了状態を専用監査イベントから復元 ----
+    try {
+      const restoredGuards = await getKioxiaShortGuardEventsForDate(today);
+      applyKioxiaShortGuardRestoredEvents(restoredGuards);
+      if (restoredGuards.length > 0) {
+        console.log(`[RealtimeSim] 285A SHORTガード復元: ${restoredGuards.length}件`);
+      }
+    } catch (guardErr) {
+      console.error("[RealtimeSim] 285A SHORTガード復元エラー:", guardErr);
+    }
 
     // ---- オープンポジションのDBからの復元 ----
     try {
@@ -2832,13 +3015,19 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // 安全CBをブロックする場面では、同一足の反転SHORTを評価できるようにする。
   const safeCbBlockedNow = isRoundBreakdownSignal && shouldBlockSafeCbShort(symbol, candle, buffer);
   // 285Aは安全条件を満たした大台割れCBだけ、後段の既存CB確認・板・HTF経路へ通す。
-  const safeCbShortReady = Boolean(symConfig.enableSafeCbShort && isRoundBreakdownSignal && !safeCbBlockedNow);
+  const safeCbShortReady = Boolean(
+    symConfig.enableSafeCbShort &&
+    isRoundBreakdownSignal &&
+    !safeCbBlockedNow &&
+    !kioxiaSafeCbShortGuardEnded.has(symbol),
+  );
 
   // ---- ★285A反転SHORT: 上昇後の明確な反落を捉える ----
   // 安全な大台割れCBが同じ足で出ている場合はCBを優先する。
   if (
     symConfig.enableReversalShort &&
     !reversalShortFired.has(symbol) &&
+    !kioxiaReversalShortGuardEnded.has(symbol) &&
     isEntryAllowed &&
     (!isRoundBreakdownSignal || safeCbBlockedNow) &&
     buffer.length >= (symConfig.maPeriod ?? IS_BULLISH_MA_PERIOD) + 1
@@ -2874,6 +3063,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             `高値${dayHigh}→現在${candle.close}（落${dropFromHighPct.toFixed(1)}%） ` +
             `MA${maPeriod}下向き + 直近10本安値更新 (SL${slPct}%/TP${tpPct}%)`
           );
+          if (await shouldEndKioxiaReversalShortForBpr(symbol, candle, tradeDate, candleTime, boardSnapshot)) {
+            return { symbol, tradeDate, candleTime, action: "none" };
+          }
           const result = await enterPosition(
             "short",
             candle,
@@ -3890,6 +4082,12 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         console.log(`[RealtimeSim] ${symbol} 大台超えLONGブロック(タイムアウト): buy_pressureなし → エントリーしない`);
         return { symbol, tradeDate, candleTime, action: "none" };
       }
+      if (
+        side === "short" &&
+        await shouldEndKioxiaSafeCbShortForVolume(symbol, candle, buffer, tradeDate, candleTime)
+      ) {
+        return { symbol, tradeDate, candleTime, action: "none" };
+      }
       return await enterPosition(side, candle, tradeDate, candleTime, `${roundPb.reason} (押し目なし・強トレンド)`, boardSnapshot);
     }
 
@@ -3985,6 +4183,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           return { symbol, tradeDate, candleTime, action: "none" };
         }
         console.log(`[RealtimeSim] ${symbol} 大台押し目確認後エントリー: ${roundPb.reason} (板スコア:${brScoreSell})`);
+        if (await shouldEndKioxiaSafeCbShortForVolume(symbol, candle, buffer, tradeDate, candleTime)) {
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
         return await enterPosition("short", candle, tradeDate, candleTime, `${roundPb.reason} (押し目確認後)`, boardSnapshot);
       }
     }
@@ -4246,7 +4447,11 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     // 大台割れシグナルは確認バーステートマシンに登録して待機
     if (sig.reason.startsWith("大台割れ")) {
-      if (safeCbBlockedNow || shouldBlockSafeCbShort(symbol, candle, buffer)) {
+      if (
+        kioxiaSafeCbShortGuardEnded.has(symbol) ||
+        safeCbBlockedNow ||
+        shouldBlockSafeCbShort(symbol, candle, buffer)
+      ) {
         return { symbol, tradeDate, candleTime, action: "none" };
       }
       // ★案6改: 出来高急増時は即エントリー（CB/MW待機をスキップ）— sell_pressure条件撤廃
@@ -4259,6 +4464,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       }
       if (volRatio >= FAST_ENTRY_VOL_RATIO) {
         console.log(`[RealtimeSim] ${symbol} 大台割れSHORT即エントリー: 出来高${volRatio.toFixed(1)}倍(≥${FAST_ENTRY_VOL_RATIO}倍) (${sig.reason})`);
+        if (await shouldEndKioxiaSafeCbShortForVolume(symbol, candle, buffer, tradeDate, candleTime)) {
+          return { symbol, tradeDate, candleTime, action: "none" };
+        }
         return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (即エントリー: vol)", boardSnapshot);
       }
 
@@ -4271,6 +4479,9 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
           const prevDistPct = (prevClose - level) / level * 100;
           if (prevDistPct <= FAST_ENTRY_PREV_DIST_PCT) {
             console.log(`[RealtimeSim] ${symbol} 大台割れSHORT即エントリー(前足近接): 前足乖離${prevDistPct.toFixed(3)}%(≤${FAST_ENTRY_PREV_DIST_PCT}%) (${sig.reason})`);
+            if (await shouldEndKioxiaSafeCbShortForVolume(symbol, candle, buffer, tradeDate, candleTime)) {
+              return { symbol, tradeDate, candleTime, action: "none" };
+            }
             return await enterPosition("short", candle, tradeDate, candleTime, sig.reason + " (即エントリー: 前足近接)", boardSnapshot);
           }
         }
@@ -5089,6 +5300,28 @@ export function getSoftbankBreakoutLongAuditEventsForTest(): SoftbankBreakoutLon
     throw new Error("9984専用LONG監査イベントはVitest専用です");
   }
   return softbankBreakoutLongAuditEvents.map(event => ({ ...event }));
+}
+
+/** 285A両SHORTガードの当日監査イベントをVitestから取得する。 */
+export function getKioxiaShortGuardAuditEventsForTest(): KioxiaShortGuardAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("285A SHORTガード監査イベントはVitest専用です");
+  }
+  return kioxiaShortGuardAuditEvents.map(event => ({ ...event }));
+}
+
+/** 285A両SHORTガードの再起動復元状態をVitestから確認する。 */
+export function getKioxiaShortGuardStateForTest(): {
+  reversalShortEnded: boolean;
+  safeCbShortEnded: boolean;
+} {
+  if (process.env.VITEST !== "true") {
+    throw new Error("285A SHORTガード状態はVitest専用です");
+  }
+  return {
+    reversalShortEnded: kioxiaReversalShortGuardEnded.has("285A"),
+    safeCbShortEnded: kioxiaSafeCbShortGuardEnded.has("285A"),
+  };
 }
 
 /**

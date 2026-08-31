@@ -554,6 +554,7 @@ import {
   rtSocionextConfirmedLongEvents,
   rtSumcoBreakdownShortEvents,
   rtSoftbankBreakoutLongEvents,
+  rtKioxiaShortGuardEvents,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -568,6 +569,8 @@ import {
   type RtSumcoBreakdownShortEvent,
   type InsertRtSoftbankBreakoutLongEvent,
   type RtSoftbankBreakoutLongEvent,
+  type InsertRtKioxiaShortGuardEvent,
+  type RtKioxiaShortGuardEvent,
 } from "../drizzle/schema";
 
 /**
@@ -921,4 +924,40 @@ export async function getSoftbankBreakoutLongEventsForDate(
     .from(rtSoftbankBreakoutLongEvents)
     .where(eq(rtSoftbankBreakoutLongEvents.tradeDate, tradeDate))
     .orderBy(rtSoftbankBreakoutLongEvents.id);
+}
+
+// ============================================================
+// 285A SHORTガード DRY_RUN監査イベント helpers
+// ============================================================
+
+export async function upsertKioxiaShortGuardEvent(
+  data: Omit<InsertRtKioxiaShortGuardEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(rtKioxiaShortGuardEvents)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        observedValue: data.observedValue,
+        thresholdValue: data.thresholdValue,
+        averageVolume: data.averageVolume ?? null,
+        zeroVolumeBars: data.zeroVolumeBars ?? 0,
+        detail: data.detail ?? null,
+        referencePrice: data.referencePrice,
+      },
+    });
+}
+
+export async function getKioxiaShortGuardEventsForDate(
+  tradeDate: string,
+): Promise<RtKioxiaShortGuardEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtKioxiaShortGuardEvents)
+    .where(eq(rtKioxiaShortGuardEvents.tradeDate, tradeDate))
+    .orderBy(rtKioxiaShortGuardEvents.id);
 }

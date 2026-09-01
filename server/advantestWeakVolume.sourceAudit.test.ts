@@ -61,14 +61,14 @@ import { getOpenPositions, processCandle } from "./realtimeSimEngine";
 
 const sourceAuditIt = process.env.RUN_ADVANTEST_WEAK_VOLUME_SOURCE_AUDIT === "1" ? it : it.skip;
 
-describe("6857 弱出来高＋利益保護・保存KABU全48日ソース監査", () => {
+describe("6857 弱出来高＋利益保護＋SHORT TP3.0%・保存KABU全49日ソース監査", () => {
   sourceAuditIt("重複除去済み保存足を実エンジンへ投入し、全取引と決済理由を再現する", async () => {
     const db = await getDb();
     if (!db) throw new Error("DATABASE_URL required");
     const dateRows = await db.execute(sql`
       SELECT DISTINCT tradeDate
       FROM rt_candles
-      WHERE symbol = '6857' AND tradeDate <= '2026-08-31'
+      WHERE symbol = '6857' AND tradeDate <= '2026-09-01'
       ORDER BY tradeDate
     `);
     const dates = (dateRows[0] as Array<{ tradeDate: string }>).map(row => String(row.tradeDate));
@@ -126,13 +126,13 @@ describe("6857 弱出来高＋利益保護・保存KABU全48日ソース監査",
     };
     const highFadeShorts = trades.filter(trade => String(trade.entryReason).startsWith("アドバンテスト高値失速SHORT"));
 
-    expect(summary).toEqual({ dates: 48, trades: 24, wins: 21, losses: 3, pnlPer100: 475_851 });
+    expect(summary).toEqual({ dates: 49, trades: 25, wins: 22, losses: 3, pnlPer100: 582_735 });
     expect({
       trades: highFadeShorts.length,
       wins: highFadeShorts.filter(trade => Number(trade.pnlPer100) > 0).length,
       losses: highFadeShorts.filter(trade => Number(trade.pnlPer100) < 0).length,
       pnlPer100: highFadeShorts.reduce((sum, trade) => sum + Number(trade.pnlPer100), 0),
-    }).toEqual({ trades: 14, wins: 12, losses: 2, pnlPer100: 260_476 });
+    }).toEqual({ trades: 14, wins: 12, losses: 2, pnlPer100: 334_210 });
     expect(highFadeShorts).toContainEqual(expect.objectContaining({
       date: "2026-08-31",
       entryTime: "09:57",

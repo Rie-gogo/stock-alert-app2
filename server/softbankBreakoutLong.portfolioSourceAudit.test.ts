@@ -134,7 +134,7 @@ describe("285A他AI案＋8035始値方向短期ブレイク＋9984専用LONG 10�
     expect(baseline.trades).toHaveLength(244);
     expect(baseline.trades.filter(trade => trade.pnl > 0)).toHaveLength(195);
     expect(baseline.trades.filter(trade => trade.pnl < 0)).toHaveLength(49);
-    expect(baseline.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_714_713);
+    expect(baseline.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_772_940);
 
     expect(softbankTrades).toHaveLength(21);
     expect(softbankTrades.filter(trade => trade.pnl > 0)).toHaveLength(19);
@@ -143,13 +143,13 @@ describe("285A他AI案＋8035始値方向短期ブレイク＋9984専用LONG 10�
     expect(candidate.trades).toHaveLength(264);
     expect(candidate.trades.filter(trade => trade.pnl > 0)).toHaveLength(213);
     expect(candidate.trades.filter(trade => trade.pnl < 0)).toHaveLength(51);
-    expect(candidate.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_799_957);
+    expect(candidate.trades.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_858_184);
 
     expect(candidateExisting).toHaveLength(243);
     expect(candidateExisting.filter(trade => trade.pnl > 0)).toHaveLength(194);
     expect(candidateExisting.filter(trade => trade.pnl < 0)).toHaveLength(49);
-    expect(candidateExisting.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_704_792);
-    expect(candidate.marginBlocks).toHaveLength(253);
+    expect(candidateExisting.reduce((sum, trade) => sum + trade.pnl, 0)).toBe(5_763_019);
+    expect(candidate.marginBlocks).toHaveLength(257);
     expect(candidate.marginBlocks.filter(block => block.symbol === "9984").length).toBeGreaterThan(0);
 
     const recent3 = candidate.trades.filter(trade => ["2026-08-27", "2026-08-28", "2026-08-31"].includes(trade.date));

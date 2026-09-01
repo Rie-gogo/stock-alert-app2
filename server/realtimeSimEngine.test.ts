@@ -2611,7 +2611,7 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
     expect(config.advantestInitialShortWeakVolumeBlockMinRisePct).toBe(1.9);
     expect(config.advantestInitialShortWeakVolumeBlockMaxVolumeRatio).toBe(2.2);
     expect(config.advantestHighFadeShortSlPct).toBe(1.0);
-    expect(config.advantestHighFadeShortTpPct).toBe(1.2);
+    expect(config.advantestHighFadeShortTpPct).toBe(3.0);
     expect(config.advantestHighFadeShortProfitProtectionTriggerPct).toBe(0.8);
     expect(config.advantestHighFadeShortProfitProtectionFloorPct).toBe(0.7);
     expect(getSymbolConfig("8035").enableAdvantestHighFadeShort).toBeUndefined();
@@ -2624,7 +2624,7 @@ describe("アドバンテスト(6857) 高値失速SHORT・前足実体ブロッ�
     expect(positions).toHaveLength(1);
     expect(positions[0].entryReason).toContain("アドバンテスト高値失速SHORT");
     expect(positions[0].slPctOverride).toBe(1.0);
-    expect(positions[0].tpPctOverride).toBe(1.2);
+    expect(positions[0].tpPctOverride).toBe(3.0);
   });
 
   it("前足が実体0.05%未満の小陰線なら高値失速SHORTを停止する", async () => {
@@ -2800,7 +2800,7 @@ describe("アドバンテスト(6857) 確認型LONG・損切り後再評価", ()
     const shortPosition = getOpenPositions().find(item => item.symbol === symbol);
     expect(shortPosition?.side).toBe("short");
     expect(shortPosition?.slPctOverride).toBe(1.0);
-    expect(shortPosition?.tpPctOverride).toBe(1.2);
+    expect(shortPosition?.tpPctOverride).toBe(3.0);
   });
 });
 

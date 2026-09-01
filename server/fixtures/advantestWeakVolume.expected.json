@@ -13,24 +13,24 @@
   {
     "date": "2026-06-26",
     "entryTime": "09:50",
-    "exitTime": "10:32",
+    "exitTime": "11:27",
     "side": "short",
     "entryPrice": 33230,
-    "pnlPer100": 39876,
+    "pnlPer100": 81000,
     "entryReason": "アドバンテスト高値失速SHORT: 始値比+1.46%、高値から6.00%反落、5本安値更新、前足陰線実体0.239%",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:32831円)"
+    "exitAction": "exit",
+    "exitReason": "前場強制決済"
   },
   {
     "date": "2026-07-01",
     "entryTime": "09:52",
-    "exitTime": "10:05",
+    "exitTime": "10:20",
     "side": "short",
     "entryPrice": 33850,
-    "pnlPer100": 40620,
+    "pnlPer100": 101550,
     "entryReason": "アドバンテスト高値失速SHORT: 始値比+1.00%、高値から0.99%反落、5本安値更新、前足陰線実体0.088%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:33444円)"
+    "exitReason": "利確 (利確ライン:32835円)"
   },
   {
     "date": "2026-07-03",
@@ -145,13 +145,13 @@
   {
     "date": "2026-07-27",
     "entryTime": "09:56",
-    "exitTime": "10:14",
+    "exitTime": "10:16",
     "side": "short",
     "entryPrice": 28145,
-    "pnlPer100": 33774,
+    "pnlPer100": 19701,
     "entryReason": "アドバンテスト高値失速SHORT: 始値比+1.75%、高値から4.88%反落、5本安値更新、前足陰線実体0.229%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:27807円)"
+    "exitReason": "アドバンテスト利益保護 (+0.8%到達後、+0.7%戻り)"
   },
   {
     "date": "2026-07-30",
@@ -167,13 +167,13 @@
   {
     "date": "2026-07-30",
     "entryTime": "11:03",
-    "exitTime": "11:14",
+    "exitTime": "11:21",
     "side": "short",
     "entryPrice": 28495,
-    "pnlPer100": 34194,
+    "pnlPer100": 19947,
     "entryReason": "アドバンテスト高値失速SHORT（損切り後再評価）: 始値比+4.38%、高値から3.16%反落、5本安値更新、前足陰線実体0.174%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:28153円)"
+    "exitReason": "アドバンテスト利益保護 (+0.8%到達後、+0.7%戻り)"
   },
   {
     "date": "2026-08-07",
@@ -262,5 +262,16 @@
     "entryReason": "アドバンテスト高値失速SHORT: 始値比+1.46%、高値から1.68%反落、5本安値更新、前足陰線実体0.212%",
     "exitAction": "take_profit",
     "exitReason": "アドバンテスト利益保護 (+0.8%到達後、+0.7%戻り)"
+  },
+  {
+    "date": "2026-09-01",
+    "entryTime": "10:00",
+    "exitTime": "10:16",
+    "side": "long",
+    "entryPrice": 33150,
+    "pnlPer100": 33150,
+    "entryReason": "アドバンテスト確認型LONG: 20本高値更新、前足陽線実体0.121%、VWAP上、出来高2.04倍",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:33482円)"
   }
 ]

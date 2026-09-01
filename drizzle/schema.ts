@@ -712,6 +712,33 @@ export type RtKioxiaConfirmedMorningLongEvent = typeof rtKioxiaConfirmedMorningL
 export type InsertRtKioxiaConfirmedMorningLongEvent = typeof rtKioxiaConfirmedMorningLongEvents.$inferInsert;
 
 /**
+ * 8035始値方向付き短期ブレイク DRY_RUN監査イベント。
+ * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
+ */
+export const rtTelOpenDirectionBreakoutEvents = mysqlTable("rt_tel_open_direction_breakout_events", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  eventType: mysqlEnum("tel_open_direction_breakout_event_type", ["engine_rejected"]).notNull(),
+  side: mysqlEnum("tel_open_direction_breakout_event_side", ["long", "short"]).notNull(),
+  detail: text("detail"),
+  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_tel_open_direction_breakout_event_identity").on(
+    table.tradeDate,
+    table.symbol,
+    table.candleTime,
+    table.eventType,
+    table.side,
+  ),
+}));
+
+export type RtTelOpenDirectionBreakoutEvent = typeof rtTelOpenDirectionBreakoutEvents.$inferSelect;
+export type InsertRtTelOpenDirectionBreakoutEvent = typeof rtTelOpenDirectionBreakoutEvents.$inferInsert;
+
+/**
  * 285A SHORTガード DRY_RUN監査イベント。
  * 反転SHORTのBPR不足、安全CB SHORTの出来高不足による当日終了を再起動後も復元する。
  */

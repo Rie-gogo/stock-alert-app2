@@ -25,6 +25,7 @@ import { evaluateSocionextConfirmedLongOrderApproval } from "./socionextConfirme
 import { evaluateSumcoBreakdownShortOrderApproval } from "./sumcoBreakdownShort";
 import { evaluateSoftbankBreakoutLongOrderApproval } from "./softbankBreakoutLong";
 import { evaluateKioxiaConfirmedMorningLongOrderApproval } from "./kioxiaConfirmedMorningLong";
+import { evaluateTelOpenDirectionBreakoutOrderApproval } from "./telOpenDirectionBreakout";
 
 // ============================================================
 // 定数
@@ -45,6 +46,7 @@ const FIXED_QTY = 100;
  */
 export async function createOrderInstruction(data: Omit<InsertOrderInstruction, "id" | "createdAt" | "updatedAt">): Promise<OrderInstruction> {
   const approvalInput = {
+    symbol: data.symbol,
     reason: data.reason,
     instructionType: data.instructionType,
     isDryRun: data.isDryRun !== false,
@@ -55,6 +57,7 @@ export async function createOrderInstruction(data: Omit<InsertOrderInstruction, 
     evaluateSumcoBreakdownShortOrderApproval(approvalInput),
     evaluateSoftbankBreakoutLongOrderApproval(approvalInput),
     evaluateKioxiaConfirmedMorningLongOrderApproval(approvalInput),
+    evaluateTelOpenDirectionBreakoutOrderApproval(approvalInput),
   ];
   for (const strategyApproval of strategyApprovals) {
     if (!strategyApproval.allowed) {

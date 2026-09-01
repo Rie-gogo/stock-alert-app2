@@ -471,9 +471,10 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     let sumcoBreakdownShortSection = "";
     let softbankBreakoutLongSection = "";
     let kioxiaConfirmedMorningLongSection = "";
+    let telOpenDirectionBreakoutSection = "";
     let kioxiaShortGuardSection = "";
     try {
-      const { getRtCandlesAllForDate, getTaiyoCandidateBEventsForDate, getSocionextConfirmedLongEventsForDate, getSumcoBreakdownShortEventsForDate, getSoftbankBreakoutLongEventsForDate, getKioxiaConfirmedMorningLongEventsForDate, getKioxiaShortGuardEventsForDate } = await import("./db");
+      const { getRtCandlesAllForDate, getTaiyoCandidateBEventsForDate, getSocionextConfirmedLongEventsForDate, getSumcoBreakdownShortEventsForDate, getSoftbankBreakoutLongEventsForDate, getKioxiaConfirmedMorningLongEventsForDate, getTelOpenDirectionBreakoutEventsForDate, getKioxiaShortGuardEventsForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
       const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport, runScore0DailySimulation, formatScore0Report } = await import("./cbV2Simulation");
       const { formatTaiyoCandidateBDryRunReport } = await import("./taiyoCandidateBDryRunReport");
@@ -481,6 +482,7 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       const { formatSumcoBreakdownShortDryRunReport } = await import("./sumcoBreakdownShortDryRunReport");
       const { formatSoftbankBreakoutLongDryRunReport } = await import("./softbankBreakoutLongDryRunReport");
       const { formatKioxiaConfirmedMorningLongDryRunReport } = await import("./kioxiaConfirmedMorningLongDryRunReport");
+      const { formatTelOpenDirectionBreakoutDryRunReport } = await import("./telOpenDirectionBreakoutDryRunReport");
       const { formatKioxiaShortGuardDryRunReport } = await import("./kioxiaShortGuardDryRunReport");
 
       const allCandles = await getRtCandlesAllForDate(todayStr);
@@ -490,6 +492,7 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       const persistedSumcoBreakdownShortEvents = await getSumcoBreakdownShortEventsForDate(todayStr);
       const persistedSoftbankBreakoutLongEvents = await getSoftbankBreakoutLongEventsForDate(todayStr);
       const persistedKioxiaConfirmedMorningLongEvents = await getKioxiaConfirmedMorningLongEventsForDate(todayStr);
+      const persistedTelOpenDirectionBreakoutEvents = await getTelOpenDirectionBreakoutEventsForDate(todayStr);
       const persistedKioxiaShortGuardEvents = await getKioxiaShortGuardEventsForDate(todayStr);
       // signalHistoryからround_distance_block SHORTを抽出
       const signalBlocks = currentSignals
@@ -520,6 +523,11 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
         trades,
         currentSignals,
         persistedKioxiaConfirmedMorningLongEvents,
+      ).section;
+      telOpenDirectionBreakoutSection = formatTelOpenDirectionBreakoutDryRunReport(
+        trades,
+        currentSignals,
+        persistedTelOpenDirectionBreakoutEvents,
       ).section;
       kioxiaShortGuardSection = formatKioxiaShortGuardDryRunReport(
         persistedKioxiaShortGuardEvents,
@@ -556,6 +564,7 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       sumcoBreakdownShortSection = "\n【3436 15本安値更新SHORT DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
       softbankBreakoutLongSection = "\n【9984 10本高値更新LONG DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
       kioxiaConfirmedMorningLongSection = "\n【285A確認型前場LONG DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
+      telOpenDirectionBreakoutSection = "\n【8035始値方向付き短期ブレイク DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
       kioxiaShortGuardSection = "\n【285A SHORTガード DRY_RUN監視】\n  集計エラーが発生しました\n";
     }
 
@@ -578,6 +587,7 @@ ${socionextConfirmedLongSection}
 ${sumcoBreakdownShortSection}
 ${softbankBreakoutLongSection}
 ${kioxiaConfirmedMorningLongSection}
+${telOpenDirectionBreakoutSection}
 ${kioxiaShortGuardSection}
 ${cbV2Section}
 ${branchSection}

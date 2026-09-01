@@ -154,6 +154,10 @@ SOFTBANK_BREAKOUT_LONG_REASON_PREFIX = "ソフトバンクG専用10本高値更�
 KIOXIA_CONFIRMED_MORNING_LONG_LIVE_APPROVED = False
 KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX = "キオクシア確認型前場LONG"
 
+# 8035始値方向付き短期ブレイクもDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+TEL_OPEN_DIRECTION_BREAKOUT_LIVE_APPROVED = False
+TEL_OPEN_DIRECTION_BREAKOUT_REASON_PREFIX = "東京エレクトロン短期ブレイク"
+
 # executorポーリング間隔（秒）
 EXECUTOR_POLL_INTERVAL = 1.0
 
@@ -1743,6 +1747,15 @@ def executor_preflight_check(instruction: dict) -> tuple:
         and str(instruction.get("reason", "")).startswith(KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX)
     ):
         return False, "285A確認型前場LONGはLIVE未承認: 新規注文を強制拒否"
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not TEL_OPEN_DIRECTION_BREAKOUT_LIVE_APPROVED
+        and str(instruction.get("symbol", "")) == "8035"
+        and str(instruction.get("reason", "")).startswith(TEL_OPEN_DIRECTION_BREAKOUT_REASON_PREFIX)
+    ):
+        return False, "8035始値方向付き短期ブレイクはLIVE未承認: 新規注文を強制拒否"
 
     # 1. 取引有効チェック（緊急停止中でないか）
     # → クラウド側で既にチェック済みだが、ローカルでも二重チェック

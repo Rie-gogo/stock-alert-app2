@@ -555,6 +555,7 @@ import {
   rtSumcoBreakdownShortEvents,
   rtSoftbankBreakoutLongEvents,
   rtKioxiaConfirmedMorningLongEvents,
+  rtTelOpenDirectionBreakoutEvents,
   rtKioxiaShortGuardEvents,
   type InsertRtCandle,
   type InsertRtTrade,
@@ -572,6 +573,8 @@ import {
   type RtSoftbankBreakoutLongEvent,
   type InsertRtKioxiaConfirmedMorningLongEvent,
   type RtKioxiaConfirmedMorningLongEvent,
+  type InsertRtTelOpenDirectionBreakoutEvent,
+  type RtTelOpenDirectionBreakoutEvent,
   type InsertRtKioxiaShortGuardEvent,
   type RtKioxiaShortGuardEvent,
 } from "../drizzle/schema";
@@ -959,6 +962,38 @@ export async function getKioxiaConfirmedMorningLongEventsForDate(
     .from(rtKioxiaConfirmedMorningLongEvents)
     .where(eq(rtKioxiaConfirmedMorningLongEvents.tradeDate, tradeDate))
     .orderBy(rtKioxiaConfirmedMorningLongEvents.id);
+}
+
+// ============================================================
+// 8035始値方向付き短期ブレイク DRY_RUN監査イベント helpers
+// ============================================================
+
+export async function upsertTelOpenDirectionBreakoutEvent(
+  data: Omit<InsertRtTelOpenDirectionBreakoutEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(rtTelOpenDirectionBreakoutEvents)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        detail: data.detail ?? null,
+        referencePrice: data.referencePrice,
+      },
+    });
+}
+
+export async function getTelOpenDirectionBreakoutEventsForDate(
+  tradeDate: string,
+): Promise<RtTelOpenDirectionBreakoutEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtTelOpenDirectionBreakoutEvents)
+    .where(eq(rtTelOpenDirectionBreakoutEvents.tradeDate, tradeDate))
+    .orderBy(rtTelOpenDirectionBreakoutEvents.id);
 }
 
 // ============================================================

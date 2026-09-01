@@ -1877,7 +1877,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     const config = getSymbolConfig("8035");
 
     expect(config.sl).toEqual({ long: 0.7, short: 0.6 });
-    expect(config.tp).toEqual({ long: 1.0, short: 1.8 });
+    expect(config.tp).toEqual({ long: 1.4, short: 1.8 });
     expect(config.enableTrendLong).toBe(true);
     expect(config.trendLongStartTime).toBe("10:00");
     expect(config.trendLongEndTime).toBe("11:27");
@@ -1886,7 +1886,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.trendLongHighLookback).toBe(20);
     expect(config.trendLongMinVolumeRatio).toBe(1.0);
     expect(config.trendLongSlPct).toBe(0.7);
-    expect(config.trendLongTpPct).toBe(1.0);
+    expect(config.trendLongTpPct).toBe(1.4);
     expect(config.trendBoardBprMax).toBe(1.6);
     expect(config.enableTrendShort).toBe(true);
     expect(config.trendShortMinOpenGainPct).toBe(-4.0);
@@ -1894,7 +1894,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.trendShortLowLookback).toBe(5);
     expect(config.trendShortSlPct).toBe(0.6);
     expect(config.trendShortTpPct).toBe(1.8);
-    expect(config.enablePeakReversalShort).toBe(true);
+    expect(config.enablePeakReversalShort).toBe(false);
     expect(config.peakReversalShortMinRisePct).toBe(2.5);
     expect(config.peakReversalShortDropPct).toBe(0.4);
     expect(config.peakReversalShortSlPct).toBe(0.6);
@@ -1906,28 +1906,29 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.telShortBreakFallbackStartTime).toBe("10:31");
     expect(config.telShortBreakLookback).toBe(5);
     expect(config.telShortBreakMaPeriod).toBe(8);
-    expect(config.telShortBreakMinVolumeRatio).toBe(1.2);
+    expect(config.telShortBreakMinVolumeRatio).toBe(1.0);
+    expect(config.telShortBreakMinOpenDirectionPct).toBe(0.25);
     expect(config.telShortBreakSlPct).toBe(0.6);
-    expect(config.telShortBreakTpPct).toBe(0.5);
-    expect(config.telShortBreakMaxHoldingMinutes).toBe(15);
+    expect(config.telShortBreakTpPct).toBe(1.2);
+    expect(config.telShortBreakMaxHoldingMinutes).toBe(20);
     expect(config.disableTelShortBreakBoardEarlyExit).toBe(true);
   });
 
-  it("東京エレクトロン短期ブレイクLONGは10:00に終値5本高値更新・MA8上向き・出来高1.2倍以上で発火する", async () => {
+  it("東京エレクトロン短期ブレイクLONGは10:00に始値比+0.25%以上・終値5本高値更新・MA8上向き・出来高1.0倍以上で発火する", async () => {
     const symbol = "8035";
     const tradeDate = "2027-02-01";
     await warmup(symbol, tradeDate, 70000, 100);
 
     const result = await processCandle(makeCandle({
       symbol, tradeDate, candleTime: "10:00",
-      open: 70000, high: 70130, low: 69995, close: 70120, volume: 6000,
+      open: 70100, high: 70230, low: 70095, close: 70220, volume: 5000,
     }));
 
     expect(result.action).toBe("entry");
     const position = getOpenPositions().find(item => item.symbol === symbol);
     expect(position?.entryReason).toContain("東京エレクトロン短期ブレイクLONG");
     expect(position?.slPctOverride).toBe(0.6);
-    expect(position?.tpPctOverride).toBe(0.5);
+    expect(position?.tpPctOverride).toBe(1.2);
   });
 
   it("東京エレクトロン短期ブレイクは板読み早期利確を使わない", () => {
@@ -1942,7 +1943,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(shouldBoardEarlyExit(pos, 70100, { signal: "sell_pressure" } as Parameters<typeof shouldBoardEarlyExit>[2])).toBe(false);
   });
 
-  it("東京エレクトロン短期ブレイクは15分到達足では保持し、次足始値で決済する", async () => {
+  it("東京エレクトロン短期ブレイクは20分到達足では保持し、次足始値で決済する", async () => {
     const symbol = "8035";
     const tradeDate = "2027-02-02";
     await warmup(symbol, tradeDate, 70000, 10);
@@ -1952,17 +1953,17 @@ describe("キオクシア(285A) 反転LONG", () => {
     }]);
 
     const hold = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "10:15",
+      symbol, tradeDate, candleTime: "10:20",
       open: 70010, high: 70100, low: 69950, close: 70020, volume: 5000,
     }));
     expect(hold.action).toBe("none");
 
     const exit = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "10:16",
+      symbol, tradeDate, candleTime: "10:21",
       open: 70030, high: 70100, low: 69950, close: 70040, volume: 5000,
     }));
     expect(exit.action).toBe("exit");
-    expect(exit.reason).toContain("最大保有15分経過後の次足始値決済");
+    expect(exit.reason).toContain("最大保有20分経過後の次足始値決済");
     expect(exit.pnl).toBe(3000);
   });
 
@@ -1976,7 +1977,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     const result = await enterPosition("long", makeCandle({
       symbol: "8035", tradeDate, candleTime: "10:00",
       open: 70000, high: 70020, low: 69980, close: 70000, volume: 6000,
-    }), tradeDate, "10:00", "東京エレクトロン短期ブレイクLONG: テスト", null, { slPct: 0.6, tpPct: 0.5 });
+    }), tradeDate, "10:00", "東京エレクトロン短期ブレイクLONG: テスト", null, { slPct: 0.6, tpPct: 1.2 });
 
     expect(result.action).toBe("none");
     const blocked = getSignalHistory().find(item => item.symbol === "8035" && item.action === "margin_block");
@@ -1994,7 +1995,7 @@ describe("キオクシア(285A) 反転LONG", () => {
       symbol, tradeDate, candleTime: "10:00",
       open: 70000, high: 70020, low: 69980, close: 70000, volume: 1000,
     });
-    await enterPosition("long", entryCandle, tradeDate, "10:00", "時間決済テスト", null, { slPct: 0.7, tpPct: 1.0 });
+    await enterPosition("long", entryCandle, tradeDate, "10:00", "時間決済テスト", null, { slPct: 0.7, tpPct: 1.4 });
 
     const beforeLimit = await processCandle(makeCandle({
       symbol, tradeDate, candleTime: "10:22",
@@ -2031,7 +2032,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     const result = await processCandle(makeCandle({ symbol, tradeDate, candleTime: "10:02", open: 71700, high: 71720, low: 71480, close: 71500, volume: 700 }));
 
     expect(result.action).toBe("none");
-    expect(getOpenPositions().find(position => position.symbol === symbol)).toBeUndefined();
+    expect(getOpenPositions().find(position => position.symbol === symbol && position.side === "short")).toBeUndefined();
   });
 
   it("当日高値から2.5%以上下落→MA上向き→直近高値更新で反転LONG発火", async () => {

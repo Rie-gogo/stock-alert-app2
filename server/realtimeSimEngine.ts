@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertTelOpenDirectionBreakoutEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -83,6 +83,12 @@ import {
   calculateKioxiaConfirmedMorningLongMetrics,
   isKioxiaConfirmedMorningLongEntryTime,
 } from "./kioxiaConfirmedMorningLong";
+import {
+  TEL_OPEN_DIRECTION_BREAKOUT_REASON_PREFIX,
+  TEL_OPEN_DIRECTION_BREAKOUT_SPEC,
+  calculateTelOpenDirectionBreakoutMetrics,
+  isTelOpenDirectionBreakoutEntryTime,
+} from "./telOpenDirectionBreakout";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -300,6 +306,7 @@ export interface SymbolConfig {
   telShortBreakLookback?: number;
   telShortBreakMaPeriod?: number;
   telShortBreakMinVolumeRatio?: number;
+  telShortBreakMinOpenDirectionPct?: number;
   telShortBreakSlPct?: number;
   telShortBreakTpPct?: number;
   telShortBreakMaxHoldingMinutes?: number;
@@ -416,7 +423,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
   },
   "8035": {
     sl: { long: 0.7, short: 0.6 },
-    tp: { long: 1.0, short: 1.8 },
+    tp: { long: 1.4, short: 1.8 },
     enableTrendLong: true,
     trendLongStartTime: "10:00",
     trendLongEndTime: "11:27",
@@ -425,7 +432,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     trendLongHighLookback: 20,
     trendLongMinVolumeRatio: 1.0,
     trendLongSlPct: 0.7,
-    trendLongTpPct: 1.0,
+    trendLongTpPct: 1.4,
     trendBoardBprMax: 1.6,
     enableTrendShort: true,
     trendShortStartTime: "10:00",
@@ -436,7 +443,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     trendShortMinVolumeRatio: 1.2,
     trendShortSlPct: 0.6,
     trendShortTpPct: 1.8,
-    enablePeakReversalShort: true,
+    enablePeakReversalShort: false,
     peakReversalShortStartTime: "09:45",
     peakReversalShortEndTime: "11:27",
     peakReversalShortMinRisePct: 2.5,
@@ -452,13 +459,14 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     telShortBreakFallbackStartTime: "10:31",
     telShortBreakLookback: 5,
     telShortBreakMaPeriod: 8,
-    telShortBreakMinVolumeRatio: 1.2,
+    telShortBreakMinVolumeRatio: 1.0,
+    telShortBreakMinOpenDirectionPct: 0.25,
     telShortBreakSlPct: 0.6,
-    telShortBreakTpPct: 0.5,
-    telShortBreakMaxHoldingMinutes: 15,
+    telShortBreakTpPct: 1.2,
+    telShortBreakMaxHoldingMinutes: 20,
     disableTelShortBreakBoardEarlyExit: true,
     exclusiveEntryRoutes: true,
-    notes: "東京エレクトロン: 10:00〜10:30の短期ブレイク（終値5本更新・MA8二本傾き方向一致・出来高1.2倍、SL0.6%/TP0.5%、最大15分、板読み早期利確なし）を優先。非発火時のみ10:31以降に、上昇幅上限付き順張りLONG＋下落継続SHORT＋高値反転SHORTの現行3方式を予備利用。現行方式は最大22分。",
+    notes: "東京エレクトロン: 10:00〜10:30の始値方向付き短期ブレイク（終値5本更新・MA8二本傾き方向一致・始値比LONG+0.25%以上/SHORT-0.25%以下・出来高1.0倍、SL0.6%/TP1.2%、最大20分、板読み早期利確なし）を優先。非発火時のみ10:31以降に順張りLONG（SL0.7%/TP1.4%）と順張りSHORT（SL0.6%/TP1.8%）を予備利用。標本0件の高値反転SHORTは停止。",
   },
   "6857": {
     sl: { long: 1.0, short: 1.0 },
@@ -980,6 +988,18 @@ export interface KioxiaConfirmedMorningLongAuditEvent {
 }
 const kioxiaConfirmedMorningLongAuditEvents: KioxiaConfirmedMorningLongAuditEvent[] = [];
 
+/** ★8035始値方向付き短期ブレイク: 共通ゲート拒否後は日次枠を消費せず再探索する。 */
+export interface TelOpenDirectionBreakoutAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: "8035";
+  event: "trigger" | "entry" | "engine_rejected";
+  side: "long" | "short";
+  detail?: string;
+  referencePrice?: number;
+}
+const telOpenDirectionBreakoutAuditEvents: TelOpenDirectionBreakoutAuditEvent[] = [];
+
 /** 285A SHORTガードは、最初の適格候補を拒否したら当日の同経路を終了する。 */
 export const KIOXIA_SHORT_GUARD_SPEC = Object.freeze({
   reversalShortMinBpr: 0.70,
@@ -1080,6 +1100,27 @@ async function recordKioxiaConfirmedMorningLongAuditEvent(
     });
   } catch (error) {
     console.error("[RealtimeSim] 285A確認型前場LONG監査イベントDB保存失敗:", error);
+  }
+}
+
+async function recordTelOpenDirectionBreakoutAuditEvent(
+  event: TelOpenDirectionBreakoutAuditEvent,
+): Promise<void> {
+  telOpenDirectionBreakoutAuditEvents.push(event);
+  if (event.event !== "engine_rejected" || event.referencePrice === undefined) return;
+  if (typeof upsertTelOpenDirectionBreakoutEvent !== "function") return;
+  try {
+    await upsertTelOpenDirectionBreakoutEvent({
+      tradeDate: event.tradeDate,
+      symbol: event.symbol,
+      candleTime: event.candleTime,
+      eventType: event.event,
+      side: event.side,
+      detail: event.detail ?? null,
+      referencePrice: event.referencePrice.toString(),
+    });
+  } catch (error) {
+    console.error("[RealtimeSim] 8035始値方向付き短期ブレイク監査イベントDB保存失敗:", error);
   }
 }
 
@@ -1301,6 +1342,7 @@ function resetIfNewDay(tradeDate: string): void {
     softbankBreakoutLongFired.clear();
     softbankBreakoutLongAuditEvents.length = 0;
     kioxiaConfirmedMorningLongAuditEvents.length = 0;
+    telOpenDirectionBreakoutAuditEvents.length = 0;
     kioxiaReversalShortGuardEnded.clear();
     kioxiaSafeCbShortGuardEnded.clear();
     kioxiaShortGuardAuditEvents.length = 0;
@@ -2943,51 +2985,73 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
     }
   }
 
-  // ---- ★8035短期ブレイク: 現行3方式より優先 ----
+  // ---- ★8035始値方向付き短期ブレイク: 予備2方式より優先 ----
   // 10:00〜10:30に確定した現足の終値だけで判定し、未来足は参照しない。
   // 実エントリー済みなら当日の現行予備経路へは入らず、未発火時だけ10:31以降に現行3方式を使う。
   if (symConfig.enableTelShortBreak) {
-    const startTime = symConfig.telShortBreakStartTime ?? "10:00";
-    const endTime = symConfig.telShortBreakEndTime ?? "10:30";
-    const fallbackStartTime = symConfig.telShortBreakFallbackStartTime ?? "10:31";
+    const startTime = symConfig.telShortBreakStartTime ?? TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.startTime;
+    const endTime = symConfig.telShortBreakEndTime ?? TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.endTime;
+    const fallbackStartTime = symConfig.telShortBreakFallbackStartTime ?? TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.fallbackStartTime;
 
     if (telShortBreakFired.has(symbol)) {
       return { symbol, tradeDate, candleTime, action: "none" };
     }
 
     if (candleTime >= startTime && candleTime <= endTime) {
-      const lookback = symConfig.telShortBreakLookback ?? 5;
-      const maPeriod = symConfig.telShortBreakMaPeriod ?? 8;
-      const minVolumeRatio = symConfig.telShortBreakMinVolumeRatio ?? 1.2;
-      const requiredBars = Math.max(21, maPeriod + 2, lookback + 1);
-
-      if (buffer.length >= requiredBars) {
-        const currentMaSlice = buffer.slice(buffer.length - maPeriod);
-        const twoBarsAgoMaSlice = buffer.slice(buffer.length - maPeriod - 2, buffer.length - 2);
-        const currentMa = currentMaSlice.reduce((sum, item) => sum + item.close, 0) / maPeriod;
-        const twoBarsAgoMa = twoBarsAgoMaSlice.reduce((sum, item) => sum + item.close, 0) / maPeriod;
-        const maSlope2Pct = twoBarsAgoMa > 0 ? (currentMa - twoBarsAgoMa) / twoBarsAgoMa * 100 : 0;
-
-        const previousBars = buffer.slice(buffer.length - lookback - 1, buffer.length - 1);
-        const previousTwenty = buffer.slice(buffer.length - 21, buffer.length - 1);
-        const avgVolume = previousTwenty.reduce((sum, item) => sum + item.volume, 0) / previousTwenty.length;
-        const volumeRatio = avgVolume > 0 ? candle.volume / avgVolume : 0;
-        const closeBreaksHigh = candle.close > Math.max(...previousBars.map(item => item.high));
-        const closeBreaksLow = candle.close < Math.min(...previousBars.map(item => item.low));
-        const longSignal = candle.close > candle.open && closeBreaksHigh && maSlope2Pct > 0 && volumeRatio >= minVolumeRatio;
-        const shortSignal = candle.close < candle.open && closeBreaksLow && maSlope2Pct < 0 && volumeRatio >= minVolumeRatio;
-
-        if (longSignal || shortSignal) {
-          const side = longSignal ? "long" : "short";
+      if (isTelOpenDirectionBreakoutEntryTime(candleTime)) {
+        const metrics = calculateTelOpenDirectionBreakoutMetrics(buffer.map(item => ({
+          time: item.time,
+          open: item.open,
+          high: item.high,
+          low: item.low,
+          close: item.close,
+          volume: item.volume,
+        })));
+        if (metrics?.longEligible || metrics?.shortEligible) {
+          const side = metrics.longEligible ? "long" : "short";
+          await recordTelOpenDirectionBreakoutAuditEvent({
+            tradeDate,
+            candleTime,
+            symbol: "8035",
+            event: "trigger",
+            side,
+            detail: `maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,openGain=${metrics.openGainPct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x`,
+            referencePrice: candle.close,
+          });
           const result = await enterPosition(
             side,
             candle,
             tradeDate,
             candleTime,
-            `東京エレクトロン短期ブレイク${side === "long" ? "LONG" : "SHORT"}: 終値${lookback}本更新、MA${maPeriod}二本傾き${maSlope2Pct.toFixed(3)}%、出来高${volumeRatio.toFixed(2)}倍`,
+            `${TEL_OPEN_DIRECTION_BREAKOUT_REASON_PREFIX}${side === "long" ? "LONG" : "SHORT"}: 終値${TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.lookback}本更新、MA${TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.maPeriod}二本傾き${metrics.maSlope2Pct.toFixed(3)}%、始値比${metrics.openGainPct.toFixed(3)}%、出来高${metrics.volumeRatio.toFixed(2)}倍`,
             boardSnapshot,
-            { slPct: symConfig.telShortBreakSlPct ?? 0.6, tpPct: symConfig.telShortBreakTpPct ?? 0.5 },
+            {
+              slPct: symConfig.telShortBreakSlPct ?? TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.slPct,
+              tpPct: symConfig.telShortBreakTpPct ?? TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.tpPct,
+            },
           );
+          await recordTelOpenDirectionBreakoutAuditEvent({
+            tradeDate,
+            candleTime,
+            symbol: "8035",
+            event: result.action === "entry" ? "entry" : "engine_rejected",
+            side,
+            detail: result.reason,
+            referencePrice: candle.close,
+          });
+          if (result.action !== "entry" && result.reason !== "margin_block") {
+            signalHistory.unshift({
+              time: candleTime,
+              symbol,
+              symbolName: getStockName(symbol),
+              action: "tel_open_direction_breakout_block",
+              price: candle.close,
+              shares: 0,
+              pnl: null,
+              reason: `${TEL_OPEN_DIRECTION_BREAKOUT_REASON_PREFIX}${side === "long" ? "LONG" : "SHORT"}拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+            });
+            if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+          }
           if (result.action === "entry") telShortBreakFired.add(symbol);
           return result;
         }
@@ -5448,6 +5512,14 @@ export function getKioxiaConfirmedMorningLongAuditEventsForTest(): KioxiaConfirm
     throw new Error("285A確認型前場LONG監査イベントはVitest専用です");
   }
   return kioxiaConfirmedMorningLongAuditEvents.map(event => ({ ...event }));
+}
+
+/** 8035始値方向付き短期ブレイクの当日DRY_RUN監査イベントをVitestから取得する。 */
+export function getTelOpenDirectionBreakoutAuditEventsForTest(): TelOpenDirectionBreakoutAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("8035始値方向付き短期ブレイク監査イベントはVitest専用です");
+  }
+  return telOpenDirectionBreakoutAuditEvents.map(event => ({ ...event }));
 }
 
 /** 285A両SHORTガードの当日監査イベントをVitestから取得する。 */

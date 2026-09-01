@@ -263,6 +263,44 @@ describe("orderBridge", () => {
     });
   });
 
+  describe("8035始値方向付き短期ブレイクの戦略単位LIVE拒否", () => {
+    it("DRY_RUN entryは許可し、LIVE entryだけを拒否して決済は許可する", async () => {
+      const { evaluateTelOpenDirectionBreakoutOrderApproval } = await import("./telOpenDirectionBreakout");
+      const reason = "東京エレクトロン短期ブレイクLONG: ガードテスト";
+
+      expect(evaluateTelOpenDirectionBreakoutOrderApproval({ symbol: "8035", reason, instructionType: "entry", isDryRun: true }))
+        .toEqual({ allowed: true });
+      expect(evaluateTelOpenDirectionBreakoutOrderApproval({ symbol: "8035", reason, instructionType: "entry", isDryRun: false }))
+        .toEqual({ allowed: false, code: "tel_open_direction_breakout_live_not_approved" });
+      expect(evaluateTelOpenDirectionBreakoutOrderApproval({ symbol: "8035", reason, instructionType: "exit", isDryRun: false }))
+        .toEqual({ allowed: true });
+    });
+
+    it("注文指示作成境界でも8035のLIVE entryをDB書込み前に拒否する", async () => {
+      const { createOrderInstruction } = await import("./orderBridge");
+      await expect(createOrderInstruction({
+        tradeDate: "2026-08-31",
+        symbol: "8035",
+        symbolName: "東京エレクトロン",
+        side: "buy",
+        instructionType: "entry",
+        qty: 100,
+        status: "pending",
+        reason: "東京エレクトロン短期ブレイクLONG: ガードテスト",
+        referencePrice: "54130",
+        expiresAt: null,
+        kabuOrderId: null,
+        executedPrice: null,
+        executedAt: null,
+        pnl: null,
+        rtTradeId: 6,
+        errorMessage: null,
+        isDryRun: false,
+        executorLog: null,
+      })).rejects.toThrow("tel_open_direction_breakout_live_not_approved");
+    });
+  });
+
   describe("canTrade", () => {
     it("exit/force_closeは常に許可される", async () => {
       // canTrade is tested via the module's logic

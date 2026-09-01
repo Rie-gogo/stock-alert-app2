@@ -81,7 +81,7 @@ vi.mock("../shared/stocks", () => ({
 
 import { processCandle } from "./realtimeSimEngine";
 
-describe("8035 短期ブレイク優先＋現行予備 5営業日・未来情報なし再生", () => {
+describe("8035 始値方向付き短期ブレイク優先＋予備経路 5営業日・未来情報なし再生", () => {
   it("保存済み1分足と同時点の板情報だけを時刻順に処理して全取引を出力する", async () => {
     const rows = fixture as FixtureRow[];
     const events: Array<{ date: string; time: string; action: string; reason?: string; pnl?: number }> = [];
@@ -117,11 +117,11 @@ describe("8035 短期ブレイク優先＋現行予備 5営業日・未来情報
     const exits = events.filter(event => event.action !== "entry");
     const wins = exits.filter(event => (event.pnl ?? 0) > 0);
     const losses = exits.filter(event => (event.pnl ?? 0) < 0);
-    expect(entries).toHaveLength(5);
-    expect(exits).toHaveLength(5);
+    expect(entries).toHaveLength(4);
+    expect(exits).toHaveLength(4);
     expect(wins).toHaveLength(3);
-    expect(losses).toHaveLength(2);
-    expect(exits.reduce((sum, event) => sum + (event.pnl ?? 0), 0)).toBe(37889);
+    expect(losses).toHaveLength(1);
+    expect(exits.reduce((sum, event) => sum + (event.pnl ?? 0), 0)).toBe(29564);
     expect(entries.every(event => event.reason?.startsWith("東京エレクトロン短期ブレイク"))).toBe(true);
   }, 60_000);
 });

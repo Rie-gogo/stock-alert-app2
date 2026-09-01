@@ -685,6 +685,33 @@ export type RtSoftbankBreakoutLongEvent = typeof rtSoftbankBreakoutLongEvents.$i
 export type InsertRtSoftbankBreakoutLongEvent = typeof rtSoftbankBreakoutLongEvents.$inferInsert;
 
 /**
+ * 285A確認型前場LONG DRY_RUN監査イベント。
+ * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
+ */
+export const rtKioxiaConfirmedMorningLongEvents = mysqlTable("rt_kioxia_confirmed_morning_long_events", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  eventType: mysqlEnum("kioxia_confirmed_morning_long_event_type", ["engine_rejected"]).notNull(),
+  side: mysqlEnum("kioxia_confirmed_morning_long_event_side", ["long"]).notNull(),
+  detail: text("detail"),
+  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_kioxia_confirmed_morning_long_event_identity").on(
+    table.tradeDate,
+    table.symbol,
+    table.candleTime,
+    table.eventType,
+    table.side,
+  ),
+}));
+
+export type RtKioxiaConfirmedMorningLongEvent = typeof rtKioxiaConfirmedMorningLongEvents.$inferSelect;
+export type InsertRtKioxiaConfirmedMorningLongEvent = typeof rtKioxiaConfirmedMorningLongEvents.$inferInsert;
+
+/**
  * 285A SHORTガード DRY_RUN監査イベント。
  * 反転SHORTのBPR不足、安全CB SHORTの出来高不足による当日終了を再起動後も復元する。
  */

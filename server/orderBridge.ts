@@ -24,6 +24,7 @@ import { evaluateTaiyoCandidateBOrderApproval } from "./taiyoCandidateB";
 import { evaluateSocionextConfirmedLongOrderApproval } from "./socionextConfirmedLong";
 import { evaluateSumcoBreakdownShortOrderApproval } from "./sumcoBreakdownShort";
 import { evaluateSoftbankBreakoutLongOrderApproval } from "./softbankBreakoutLong";
+import { evaluateKioxiaConfirmedMorningLongOrderApproval } from "./kioxiaConfirmedMorningLong";
 
 // ============================================================
 // 定数
@@ -53,6 +54,7 @@ export async function createOrderInstruction(data: Omit<InsertOrderInstruction, 
     evaluateSocionextConfirmedLongOrderApproval(approvalInput),
     evaluateSumcoBreakdownShortOrderApproval(approvalInput),
     evaluateSoftbankBreakoutLongOrderApproval(approvalInput),
+    evaluateKioxiaConfirmedMorningLongOrderApproval(approvalInput),
   ];
   for (const strategyApproval of strategyApprovals) {
     if (!strategyApproval.allowed) {

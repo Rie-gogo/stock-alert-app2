@@ -70,6 +70,10 @@ SUMCO_BREAKDOWN_SHORT_REASON_PREFIX = "SUMCO専用15本安値更新SHORT"
 SOFTBANK_BREAKOUT_LONG_LIVE_APPROVED = False
 SOFTBANK_BREAKOUT_LONG_REASON_PREFIX = "ソフトバンクG専用10本高値更新LONG"
 
+# 285A確認型前場LONGもDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+KIOXIA_CONFIRMED_MORNING_LONG_LIVE_APPROVED = False
+KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX = "キオクシア確認型前場LONG"
+
 # KABUステーションAPIパスワード（トークン取得用）
 KABU_API_PASSWORD = ""  # ← 本番時にここに設定
 
@@ -781,6 +785,14 @@ def preflight_check(instruction: dict) -> tuple[bool, str]:
         and str(instruction.get("reason", "")).startswith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
     ):
         return False, "9984専用LONGはLIVE未承認: 新規注文を強制拒否"
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not KIOXIA_CONFIRMED_MORNING_LONG_LIVE_APPROVED
+        and str(instruction.get("reason", "")).startswith(KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX)
+    ):
+        return False, "285A確認型前場LONGはLIVE未承認: 新規注文を強制拒否"
 
     # 1. ローカル緊急停止チェック
     if local_emergency_stop and instruction_type == "entry":

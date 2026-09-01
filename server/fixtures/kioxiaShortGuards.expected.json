@@ -2,24 +2,24 @@
   {
     "date": "2026-06-19",
     "entryTime": "10:47",
-    "exitTime": "11:05",
+    "exitTime": "11:06",
     "side": "short",
     "entryPrice": 103750,
-    "pnlPer100": 124500,
+    "pnlPer100": 166000,
     "entryReason": "反転SHORT: 始値+4.7%後、高値から1.5%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:102505円)"
+    "exitReason": "利確 (利確ライン:102090円)"
   },
   {
     "date": "2026-06-19",
     "entryTime": "11:18",
-    "exitTime": "11:25",
+    "exitTime": "11:27",
     "side": "long",
     "entryPrice": 102450,
-    "pnlPer100": 81960,
+    "pnlPer100": 100000,
     "entryReason": "反転LONG: 高値105350から2.8%下落後の反転 (前場)",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:103270円)"
+    "exitAction": "exit",
+    "exitReason": "前場強制決済"
   },
   {
     "date": "2026-06-22",
@@ -60,10 +60,10 @@
     "exitTime": "10:56",
     "side": "short",
     "entryPrice": 98630,
-    "pnlPer100": 118356,
+    "pnlPer100": 157808,
     "entryReason": "順張りSHORT: 始値比-1.7%、10本安値更新、出来高1.5倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:97446円)"
+    "exitReason": "利確 (利確ライン:97052円)"
   },
   {
     "date": "2026-06-26",
@@ -79,13 +79,13 @@
   {
     "date": "2026-06-29",
     "entryTime": "10:17",
-    "exitTime": "10:24",
+    "exitTime": "10:29",
     "side": "short",
     "entryPrice": 86020,
-    "pnlPer100": 103224,
+    "pnlPer100": 137632,
     "entryReason": "順張りSHORT: 始値比-2.9%、10本安値更新、出来高1.4倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:84988円)"
+    "exitReason": "利確 (利確ライン:84644円)"
   },
   {
     "date": "2026-06-30",
@@ -100,14 +100,14 @@
   },
   {
     "date": "2026-06-30",
-    "entryTime": "10:15",
-    "exitTime": "10:31",
+    "entryTime": "11:04",
+    "exitTime": "11:27",
     "side": "long",
-    "entryPrice": 88090,
-    "pnlPer100": 70472,
-    "entryReason": "順張りLONG: 始値比+0.5%、20本高値更新、出来高1.6倍",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:88795円)"
+    "entryPrice": 88260,
+    "pnlPer100": 121000,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.20%、MA8二本傾き0.104%、出来高1.31倍、始値比0.70%",
+    "exitAction": "exit",
+    "exitReason": "前場強制決済"
   },
   {
     "date": "2026-07-01",
@@ -123,24 +123,24 @@
   {
     "date": "2026-07-01",
     "entryTime": "10:35",
-    "exitTime": "11:05",
+    "exitTime": "11:07",
     "side": "short",
     "entryPrice": 89160,
-    "pnlPer100": 106992,
+    "pnlPer100": 142656,
     "entryReason": "順張りSHORT: 始値比-2.2%、10本安値更新、出来高1.1倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:88090円)"
+    "exitReason": "利確 (利確ライン:87733円)"
   },
   {
     "date": "2026-07-06",
     "entryTime": "09:54",
-    "exitTime": "09:56",
+    "exitTime": "10:00",
     "side": "long",
     "entryPrice": 82600,
-    "pnlPer100": 66080,
+    "pnlPer100": 99120,
     "entryReason": "反転LONG: 高値84800から2.6%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:83261円)"
+    "exitReason": "利確 (利確ライン:83591円)"
   },
   {
     "date": "2026-07-06",
@@ -148,76 +148,109 @@
     "exitTime": "11:07",
     "side": "short",
     "entryPrice": 81860,
-    "pnlPer100": 98232,
+    "pnlPer100": 130976,
     "entryReason": "順張りSHORT: 始値比-3.5%、10本安値更新、出来高2.1倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:80878円)"
+    "exitReason": "利確 (利確ライン:80550円)"
   },
   {
     "date": "2026-07-07",
     "entryTime": "10:18",
-    "exitTime": "10:22",
+    "exitTime": "10:23",
     "side": "short",
     "entryPrice": 73860,
-    "pnlPer100": 88632,
+    "pnlPer100": 118176,
     "entryReason": "順張りSHORT: 始値比-6.1%、10本安値更新、出来高2.1倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:72974円)"
+    "exitReason": "利確 (利確ライン:72678円)"
   },
   {
     "date": "2026-07-08",
     "entryTime": "10:30",
-    "exitTime": "10:33",
+    "exitTime": "10:38",
     "side": "short",
     "entryPrice": 74630,
-    "pnlPer100": 89556,
+    "pnlPer100": 119408,
     "entryReason": "反転SHORT: 始値+9.4%後、高値から3.0%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:73734円)"
+    "exitReason": "利確 (利確ライン:73436円)"
   },
   {
     "date": "2026-07-08",
     "entryTime": "10:48",
-    "exitTime": "10:51",
+    "exitTime": "10:53",
     "side": "long",
     "entryPrice": 74490,
-    "pnlPer100": 59591.99999999999,
+    "pnlPer100": -44694,
     "entryReason": "反転LONG: 高値76900から3.1%下落後の反転 (前場)",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:75086円)"
+    "exitAction": "stop_loss",
+    "exitReason": "損切り (損切りライン:74043円)"
+  },
+  {
+    "date": "2026-07-08",
+    "entryTime": "11:19",
+    "exitTime": "11:27",
+    "side": "long",
+    "entryPrice": 73990,
+    "pnlPer100": 31000,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.79%、MA8二本傾き0.007%、出来高1.74倍、始値比5.23%",
+    "exitAction": "exit",
+    "exitReason": "前場強制決済"
+  },
+  {
+    "date": "2026-07-09",
+    "entryTime": "09:49",
+    "exitTime": "09:53",
+    "side": "long",
+    "entryPrice": 78990,
+    "pnlPer100": -63191.99999999999,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.22%、MA8二本傾き0.237%、出来高1.87倍、始値比1.77%",
+    "exitAction": "stop_loss",
+    "exitReason": "損切り (損切りライン:78358円)"
   },
   {
     "date": "2026-07-09",
     "entryTime": "10:52",
-    "exitTime": "11:00",
+    "exitTime": "11:02",
     "side": "short",
     "entryPrice": 78700,
-    "pnlPer100": 94440,
+    "pnlPer100": 125920,
     "entryReason": "反転SHORT: 始値+3.0%後、高値から1.6%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:77756円)"
+    "exitReason": "利確 (利確ライン:77441円)"
+  },
+  {
+    "date": "2026-07-10",
+    "entryTime": "09:46",
+    "exitTime": "09:57",
+    "side": "long",
+    "entryPrice": 82450,
+    "pnlPer100": 131920,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.77%、MA8二本傾き0.044%、出来高1.87倍、始値比0.86%",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:83769円)"
   },
   {
     "date": "2026-07-10",
     "entryTime": "12:50",
-    "exitTime": "13:53",
+    "exitTime": "14:10",
     "side": "short",
     "entryPrice": 80520,
-    "pnlPer100": 96624,
+    "pnlPer100": 128832,
     "entryReason": "順張りSHORT: 始値比-1.5%、10本安値更新、出来高1.6倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:79554円)"
+    "exitReason": "利確 (利確ライン:79232円)"
   },
   {
     "date": "2026-07-10",
-    "entryTime": "14:18",
+    "entryTime": "14:32",
     "exitTime": "14:46",
     "side": "short",
-    "entryPrice": 79070,
-    "pnlPer100": 118605,
-    "entryReason": "大台確認(2本維持): 大台割れ (79600円割り込み)｜[信頼度：中] トレンド一致・勢い一致・出来高薄 (押し目なし・強トレンド)",
+    "entryPrice": 79140,
+    "pnlPer100": 118709.99999999999,
+    "entryReason": "大台確認(2本維持): 大台割れ (79200円割り込み)｜[信頼度：強] トレンド一致・勢い一致・出来高増 (押し目なし・強トレンド)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:77884円)"
+    "exitReason": "利確 (利確ライン:77953円)"
   },
   {
     "date": "2026-07-13",
@@ -233,57 +266,57 @@
   {
     "date": "2026-07-13",
     "entryTime": "10:17",
-    "exitTime": "10:28",
+    "exitTime": "10:35",
     "side": "short",
     "entryPrice": 71630,
-    "pnlPer100": 85956,
+    "pnlPer100": 114608,
     "entryReason": "順張りSHORT: 始値比-5.8%、10本安値更新、出来高1.2倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:70770円)"
+    "exitReason": "利確 (利確ライン:70484円)"
+  },
+  {
+    "date": "2026-07-14",
+    "entryTime": "09:54",
+    "exitTime": "09:58",
+    "side": "long",
+    "entryPrice": 67070,
+    "pnlPer100": 107311.99999999999,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体1.02%、MA8二本傾き0.472%、出来高1.72倍、始値比2.19%",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:68143円)"
   },
   {
     "date": "2026-07-14",
     "entryTime": "10:06",
-    "exitTime": "10:15",
+    "exitTime": "10:27",
     "side": "short",
     "entryPrice": 66810,
-    "pnlPer100": 80172,
+    "pnlPer100": -53448,
     "entryReason": "反転SHORT: 始値+4.2%後、高値から2.3%反落",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:66008円)"
-  },
-  {
-    "date": "2026-07-14",
-    "entryTime": "10:26",
-    "exitTime": "10:30",
-    "side": "long",
-    "entryPrice": 67090,
-    "pnlPer100": 53672,
-    "entryReason": "順張りLONG: 始値比+2.2%、20本高値更新、出来高1.4倍",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:67627円)"
+    "exitAction": "stop_loss",
+    "exitReason": "損切り (損切りライン:67344円)"
   },
   {
     "date": "2026-07-15",
     "entryTime": "10:16",
-    "exitTime": "10:19",
+    "exitTime": "10:20",
     "side": "long",
     "entryPrice": 72260,
-    "pnlPer100": 57808.00000000001,
+    "pnlPer100": 86712,
     "entryReason": "反転LONG: 高値74480から3.0%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:72838円)"
+    "exitReason": "利確 (利確ライン:73127円)"
   },
   {
     "date": "2026-07-15",
-    "entryTime": "10:26",
-    "exitTime": "10:32",
+    "entryTime": "10:22",
+    "exitTime": "10:28",
     "side": "long",
-    "entryPrice": 74380,
-    "pnlPer100": -44628,
-    "entryReason": "順張りLONG: 始値比+2.2%、20本高値更新、出来高2.6倍",
-    "exitAction": "stop_loss",
-    "exitReason": "損切り (損切りライン:73934円)"
+    "entryPrice": 73350,
+    "pnlPer100": 117359.99999999999,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.22%、MA8二本傾き0.544%、出来高1.30倍、始値比0.77%",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:74524円)"
   },
   {
     "date": "2026-07-16",
@@ -310,13 +343,13 @@
   {
     "date": "2026-07-17",
     "entryTime": "11:04",
-    "exitTime": "11:08",
+    "exitTime": "11:09",
     "side": "short",
     "entryPrice": 53650,
-    "pnlPer100": 64379.99999999999,
+    "pnlPer100": 85840,
     "entryReason": "順張りSHORT: 始値比-3.8%、10本安値更新、出来高1.0倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:53006円)"
+    "exitReason": "利確 (利確ライン:52792円)"
   },
   {
     "date": "2026-07-17",
@@ -331,14 +364,14 @@
   },
   {
     "date": "2026-07-21",
-    "entryTime": "10:19",
-    "exitTime": "10:20",
+    "entryTime": "09:52",
+    "exitTime": "09:55",
     "side": "long",
-    "entryPrice": 57860,
-    "pnlPer100": 46288,
-    "entryReason": "順張りLONG: 始値比+9.2%、20本高値更新、出来高1.9倍",
+    "entryPrice": 55550,
+    "pnlPer100": 88880,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.63%、MA8二本傾き0.327%、出来高1.30倍、始値比4.83%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:58323円)"
+    "exitReason": "利確 (利確ライン:56439円)"
   },
   {
     "date": "2026-07-21",
@@ -353,25 +386,14 @@
   },
   {
     "date": "2026-07-22",
-    "entryTime": "10:57",
-    "exitTime": "11:09",
+    "entryTime": "09:56",
+    "exitTime": "10:49",
     "side": "long",
-    "entryPrice": 68330,
-    "pnlPer100": -40998,
-    "entryReason": "順張りLONG: 始値比+3.2%、20本高値更新、出来高1.9倍",
-    "exitAction": "stop_loss",
-    "exitReason": "損切り (損切りライン:67920円)"
-  },
-  {
-    "date": "2026-07-22",
-    "entryTime": "11:22",
-    "exitTime": "11:27",
-    "side": "short",
-    "entryPrice": 67650,
-    "pnlPer100": -1000,
-    "entryReason": "反転SHORT: 始値+3.8%後、高値から1.5%反落",
-    "exitAction": "exit",
-    "exitReason": "前場強制決済"
+    "entryPrice": 67090,
+    "pnlPer100": 107344,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.52%、MA8二本傾き0.250%、出来高1.23倍、始値比1.33%",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:68163円)"
   },
   {
     "date": "2026-07-22",
@@ -379,10 +401,10 @@
     "exitTime": "14:09",
     "side": "short",
     "entryPrice": 65060,
-    "pnlPer100": 78072,
+    "pnlPer100": 104096,
     "entryReason": "順張りSHORT: 始値比-1.7%、10本安値更新、出来高3.0倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:64279円)"
+    "exitReason": "利確 (利確ライン:64019円)"
   },
   {
     "date": "2026-07-23",
@@ -423,32 +445,32 @@
     "exitTime": "09:48",
     "side": "long",
     "entryPrice": 52890,
-    "pnlPer100": 42312,
+    "pnlPer100": 63467.99999999999,
     "entryReason": "反転LONG: 高値57410から7.9%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:53313円)"
+    "exitReason": "利確 (利確ライン:53525円)"
   },
   {
     "date": "2026-07-28",
-    "entryTime": "10:40",
-    "exitTime": "10:46",
+    "entryTime": "10:43",
+    "exitTime": "10:48",
     "side": "long",
-    "entryPrice": 45990,
-    "pnlPer100": 36792,
-    "entryReason": "順張りLONG: 始値比+2.0%、20本高値更新、出来高1.3倍",
+    "entryPrice": 46210,
+    "pnlPer100": 73936,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.61%、MA8二本傾き0.098%、出来高1.33倍、始値比2.48%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:46358円)"
+    "exitReason": "利確 (利確ライン:46949円)"
   },
   {
     "date": "2026-07-28",
     "entryTime": "10:54",
-    "exitTime": "11:03",
+    "exitTime": "11:04",
     "side": "short",
     "entryPrice": 46000,
-    "pnlPer100": 55200,
+    "pnlPer100": 73600,
     "entryReason": "反転SHORT: 始値+5.8%後、高値から3.6%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:45448円)"
+    "exitReason": "利確 (利確ライン:45264円)"
   },
   {
     "date": "2026-07-28",
@@ -464,13 +486,24 @@
   {
     "date": "2026-07-30",
     "entryTime": "09:47",
-    "exitTime": "09:48",
+    "exitTime": "09:49",
     "side": "long",
     "entryPrice": 39550,
-    "pnlPer100": 31639.999999999996,
+    "pnlPer100": 47460,
     "entryReason": "反転LONG: 高値40950から3.4%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:39866円)"
+    "exitReason": "利確 (利確ライン:40025円)"
+  },
+  {
+    "date": "2026-07-30",
+    "entryTime": "10:01",
+    "exitTime": "10:02",
+    "side": "long",
+    "entryPrice": 41710,
+    "pnlPer100": 66736,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体2.73%、MA8二本傾き0.894%、出来高2.20倍、始値比8.96%",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:42377円)"
   },
   {
     "date": "2026-07-30",
@@ -478,21 +511,21 @@
     "exitTime": "10:15",
     "side": "short",
     "entryPrice": 42100,
-    "pnlPer100": 50520,
+    "pnlPer100": 67360,
     "entryReason": "反転SHORT: 始値+13.6%後、高値から3.2%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:41595円)"
+    "exitReason": "利確 (利確ライン:41426円)"
   },
   {
-    "date": "2026-07-30",
-    "entryTime": "10:26",
-    "exitTime": "10:27",
+    "date": "2026-08-03",
+    "entryTime": "10:04",
+    "exitTime": "10:08",
     "side": "long",
-    "entryPrice": 43540,
-    "pnlPer100": 34832,
-    "entryReason": "順張りLONG: 始値比+13.7%、20本高値更新、出来高1.4倍",
+    "entryPrice": 50840,
+    "pnlPer100": 81344,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.83%、MA8二本傾き0.174%、出来高1.91倍、始値比8.59%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:43888円)"
+    "exitReason": "利確 (利確ライン:51653円)"
   },
   {
     "date": "2026-08-03",
@@ -500,10 +533,10 @@
     "exitTime": "10:16",
     "side": "short",
     "entryPrice": 50610,
-    "pnlPer100": 60732.00000000001,
+    "pnlPer100": 66000,
     "entryReason": "反転SHORT: 始値+11.0%後、高値から2.7%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:50003円)"
+    "exitReason": "板読み早期利確 (逆方向板圧力検出)"
   },
   {
     "date": "2026-08-03",
@@ -517,26 +550,15 @@
     "exitReason": "損切り (損切りライン:50147円)"
   },
   {
-    "date": "2026-08-03",
-    "entryTime": "10:46",
-    "exitTime": "10:47",
-    "side": "long",
-    "entryPrice": 51560,
-    "pnlPer100": -30936,
-    "entryReason": "順張りLONG: 始値比+10.1%、20本高値更新、出来高1.3倍",
-    "exitAction": "stop_loss",
-    "exitReason": "損切り (損切りライン:51251円)"
-  },
-  {
     "date": "2026-08-06",
     "entryTime": "10:40",
-    "exitTime": "11:11",
+    "exitTime": "11:14",
     "side": "long",
     "entryPrice": 48670,
-    "pnlPer100": 38936,
+    "pnlPer100": 58404,
     "entryReason": "反転LONG: 高値50310から3.3%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:49059円)"
+    "exitReason": "利確 (利確ライン:49254円)"
   },
   {
     "date": "2026-08-07",
@@ -555,10 +577,10 @@
     "exitTime": "10:34",
     "side": "short",
     "entryPrice": 45340,
-    "pnlPer100": 54408.00000000001,
+    "pnlPer100": 72544,
     "entryReason": "順張りSHORT: 始値比-8.1%、10本安値更新、出来高1.3倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:44796円)"
+    "exitReason": "利確 (利確ライン:44615円)"
   },
   {
     "date": "2026-08-07",
@@ -573,36 +595,25 @@
   },
   {
     "date": "2026-08-10",
-    "entryTime": "10:19",
-    "exitTime": "10:24",
+    "entryTime": "09:49",
+    "exitTime": "11:09",
     "side": "long",
-    "entryPrice": 48430,
-    "pnlPer100": 38744,
-    "entryReason": "順張りLONG: 始値比+2.8%、20本高値更新、出来高1.6倍",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:48817円)"
-  },
-  {
-    "date": "2026-08-10",
-    "entryTime": "10:56",
-    "exitTime": "11:27",
-    "side": "short",
-    "entryPrice": 48140,
-    "pnlPer100": 9000,
-    "entryReason": "反転SHORT: 始値+3.8%後、高値から1.6%反落",
-    "exitAction": "exit",
-    "exitReason": "前場強制決済"
+    "entryPrice": 48180,
+    "pnlPer100": -38544,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.58%、MA8二本傾き0.231%、出来高1.28倍、始値比2.23%",
+    "exitAction": "stop_loss",
+    "exitReason": "損切り (損切りライン:47795円)"
   },
   {
     "date": "2026-08-13",
-    "entryTime": "10:39",
-    "exitTime": "10:54",
+    "entryTime": "09:47",
+    "exitTime": "10:51",
     "side": "long",
-    "entryPrice": 54230,
-    "pnlPer100": 43384,
-    "entryReason": "順張りLONG: 始値比+2.8%、20本高値更新、出来高1.2倍",
+    "entryPrice": 53530,
+    "pnlPer100": 85648,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.54%、MA8二本傾き0.068%、出来高2.15倍、始値比1.52%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:54664円)"
+    "exitReason": "利確 (利確ライン:54386円)"
   },
   {
     "date": "2026-08-14",
@@ -618,24 +629,24 @@
   {
     "date": "2026-08-14",
     "entryTime": "10:56",
-    "exitTime": "11:08",
+    "exitTime": "11:12",
     "side": "long",
     "entryPrice": 53510,
-    "pnlPer100": 42808,
+    "pnlPer100": 26000,
     "entryReason": "反転LONG: 高値56280から4.9%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:53938円)"
+    "exitReason": "板読み早期利確 (逆方向板圧力検出)"
   },
   {
     "date": "2026-08-17",
-    "entryTime": "10:44",
-    "exitTime": "11:27",
+    "entryTime": "09:54",
+    "exitTime": "10:01",
     "side": "long",
-    "entryPrice": 56520,
-    "pnlPer100": 37000,
-    "entryReason": "順張りLONG: 始値比+1.9%、20本高値更新、出来高1.4倍",
-    "exitAction": "exit",
-    "exitReason": "前場強制決済"
+    "entryPrice": 56880,
+    "pnlPer100": -45504,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.25%、MA8二本傾き0.264%、出来高1.39倍、始値比2.58%",
+    "exitAction": "stop_loss",
+    "exitReason": "損切り (損切りライン:56425円)"
   },
   {
     "date": "2026-08-18",
@@ -651,13 +662,13 @@
   {
     "date": "2026-08-18",
     "entryTime": "10:41",
-    "exitTime": "10:44",
+    "exitTime": "10:47",
     "side": "short",
     "entryPrice": 60640,
-    "pnlPer100": 72768,
+    "pnlPer100": 97024,
     "entryReason": "順張りSHORT: 始値比-1.8%、10本安値更新、出来高1.4倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:59912円)"
+    "exitReason": "利確 (利確ライン:59670円)"
   },
   {
     "date": "2026-08-18",
@@ -669,6 +680,17 @@
     "entryReason": "大台確認(2本維持): 大台割れ (60700円割り込み)｜[信頼度：中] トレンド一致・勢い一致・出来高薄 (押し目なし・強トレンド)",
     "exitAction": "exit",
     "exitReason": "前場強制決済"
+  },
+  {
+    "date": "2026-08-19",
+    "entryTime": "10:05",
+    "exitTime": "10:10",
+    "side": "long",
+    "entryPrice": 52740,
+    "pnlPer100": 84384,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.27%、MA8二本傾き0.117%、出来高1.82倍、始値比0.76%",
+    "exitAction": "take_profit",
+    "exitReason": "利確 (利確ライン:53584円)"
   },
   {
     "date": "2026-08-19",
@@ -684,46 +706,46 @@
   {
     "date": "2026-08-19",
     "entryTime": "13:15",
-    "exitTime": "13:42",
+    "exitTime": "13:43",
     "side": "short",
     "entryPrice": 50490,
-    "pnlPer100": 60588,
+    "pnlPer100": 80784,
     "entryReason": "順張りSHORT: 始値比-3.5%、10本安値更新、出来高2.5倍",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:49884円)"
+    "exitReason": "利確 (利確ライン:49682円)"
+  },
+  {
+    "date": "2026-08-20",
+    "entryTime": "10:05",
+    "exitTime": "10:10",
+    "side": "long",
+    "entryPrice": 52850,
+    "pnlPer100": -42280,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.28%、MA8二本傾き0.043%、出来高2.79倍、始値比4.72%",
+    "exitAction": "stop_loss",
+    "exitReason": "損切り (損切りライン:52427円)"
   },
   {
     "date": "2026-08-20",
     "entryTime": "10:12",
-    "exitTime": "10:21",
+    "exitTime": "10:22",
     "side": "short",
     "entryPrice": 52160,
-    "pnlPer100": 62591.99999999999,
+    "pnlPer100": 83456,
     "entryReason": "反転SHORT: 始値+5.1%後、高値から1.7%反落",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:51534円)"
+    "exitReason": "利確 (利確ライン:51325円)"
   },
   {
     "date": "2026-08-20",
     "entryTime": "10:36",
-    "exitTime": "10:40",
+    "exitTime": "10:43",
     "side": "long",
     "entryPrice": 51590,
-    "pnlPer100": 41272,
+    "pnlPer100": 61908.00000000001,
     "entryReason": "反転LONG: 高値53050から2.8%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:52003円)"
-  },
-  {
-    "date": "2026-08-20",
-    "entryTime": "12:51",
-    "exitTime": "13:04",
-    "side": "long",
-    "entryPrice": 52660,
-    "pnlPer100": 42128,
-    "entryReason": "順張りLONG: 始値比+4.3%、20本高値更新、出来高1.3倍",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:53081円)"
+    "exitReason": "利確 (利確ライン:52209円)"
   },
   {
     "date": "2026-08-21",
@@ -738,25 +760,36 @@
   },
   {
     "date": "2026-08-21",
-    "entryTime": "10:25",
+    "entryTime": "10:11",
     "exitTime": "10:26",
     "side": "long",
-    "entryPrice": 54590,
-    "pnlPer100": 43672,
-    "entryReason": "順張りLONG: 始値比+5.1%、20本高値更新、出来高1.4倍",
+    "entryPrice": 53800,
+    "pnlPer100": 86080,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.24%、MA8二本傾き0.242%、出来高1.67倍、始値比3.56%",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:55027円)"
+    "exitReason": "利確 (利確ライン:54661円)"
   },
   {
     "date": "2026-08-27",
     "entryTime": "10:24",
-    "exitTime": "10:28",
+    "exitTime": "10:29",
     "side": "long",
     "entryPrice": 51410,
-    "pnlPer100": 41128,
+    "pnlPer100": 42000,
     "entryReason": "反転LONG: 高値53450から3.8%下落後の反転 (前場)",
     "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:51821円)"
+    "exitReason": "板読み早期利確 (逆方向板圧力検出)"
+  },
+  {
+    "date": "2026-08-27",
+    "entryTime": "11:15",
+    "exitTime": "11:27",
+    "side": "long",
+    "entryPrice": 52890,
+    "pnlPer100": 9000,
+    "entryReason": "キオクシア確認型前場LONG: 終値10本高値更新、陽線実体0.30%、MA8二本傾き0.126%、出来高1.65倍、始値比0.59%",
+    "exitAction": "exit",
+    "exitReason": "前場強制決済"
   },
   {
     "date": "2026-08-28",
@@ -783,12 +816,12 @@
   {
     "date": "2026-08-31",
     "entryTime": "09:45",
-    "exitTime": "09:57",
+    "exitTime": "11:27",
     "side": "short",
     "entryPrice": 48370,
-    "pnlPer100": 58044.00000000001,
+    "pnlPer100": 10000,
     "entryReason": "反転SHORT: 始値+6.7%後、高値から1.5%反落",
-    "exitAction": "take_profit",
-    "exitReason": "利確 (利確ライン:47790円)"
+    "exitAction": "exit",
+    "exitReason": "前場強制決済"
   }
 ]

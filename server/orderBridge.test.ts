@@ -225,6 +225,44 @@ describe("orderBridge", () => {
     });
   });
 
+  describe("285A確認型前場LONGの戦略単位LIVE拒否", () => {
+    it("DRY_RUN entryは許可し、LIVE entryだけを拒否して決済は許可する", async () => {
+      const { evaluateKioxiaConfirmedMorningLongOrderApproval } = await import("./kioxiaConfirmedMorningLong");
+      const reason = "キオクシア確認型前場LONG: ガードテスト";
+
+      expect(evaluateKioxiaConfirmedMorningLongOrderApproval({ reason, instructionType: "entry", isDryRun: true }))
+        .toEqual({ allowed: true });
+      expect(evaluateKioxiaConfirmedMorningLongOrderApproval({ reason, instructionType: "entry", isDryRun: false }))
+        .toEqual({ allowed: false, code: "kioxia_confirmed_morning_long_live_not_approved" });
+      expect(evaluateKioxiaConfirmedMorningLongOrderApproval({ reason, instructionType: "exit", isDryRun: false }))
+        .toEqual({ allowed: true });
+    });
+
+    it("注文指示作成境界でも285AのLIVE entryをDB書込み前に拒否する", async () => {
+      const { createOrderInstruction } = await import("./orderBridge");
+      await expect(createOrderInstruction({
+        tradeDate: "2026-08-31",
+        symbol: "285A",
+        symbolName: "キオクシアHD",
+        side: "buy",
+        instructionType: "entry",
+        qty: 100,
+        status: "pending",
+        reason: "キオクシア確認型前場LONG: ガードテスト",
+        referencePrice: "50000",
+        expiresAt: null,
+        kabuOrderId: null,
+        executedPrice: null,
+        executedAt: null,
+        pnl: null,
+        rtTradeId: 5,
+        errorMessage: null,
+        isDryRun: false,
+        executorLog: null,
+      })).rejects.toThrow("kioxia_confirmed_morning_long_live_not_approved");
+    });
+  });
+
   describe("canTrade", () => {
     it("exit/force_closeは常に許可される", async () => {
       // canTrade is tested via the module's logic

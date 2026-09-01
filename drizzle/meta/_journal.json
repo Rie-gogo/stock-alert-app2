@@ -85,6 +85,13 @@
       "when": 1788212895936,
       "tag": "0011_thankful_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1788264289656,
+      "tag": "0012_goofy_santa_claus",
+      "breakpoints": true
     }
   ]
 }

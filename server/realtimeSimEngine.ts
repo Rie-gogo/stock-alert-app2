@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -77,6 +77,12 @@ import {
   calculateSoftbankBreakoutLongMetrics,
   isSoftbankBreakoutLongEntryTime,
 } from "./softbankBreakoutLong";
+import {
+  KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX,
+  KIOXIA_CONFIRMED_MORNING_LONG_SPEC,
+  calculateKioxiaConfirmedMorningLongMetrics,
+  isKioxiaConfirmedMorningLongEntryTime,
+} from "./kioxiaConfirmedMorningLong";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -185,6 +191,17 @@ export interface SymbolConfig {
   trendShortMinVolumeRatio?: number;
   trendShortSlPct?: number;
   trendShortTpPct?: number;
+  // キオクシア: 確認型前場10本高値更新LONG（DRY_RUN限定）
+  enableKioxiaConfirmedMorningLong?: boolean;
+  kioxiaConfirmedMorningLongStartTime?: string;
+  kioxiaConfirmedMorningLongEndTime?: string;
+  kioxiaConfirmedMorningLongHighLookback?: number;
+  kioxiaConfirmedMorningLongMinBodyPct?: number;
+  kioxiaConfirmedMorningLongMinMaSlopePct?: number;
+  kioxiaConfirmedMorningLongMinVolumeRatio?: number;
+  kioxiaConfirmedMorningLongMinOpenGainPct?: number;
+  kioxiaConfirmedMorningLongSlPct?: number;
+  kioxiaConfirmedMorningLongTpPct?: number;
   // 後場安値更新SHORT設定（フジクラ候補C）
   enableAfternoonLowBreakShort?: boolean;
   afternoonLowBreakShortStartTime?: string;
@@ -350,7 +367,7 @@ export interface SymbolConfig {
 export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
   "285A": {
     sl: { long: 0.8, short: 0.6 },
-    tp: { long: 0.8, short: 1.5 },  // 反転LONG用TP 0.8%（SHORTは全体デフォルト1.5%）
+    tp: { long: 1.2, short: 1.5 },  // 反転LONG TP1.2%（安全CB SHORTはTP1.5%）
     enableReversalLong: true,         // 反転LONGを有効化
     reversalLongDropPct: 2.5,         // 当日高値から2.5%以上下落で反転LONG発火条件
     reversalLongAmOnly: true,         // 前場のみ（09:30〜11:27）
@@ -365,10 +382,10 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     reversalShortMinRisePct: 3.0,         // 始値から3%以上上昇した日だけ反転を狙う
     reversalShortDropPct: 1.5,            // 当日高値から1.5%以上の反落を確認
     reversalShortStartTime: "09:45",
-    reversalShortEndTime: "11:27", // 後場は12:50再開後の遅延発火で成績悪化するため前場限定
+    reversalShortEndTime: "11:20", // 他AI案: 遅い反転SHORTを停止
     reversalShortSlPct: 0.8,
-    reversalShortTpPct: 1.2,
-    enableTrendLong: true,
+    reversalShortTpPct: 1.6,
+    enableTrendLong: false,
     trendLongStartTime: "10:15",
     trendLongEndTime: "14:20",
     trendLongMinOpenGainPct: 0.5,
@@ -376,6 +393,16 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     trendLongMinVolumeRatio: 1.2,
     trendLongSlPct: 0.6,
     trendLongTpPct: 0.8,
+    enableKioxiaConfirmedMorningLong: true,
+    kioxiaConfirmedMorningLongStartTime: "09:45",
+    kioxiaConfirmedMorningLongEndTime: "11:20",
+    kioxiaConfirmedMorningLongHighLookback: 10,
+    kioxiaConfirmedMorningLongMinBodyPct: 0.2,
+    kioxiaConfirmedMorningLongMinMaSlopePct: 0,
+    kioxiaConfirmedMorningLongMinVolumeRatio: 1.2,
+    kioxiaConfirmedMorningLongMinOpenGainPct: 0.5,
+    kioxiaConfirmedMorningLongSlPct: 0.8,
+    kioxiaConfirmedMorningLongTpPct: 1.6,
     enableTrendShort: true,
     trendShortStartTime: "10:15",
     trendShortEndTime: "14:20",
@@ -383,9 +410,9 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     trendShortLowLookback: 10,
     trendShortMinVolumeRatio: 1.0,
     trendShortSlPct: 0.8,
-    trendShortTpPct: 1.2,
+    trendShortTpPct: 1.6,
     exclusiveEntryRoutes: true,
-    notes: "キオクシア: 反転LONG（高値落2.5%/SL0.6%/TP0.8%/前場09:45〜/MA8傾き>=0.02%）＋安全CB SHORT＋反転SHORT（始値+3%→高値から1.5%反落、SL0.8%/TP1.2%、前場09:45〜11:27）＋順張りLONG（10:15〜、始値比+0.5%以上・20本高値更新・出来高1.2倍）＋順張りSHORT（10:15〜、始値比-1.5%以下・10本安値更新）。",
+    notes: "キオクシア: 確認型前場LONG（09:45〜11:20、終値10本高値更新、陽線実体0.20%以上、MA8二本傾き>=0%、出来高1.2倍以上、始値比+0.5%以上、SL0.8%/TP1.6%）を旧順張りLONGの代替として優先。反転LONG（SL0.6%/TP1.2%）＋安全CB SHORT（SL0.6%/TP1.5%）＋反転SHORT（SL0.8%/TP1.6%、〜11:20）＋順張りSHORT（SL0.8%/TP1.6%）。",
   },
   "8035": {
     sl: { long: 0.7, short: 0.6 },
@@ -941,6 +968,18 @@ export interface SoftbankBreakoutLongAuditEvent {
 }
 const softbankBreakoutLongAuditEvents: SoftbankBreakoutLongAuditEvent[] = [];
 
+/** ★285A確認型前場LONG: 共通ゲート拒否後は日次枠を消費せず再探索する。 */
+export interface KioxiaConfirmedMorningLongAuditEvent {
+  tradeDate: string;
+  candleTime: string;
+  symbol: "285A";
+  event: "trigger" | "entry" | "engine_rejected";
+  side: "long";
+  detail?: string;
+  referencePrice?: number;
+}
+const kioxiaConfirmedMorningLongAuditEvents: KioxiaConfirmedMorningLongAuditEvent[] = [];
+
 /** 285A SHORTガードは、最初の適格候補を拒否したら当日の同経路を終了する。 */
 export const KIOXIA_SHORT_GUARD_SPEC = Object.freeze({
   reversalShortMinBpr: 0.70,
@@ -1020,6 +1059,27 @@ async function recordSoftbankBreakoutLongAuditEvent(
     });
   } catch (error) {
     console.error("[RealtimeSim] 9984専用LONG監査イベントDB保存失敗:", error);
+  }
+}
+
+async function recordKioxiaConfirmedMorningLongAuditEvent(
+  event: KioxiaConfirmedMorningLongAuditEvent,
+): Promise<void> {
+  kioxiaConfirmedMorningLongAuditEvents.push(event);
+  if (event.event !== "engine_rejected" || event.referencePrice === undefined) return;
+  if (typeof upsertKioxiaConfirmedMorningLongEvent !== "function") return;
+  try {
+    await upsertKioxiaConfirmedMorningLongEvent({
+      tradeDate: event.tradeDate,
+      symbol: event.symbol,
+      candleTime: event.candleTime,
+      eventType: event.event,
+      side: event.side,
+      detail: event.detail ?? null,
+      referencePrice: event.referencePrice.toString(),
+    });
+  } catch (error) {
+    console.error("[RealtimeSim] 285A確認型前場LONG監査イベントDB保存失敗:", error);
   }
 }
 
@@ -1240,6 +1300,7 @@ function resetIfNewDay(tradeDate: string): void {
     sumcoBreakdownShortAuditEvents.length = 0;
     softbankBreakoutLongFired.clear();
     softbankBreakoutLongAuditEvents.length = 0;
+    kioxiaConfirmedMorningLongAuditEvents.length = 0;
     kioxiaReversalShortGuardEnded.clear();
     kioxiaSafeCbShortGuardEnded.clear();
     kioxiaShortGuardAuditEvents.length = 0;
@@ -1424,6 +1485,9 @@ export function resolveRestoredRiskOverrides(
   if (symbol === "285A" && side === "long" && reason.startsWith("反転LONG")) {
     return { slPct: config.reversalLongSlPct, tpPct: config.tp?.long };
   }
+  if (symbol === "285A" && side === "long" && reason.startsWith("キオクシア確認型前場LONG")) {
+    return { slPct: config.kioxiaConfirmedMorningLongSlPct, tpPct: config.kioxiaConfirmedMorningLongTpPct };
+  }
   if (symbol === "285A" && side === "short" && reason.startsWith("反転SHORT")) {
     return { slPct: config.reversalShortSlPct, tpPct: config.reversalShortTpPct };
   }
@@ -1516,6 +1580,7 @@ export function resolveSpecializedFiredStateKeys(
   if (symbol === "285A") {
     if (action === "buy" && reason.startsWith("反転LONG")) return ["reversalLong"];
     if (action === "short" && reason.startsWith("反転SHORT")) return ["reversalShort"];
+    if (action === "buy" && reason.startsWith("キオクシア確認型前場LONG")) return ["trendLong"];
     if (action === "buy" && reason.startsWith("順張りLONG")) return ["trendLong"];
     if (action === "short" && reason.startsWith("順張りSHORT")) return ["trendShort"];
   }
@@ -2932,6 +2997,81 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     if (candleTime < fallbackStartTime) {
       return { symbol, tradeDate, candleTime, action: "none" };
+    }
+  }
+
+  // ---- ★285A: 確認型前場10本高値更新LONG ----
+  // 確定した現足だけで判定し、板条件・未来足は使わない。旧順張りLONGの1日1回枠を引き継ぐ。
+  if (
+    symConfig.enableKioxiaConfirmedMorningLong &&
+    symbol === "285A" &&
+    !trendLongFired.has(symbol) &&
+    isEntryAllowed &&
+    buffer.length >= 21 &&
+    candleTime >= (symConfig.kioxiaConfirmedMorningLongStartTime ?? "09:45") &&
+    candleTime <= (symConfig.kioxiaConfirmedMorningLongEndTime ?? "11:20")
+  ) {
+    const metrics = calculateKioxiaConfirmedMorningLongMetrics(buffer.map(item => ({
+      time: item.time,
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
+    })));
+
+    if (metrics?.eligible && isKioxiaConfirmedMorningLongEntryTime(candleTime)) {
+      const spec = KIOXIA_CONFIRMED_MORNING_LONG_SPEC.primary;
+      const slPct = spec.slPct;
+      const tpPct = spec.tpPct;
+      console.log(
+        `[RealtimeSim] ${symbol} ★${KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX}発火: 終値${spec.lookback}本高値更新・` +
+        `陽線実体${metrics.bodyPct.toFixed(2)}%・MA8二本傾き${metrics.maSlope2Pct.toFixed(3)}%・` +
+        `出来高${metrics.volumeRatio.toFixed(2)}倍・始値比${metrics.openGainPct.toFixed(2)}% (SL${slPct}%/TP${tpPct}%)`,
+      );
+      await recordKioxiaConfirmedMorningLongAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol: "285A",
+        event: "trigger",
+        side: "long",
+        detail: `body=${metrics.bodyPct.toFixed(2)}%,maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x,openGain=${metrics.openGainPct.toFixed(2)}%`,
+        referencePrice: candle.close,
+      });
+      const result = await enterPosition(
+        "long",
+        candle,
+        tradeDate,
+        candleTime,
+        `${KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX}: 終値${spec.lookback}本高値更新、陽線実体${metrics.bodyPct.toFixed(2)}%、MA8二本傾き${metrics.maSlope2Pct.toFixed(3)}%、出来高${metrics.volumeRatio.toFixed(2)}倍、始値比${metrics.openGainPct.toFixed(2)}%`,
+        boardSnapshot,
+        { slPct, tpPct },
+      );
+      await recordKioxiaConfirmedMorningLongAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol: "285A",
+        event: result.action === "entry" ? "entry" : "engine_rejected",
+        side: "long",
+        detail: result.reason,
+        referencePrice: candle.close,
+      });
+      if (result.action === "entry") {
+        trendLongFired.add(symbol);
+      } else if (result.reason !== "margin_block") {
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "kioxia_confirmed_morning_long_block",
+          price: candle.close,
+          shares: 0,
+          pnl: null,
+          reason: `${KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX}拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+      }
+      return result;
     }
   }
 
@@ -5300,6 +5440,14 @@ export function getSoftbankBreakoutLongAuditEventsForTest(): SoftbankBreakoutLon
     throw new Error("9984専用LONG監査イベントはVitest専用です");
   }
   return softbankBreakoutLongAuditEvents.map(event => ({ ...event }));
+}
+
+/** 285A確認型前場LONGの当日DRY_RUN監査イベントをVitestから取得する。 */
+export function getKioxiaConfirmedMorningLongAuditEventsForTest(): KioxiaConfirmedMorningLongAuditEvent[] {
+  if (process.env.VITEST !== "true") {
+    throw new Error("285A確認型前場LONG監査イベントはVitest専用です");
+  }
+  return kioxiaConfirmedMorningLongAuditEvents.map(event => ({ ...event }));
 }
 
 /** 285A両SHORTガードの当日監査イベントをVitestから取得する。 */

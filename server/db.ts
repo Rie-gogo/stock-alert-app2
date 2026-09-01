@@ -554,6 +554,7 @@ import {
   rtSocionextConfirmedLongEvents,
   rtSumcoBreakdownShortEvents,
   rtSoftbankBreakoutLongEvents,
+  rtKioxiaConfirmedMorningLongEvents,
   rtKioxiaShortGuardEvents,
   type InsertRtCandle,
   type InsertRtTrade,
@@ -569,6 +570,8 @@ import {
   type RtSumcoBreakdownShortEvent,
   type InsertRtSoftbankBreakoutLongEvent,
   type RtSoftbankBreakoutLongEvent,
+  type InsertRtKioxiaConfirmedMorningLongEvent,
+  type RtKioxiaConfirmedMorningLongEvent,
   type InsertRtKioxiaShortGuardEvent,
   type RtKioxiaShortGuardEvent,
 } from "../drizzle/schema";
@@ -924,6 +927,38 @@ export async function getSoftbankBreakoutLongEventsForDate(
     .from(rtSoftbankBreakoutLongEvents)
     .where(eq(rtSoftbankBreakoutLongEvents.tradeDate, tradeDate))
     .orderBy(rtSoftbankBreakoutLongEvents.id);
+}
+
+// ============================================================
+// 285A確認型前場LONG DRY_RUN監査イベント helpers
+// ============================================================
+
+export async function upsertKioxiaConfirmedMorningLongEvent(
+  data: Omit<InsertRtKioxiaConfirmedMorningLongEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(rtKioxiaConfirmedMorningLongEvents)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        detail: data.detail ?? null,
+        referencePrice: data.referencePrice,
+      },
+    });
+}
+
+export async function getKioxiaConfirmedMorningLongEventsForDate(
+  tradeDate: string,
+): Promise<RtKioxiaConfirmedMorningLongEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(rtKioxiaConfirmedMorningLongEvents)
+    .where(eq(rtKioxiaConfirmedMorningLongEvents.tradeDate, tradeDate))
+    .orderBy(rtKioxiaConfirmedMorningLongEvents.id);
 }
 
 // ============================================================

@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import mysql from "mysql2/promise";
 import { describe, expect, it, vi } from "vitest";
-import expectedTrades from "./fixtures/kioxiaShortGuards.expected.json";
 import expectedAuditEvents from "./fixtures/kioxiaShortGuards.auditEvents.json";
+import expectedTrades from "./fixtures/kioxiaShortGuards.expected.json";
 
 type Snapshot = {
   buyPressureRatio?: number;
@@ -39,6 +40,7 @@ vi.mock("./db", () => ({
   upsertSocionextConfirmedLongEvent: vi.fn().mockResolvedValue(undefined),
   upsertSumcoBreakdownShortEvent: vi.fn().mockResolvedValue(undefined),
   upsertSoftbankBreakoutLongEvent: vi.fn().mockResolvedValue(undefined),
+  upsertKioxiaConfirmedMorningLongEvent: vi.fn().mockResolvedValue(undefined),
   upsertKioxiaShortGuardEvent: vi.fn().mockResolvedValue(undefined),
   getKioxiaShortGuardEventsForDate: vi.fn().mockResolvedValue([]),
 }));
@@ -60,8 +62,8 @@ import { getKioxiaShortGuardAuditEventsForTest, getOpenPositions, processCandle 
 
 const sourceAuditIt = process.env.RUN_KIOXIA_SHORT_GUARD_SOURCE_AUDIT === "1" ? it : it.skip;
 
-describe("285A両SHORTガード 保存KABU全45日ソース監査", () => {
-  sourceAuditIt("最新ID重複除去14,278足から全72取引・4件の当日終了を再現する", async () => {
+describe("285A他AI案＋両SHORTガード 保存KABU全45日ソース監査", () => {
+  sourceAuditIt("最新ID重複除去14,278足から全75取引・4件の当日終了を再現する", async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required");
     if (process.env.KIOXIA_SHORT_GUARD_AUDIT_NO_MARGIN !== "1") {
       throw new Error("KIOXIA_SHORT_GUARD_AUDIT_NO_MARGIN=1 required");
@@ -119,14 +121,35 @@ describe("285A両SHORTガード 保存KABU全45日ソース監査", () => {
     }
 
     expect({ dates: dates.length, rows: rows.length }).toEqual({ dates: 45, rows: 14_278 });
-    expect({
+    const summary = {
       trades: trades.length,
       wins: trades.filter(trade => Number(trade.pnlPer100) > 0).length,
       losses: trades.filter(trade => Number(trade.pnlPer100) < 0).length,
       draws: trades.filter(trade => Number(trade.pnlPer100) === 0).length,
       pnlPer100: trades.reduce((sum, trade) => sum + Number(trade.pnlPer100), 0),
-    }).toEqual({ trades: 72, wins: 55, losses: 16, draws: 1, pnlPer100: 2_610_703 });
+    };
+    expect(summary).toEqual({ trades: 75, wins: 56, losses: 18, draws: 1, pnlPer100: 3_636_936 });
+
+    const canonicalTrades = `${JSON.stringify(trades, null, 2)}\n`;
+    expect(createHash("sha256").update(canonicalTrades).digest("hex"))
+      .toBe("210a1afe45682ecce7c2b75253480e3fdcde803fbd6e9114777a722a89bc92c2");
     expect(trades).toEqual(expectedTrades);
+
+    const byPrefix = (prefix: string) => trades.filter(trade => String(trade.entryReason).startsWith(prefix));
+    expect(byPrefix("キオクシア確認型前場LONG")).toHaveLength(18);
+    expect(byPrefix("反転LONG")).toHaveLength(20);
+    expect(byPrefix("反転SHORT")).toHaveLength(11);
+    expect(byPrefix("順張りSHORT")).toHaveLength(17);
+    expect(trades.filter(trade => String(trade.entryReason).includes("大台"))).toHaveLength(9);
+
+    const recentFiveDates = new Set(["2026-08-21", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-31"]);
+    const recentFive = trades.filter(trade => recentFiveDates.has(String(trade.date)));
+    expect({
+      trades: recentFive.length,
+      wins: recentFive.filter(trade => Number(trade.pnlPer100) > 0).length,
+      losses: recentFive.filter(trade => Number(trade.pnlPer100) < 0).length,
+      pnlPer100: recentFive.reduce((sum, trade) => sum + Number(trade.pnlPer100), 0),
+    }).toEqual({ trades: 7, wins: 5, losses: 2, pnlPer100: 92_184 });
     expect(auditEvents).toEqual(expectedAuditEvents);
   }, 180_000);
 });

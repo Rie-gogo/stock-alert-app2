@@ -150,6 +150,10 @@ SUMCO_BREAKDOWN_SHORT_REASON_PREFIX = "SUMCO専用15本安値更新SHORT"
 SOFTBANK_BREAKOUT_LONG_LIVE_APPROVED = False
 SOFTBANK_BREAKOUT_LONG_REASON_PREFIX = "ソフトバンクG専用10本高値更新LONG"
 
+# 285A確認型前場LONGもDRY_RUN前向き検証中。明示承認まではLIVE新規注文を拒否する。
+KIOXIA_CONFIRMED_MORNING_LONG_LIVE_APPROVED = False
+KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX = "キオクシア確認型前場LONG"
+
 # executorポーリング間隔（秒）
 EXECUTOR_POLL_INTERVAL = 1.0
 
@@ -1731,6 +1735,14 @@ def executor_preflight_check(instruction: dict) -> tuple:
         and str(instruction.get("reason", "")).startswith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
     ):
         return False, "9984専用LONGはLIVE未承認: 新規注文を強制拒否"
+
+    if (
+        instruction_type == "entry"
+        and not DRY_RUN
+        and not KIOXIA_CONFIRMED_MORNING_LONG_LIVE_APPROVED
+        and str(instruction.get("reason", "")).startswith(KIOXIA_CONFIRMED_MORNING_LONG_REASON_PREFIX)
+    ):
+        return False, "285A確認型前場LONGはLIVE未承認: 新規注文を強制拒否"
 
     # 1. 取引有効チェック（緊急停止中でないか）
     # → クラウド側で既にチェック済みだが、ローカルでも二重チェック

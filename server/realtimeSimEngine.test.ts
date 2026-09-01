@@ -1686,14 +1686,14 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.reversalLongSlPct).toBe(0.6);
     expect(config.disableRoundUpLong).toBe(true);
     expect(config.tp).toBeDefined();
-    expect(config.tp!.long).toBe(0.8);
+    expect(config.tp!.long).toBe(1.2);
     expect(config.tp!.short).toBe(1.5);
   });
 
-  it("285AのLONG TPは0.8%、SHORT TPは1.5%が適用される", async () => {
+  it("285Aの反転LONG TPは1.2%、安全CB SHORT TPは1.5%が適用される", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config = getSymbolConfig("285A");
-    expect(config.tp!.long).toBe(0.8);
+    expect(config.tp!.long).toBe(1.2);
     expect(config.tp!.short).toBe(1.5);
   });
 
@@ -1707,7 +1707,8 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.reversalShortMinRisePct).toBe(3.0);
     expect(config.reversalShortDropPct).toBe(1.5);
     expect(config.reversalShortSlPct).toBe(0.8);
-    expect(config.reversalShortTpPct).toBe(1.2);
+    expect(config.reversalShortTpPct).toBe(1.6);
+    expect(config.reversalShortEndTime).toBe("11:20");
     expect(KIOXIA_SHORT_GUARD_SPEC).toEqual({
       reversalShortMinBpr: 0.70,
       safeCbMinVolumeRatio: 0.45,
@@ -1734,18 +1735,14 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(shouldBlockKioxiaSafeCbByVolume(boundary)).toBe(false);
   });
 
-  it("285Aの順張りLONG・SHORT設定が正しく定義されている", async () => {
+  it("285Aの旧順張りLONG停止・確認型前場LONG置換・順張りSHORT設定が正しく定義されている", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config = getSymbolConfig("285A");
 
-    expect(config.enableTrendLong).toBe(true);
-    expect(config.trendLongStartTime).toBe("10:15");
-    expect(config.trendLongEndTime).toBe("14:20");
-    expect(config.trendLongMinOpenGainPct).toBe(0.5);
-    expect(config.trendLongHighLookback).toBe(20);
-    expect(config.trendLongMinVolumeRatio).toBe(1.2);
-    expect(config.trendLongSlPct).toBe(0.6);
-    expect(config.trendLongTpPct).toBe(0.8);
+    expect(config.enableTrendLong).toBe(false);
+    expect(config.enableKioxiaConfirmedMorningLong).toBe(true);
+    expect(config.kioxiaConfirmedMorningLongStartTime).toBe("09:45");
+    expect(config.kioxiaConfirmedMorningLongEndTime).toBe("11:20");
 
     expect(config.enableTrendShort).toBe(true);
     expect(config.trendShortStartTime).toBe("10:15");
@@ -1754,10 +1751,10 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.trendShortLowLookback).toBe(10);
     expect(config.trendShortMinVolumeRatio).toBe(1.0);
     expect(config.trendShortSlPct).toBe(0.8);
-    expect(config.trendShortTpPct).toBe(1.2);
+    expect(config.trendShortTpPct).toBe(1.6);
   });
 
-  it("10:15以降の始値比+0.5%以上・20本高値更新・出来高増で順張りLONGが発火する", async () => {
+  it("09:45〜11:20の確認型条件を満たす終値10本高値更新LONGが発火する", async () => {
     const symbol = "285A";
     const tradeDate = "2026-08-26";
     const { getOrderBook } = await import("./kabuStation");
@@ -1779,7 +1776,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     }));
 
     expect(result.action).toBe("entry");
-    expect(result.reason).toContain("順張りLONG");
+    expect(result.reason).toContain("キオクシア確認型前場LONG");
     expect(getOpenPositions().find(position => position.symbol === symbol)?.side).toBe("long");
   });
 
@@ -1810,7 +1807,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(getOpenPositions().find(position => position.symbol === symbol)?.side).toBe("short");
   });
 
-  it("285A順張りLONGは始値比+0.5%未満を停止し、+0.5%で発火する", async () => {
+  it("285A確認型前場LONGは始値比+0.5%未満を停止し、実体0.20%以上かつ+0.5%以上で発火する", async () => {
     const symbol = "285A";
     const tradeDate = "2026-08-28";
     const { getOrderBook } = await import("./kabuStation");
@@ -1833,10 +1830,10 @@ describe("キオクシア(285A) 反転LONG", () => {
 
     const at = await processCandle(makeCandle({
       symbol, tradeDate, candleTime: "10:16",
-      open: 50200, high: 50350, low: 50150, close: 50250, volume: 2000,
+      open: 50100, high: 50350, low: 50050, close: 50260, volume: 2000,
     }));
     expect(at.action).toBe("entry");
-    expect(at.reason).toContain("順張りLONG");
+    expect(at.reason).toContain("キオクシア確認型前場LONG");
   });
 
   it("285A順張りSHORTは始値比-1.5%超を停止し、-1.5%で発火する", async () => {

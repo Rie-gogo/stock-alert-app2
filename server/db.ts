@@ -1,4 +1,4 @@
-import { eq, desc, gte, inArray, and } from "drizzle-orm";
+import { eq, ne, desc, gte, inArray, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -557,6 +557,11 @@ import {
   rtKioxiaConfirmedMorningLongEvents,
   rtTelOpenDirectionBreakoutEvents,
   rtKioxiaShortGuardEvents,
+  rtSourceEvents,
+  rtStrategyVersions,
+  rtForwardShadowEvents,
+  rtForwardShadowStates,
+  rtForwardShadowTrades,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -577,6 +582,16 @@ import {
   type RtTelOpenDirectionBreakoutEvent,
   type InsertRtKioxiaShortGuardEvent,
   type RtKioxiaShortGuardEvent,
+  type InsertRtSourceEvent,
+  type RtSourceEvent,
+  type InsertRtStrategyVersion,
+  type RtStrategyVersion,
+  type InsertRtForwardShadowEvent,
+  type RtForwardShadowEvent,
+  type InsertRtForwardShadowState,
+  type RtForwardShadowState,
+  type InsertRtForwardShadowTrade,
+  type RtForwardShadowTrade,
 } from "../drizzle/schema";
 
 /**
@@ -1030,4 +1045,240 @@ export async function getKioxiaShortGuardEventsForDate(
     .from(rtKioxiaShortGuardEvents)
     .where(eq(rtKioxiaShortGuardEvents.tradeDate, tradeDate))
     .orderBy(rtKioxiaShortGuardEvents.id);
+}
+
+// ============================================================
+// 未見データ前向き評価・受信イベント監査 helpers
+// ============================================================
+
+function isDuplicateEntryError(error: unknown): boolean {
+  const candidate = error as { code?: string; errno?: number; cause?: { code?: string; errno?: number } };
+  return candidate.code === "ER_DUP_ENTRY"
+    || candidate.errno === 1062
+    || candidate.cause?.code === "ER_DUP_ENTRY"
+    || candidate.cause?.errno === 1062;
+}
+
+/** relay生イベントを一度だけ受理し、重複時はfalseを返す。 */
+export async function claimRtSourceEvent(
+  data: Omit<InsertRtSourceEvent, "id" | "createdAt" | "processedAt">,
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.insert(rtSourceEvents).values(data);
+    return true;
+  } catch (error) {
+    if (isDuplicateEntryError(error)) return false;
+    throw error;
+  }
+}
+
+export async function getRtSourceEvent(sourceEventId: string): Promise<RtSourceEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(rtSourceEvents)
+    .where(eq(rtSourceEvents.sourceEventId, sourceEventId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getPriorRtSourceEventForCandle(input: {
+  sourceEventId: string;
+  symbol: string;
+  tradeDate: string;
+  candleTime: string;
+}): Promise<RtSourceEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(rtSourceEvents).where(and(
+    eq(rtSourceEvents.symbol, input.symbol),
+    eq(rtSourceEvents.tradeDate, input.tradeDate),
+    eq(rtSourceEvents.candleTime, input.candleTime),
+    ne(rtSourceEvents.sourceEventId, input.sourceEventId),
+  )).orderBy(desc(rtSourceEvents.id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getRtSourceEventsForDate(tradeDate: string): Promise<RtSourceEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSourceEvents)
+    .where(eq(rtSourceEvents.tradeDate, tradeDate))
+    .orderBy(rtSourceEvents.id);
+}
+
+export async function completeRtSourceEvent(input: {
+  sourceEventId: string;
+  status: "processed" | "failed" | "payload_mismatch";
+  resultAction?: string | null;
+  resultJson?: unknown;
+  errorDetail?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtSourceEvents).set({
+    status: input.status,
+    resultAction: input.resultAction ?? null,
+    resultJson: input.resultJson ?? null,
+    errorDetail: input.errorDetail ?? null,
+    processedAt: new Date(),
+  }).where(eq(rtSourceEvents.sourceEventId, input.sourceEventId));
+}
+
+export async function upsertRtStrategyVersion(
+  data: Omit<InsertRtStrategyVersion, "createdAt" | "updatedAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtStrategyVersions).values(data).onDuplicateKeyUpdate({
+    set: {
+      buildGitSha: data.buildGitSha,
+      sourceTreeHash: data.sourceTreeHash,
+    },
+  });
+}
+
+export async function getRtStrategyVersion(versionId: string): Promise<RtStrategyVersion | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(rtStrategyVersions)
+    .where(eq(rtStrategyVersions.versionId, versionId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateRtStrategyVersionStatus(input: {
+  versionId: string;
+  status: RtStrategyVersion["status"];
+  statusReason: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtStrategyVersions).set({
+    status: input.status,
+    statusReason: input.statusReason,
+  }).where(eq(rtStrategyVersions.versionId, input.versionId));
+}
+
+export async function claimRtForwardShadowEvent(
+  data: Omit<InsertRtForwardShadowEvent, "id" | "createdAt">,
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.insert(rtForwardShadowEvents).values(data);
+    return true;
+  } catch (error) {
+    if (isDuplicateEntryError(error)) return false;
+    throw error;
+  }
+}
+
+export async function updateRtForwardShadowEvent(input: {
+  strategyVersion: string;
+  sourceEventId: string;
+  evaluationMode: RtForwardShadowEvent["evaluationMode"];
+  resultType: RtForwardShadowEvent["resultType"];
+  decisionJson: unknown;
+  stateHashAfter: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtForwardShadowEvents).set({
+    resultType: input.resultType,
+    decisionJson: input.decisionJson,
+    stateHashAfter: input.stateHashAfter,
+  }).where(and(
+    eq(rtForwardShadowEvents.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowEvents.sourceEventId, input.sourceEventId),
+    eq(rtForwardShadowEvents.evaluationMode, input.evaluationMode),
+  ));
+}
+
+export async function getRtForwardShadowEventsForDate(
+  tradeDate: string,
+): Promise<RtForwardShadowEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtForwardShadowEvents)
+    .where(eq(rtForwardShadowEvents.tradeDate, tradeDate))
+    .orderBy(rtForwardShadowEvents.id);
+}
+
+export async function getRtForwardShadowState(input: {
+  strategyVersion: string;
+  evaluationMode: RtForwardShadowState["evaluationMode"];
+}): Promise<RtForwardShadowState | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(rtForwardShadowStates).where(and(
+    eq(rtForwardShadowStates.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowStates.evaluationMode, input.evaluationMode),
+  )).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertRtForwardShadowState(
+  data: Omit<InsertRtForwardShadowState, "id" | "updatedAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtForwardShadowStates).values(data).onDuplicateKeyUpdate({
+    set: {
+      stateJson: data.stateJson,
+      stateHash: data.stateHash,
+      lastSourceEventId: data.lastSourceEventId ?? null,
+    },
+  });
+}
+
+export async function insertRtForwardShadowTrade(
+  data: Omit<InsertRtForwardShadowTrade, "id" | "createdAt" | "closedAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtForwardShadowTrades).values(data).onDuplicateKeyUpdate({
+    set: { entrySourceEventId: data.entrySourceEventId },
+  });
+}
+
+export async function closeRtForwardShadowTrade(input: {
+  strategyVersion: string;
+  evaluationMode: RtForwardShadowTrade["evaluationMode"];
+  entrySourceEventId: string;
+  exitSourceEventId: string;
+  exitTradeDate: string;
+  exitCandleTime: string;
+  exitPrice: string;
+  exitReason: string;
+  pnl: number;
+  pnlAfterAdverseExit: number;
+  realizedR: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtForwardShadowTrades).set({
+    exitSourceEventId: input.exitSourceEventId,
+    exitTradeDate: input.exitTradeDate,
+    exitCandleTime: input.exitCandleTime,
+    exitPrice: input.exitPrice,
+    exitReason: input.exitReason,
+    pnl: input.pnl,
+    pnlAfterAdverseExit: input.pnlAfterAdverseExit,
+    realizedR: input.realizedR,
+    closedAt: new Date(),
+  }).where(and(
+    eq(rtForwardShadowTrades.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowTrades.evaluationMode, input.evaluationMode),
+    eq(rtForwardShadowTrades.entrySourceEventId, input.entrySourceEventId),
+  ));
+}
+
+export async function getRtForwardShadowTrades(
+  strategyVersion: string,
+): Promise<RtForwardShadowTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtForwardShadowTrades)
+    .where(eq(rtForwardShadowTrades.strategyVersion, strategyVersion))
+    .orderBy(rtForwardShadowTrades.id);
 }

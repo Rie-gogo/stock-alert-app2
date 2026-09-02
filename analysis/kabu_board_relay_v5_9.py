@@ -67,6 +67,7 @@ v5.9からの変更点（board relay部分は一切変更なし）:
 """
 
 import json
+import hashlib
 import logging
 import requests
 from requests.adapters import HTTPAdapter
@@ -74,6 +75,7 @@ from urllib3.util.retry import Retry
 import socket
 import threading
 import time
+import uuid
 from datetime import datetime, timezone, timedelta
 
 # ============================================================
@@ -229,6 +231,13 @@ def executor_log(msg: str, level: str = "INFO"):
 api_token       = None
 token_lock      = threading.Lock()
 last_candle_time = {}
+
+# ★前向き監査: プロセス起動ごとのセッションIDと単調増加イベント連番。
+# 同じ送信イベントを再試行する場合は event_metadata_by_key の同じIDを再利用する。
+relay_session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:12]
+event_seq = 0
+event_seq_lock = threading.Lock()
+event_metadata_by_key = {}
 
 # ★v5.5: 2バッファ方式 - 現在分と前分を分離保持
 candle_accum      = {}   # 現在分のティック蓄積
@@ -642,6 +651,25 @@ def send_candle_with_board(candle_data, board_data=None):
     payload = {**candle_data}
     if board_data:
         payload["board"] = board_data
+
+    audit_key = candle_data.get("tradeDate", "") + "_" + key
+    with event_seq_lock:
+        global event_seq
+        metadata = event_metadata_by_key.get(audit_key)
+        if metadata is None:
+            event_seq += 1
+            received_at_ms = int(time.time() * 1000)
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            metadata = {
+                "sourceEventId": relay_session_id + ":" + str(event_seq),
+                "relaySessionId": relay_session_id,
+                "eventSeq": event_seq,
+                "payloadHash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                "relayReceivedAtMs": received_at_ms,
+            }
+            event_metadata_by_key[audit_key] = metadata
+    payload.update(metadata)
+    payload["relaySentAtMs"] = int(time.time() * 1000)
 
     try:
         with candle_cloud_lock:  # ★v5.9.1: 1分足送信専用セッション
@@ -2167,6 +2195,7 @@ def main():
     logger.info("WebSocket ping: 無効 / TCP keepalive: idle=30s, interval=5s")
     logger.info("★v5.9: executor安全機能5項目 + 自動復旧 + 夜間省電力待機 + WS多重接続防止")
     logger.info(f"★v5.9: DRY_RUN={DRY_RUN} / 損失上限={LOCAL_DAILY_LOSS_LIMIT}円")
+    logger.info(f"★前向き監査: relaySessionId={relay_session_id}")
     logger.info(f"★v5.9: 通信断閾値={CLOUD_DISCONNECT_THRESHOLD}秒 / 約定確認={ORDER_CONFIRM_TIMEOUT}秒")
     logger.info(f"★v5.9: 大引け強制決済={FORCE_CLOSE_START}〜{FORCE_CLOSE_END}")
 
@@ -2192,6 +2221,7 @@ def main():
             time.sleep(wait_sec)
             # 起床後、日付が変わっているのでlast_candle_timeをクリア
             last_candle_time.clear()
+            event_metadata_by_key.clear()
             logger.info(f"★起床: {current_minute_jst()} - 取引準備を開始します")
             continue
 

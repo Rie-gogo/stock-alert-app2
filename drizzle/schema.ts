@@ -767,3 +767,131 @@ export const rtKioxiaShortGuardEvents = mysqlTable("rt_kioxia_short_guard_events
 
 export type RtKioxiaShortGuardEvent = typeof rtKioxiaShortGuardEvents.$inferSelect;
 export type InsertRtKioxiaShortGuardEvent = typeof rtKioxiaShortGuardEvents.$inferInsert;
+
+/**
+ * Windows relayから受信した生イベントの追記専用監査ログ。
+ * source_event_idだけを一意にし、訂正足は新しいイベントとして保存する。
+ */
+export const rtSourceEvents = mysqlTable("rt_source_events", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
+  eventSeq: int("event_seq").notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  payloadJson: json("payload_json").notNull(),
+  relayReceivedAtMs: bigint("relay_received_at_ms", { mode: "number" }),
+  relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
+  correctedEventId: varchar("corrected_event_id", { length: 128 }),
+  status: mysqlEnum("rt_source_event_status", ["processing", "processed", "failed", "payload_mismatch"]).notNull().default("processing"),
+  resultAction: varchar("result_action", { length: 32 }),
+  resultJson: json("result_json"),
+  errorDetail: text("error_detail"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_source_events_source_identity").on(table.sourceEventId),
+}));
+
+export type RtSourceEvent = typeof rtSourceEvents.$inferSelect;
+export type InsertRtSourceEvent = typeof rtSourceEvents.$inferInsert;
+
+/** 収集開始前に固定する前向き評価の戦略版。 */
+export const rtStrategyVersions = mysqlTable("rt_strategy_versions", {
+  versionId: varchar("version_id", { length: 64 }).primaryKey(),
+  strategyId: varchar("strategy_id", { length: 64 }).notNull(),
+  baselineGitSha: varchar("baseline_git_sha", { length: 64 }).notNull(),
+  buildGitSha: varchar("build_git_sha", { length: 64 }).notNull(),
+  sourceTreeHash: varchar("source_tree_hash", { length: 64 }).notNull(),
+  configHash: varchar("config_hash", { length: 64 }).notNull(),
+  configJson: json("config_json").notNull(),
+  learningCutoffDate: varchar("learning_cutoff_date", { length: 10 }).notNull(),
+  evaluationStartDate: varchar("evaluation_start_date", { length: 10 }).notNull(),
+  status: mysqlEnum("rt_strategy_version_status", ["monitoring", "interim_continue", "eligible", "stopped", "insufficient"]).notNull().default("monitoring"),
+  statusReason: text("status_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type RtStrategyVersion = typeof rtStrategyVersions.$inferSelect;
+export type InsertRtStrategyVersion = typeof rtStrategyVersions.$inferInsert;
+
+/** 戦略版・受信イベント・評価方式ごとの一度きりの判断記録。 */
+export const rtForwardShadowEvents = mysqlTable("rt_forward_shadow_events", {
+  id: int("id").autoincrement().primaryKey(),
+  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  evaluationMode: mysqlEnum("rt_forward_evaluation_mode", ["signal_quality", "capital_constrained"]).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  resultType: mysqlEnum("rt_forward_result_type", ["no_signal", "pending", "entry", "hold", "exit", "rejected", "error"]).notNull(),
+  decisionJson: json("decision_json").notNull(),
+  stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
+  stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  eventIdentity: uniqueIndex("rt_forward_shadow_event_identity").on(
+    table.strategyVersion,
+    table.sourceEventId,
+    table.evaluationMode,
+  ),
+}));
+
+export type RtForwardShadowEvent = typeof rtForwardShadowEvents.$inferSelect;
+export type InsertRtForwardShadowEvent = typeof rtForwardShadowEvents.$inferInsert;
+
+/** 全発火版と資金制約版が独立して復元する状態スナップショット。 */
+export const rtForwardShadowStates = mysqlTable("rt_forward_shadow_states", {
+  id: int("id").autoincrement().primaryKey(),
+  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  evaluationMode: mysqlEnum("rt_forward_state_mode", ["signal_quality", "capital_constrained"]).notNull(),
+  stateJson: json("state_json").notNull(),
+  stateHash: varchar("state_hash", { length: 64 }).notNull(),
+  lastSourceEventId: varchar("last_source_event_id", { length: 128 }),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  stateIdentity: uniqueIndex("rt_forward_shadow_state_identity").on(table.strategyVersion, table.evaluationMode),
+}));
+
+export type RtForwardShadowState = typeof rtForwardShadowStates.$inferSelect;
+export type InsertRtForwardShadowState = typeof rtForwardShadowStates.$inferInsert;
+
+/** 次足始値を使った前向きシャドー取引。orderBridgeから完全分離する。 */
+export const rtForwardShadowTrades = mysqlTable("rt_forward_shadow_trades", {
+  id: int("id").autoincrement().primaryKey(),
+  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  evaluationMode: mysqlEnum("rt_forward_trade_mode", ["signal_quality", "capital_constrained"]).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  side: mysqlEnum("rt_forward_trade_side", ["long", "short"]).notNull(),
+  entrySourceEventId: varchar("entry_source_event_id", { length: 128 }).notNull(),
+  entryTradeDate: varchar("entry_trade_date", { length: 10 }).notNull(),
+  signalCandleTime: varchar("signal_candle_time", { length: 5 }).notNull(),
+  entryCandleTime: varchar("entry_candle_time", { length: 5 }).notNull(),
+  theoreticalSignalPrice: decimal("theoretical_signal_price", { precision: 12, scale: 4 }).notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
+  shares: int("shares").notNull(),
+  slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
+  tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
+  exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
+  exitTradeDate: varchar("exit_trade_date", { length: 10 }),
+  exitCandleTime: varchar("exit_candle_time", { length: 5 }),
+  exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
+  exitReason: varchar("exit_reason", { length: 64 }),
+  pnl: int("pnl"),
+  pnlAfterAdverseExit: int("pnl_after_adverse_exit"),
+  realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+}, table => ({
+  tradeIdentity: uniqueIndex("rt_forward_shadow_trade_identity").on(
+    table.strategyVersion,
+    table.evaluationMode,
+    table.entrySourceEventId,
+  ),
+}));
+
+export type RtForwardShadowTrade = typeof rtForwardShadowTrades.$inferSelect;
+export type InsertRtForwardShadowTrade = typeof rtForwardShadowTrades.$inferInsert;

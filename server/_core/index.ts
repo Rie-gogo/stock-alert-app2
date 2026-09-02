@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { dailySimulationHandler, manualSimulationHandler, kabuPlanReminderHandler, rtDailyReportHandler, serverWarmupHandler, threePeakDailyReportHandler } from "../scheduledHandlers";
 import { restoreBuffersFromDb } from "../realtimeSimEngine";
+import { formatRuntimeIdentityForLog } from "../runtimeIdentity";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -76,6 +77,7 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    console.log(`[RuntimeIdentity] ${formatRuntimeIdentityForLog()}`);
     // 起動時にDBから当日の1分足を読み込んでcandleBuffersを復元する
     // 取引時間中にサーバーが再起動した場合でも、既存の足からシグナル判定を即座に再開できる
     restoreBuffersFromDb().catch((err) =>

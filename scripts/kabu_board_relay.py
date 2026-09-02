@@ -24,8 +24,10 @@ kabuステーション® (localhost:18080)
 """
 
 import json
+import hashlib
 import time
 import threading
+import uuid
 import requests
 import websocket
 import logging
@@ -87,6 +89,12 @@ last_send_time = {}  # 銘柄ごとの最終送信時刻
 
 # 1分足の前回取得時刻（銘柄ごと）
 last_candle_time = {}  # symbol -> "HH:MM"
+
+# 前向き監査: 同じ送信イベントの再試行では同じIDを再利用する。
+relay_session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:12]
+event_seq = 0
+event_seq_lock = threading.Lock()
+event_metadata_by_key = {}
 
 # 1分足の累積OHLCV（銘柄ごと、1分間の集計用）
 candle_accum = {}  # symbol -> {"open": float, "high": float, "low": float, "close": float, "volume": int, "minute": str}
@@ -402,10 +410,30 @@ def send_candle_to_cloud(candle_data: dict) -> bool:
     if key in last_candle_time:
         return True  # 既に送信済み
 
+    payload = {**candle_data}
+    audit_key = candle_data.get("tradeDate", "") + "_" + key
+    with event_seq_lock:
+        global event_seq
+        metadata = event_metadata_by_key.get(audit_key)
+        if metadata is None:
+            event_seq += 1
+            received_at_ms = int(time.time() * 1000)
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            metadata = {
+                "sourceEventId": relay_session_id + ":" + str(event_seq),
+                "relaySessionId": relay_session_id,
+                "eventSeq": event_seq,
+                "payloadHash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                "relayReceivedAtMs": received_at_ms,
+            }
+            event_metadata_by_key[audit_key] = metadata
+    payload.update(metadata)
+    payload["relaySentAtMs"] = int(time.time() * 1000)
+
     try:
         response = requests.post(
             CLOUD_CANDLE_URL,
-            json={"json": candle_data},
+            json={"json": payload},
             headers={"Content-Type": "application/json"},
             timeout=10,
         )

@@ -26,8 +26,20 @@ import { MAX_CONCURRENT_POSITIONS } from "@shared/stocks";
 import { generateDailySimReport } from "../simulation";
 import { generateRealDailyReport } from "../realSimulation";
 import { recommendForNextDay, type SymbolHistoryInput } from "../portfolio";
+import { getRuntimeIdentity } from "../runtimeIdentity";
 
 export const tradingRouter = router({
+  /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
+  getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
+
+  /** 8035パイロットの未見データ前向き成績。注文指示とは分離される。 */
+  getForwardShadowSummary: publicProcedure
+    .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getForwardShadowSummary } = await import("../forwardShadow");
+      return getForwardShadowSummary(input.asOfDate);
+    }),
+
   /**
    * 現在のアルゴリズム設定を取得
    */
@@ -413,12 +425,18 @@ export const tradingRouter = router({
         low: z.number().positive(),
         close: z.number().positive(),
         volume: z.number().min(0),
+        sourceEventId: z.string().min(1).max(128).optional(),
+        relaySessionId: z.string().min(1).max(96).optional(),
+        eventSeq: z.number().int().nonnegative().optional(),
+        payloadHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        relayReceivedAtMs: z.number().int().nonnegative().optional(),
+        relaySentAtMs: z.number().int().nonnegative().optional(),
+        correctedEventId: z.string().min(1).max(128).optional(),
       })
     )
     .mutation(async ({ input }) => {
-      const { processCandle } = await import("../realtimeSimEngine");
-      const result = await processCandle(input);
-      return result;
+      const { ingestSourceCandle } = await import("../sourceEventIngestion");
+      return ingestSourceCandle(input);
     }),
 
   /**
@@ -438,6 +456,13 @@ export const tradingRouter = router({
         low: z.number().positive(),
         close: z.number().positive(),
         volume: z.number().min(0),
+        sourceEventId: z.string().min(1).max(128).optional(),
+        relaySessionId: z.string().min(1).max(96).optional(),
+        eventSeq: z.number().int().nonnegative().optional(),
+        payloadHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        relayReceivedAtMs: z.number().int().nonnegative().optional(),
+        relaySentAtMs: z.number().int().nonnegative().optional(),
+        correctedEventId: z.string().min(1).max(128).optional(),
         // 板情報データ（オプション：取得できなかった場合はnull）
         board: z
           .object({
@@ -471,37 +496,18 @@ export const tradingRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const { updateOrderBook } = await import("../kabuStation");
-      const { processCandle } = await import("../realtimeSimEngine");
-
-      // 板情報が含まれていれば先にキャッシュを更新（1分足処理前に更新することで必ず板情報が反映される）
-      if (input.board) {
-        updateOrderBook({
-          symbol: input.symbol,
-          ...input.board,
-          receivedAt: Date.now(),
-        });
-      }
-
-      // 1分足を処理（板情報キャッシュが更新済みの状態でシグナル判定される）
-      const result = await processCandle({
-        symbol: input.symbol,
-        tradeDate: input.tradeDate,
-        candleTime: input.candleTime,
-        open: input.open,
-        high: input.high,
-        low: input.low,
-        close: input.close,
-        volume: input.volume,
-      });
+      const { ingestSourceCandle } = await import("../sourceEventIngestion");
+      const result = await ingestSourceCandle(input);
 
       // 自動売買ブリッジ: rt_tradesの新規レコードを検知して発注指示を生成
-      try {
-        const { checkAndGenerateInstructions } = await import("../orderBridge");
-        await checkAndGenerateInstructions();
-      } catch (e) {
-        // orderBridgeのエラーはシグナルエンジンに影響させない
-        console.error("[OrderBridge] 発注指示生成エラー:", e);
+      if (!result.sourceEventDuplicate) {
+        try {
+          const { checkAndGenerateInstructions } = await import("../orderBridge");
+          await checkAndGenerateInstructions();
+        } catch (e) {
+          // orderBridgeのエラーはシグナルエンジンに影響させない
+          console.error("[OrderBridge] 発注指示生成エラー:", e);
+        }
       }
 
       return result;

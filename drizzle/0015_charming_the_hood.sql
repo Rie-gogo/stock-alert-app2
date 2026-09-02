@@ -1,0 +1,1 @@
+ALTER TABLE `rt_source_events` ADD `payload_json` json NOT NULL;

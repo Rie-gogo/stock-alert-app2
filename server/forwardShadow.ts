@@ -202,7 +202,7 @@ async function ensureVersion(): Promise<void> {
     versionId: FORWARD_STRATEGY_VERSION,
     strategyId: "8035_open_direction_breakout",
     baselineGitSha: BASELINE_STRATEGY_GIT_SHA,
-    buildGitSha: identity.buildGitSha,
+    buildGitSha: identity.buildGitSha ?? identity.runtimeBuildIdentifier,
     sourceTreeHash: identity.sourceTreeHash,
     configHash: sha256Stable(config),
     configJson: config,
@@ -696,7 +696,9 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
 【未見データ前向きシャドー評価】
   戦略版: ${FORWARD_STRATEGY_VERSION}
   計測開始: ${FORWARD_EVALUATION_START_DATE}（学習終了: ${FORWARD_LEARNING_CUTOFF_DATE}）
-  build Git SHA: ${identity.buildGitSha}
+  build Git SHA: ${identity.buildGitSha ?? "未提供（売買ソース固定hashで照合）"}
+  deployment version: ${identity.deploymentVersion ?? "unavailable"}
+  deployment revision: ${identity.deploymentRevision ?? "unavailable"}
   売買ロジック基準SHA: ${identity.baselineStrategyGitSha}
   設定ハッシュ: ${identity.configHash}
   売買ロジックf6878060一致: ${identity.tradingLogicMatchesBaseline ? "OK" : "NG（計測停止要確認）"}

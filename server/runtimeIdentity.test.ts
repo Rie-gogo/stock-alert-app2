@@ -17,6 +17,7 @@ describe("本番稼働版自己証明", () => {
     expect(identity.dryRunRequired).toBe(true);
     expect(identity.liveOrderApproved).toBe(false);
     expect(identity.configHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(identity.runtimeBuildIdentifier).not.toBe("unavailable");
   });
 
   it("合意した2週間・20件・4週間10件・最大8週間基準を固定する", () => {

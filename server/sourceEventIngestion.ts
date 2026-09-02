@@ -86,6 +86,19 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     const existingResult = existing?.status === "processed" && existing.resultJson && typeof existing.resultJson === "object"
       ? existing.resultJson as Record<string, unknown>
       : {};
+    let shadowRetry: unknown = null;
+    if (existing?.status === "processed") {
+      try {
+        // 現行processCandleは二度と呼ばず、strategyVersion別のshadow errorだけを独立claimで再試行する。
+        shadowRetry = await processForwardShadowSourceEvent({
+          sourceEventId: metadata.sourceEventId,
+          candle: input,
+          board: input.board ?? null,
+        });
+      } catch (shadowError) {
+        shadowRetry = { error: String(shadowError) };
+      }
+    }
     return {
       symbol: input.symbol,
       tradeDate: input.tradeDate,
@@ -95,6 +108,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
       sourceEventId: metadata.sourceEventId,
       sourceEventDuplicate: true as const,
       originalResult: existingResult,
+      shadowRetry,
     };
   }
 
@@ -151,9 +165,22 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
         candle: input,
         board: input.board ?? null,
       });
-    } catch (shadowError) {
-      console.error("[ForwardShadow] シャドー評価エラー（現行DRY_RUN処理は継続）:", shadowError);
-      shadowResult = { error: String(shadowError) };
+    } catch (firstShadowError) {
+      console.warn("[ForwardShadow] シャドー評価一時失敗。現行DRY_RUNを再実行せずシャドーだけ1回再試行:", firstShadowError);
+      try {
+        shadowResult = await processForwardShadowSourceEvent({
+          sourceEventId: metadata.sourceEventId,
+          candle: input,
+          board: input.board ?? null,
+        });
+      } catch (retryShadowError) {
+        console.error("[ForwardShadow] シャドー評価再試行も失敗（現行DRY_RUN処理は継続）:", retryShadowError);
+        shadowResult = {
+          error: String(retryShadowError),
+          firstError: String(firstShadowError),
+          retryAttempted: true,
+        };
+      }
     }
     const combinedResult = {
       ...result,

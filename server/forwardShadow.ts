@@ -1,12 +1,16 @@
+import { randomUUID } from "node:crypto";
 import {
-  claimRtForwardShadowEvent,
+  acquireRtForwardShadowStateLock,
+  claimOrRetryRtForwardShadowEvent,
   closeRtForwardShadowTrade,
+  failRtForwardShadowEvent,
   getRtForwardShadowEventsForDate,
   getRtSourceEventsForDate,
   getRtStrategyVersion,
   getRtForwardShadowState,
   getRtForwardShadowTrades,
   insertRtForwardShadowTrade,
+  releaseRtForwardShadowStateLock,
   updateRtStrategyVersionStatus,
   updateRtForwardShadowEvent,
   upsertRtForwardShadowState,
@@ -22,9 +26,15 @@ import {
   BASELINE_STRATEGY_GIT_SHA,
   FORWARD_EVALUATION_POLICY,
   FORWARD_STRATEGY_VERSION,
+  FUJIKURA_FORWARD_STRATEGY_VERSION,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
+import {
+  FUJIKURA_FORWARD_EVALUATION_START_DATE,
+  FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
+  replayFujikuraForwardShadowDay,
+} from "./fujikuraForwardShadowEngine";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -77,6 +87,8 @@ export interface ForwardShadowState {
   dailySlotConsumed: boolean;
   stopped: boolean;
   lastSourceEventId: string | null;
+  lastResultType: ForwardResultType | null;
+  lastActions: Array<Record<string, unknown>>;
 }
 
 export interface ForwardTradeMetrics {
@@ -106,6 +118,8 @@ function emptyState(): ForwardShadowState {
     dailySlotConsumed: false,
     stopped: false,
     lastSourceEventId: null,
+    lastResultType: null,
+    lastActions: [],
   };
 }
 
@@ -120,6 +134,8 @@ function parseState(value: unknown): ForwardShadowState {
     dailySlotConsumed: raw.dailySlotConsumed === true,
     stopped: raw.stopped === true,
     lastSourceEventId: typeof raw.lastSourceEventId === "string" ? raw.lastSourceEventId : null,
+    lastResultType: raw.lastResultType ?? null,
+    lastActions: Array.isArray(raw.lastActions) ? raw.lastActions : [],
   };
 }
 
@@ -133,6 +149,12 @@ function sharesForMode(mode: ForwardEvaluationMode, price: number): number {
   if (mode === "signal_quality") return 100;
   const rawShares = Math.floor((3_000_000 * 0.9) / price);
   return Math.max(100, Math.floor(rawShares / 100) * 100);
+}
+
+function executablePriceFromBoard(board: unknown): number | null {
+  if (!board || typeof board !== "object") return null;
+  const price = Number((board as { currentPrice?: unknown }).currentPrice);
+  return Number.isFinite(price) && price > 0 ? price : null;
 }
 
 export function calculateForwardExitForTest(position: ForwardPosition, candle: ForwardSourceCandle): {
@@ -184,13 +206,25 @@ function riskYen(position: ForwardPosition): number {
   return position.entryPrice * position.shares * position.slPct / 100;
 }
 
+async function waitForForwardStateLock(input: {
+  strategyVersion: string;
+  evaluationMode: ForwardEvaluationMode;
+  ownerToken: string;
+}): Promise<boolean> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (await acquireRtForwardShadowStateLock({ ...input, leaseMs: 5_000 })) return true;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
 async function ensureVersion(): Promise<void> {
   const identity = getRuntimeIdentity();
   const config = {
     symbol: FORWARD_SHADOW_SYMBOL,
     strategy: "8035_open_direction_breakout_causal_fill",
     sharedDetectionCore: "calculateTelOpenDirectionBreakoutMetrics",
-    entry: "next_completed_candle_open",
+    entry: "board_current_price_at_server_receipt_after_signal",
     sameBarPriority: "stop_loss_first",
     stopGapFill: "adverse_open",
     primary: TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary,
@@ -267,32 +301,39 @@ export function applyForwardShadowTransition(
   } else {
     if (state.pendingEntry && !state.position && !state.dailySlotConsumed) {
       const pending = state.pendingEntry;
-      const shares = sharesForMode(mode, input.candle.open);
-      state.position = {
-        side: pending.side,
-        entrySourceEventId: input.sourceEventId,
-        signalTime: pending.signalTime,
-        entryTime: input.candle.candleTime,
-        theoreticalSignalPrice: pending.theoreticalSignalPrice,
-        entryPrice: input.candle.open,
-        shares,
-        slPct: TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.slPct,
-        tpPct: TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.tpPct,
-      };
-      openedPosition = { ...state.position };
       state.pendingEntry = null;
-      state.dailySlotConsumed = true;
-      actions.push({
-        type: "entry",
-        side: state.position.side,
-        theoreticalSignalPrice: state.position.theoreticalSignalPrice,
-        executableEntryPrice: state.position.entryPrice,
-        shares,
-      });
-      resultType = "entry";
+      const executablePrice = executablePriceFromBoard(input.board);
+      if (executablePrice === null) {
+        actions.push({ type: "entry_rejected", reason: "executable_price_unavailable" });
+        resultType = "rejected";
+      } else {
+        const shares = sharesForMode(mode, executablePrice);
+        state.position = {
+          side: pending.side,
+          entrySourceEventId: input.sourceEventId,
+          signalTime: pending.signalTime,
+          entryTime: input.candle.candleTime,
+          theoreticalSignalPrice: pending.theoreticalSignalPrice,
+          entryPrice: executablePrice,
+          shares,
+          slPct: TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.slPct,
+          tpPct: TEL_OPEN_DIRECTION_BREAKOUT_SPEC.primary.tpPct,
+        };
+        openedPosition = { ...state.position };
+        state.dailySlotConsumed = true;
+        actions.push({
+          type: "entry",
+          side: state.position.side,
+          theoreticalSignalPrice: state.position.theoreticalSignalPrice,
+          executableEntryPrice: state.position.entryPrice,
+          executionPriceSource: "board_current_price_at_server_receipt",
+          shares,
+        });
+        resultType = "entry";
+      }
     }
 
-    if (state.position) {
+    if (state.position && !openedPosition) {
       const exit = calculateForwardExitForTest(state.position, input.candle);
       if (exit) {
         const position = { ...state.position };
@@ -332,28 +373,51 @@ export function applyForwardShadowTransition(
   }
 
   state.lastSourceEventId = input.sourceEventId;
+  state.lastResultType = resultType;
+  state.lastActions = actions;
   return { nextState: state, resultType, actions, openedPosition, closedPosition };
 }
 
 async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluationMode) {
-  const saved = await getRtForwardShadowState({ strategyVersion: FORWARD_STRATEGY_VERSION, evaluationMode: mode });
-  const stateBefore = normalizeStateForEvent(saved?.stateJson, input);
-  const stateHashBefore = sha256Stable(stateBefore);
-  const claimed = await claimRtForwardShadowEvent({
+  const lockToken = `${input.sourceEventId}:${mode}:${randomUUID()}`;
+  const locked = await waitForForwardStateLock({
     strategyVersion: FORWARD_STRATEGY_VERSION,
-    sourceEventId: input.sourceEventId,
     evaluationMode: mode,
-    tradeDate: input.candle.tradeDate,
-    symbol: input.candle.symbol,
-    candleTime: input.candle.candleTime,
-    resultType: "hold",
-    decisionJson: { status: "processing" },
-    stateHashBefore,
-    stateHashAfter: stateHashBefore,
+    ownerToken: lockToken,
   });
-  if (!claimed) return { duplicate: true as const, mode };
-
+  if (!locked) throw new Error(`forward_shadow_state_lock_timeout:${FORWARD_STRATEGY_VERSION}:${mode}`);
+  let stateHashBefore = sha256Stable(emptyState());
   try {
+    const saved = await getRtForwardShadowState({ strategyVersion: FORWARD_STRATEGY_VERSION, evaluationMode: mode });
+    const stateBefore = normalizeStateForEvent(saved?.stateJson, input);
+    stateHashBefore = sha256Stable(stateBefore);
+    const claim = await claimOrRetryRtForwardShadowEvent({
+      claimToken: randomUUID(),
+      data: {
+        strategyVersion: FORWARD_STRATEGY_VERSION,
+        sourceEventId: input.sourceEventId,
+        evaluationMode: mode,
+        tradeDate: input.candle.tradeDate,
+        symbol: input.candle.symbol,
+        candleTime: input.candle.candleTime,
+        resultType: "hold",
+        decisionJson: { status: "processing", orderInstructionCreated: false },
+        stateHashBefore,
+        stateHashAfter: stateHashBefore,
+      },
+    });
+    if (claim !== "claimed") return { duplicate: claim === "completed" as const, busy: claim === "busy" as const, mode };
+    if (stateBefore.lastSourceEventId === input.sourceEventId && stateBefore.lastResultType) {
+      await updateRtForwardShadowEvent({
+        strategyVersion: FORWARD_STRATEGY_VERSION,
+        sourceEventId: input.sourceEventId,
+        evaluationMode: mode,
+        resultType: stateBefore.lastResultType,
+        decisionJson: { actions: stateBefore.lastActions, recoveredFromCommittedState: true, orderInstructionCreated: false },
+        stateHashAfter: stateHashBefore,
+      });
+      return { duplicate: false as const, recovered: true as const, mode, resultType: stateBefore.lastResultType };
+    }
     const transition = applyForwardShadowTransition(stateBefore, input, mode);
     if (transition.openedPosition) {
       const position = transition.openedPosition;
@@ -413,6 +477,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
       decisionJson: {
         actions: transition.actions,
         boardPresent: input.board !== null,
+        executablePriceSource: "board_current_price_at_server_receipt",
         capitalScope: mode === "capital_constrained" ? "pilot_strategy_only" : "unlimited_100_shares",
         orderInstructionCreated: false,
       },
@@ -420,20 +485,33 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
     });
     return { duplicate: false as const, mode, resultType: transition.resultType, actions: transition.actions };
   } catch (error) {
-    await updateRtForwardShadowEvent({
-      strategyVersion: FORWARD_STRATEGY_VERSION,
-      sourceEventId: input.sourceEventId,
-      evaluationMode: mode,
-      resultType: "error",
-      decisionJson: { error: String(error), orderInstructionCreated: false },
-      stateHashAfter: stateHashBefore,
-    });
+    try {
+      await failRtForwardShadowEvent({
+        strategyVersion: FORWARD_STRATEGY_VERSION,
+        sourceEventId: input.sourceEventId,
+        evaluationMode: mode,
+        errorDetail: String(error),
+        stateHashBefore,
+      });
+    } catch (markError) {
+      console.error("[ForwardShadow:8035] error状態保存にも失敗:", markError);
+    }
     throw error;
+  } finally {
+    await releaseRtForwardShadowStateLock({
+      strategyVersion: FORWARD_STRATEGY_VERSION,
+      evaluationMode: mode,
+      ownerToken: lockToken,
+    });
   }
 }
 
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput) {
-  if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_pilot_symbol" as const };
+  if (input.candle.symbol === "5803") {
+    const { processFujikuraForwardShadowSourceEvent } = await import("./fujikuraForwardShadowEngine");
+    return processFujikuraForwardShadowSourceEvent(input);
+  }
+  if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_shadow_symbol" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) {
     console.error("[ForwardShadow] f6878060売買ロジック固定ハッシュ不一致のため計測停止");
     return { skipped: "baseline_trading_logic_mismatch" as const };
@@ -549,8 +627,8 @@ export function evaluateForwardDecision(metrics: ForwardTradeMetrics, asOfDate: 
     : { status: "stopped" as const, reason: "two_week_interim_thresholds_not_met", days };
 }
 
-export async function getForwardShadowSummary(asOfDate: string) {
-  const trades = await getRtForwardShadowTrades(FORWARD_STRATEGY_VERSION);
+export async function getForwardShadowSummary(asOfDate: string, strategyVersion = FORWARD_STRATEGY_VERSION) {
+  const trades = await getRtForwardShadowTrades(strategyVersion);
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
     const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
     const metrics = calculateForwardTradeMetrics(modeTrades);
@@ -566,6 +644,7 @@ interface ReplaySourceEvent {
 }
 
 interface ReplayStoredEvent {
+  strategyVersion?: string;
   sourceEventId: string;
   evaluationMode: ForwardEvaluationMode;
   resultType: string;
@@ -623,7 +702,9 @@ export function replayForwardShadowDay(
       const transition = applyForwardShadowTransition(state, input, mode);
       const stateHashAfter = sha256Stable(transition.nextState);
       replayedEvents += 1;
-      const stored = storedEvents.find(event => event.sourceEventId === sourceEvent.sourceEventId && event.evaluationMode === mode);
+      const stored = storedEvents.find(event => (event.strategyVersion === undefined || event.strategyVersion === FORWARD_STRATEGY_VERSION)
+        && event.sourceEventId === sourceEvent.sourceEventId
+        && event.evaluationMode === mode);
       const matched = Boolean(stored)
         && stored?.resultType === transition.resultType
         && stored?.stateHashBefore === stateHashBefore
@@ -653,49 +734,73 @@ function formatNullable(value: number | null, digits = 2): string {
 
 export async function formatForwardShadowDryRunReport(asOfDate: string): Promise<string> {
   const identity = getRuntimeIdentity();
-  const summaries = await getForwardShadowSummary(asOfDate);
   const [sourceEvents, shadowEvents] = await Promise.all([
     getRtSourceEventsForDate(asOfDate),
     getRtForwardShadowEventsForDate(asOfDate),
   ]);
-  const replayAudit = replayForwardShadowDay(sourceEvents, shadowEvents);
-  let stateContinuityMismatches = 0;
-  for (const mode of FORWARD_EVALUATION_POLICY.evaluationModes) {
-    const modeEvents = shadowEvents
-      .filter(event => event.strategyVersion === FORWARD_STRATEGY_VERSION && event.evaluationMode === mode)
-      .sort((a, b) => a.id - b.id);
-    for (let index = 1; index < modeEvents.length; index += 1) {
-      if (modeEvents[index].stateHashBefore !== modeEvents[index - 1].stateHashAfter) {
-        stateContinuityMismatches += 1;
+  const strategyDefinitions = [
+    {
+      versionId: FORWARD_STRATEGY_VERSION,
+      symbol: "8035",
+      title: "8035 始値方向ブレイク・因果的約定パイロット",
+      startDate: FORWARD_EVALUATION_START_DATE,
+      cutoffDate: FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => replayForwardShadowDay(sourceEvents, shadowEvents),
+    },
+    {
+      versionId: FUJIKURA_FORWARD_STRATEGY_VERSION,
+      symbol: "5803",
+      title: "5803 安値反転LONG A＋B（BPR0.70・利益保護0.5→0.3）",
+      startDate: FUJIKURA_FORWARD_EVALUATION_START_DATE,
+      cutoffDate: FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => replayFujikuraForwardShadowDay(sourceEvents, shadowEvents),
+    },
+  ] as const;
+  const sections: string[] = [];
+  for (const definition of strategyDefinitions) {
+    const summaries = await getForwardShadowSummary(asOfDate, definition.versionId);
+    const versionEvents = shadowEvents.filter(event => event.strategyVersion === definition.versionId);
+    const replayAudit = definition.replay();
+    let stateContinuityMismatches = 0;
+    for (const mode of FORWARD_EVALUATION_POLICY.evaluationModes) {
+      const modeEvents = versionEvents.filter(event => event.evaluationMode === mode).sort((a, b) => a.id - b.id);
+      for (let index = 1; index < modeEvents.length; index += 1) {
+        if (modeEvents[index].stateHashBefore !== modeEvents[index - 1].stateHashAfter) stateContinuityMismatches += 1;
       }
     }
-  }
-  const signalQuality = summaries.find(item => item.mode === "signal_quality");
-  if (signalQuality) {
-    await updateRtStrategyVersionStatus({
-      versionId: FORWARD_STRATEGY_VERSION,
-      status: signalQuality.decision.status,
-      statusReason: signalQuality.decision.reason,
+    const signalQuality = summaries.find(item => item.mode === "signal_quality");
+    if (signalQuality) {
+      await updateRtStrategyVersionStatus({
+        versionId: definition.versionId,
+        status: signalQuality.decision.status,
+        statusReason: signalQuality.decision.reason,
+      });
+    }
+    const lines = summaries.map(item => {
+      const label = item.mode === "signal_quality"
+        ? "100株・証拠金なし全発火"
+        : `891万円上限・可変株数（${definition.symbol}単独パイロット。10銘柄統合判定には未使用）`;
+      return [
+        `  ${label}`,
+        `    前向き完了: ${item.metrics.closedTrades}件（勝${item.metrics.wins}/負${item.metrics.losses}、勝率${item.metrics.winRatePct.toFixed(2)}%）`,
+        `    損益: ${item.metrics.pnl >= 0 ? "+" : ""}${item.metrics.pnl.toLocaleString()}円 / 0.10%不利出口後: ${item.metrics.pnlAfterAdverseExit >= 0 ? "+" : ""}${item.metrics.pnlAfterAdverseExit.toLocaleString()}円`,
+        `    PF: ${formatNullable(item.metrics.profitFactor)} / 期待値: ${item.metrics.expectedR.toFixed(3)}R / 実現平均利益÷平均損失: ${formatNullable(item.metrics.realizedPayoffRatio)}`,
+        `    最大DD: ${item.metrics.maxDrawdown.toLocaleString()}円 / 最大連敗: ${item.metrics.maxConsecutiveLosses} / 判定: ${item.decision.status} (${item.decision.reason})`,
+        `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
+        `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
+      ].join("\n");
     });
+    sections.push(`
+【${definition.title}】
+  戦略版: ${definition.versionId}
+  計測開始: ${definition.startDate}（学習終了: ${definition.cutoffDate}）
+  注文接続: なし（strategyVersion別シャドーテーブルのみ）
+  当日シャドー判断: ${versionEvents.length}件（error=${versionEvents.filter(event => event.resultType === "error").length}, 状態ハッシュ連続不一致=${stateContinuityMismatches}）
+  当日固定版再生: ${replayAudit.replayedEvents}判断再生（実時との差=${replayAudit.mismatches}, 不正payload=${replayAudit.invalidPayloads}）
+${lines.join("\n")}`);
   }
-  const lines = summaries.map(item => {
-    const label = item.mode === "signal_quality"
-      ? "100株・証拠金なし全発火"
-      : "891万円上限・可変株数（8035単独パイロット。10銘柄統合判定には未使用）";
-    return [
-      `  ${label}`,
-      `    前向き完了: ${item.metrics.closedTrades}件（勝${item.metrics.wins}/負${item.metrics.losses}、勝率${item.metrics.winRatePct.toFixed(2)}%）`,
-      `    損益: ${item.metrics.pnl >= 0 ? "+" : ""}${item.metrics.pnl.toLocaleString()}円 / 0.10%不利出口後: ${item.metrics.pnlAfterAdverseExit >= 0 ? "+" : ""}${item.metrics.pnlAfterAdverseExit.toLocaleString()}円`,
-      `    PF: ${formatNullable(item.metrics.profitFactor)} / 期待値: ${item.metrics.expectedR.toFixed(3)}R / 実現平均利益÷平均損失: ${formatNullable(item.metrics.realizedPayoffRatio)}`,
-      `    最大DD: ${item.metrics.maxDrawdown.toLocaleString()}円 / 最大連敗: ${item.metrics.maxConsecutiveLosses} / 判定: ${item.decision.status} (${item.decision.reason})`,
-      `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
-      `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
-    ].join("\n");
-  });
   return `
 【未見データ前向きシャドー評価】
-  戦略版: ${FORWARD_STRATEGY_VERSION}
-  計測開始: ${FORWARD_EVALUATION_START_DATE}（学習終了: ${FORWARD_LEARNING_CUTOFF_DATE}）
   build Git SHA: ${identity.buildGitSha ?? "未提供（売買ソース固定hashで照合）"}
   deployment version: ${identity.deploymentVersion ?? "unavailable"}
   deployment revision: ${identity.deploymentRevision ?? "unavailable"}
@@ -705,8 +810,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
   対象銘柄: ${identity.activeEntrySymbols.join(",")}
   注文接続: なし（シャドーテーブルのみ）
   当日受信監査: ${sourceEvents.length}件（processed=${sourceEvents.filter(event => event.status === "processed").length}, failed=${sourceEvents.filter(event => event.status === "failed").length}, processing=${sourceEvents.filter(event => event.status === "processing").length}）
-  当日シャドー判断: ${shadowEvents.length}件（error=${shadowEvents.filter(event => event.resultType === "error").length}, 状態ハッシュ連続不一致=${stateContinuityMismatches}）
-  当日固定版再生: ${replayAudit.replayedEvents}判断再生（実時との差=${replayAudit.mismatches}, 不正payload=${replayAudit.invalidPayloads}）
-${lines.join("\n")}
+${sections.join("\n")}
 `;
 }

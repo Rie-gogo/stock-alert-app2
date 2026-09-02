@@ -1,4 +1,4 @@
-import { eq, ne, desc, gte, inArray, and } from "drizzle-orm";
+import { eq, ne, desc, gte, inArray, and, or, isNull, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -561,6 +561,7 @@ import {
   rtStrategyVersions,
   rtForwardShadowEvents,
   rtForwardShadowStates,
+  rtForwardShadowLocks,
   rtForwardShadowTrades,
   type InsertRtCandle,
   type InsertRtTrade,
@@ -1173,6 +1174,83 @@ export async function claimRtForwardShadowEvent(
   }
 }
 
+export type RtForwardShadowClaimResult = "claimed" | "completed" | "busy";
+
+/**
+ * シャドー判断専用claim。errorだけを期限付きで再試行し、完了済み判断は再実行しない。
+ * 現行売買のsource-event claimとは独立しているため、再試行で実売買処理を二重実行しない。
+ */
+export async function claimOrRetryRtForwardShadowEvent(input: {
+  data: Omit<InsertRtForwardShadowEvent, "id" | "createdAt" | "claimToken" | "claimUntil" | "attemptCount" | "lastError">;
+  claimToken: string;
+  leaseMs?: number;
+}): Promise<RtForwardShadowClaimResult> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const now = new Date();
+  const claimUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  try {
+    await db.insert(rtForwardShadowEvents).values({
+      ...input.data,
+      claimToken: input.claimToken,
+      claimUntil,
+      attemptCount: 1,
+      lastError: null,
+    });
+    return "claimed";
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) throw error;
+  }
+
+  const keyWhere = and(
+    eq(rtForwardShadowEvents.strategyVersion, input.data.strategyVersion),
+    eq(rtForwardShadowEvents.sourceEventId, input.data.sourceEventId),
+    eq(rtForwardShadowEvents.evaluationMode, input.data.evaluationMode),
+  );
+  const existing = (await db.select().from(rtForwardShadowEvents).where(keyWhere).limit(1))[0];
+  if (!existing) return "busy";
+  if (existing.resultType !== "error") return "completed";
+  if (existing.claimUntil && existing.claimUntil.getTime() > now.getTime()) return "busy";
+
+  await db.update(rtForwardShadowEvents).set({
+    resultType: "pending",
+    decisionJson: { status: "retry_claimed" },
+    claimToken: input.claimToken,
+    claimUntil,
+    attemptCount: sql`${rtForwardShadowEvents.attemptCount} + 1`,
+    lastError: null,
+  }).where(and(
+    keyWhere,
+    eq(rtForwardShadowEvents.resultType, "error"),
+    or(isNull(rtForwardShadowEvents.claimUntil), lt(rtForwardShadowEvents.claimUntil, now)),
+  ));
+  const claimed = (await db.select().from(rtForwardShadowEvents).where(keyWhere).limit(1))[0];
+  return claimed?.claimToken === input.claimToken ? "claimed" : "busy";
+}
+
+export async function failRtForwardShadowEvent(input: {
+  strategyVersion: string;
+  sourceEventId: string;
+  evaluationMode: RtForwardShadowEvent["evaluationMode"];
+  errorDetail: string;
+  stateHashBefore: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtForwardShadowEvents).set({
+    resultType: "error",
+    decisionJson: { error: input.errorDetail },
+    stateHashAfter: input.stateHashBefore,
+    claimToken: null,
+    claimUntil: null,
+    lastError: input.errorDetail,
+  }).where(and(
+    eq(rtForwardShadowEvents.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowEvents.sourceEventId, input.sourceEventId),
+    eq(rtForwardShadowEvents.evaluationMode, input.evaluationMode),
+  ));
+}
+
 export async function updateRtForwardShadowEvent(input: {
   strategyVersion: string;
   sourceEventId: string;
@@ -1187,6 +1265,9 @@ export async function updateRtForwardShadowEvent(input: {
     resultType: input.resultType,
     decisionJson: input.decisionJson,
     stateHashAfter: input.stateHashAfter,
+    claimToken: null,
+    claimUntil: null,
+    lastError: null,
   }).where(and(
     eq(rtForwardShadowEvents.strategyVersion, input.strategyVersion),
     eq(rtForwardShadowEvents.sourceEventId, input.sourceEventId),
@@ -1229,6 +1310,61 @@ export async function upsertRtForwardShadowState(
       lastSourceEventId: data.lastSourceEventId ?? null,
     },
   });
+}
+
+/** strategyVersion・評価方式単位の短時間リースを取得する。 */
+export async function acquireRtForwardShadowStateLock(input: {
+  strategyVersion: string;
+  evaluationMode: RtForwardShadowState["evaluationMode"];
+  ownerToken: string;
+  leaseMs?: number;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.insert(rtForwardShadowLocks).values({
+      strategyVersion: input.strategyVersion,
+      evaluationMode: input.evaluationMode,
+      ownerToken: null,
+      leaseUntil: null,
+    });
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) throw error;
+  }
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  await db.update(rtForwardShadowLocks).set({
+    ownerToken: input.ownerToken,
+    leaseUntil,
+  }).where(and(
+    eq(rtForwardShadowLocks.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowLocks.evaluationMode, input.evaluationMode),
+    or(
+      isNull(rtForwardShadowLocks.ownerToken),
+      isNull(rtForwardShadowLocks.leaseUntil),
+      lt(rtForwardShadowLocks.leaseUntil, now),
+      eq(rtForwardShadowLocks.ownerToken, input.ownerToken),
+    ),
+  ));
+  const row = (await db.select().from(rtForwardShadowLocks).where(and(
+    eq(rtForwardShadowLocks.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowLocks.evaluationMode, input.evaluationMode),
+  )).limit(1))[0];
+  return row?.ownerToken === input.ownerToken;
+}
+
+export async function releaseRtForwardShadowStateLock(input: {
+  strategyVersion: string;
+  evaluationMode: RtForwardShadowState["evaluationMode"];
+  ownerToken: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtForwardShadowLocks).set({ ownerToken: null, leaseUntil: null }).where(and(
+    eq(rtForwardShadowLocks.strategyVersion, input.strategyVersion),
+    eq(rtForwardShadowLocks.evaluationMode, input.evaluationMode),
+    eq(rtForwardShadowLocks.ownerToken, input.ownerToken),
+  ));
 }
 
 export async function insertRtForwardShadowTrade(

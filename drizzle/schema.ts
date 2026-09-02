@@ -831,6 +831,10 @@ export const rtForwardShadowEvents = mysqlTable("rt_forward_shadow_events", {
   decisionJson: json("decision_json").notNull(),
   stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
   stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
+  claimToken: varchar("claim_token", { length: 64 }),
+  claimUntil: timestamp("claim_until"),
+  attemptCount: int("attempt_count").notNull().default(1),
+  lastError: text("last_error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, table => ({
   eventIdentity: uniqueIndex("rt_forward_shadow_event_identity").on(
@@ -858,6 +862,21 @@ export const rtForwardShadowStates = mysqlTable("rt_forward_shadow_states", {
 
 export type RtForwardShadowState = typeof rtForwardShadowStates.$inferSelect;
 export type InsertRtForwardShadowState = typeof rtForwardShadowStates.$inferInsert;
+
+/** strategyVersion・評価方式単位の短時間リース。複数サーバーでも状態更新を直列化する。 */
+export const rtForwardShadowLocks = mysqlTable("rt_forward_shadow_locks", {
+  id: int("id").autoincrement().primaryKey(),
+  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  evaluationMode: mysqlEnum("rt_forward_lock_mode", ["signal_quality", "capital_constrained"]).notNull(),
+  ownerToken: varchar("owner_token", { length: 64 }),
+  leaseUntil: timestamp("lease_until"),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  lockIdentity: uniqueIndex("rt_forward_shadow_lock_identity").on(table.strategyVersion, table.evaluationMode),
+}));
+
+export type RtForwardShadowLock = typeof rtForwardShadowLocks.$inferSelect;
+export type InsertRtForwardShadowLock = typeof rtForwardShadowLocks.$inferInsert;
 
 /** 次足始値を使った前向きシャドー取引。orderBridgeから完全分離する。 */
 export const rtForwardShadowTrades = mysqlTable("rt_forward_shadow_trades", {

@@ -130,6 +130,8 @@ describe("当日固定版再生監査", () => {
         dailySlotConsumed: false,
         stopped: false,
         lastSourceEventId: null,
+        lastResultType: null,
+        lastActions: [],
       };
       const transition = applyForwardShadowTransition(stateBefore, input, evaluationMode);
       return {

@@ -6,7 +6,12 @@ import { GENERATED_BUILD_IDENTITY } from "./generatedBuildIdentity";
 
 export const BASELINE_STRATEGY_GIT_SHA = "f6878060c61ef5c2b8e3267b52756d019bb8bfe7";
 export const BASELINE_TRADING_SOURCE_TREE_HASH = "42006f0ef757255a1b1eda86fa7c37dd28a4b42f7d23503867b9fefdf24dfeda";
-export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-v1";
+export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
+export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v1";
+export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
+  FORWARD_STRATEGY_VERSION,
+  FUJIKURA_FORWARD_STRATEGY_VERSION,
+]);
 export const FORWARD_EVALUATION_POLICY = Object.freeze({
   dryRunOnly: true,
   liveOrderApproved: false,
@@ -64,7 +69,7 @@ export function getRuntimeIdentity() {
     activeEntrySymbols,
     receivedSymbols,
     policy: FORWARD_EVALUATION_POLICY,
-    strategyVersion: FORWARD_STRATEGY_VERSION,
+    strategyVersions: FORWARD_STRATEGY_VERSIONS,
   });
   const generatedGitSha: string = GENERATED_BUILD_IDENTITY.gitSha;
   const exactBuildGitSha = generatedGitSha === "unavailable"
@@ -84,6 +89,7 @@ export function getRuntimeIdentity() {
     sourceTreeHash: GENERATED_BUILD_IDENTITY.sourceTreeHash,
     configHash,
     strategyVersion: FORWARD_STRATEGY_VERSION,
+    strategyVersions: FORWARD_STRATEGY_VERSIONS,
     activeEntrySymbols,
     receivedSymbols,
     dryRunRequired: true as const,

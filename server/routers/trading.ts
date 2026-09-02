@@ -32,12 +32,26 @@ export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
 
-  /** 8035パイロットの未見データ前向き成績。注文指示とは分離される。 */
+  /** 8035・5803のstrategyVersion別未見データ前向き成績。注文指示とは分離される。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
       const { getForwardShadowSummary } = await import("../forwardShadow");
-      return getForwardShadowSummary(input.asOfDate);
+      const { FORWARD_STRATEGY_VERSION, FUJIKURA_FORWARD_STRATEGY_VERSION } = await import("../runtimeIdentity");
+      return {
+        strategies: [
+          {
+            strategyVersion: FORWARD_STRATEGY_VERSION,
+            symbol: "8035",
+            summaries: await getForwardShadowSummary(input.asOfDate, FORWARD_STRATEGY_VERSION),
+          },
+          {
+            strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION,
+            symbol: "5803",
+            summaries: await getForwardShadowSummary(input.asOfDate, FUJIKURA_FORWARD_STRATEGY_VERSION),
+          },
+        ],
+      };
     }),
 
   /**

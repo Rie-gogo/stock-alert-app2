@@ -49,13 +49,33 @@ describe("受信イベントの一度きり処理", () => {
     expect(result.sourceEventDuplicate).toBe(false);
   });
 
-  it("同じイベントIDの再送は現行エンジンもシャドーも再実行しない", async () => {
+  it("同じイベントIDの再送は現行エンジンを再実行せず、シャドーerrorだけを冪等再試行する", async () => {
     dbMock.claimRtSourceEvent.mockResolvedValue(false);
     dbMock.getRtSourceEvent.mockResolvedValue({ status: "processed", payloadHash: "a".repeat(64), resultJson: { action: "entry" } });
     const result = await ingestSourceCandle(input);
     expect(processCandleMock).not.toHaveBeenCalled();
-    expect(shadowMock).not.toHaveBeenCalled();
+    expect(shadowMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
+  });
+
+  it("最初のシャドー失敗後も現行売買を再実行せず、同じ親イベント内でシャドーだけ1回再試行する", async () => {
+    dbMock.claimRtSourceEvent.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    dbMock.getRtSourceEvent.mockResolvedValue({
+      status: "processed",
+      payloadHash: "a".repeat(64),
+      resultJson: { action: "none", shadow: { error: "temporary" } },
+    });
+    shadowMock.mockRejectedValueOnce(new Error("temporary")).mockResolvedValueOnce({ skipped: false, results: [] });
+
+    const first = await ingestSourceCandle(input);
+
+    expect(first.sourceEventDuplicate).toBe(false);
+    expect(processCandleMock).toHaveBeenCalledTimes(1);
+    expect(shadowMock).toHaveBeenCalledTimes(2);
+    const retry = await ingestSourceCandle(input);
+    expect(processCandleMock).toHaveBeenCalledTimes(1);
+    expect(shadowMock).toHaveBeenCalledTimes(3);
+    expect(retry).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 
   it("同じイベントIDで異なるpayloadは処理しない", async () => {

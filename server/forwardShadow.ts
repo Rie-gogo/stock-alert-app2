@@ -27,6 +27,7 @@ import {
   FORWARD_EVALUATION_POLICY,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_FORWARD_STRATEGY_VERSION,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -35,6 +36,11 @@ import {
   FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
   replayFujikuraForwardShadowDay,
 } from "./fujikuraForwardShadowEngine";
+import {
+  KIOXIA_FORWARD_EVALUATION_START_DATE,
+  KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
+  replayKioxiaForwardShadowDay,
+} from "./kioxiaForwardShadowEngine";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -507,6 +513,10 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
 }
 
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput) {
+  if (input.candle.symbol === "285A") {
+    const { processKioxiaForwardShadowSourceEvent } = await import("./kioxiaForwardShadowEngine");
+    return processKioxiaForwardShadowSourceEvent(input);
+  }
   if (input.candle.symbol === "5803") {
     const { processFujikuraForwardShadowSourceEvent } = await import("./fujikuraForwardShadowEngine");
     return processFujikuraForwardShadowSourceEvent(input);
@@ -593,8 +603,12 @@ function calendarDaysInclusive(start: string, end: string): number {
   return Math.max(0, Math.floor((endMs - startMs) / 86_400_000) + 1);
 }
 
-export function evaluateForwardDecision(metrics: ForwardTradeMetrics, asOfDate: string) {
-  const days = calendarDaysInclusive(FORWARD_EVALUATION_START_DATE, asOfDate);
+export function evaluateForwardDecision(
+  metrics: ForwardTradeMetrics,
+  asOfDate: string,
+  evaluationStartDate = FORWARD_EVALUATION_START_DATE,
+) {
+  const days = calendarDaysInclusive(evaluationStartDate, asOfDate);
   if (metrics.maxConsecutiveLosses >= FORWARD_EVALUATION_POLICY.maximumConsecutiveLosses
     || metrics.cumulativeR <= -FORWARD_EVALUATION_POLICY.maximumCumulativeLossR) {
     return { status: "stopped" as const, reason: "safety_stop", days };
@@ -629,10 +643,20 @@ export function evaluateForwardDecision(metrics: ForwardTradeMetrics, asOfDate: 
 
 export async function getForwardShadowSummary(asOfDate: string, strategyVersion = FORWARD_STRATEGY_VERSION) {
   const trades = await getRtForwardShadowTrades(strategyVersion);
+  const evaluationStartDate = strategyVersion === FUJIKURA_FORWARD_STRATEGY_VERSION
+    ? FUJIKURA_FORWARD_EVALUATION_START_DATE
+    : strategyVersion === KIOXIA_FORWARD_STRATEGY_VERSION
+      ? KIOXIA_FORWARD_EVALUATION_START_DATE
+      : FORWARD_EVALUATION_START_DATE;
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
     const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
     const metrics = calculateForwardTradeMetrics(modeTrades);
-    return { mode, metrics, decision: evaluateForwardDecision(metrics, asOfDate), pilotOnly: mode === "capital_constrained" };
+    return {
+      mode,
+      metrics,
+      decision: evaluateForwardDecision(metrics, asOfDate, evaluationStartDate),
+      pilotOnly: mode === "capital_constrained",
+    };
   });
 }
 
@@ -754,6 +778,14 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: FUJIKURA_FORWARD_EVALUATION_START_DATE,
       cutoffDate: FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayFujikuraForwardShadowDay(sourceEvents, shadowEvents),
+    },
+    {
+      versionId: KIOXIA_FORWARD_STRATEGY_VERSION,
+      symbol: "285A",
+      title: "285A 確認型前場LONG・MA8失速確認付き利益保護",
+      startDate: KIOXIA_FORWARD_EVALUATION_START_DATE,
+      cutoffDate: KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => replayKioxiaForwardShadowDay(sourceEvents, shadowEvents),
     },
   ] as const;
   const sections: string[] = [];

@@ -78,6 +78,29 @@ describe("受信イベントの一度きり処理", () => {
     expect(retry).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 
+  it("285Aでも親売買は一度だけ実行し、シャドー失敗時は285Aイベントのシャドーだけを再試行する", async () => {
+    const kioxiaInput = {
+      ...input,
+      symbol: "285A",
+      tradeDate: "2026-09-04",
+      sourceEventId: "kioxia-session:1",
+      relaySessionId: "kioxia-session",
+    };
+    dbMock.claimRtSourceEvent.mockResolvedValue(true);
+    processCandleMock.mockResolvedValue({ symbol: "285A", tradeDate: "2026-09-04", candleTime: "10:00", action: "none" });
+    shadowMock.mockRejectedValueOnce(new Error("temporary")).mockResolvedValueOnce({ skipped: false, results: [] });
+
+    const result = await ingestSourceCandle(kioxiaInput);
+
+    expect(processCandleMock).toHaveBeenCalledTimes(1);
+    expect(shadowMock).toHaveBeenCalledTimes(2);
+    expect(shadowMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      sourceEventId: "kioxia-session:1",
+      candle: expect.objectContaining({ symbol: "285A" }),
+    }));
+    expect(result.sourceEventDuplicate).toBe(false);
+  });
+
   it("同じイベントIDで異なるpayloadは処理しない", async () => {
     dbMock.claimRtSourceEvent.mockResolvedValue(false);
     dbMock.getRtSourceEvent.mockResolvedValue({ status: "processed", payloadHash: "b".repeat(64), resultJson: null });

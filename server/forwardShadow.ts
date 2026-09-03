@@ -16,6 +16,7 @@ import {
   upsertRtForwardShadowState,
   upsertRtStrategyVersion,
 } from "./db";
+import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
 import {
   TEL_OPEN_DIRECTION_BREAKOUT_SPEC,
   calculateTelOpenDirectionBreakoutMetrics,
@@ -27,6 +28,7 @@ import {
   FORWARD_EVALUATION_POLICY,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   getRuntimeIdentity,
   sha256Stable,
@@ -41,6 +43,12 @@ import {
   KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
   replayKioxiaForwardShadowDay,
 } from "./kioxiaForwardShadowEngine";
+import {
+  KIOXIA_ATR_FORWARD_EVALUATION_START_DATE,
+  KIOXIA_ATR_FORWARD_LEARNING_CUTOFF_DATE,
+  processKioxiaAtrForwardShadowSourceEvent,
+  replayKioxiaAtrForwardShadowDay,
+} from "./kioxiaAtrForwardShadowEngine";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -385,7 +393,11 @@ export function applyForwardShadowTransition(
 }
 
 async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluationMode) {
-  const lockToken = `${input.sourceEventId}:${mode}:${randomUUID()}`;
+  const lockToken = createForwardShadowLockOwnerToken({
+    strategyVersion: FORWARD_STRATEGY_VERSION,
+    sourceEventId: input.sourceEventId,
+    evaluationMode: mode,
+  });
   const locked = await waitForForwardStateLock({
     strategyVersion: FORWARD_STRATEGY_VERSION,
     evaluationMode: mode,
@@ -515,7 +527,19 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput) {
   if (input.candle.symbol === "285A") {
     const { processKioxiaForwardShadowSourceEvent } = await import("./kioxiaForwardShadowEngine");
-    return processKioxiaForwardShadowSourceEvent(input);
+    const evaluations: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    for (const evaluate of [processKioxiaForwardShadowSourceEvent, processKioxiaAtrForwardShadowSourceEvent]) {
+      try {
+        evaluations.push(await evaluate(input));
+      } catch (error) {
+        errors.push(String(error));
+      }
+    }
+    if (errors.length > 0) {
+      throw new Error(`kioxia_forward_shadow_partial_failure:${errors.join(" | ")}`);
+    }
+    return { skipped: false as const, symbol: "285A", evaluations };
   }
   if (input.candle.symbol === "5803") {
     const { processFujikuraForwardShadowSourceEvent } = await import("./fujikuraForwardShadowEngine");
@@ -647,6 +671,8 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
     ? FUJIKURA_FORWARD_EVALUATION_START_DATE
     : strategyVersion === KIOXIA_FORWARD_STRATEGY_VERSION
       ? KIOXIA_FORWARD_EVALUATION_START_DATE
+      : strategyVersion === KIOXIA_ATR_FORWARD_STRATEGY_VERSION
+        ? KIOXIA_ATR_FORWARD_EVALUATION_START_DATE
       : FORWARD_EVALUATION_START_DATE;
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
     const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
@@ -786,6 +812,14 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: KIOXIA_FORWARD_EVALUATION_START_DATE,
       cutoffDate: KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayKioxiaForwardShadowDay(sourceEvents, shadowEvents),
+    },
+    {
+      versionId: KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
+      symbol: "285A",
+      title: "285A 現行5経路・ATR7 0.36%未満の該当経路日次終了",
+      startDate: KIOXIA_ATR_FORWARD_EVALUATION_START_DATE,
+      cutoffDate: KIOXIA_ATR_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => replayKioxiaAtrForwardShadowDay(sourceEvents, shadowEvents),
     },
   ] as const;
   const sections: string[] = [];

@@ -9,10 +9,12 @@ export const BASELINE_TRADING_SOURCE_TREE_HASH = "42006f0ef757255a1b1eda86fa7c37
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const KIOXIA_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-confirmed-long-momentum-protect-v1";
+export const KIOXIA_ATR_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
 ]);
 export const FORWARD_EVALUATION_POLICY = Object.freeze({
   dryRunOnly: true,

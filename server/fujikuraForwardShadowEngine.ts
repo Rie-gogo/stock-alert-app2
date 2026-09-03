@@ -12,6 +12,7 @@ import {
   upsertRtForwardShadowState,
   upsertRtStrategyVersion,
 } from "./db";
+import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
 import {
   FUJIKURA_FORWARD_SHADOW_SPEC,
   calculateFujikuraTriggerMetrics,
@@ -342,7 +343,11 @@ export async function ensureFujikuraForwardVersion(): Promise<void> {
 }
 
 async function processMode(input: FujikuraForwardSourceEventInput, mode: FujikuraForwardEvaluationMode) {
-  const lockToken = `${input.sourceEventId}:${mode}:${randomUUID()}`;
+  const lockToken = createForwardShadowLockOwnerToken({
+    strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION,
+    sourceEventId: input.sourceEventId,
+    evaluationMode: mode,
+  });
   const locked = await waitForFujikuraStateLock({
     strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION,
     evaluationMode: mode,

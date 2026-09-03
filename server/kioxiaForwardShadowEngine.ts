@@ -12,6 +12,7 @@ import {
   upsertRtForwardShadowState,
   upsertRtStrategyVersion,
 } from "./db";
+import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
 import {
   KIOXIA_FORWARD_SHADOW_SPEC,
   calculateKioxiaForwardBoardMetrics,
@@ -335,7 +336,11 @@ export async function ensureKioxiaForwardVersion(): Promise<void> {
 }
 
 async function processMode(input: KioxiaForwardSourceEventInput, mode: KioxiaForwardEvaluationMode) {
-  const lockToken = `${input.sourceEventId}:${mode}:${randomUUID()}`;
+  const lockToken = createForwardShadowLockOwnerToken({
+    strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION,
+    sourceEventId: input.sourceEventId,
+    evaluationMode: mode,
+  });
   const locked = await waitForKioxiaStateLock({
     strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION,
     evaluationMode: mode,

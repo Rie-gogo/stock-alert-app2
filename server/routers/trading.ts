@@ -32,7 +32,7 @@ export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
 
-  /** 8035・5803・285AのstrategyVersion別未見データ前向き成績。注文指示とは分離される。 */
+  /** 8035・5803・285A第1案・285A第2案のstrategyVersion別未見データ前向き成績。注文指示とは分離される。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
@@ -40,6 +40,7 @@ export const tradingRouter = router({
       const {
         FORWARD_STRATEGY_VERSION,
         FUJIKURA_FORWARD_STRATEGY_VERSION,
+        KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
         KIOXIA_FORWARD_STRATEGY_VERSION,
       } = await import("../runtimeIdentity");
       return {
@@ -58,6 +59,11 @@ export const tradingRouter = router({
             strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION,
             symbol: "285A",
             summaries: await getForwardShadowSummary(input.asOfDate, KIOXIA_FORWARD_STRATEGY_VERSION),
+          },
+          {
+            strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
+            symbol: "285A",
+            summaries: await getForwardShadowSummary(input.asOfDate, KIOXIA_ATR_FORWARD_STRATEGY_VERSION),
           },
         ],
       };

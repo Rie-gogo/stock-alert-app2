@@ -27,7 +27,7 @@ import {
 } from "./runtimeIdentity";
 
 export const FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
-export const FUJIKURA_FORWARD_EVALUATION_START_DATE = "2026-09-03";
+export const FUJIKURA_FORWARD_EVALUATION_START_DATE = "2026-09-04";
 
 export type FujikuraForwardEvaluationMode = "signal_quality" | "capital_constrained";
 
@@ -69,6 +69,8 @@ interface FujikuraPosition {
 
 export interface FujikuraForwardShadowState {
   tradeDate: string;
+  dayOpen: number | null;
+  dayLow: number | null;
   candles: FujikuraForwardCandle[];
   pendingEntry: FujikuraPendingEntry | null;
   position: FujikuraPosition | null;
@@ -101,6 +103,8 @@ export interface FujikuraForwardTransition {
 function emptyState(): FujikuraForwardShadowState {
   return {
     tradeDate: "",
+    dayOpen: null,
+    dayLow: null,
     candles: [],
     pendingEntry: null,
     position: null,
@@ -117,6 +121,8 @@ export function parseFujikuraForwardState(value: unknown): FujikuraForwardShadow
   const raw = value as Partial<FujikuraForwardShadowState>;
   return {
     tradeDate: typeof raw.tradeDate === "string" ? raw.tradeDate : "",
+    dayOpen: typeof raw.dayOpen === "number" ? raw.dayOpen : null,
+    dayLow: typeof raw.dayLow === "number" ? raw.dayLow : null,
     candles: Array.isArray(raw.candles) ? raw.candles.slice(-96) : [],
     pendingEntry: raw.pendingEntry ?? null,
     position: raw.position ?? null,
@@ -183,7 +189,8 @@ export function calculateFujikuraExitForTest(
     return { price: Math.min(candle.open, protectionFloor), reason: "profit_protection" };
   }
   if (candle.high >= tpLine) return { price: tpLine, reason: "take_profit" };
-  if (candle.candleTime >= FUJIKURA_FORWARD_SHADOW_SPEC.exit.amSessionExitTime && candle.candleTime < "11:30") {
+  const enteredInMorningSession = position.entryTime < "11:30";
+  if (enteredInMorningSession && candle.candleTime >= FUJIKURA_FORWARD_SHADOW_SPEC.exit.amSessionExitTime) {
     return { price: candle.close, reason: "session_exit" };
   }
   if (candle.candleTime >= FUJIKURA_FORWARD_SHADOW_SPEC.exit.marketExitTime) {
@@ -204,6 +211,8 @@ export function applyFujikuraForwardTransition(
   let openedPosition: FujikuraPosition | null = null;
   let closedPosition: ClosedPosition | null = null;
 
+  state.dayOpen ??= input.candle.open;
+  state.dayLow = state.dayLow === null ? input.candle.low : Math.min(state.dayLow, input.candle.low);
   state.candles.push({
     time: input.candle.candleTime,
     open: input.candle.open,
@@ -275,7 +284,10 @@ export function applyFujikuraForwardTransition(
       resultType = "rejected";
     }
   } else if (!state.dailySlotConsumed) {
-    const metrics = calculateFujikuraTriggerMetrics(state.candles);
+    const metrics = calculateFujikuraTriggerMetrics(state.candles, {
+      dayOpen: state.dayOpen,
+      dayLow: state.dayLow,
+    });
     if (metrics?.eligible) {
       state.pendingEntry = {
         triggerClose: input.candle.close,

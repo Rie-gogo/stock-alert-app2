@@ -83,8 +83,8 @@ describe("5803 A＋B 独立前向きシャドー", () => {
       const close = 995 + index * 0.2;
       await processFujikuraForwardShadowSourceEvent({
         sourceEventId: `f-session:${index + 1}`,
-        candle: {
-          symbol: "5803", tradeDate: "2026-09-03", candleTime: timeAt(index),
+          candle: {
+          symbol: "5803", tradeDate: "2026-09-04", candleTime: timeAt(index),
           open: index === 0 ? 1_000 : close - 0.1,
           high: close + 0.2,
           low: index === 0 ? 994 : close - 0.3,
@@ -97,7 +97,7 @@ describe("5803 A＋B 独立前向きシャドー", () => {
     await processFujikuraForwardShadowSourceEvent({
       sourceEventId: "f-session:21",
       candle: {
-        symbol: "5803", tradeDate: "2026-09-03", candleTime: "10:05",
+        symbol: "5803", tradeDate: "2026-09-04", candleTime: "10:05",
         open: 999.5, high: 1_001, low: 999.4, close: 1_000.5, volume: 200,
       },
       board: board(1_000.5),
@@ -106,7 +106,7 @@ describe("5803 A＋B 独立前向きシャドー", () => {
     await processFujikuraForwardShadowSourceEvent({
       sourceEventId: "f-session:22",
       candle: {
-        symbol: "5803", tradeDate: "2026-09-03", candleTime: "10:06",
+        symbol: "5803", tradeDate: "2026-09-04", candleTime: "10:06",
         open: 1_000.6, high: 1_001.1, low: 1_000.5, close: 1_000.8, volume: 100,
       },
       board: board(1_000.75, 0.65),
@@ -127,7 +127,9 @@ describe("5803 A＋B 独立前向きシャドー", () => {
 
   it("+0.5%発動足では決済せず、次イベント以降+0.3%戻りを窓下げ不利価格で保護決済する", async () => {
     const state: FujikuraForwardShadowState = {
-      tradeDate: "2026-09-03",
+      tradeDate: "2026-09-04",
+      dayOpen: null,
+      dayLow: null,
       candles: [],
       pendingEntry: null,
       position: {
@@ -150,21 +152,23 @@ describe("5803 A＋B 独立前向きシャドー", () => {
     };
     const armed = applyFujikuraForwardTransition(state, {
       sourceEventId: "bar:1",
-      candle: { symbol: "5803", tradeDate: "2026-09-03", candleTime: "10:02", open: 1_001, high: 1_006, low: 1_000, close: 1_005, volume: 100 },
+      candle: { symbol: "5803", tradeDate: "2026-09-04", candleTime: "10:02", open: 1_001, high: 1_006, low: 1_000, close: 1_005, volume: 100 },
       board: board(1_005),
     }, "signal_quality");
     expect(armed.resultType).toBe("hold");
     expect(armed.nextState.position?.profitProtectionArmedAtSourceEventId).toBe("bar:1");
 
     const protectedExit = calculateFujikuraExitForTest(armed.nextState.position!, {
-      symbol: "5803", tradeDate: "2026-09-03", candleTime: "10:03", open: 1_002, high: 1_004, low: 1_001, close: 1_002, volume: 100,
+      symbol: "5803", tradeDate: "2026-09-04", candleTime: "10:03", open: 1_002, high: 1_004, low: 1_001, close: 1_002, volume: 100,
     }, "bar:2");
     expect(protectedExit).toEqual({ price: 1_002, reason: "profit_protection" });
   });
 
   it("BPRが0.70を超える確認は日次枠を消費せず拒否する", () => {
     const state: FujikuraForwardShadowState = {
-      tradeDate: "2026-09-03",
+      tradeDate: "2026-09-04",
+      dayOpen: null,
+      dayLow: null,
       candles: [],
       pendingEntry: {
         triggerClose: 1_000,
@@ -182,12 +186,78 @@ describe("5803 A＋B 独立前向きシャドー", () => {
     };
     const transition = applyFujikuraForwardTransition(state, {
       sourceEventId: "confirm:1",
-      candle: { symbol: "5803", tradeDate: "2026-09-03", candleTime: "10:01", open: 1_000, high: 1_002, low: 999, close: 1_001, volume: 100 },
+      candle: { symbol: "5803", tradeDate: "2026-09-04", candleTime: "10:01", open: 1_000, high: 1_002, low: 999, close: 1_001, volume: 100 },
       board: board(1_001, 0.71),
     }, "signal_quality");
     expect(transition.resultType).toBe("rejected");
     expect(transition.nextState.dailySlotConsumed).toBe(false);
     expect(transition.nextState.position).toBeNull();
+  });
+
+  it("96本を超えても当日始値・当日安値を失わず、午前の安値反転候補を同じ条件で検出する", () => {
+    let state: FujikuraForwardShadowState = {
+      tradeDate: "2026-09-04",
+      dayOpen: null,
+      dayLow: null,
+      candles: [],
+      pendingEntry: null,
+      position: null,
+      dailySlotConsumed: false,
+      stopped: false,
+      lastSourceEventId: null,
+      lastResultType: null,
+      lastActions: [],
+    };
+    for (let index = 0; index < 119; index += 1) {
+      state = applyFujikuraForwardTransition(state, {
+        sourceEventId: `after-96:${index + 1}`,
+        candle: {
+          symbol: "5803", tradeDate: "2026-09-04", candleTime: timeAt(index),
+          open: index === 0 ? 1_000 : 994.8,
+          high: 996,
+          low: index === 0 ? 990 : 994.5,
+          close: 995,
+          volume: 100,
+        },
+        board: board(995),
+      }, "signal_quality").nextState;
+    }
+    expect(state.candles).toHaveLength(96);
+    expect(state.dayOpen).toBe(1_000);
+    expect(state.dayLow).toBe(990);
+    const transition = applyFujikuraForwardTransition(state, {
+      sourceEventId: "after-96:120",
+      candle: {
+        symbol: "5803", tradeDate: "2026-09-04", candleTime: "11:44",
+        open: 999, high: 1_002, low: 998, close: 1_001, volume: 300,
+      },
+      board: board(1_001),
+    }, "signal_quality");
+
+    expect(transition.resultType).toBe("pending");
+    expect(transition.nextState.pendingEntry?.metrics).toMatchObject({
+      dayLowDropPct: -1,
+    });
+  });
+
+  it("前場保有中に11:27〜11:29が欠けても、次の12:30受信で前場決済する", () => {
+    const position: NonNullable<FujikuraForwardShadowState["position"]> = {
+      side: "long",
+      entrySourceEventId: "entry:am",
+      signalTime: "11:19",
+      entryTime: "11:20",
+      theoreticalSignalPrice: 1_000,
+      entryPrice: 1_000,
+      shares: 100,
+      slPct: 0.5,
+      tpPct: 1.0,
+      profitProtectionArmedAtSourceEventId: null,
+    };
+
+    expect(calculateFujikuraExitForTest(position, {
+      symbol: "5803", tradeDate: "2026-09-04", candleTime: "12:30",
+      open: 1_001, high: 1_003, low: 999, close: 1_002, volume: 100,
+    }, "after-lunch:1")).toEqual({ price: 1_002, reason: "session_exit" });
   });
 
   it("注文生成・通常rt_tradesへ構造的に接続しない", () => {
@@ -206,13 +276,15 @@ describe("5803 A＋B 独立前向きシャドー", () => {
       status: "processed",
       resultAction: "none",
       payloadJson: {
-        symbol: "5803", tradeDate: "2026-09-03", candleTime: "09:45",
+        symbol: "5803", tradeDate: "2026-09-04", candleTime: "09:45",
         open: 1_000, high: 1_001, low: 999, close: 1_000, volume: 100,
         board: board(1_000),
       },
     };
     const initialState: FujikuraForwardShadowState = {
       tradeDate: null,
+      dayOpen: null,
+      dayLow: null,
       candles: [],
       pendingEntry: null,
       position: null,
@@ -222,7 +294,7 @@ describe("5803 A＋B 独立前向きシャドー", () => {
       lastResultType: null,
       lastActions: [],
     };
-    const normalized = { ...initialState, tradeDate: "2026-09-03" };
+    const normalized = { ...initialState, tradeDate: "2026-09-04" };
     const storedEvents = (["signal_quality", "capital_constrained"] as const).map(mode => {
       const transition = applyFujikuraForwardTransition(normalized, {
         sourceEventId: sourceEvent.sourceEventId,

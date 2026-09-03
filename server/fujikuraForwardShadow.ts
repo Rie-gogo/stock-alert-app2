@@ -64,6 +64,7 @@ function average(values: readonly number[]): number {
 
 export function calculateFujikuraTriggerMetrics(
   candles: readonly FujikuraForwardCandle[],
+  dailyBaseline?: { dayOpen: number | null; dayLow: number | null },
 ): FujikuraTriggerMetrics | null {
   const spec = FUJIKURA_FORWARD_SHADOW_SPEC.entry;
   const requiredBars = Math.max(spec.lowLookback + 1, spec.highLookback + 1, spec.maPeriod + 2, 21);
@@ -72,8 +73,8 @@ export function calculateFujikuraTriggerMetrics(
   if (candle.time < spec.startTime || candle.time > spec.endTime) return null;
   const previousHighBars = candles.slice(candles.length - 1 - spec.highLookback, candles.length - 1);
   const previousTwenty = candles.slice(candles.length - 21, candles.length - 1);
-  const dayOpen = candles[0]?.open ?? candle.open;
-  const dayLow = Math.min(...candles.map(item => item.low));
+  const dayOpen = dailyBaseline?.dayOpen ?? candles[0]?.open ?? candle.open;
+  const dayLow = dailyBaseline?.dayLow ?? Math.min(...candles.map(item => item.low));
   const recentHigh = Math.max(...previousHighBars.map(item => item.high));
   const dayLowDropPct = dayOpen > 0 ? (dayLow - dayOpen) / dayOpen * 100 : 0;
   const reboundFromDayLowPct = dayLow > 0 ? (candle.close - dayLow) / dayLow * 100 : 0;

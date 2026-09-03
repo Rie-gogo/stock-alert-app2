@@ -25,7 +25,7 @@ describe("未見データ前向きシャドー16時報告", () => {
   it("自己証明・受信監査・2方式・残日数と残件数・注文非接続を表示する", async () => {
     const section = await formatForwardShadowDryRunReport("2026-09-03");
     expect(section).toContain("戦略版: forward-shadow-8035-causal-current-price-v2");
-    expect(section).toContain("戦略版: forward-shadow-5803-low-reversal-ab-v1");
+    expect(section).toContain("戦略版: forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix");
     expect(section).toContain("売買ロジックf6878060一致: OK");
     expect(section).toContain("注文接続: なし");
     expect(section).toContain("当日受信監査: 1件");

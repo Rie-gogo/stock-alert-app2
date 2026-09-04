@@ -1882,4 +1882,5 @@
 - [x] 16時レポート・公開API・RuntimeIdentity・固定版再生へA/Bを独立表示する（名称・追加Gate・開始境界・version自己証明・dispatch回帰10件成功）
 - [x] 匿名fixture、本番同型、板不足、clock skew、利益保護同足禁止、窓下げ、SL優先、再起動、片側障害再試行、冪等性、TP≧SL×2、注文非接続を回帰固定する（関連11ファイル・45件成功）
 - [x] 型検査、9984対象45件、全634件成功・13件skip（失敗2件は既知JQUANTS_API_KEY未設定のみ）、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、DRY_RUN/LIVE拒否・注文非接続を総合監査する
-- [ ] checkpoint保存・自動公開後に本番API/DB/ログ・開始前ゼロ状態を確認し、初回実受信確認の翌営業日を正式開始日として別Gateで固定する
+- [x] checkpoint保存・自動公開後に本番API/DB/ログ・開始前ゼロ状態を確認する（A/Bを本番RuntimeIdentity・summaryへ表示、固定hash一致、DRY_RUN、LIVE未承認、4評価行0件、通常取引混入0、公開後例外0）
+- [ ] 9984 A/Bの初回実KABU受信後、2 version×2評価方式、engineSequence順、片側再試行、固定版再生、現行経路parityを確認し、その翌営業日を正式開始日として別Gateで有効化する

@@ -1,12 +1,22 @@
 import type { RtRealtimeDecisionEvent } from "../drizzle/schema";
 import {
   getRtRealtimeDecisionEventsForDate,
+  getRtSignalCandidatesForDate,
+  getRtSignalCandidateTradesForDate,
   upsertRtPortfolioAuditEvent,
 } from "./db";
 import { getRuntimeIdentity } from "./runtimeIdentity";
+import {
+  CURRENT_SIGNAL_CANDIDATE_VERSION,
+  CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+} from "./currentSignalCandidateRegistry";
+import { sha256Stable } from "./runtimeIdentity";
+import type { RtSignalCandidate, RtSignalCandidateTrade } from "../drizzle/schema";
 
 export const CURRENT_PORTFOLIO_AUDIT_VERSION = "current-10-symbol-891m-receipt-order-v1";
 export const NORMALIZED_PORTFOLIO_AUDIT_VERSION = "current-10-symbol-891m-minute-priority-v1";
+export const ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION = "current-10-symbol-891m-all-candidates-receipt-v2";
+export const ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION = "current-10-symbol-891m-all-candidates-minute-v2";
 export const PORTFOLIO_MAX_EXPOSURE = 8_910_000;
 const FIXED_CONTROL_PRIORITY = ["285A", "6146", "6857", "8035", "5803", "6981", "6976", "6526", "3436", "9984"] as const;
 
@@ -260,5 +270,328 @@ export async function buildMinuteNormalizedPortfolioAuditForDate(tradeDate: stri
     priorityRule: FIXED_CONTROL_PRIORITY,
     scope: "same_minute_local_counterfactual" as const,
     eligibleForPortfolioPnlComparison: false,
+  };
+}
+
+type CandidateAllocation = {
+  candidate: RtSignalCandidate;
+  trade: RtSignalCandidateTrade | null;
+  requiredMargin: number;
+  blocker: CandidateAllocation | null;
+};
+
+function candidateRequiredMargin(candidate: RtSignalCandidate): number {
+  const recorded = Number(candidate.requiredMargin);
+  if (Number.isFinite(recorded) && recorded > 0) return Math.round(recorded);
+  return Math.round(Number(candidate.theoreticalEntryPrice) * candidate.capitalShares);
+}
+
+function hasCompleteVirtualExit(trade: RtSignalCandidateTrade | null): trade is RtSignalCandidateTrade {
+  return Boolean(trade?.completed && trade.exitSourceEventId && trade.exitCandleTime && trade.exitPrice !== null);
+}
+
+function virtualPnlAtCapital(candidate: RtSignalCandidate, trade: RtSignalCandidateTrade | null): number | null {
+  if (!trade?.completed || trade.pnl === null || trade.pnl === undefined) return null;
+  return Math.round(Number(trade.pnl) * (candidate.capitalShares / Math.max(1, trade.shares)));
+}
+
+function exitAuditSourceId(trade: RtSignalCandidateTrade): string {
+  return `virtual-exit:${sha256Stable({
+    candidateId: trade.candidateId,
+    exitSourceEventId: trade.exitSourceEventId,
+  }).slice(0, 48)}`;
+}
+
+async function persistCandidatePortfolioDecision(input: {
+  version: string;
+  mode: "actual_receipt" | "minute_normalized";
+  allocation: CandidateAllocation;
+  decision: "accepted" | "margin_block";
+  marginBefore: number;
+  marginAfter: number;
+  priorityRank: number;
+  batchKey: string;
+  reason: string;
+}) {
+  const { candidate, trade, requiredMargin, blocker } = input.allocation;
+  await upsertRtPortfolioAuditEvent({
+    portfolioVersion: input.version,
+    mode: input.mode,
+    sourceEventId: candidate.sourceEventId,
+    tradeDate: candidate.tradeDate,
+    candleTime: candidate.candleTime,
+    batchKey: input.batchKey,
+    symbol: candidate.symbol,
+    routeId: candidate.routeId,
+    side: candidate.side,
+    priorityRank: input.priorityRank,
+    decision: input.decision,
+    shares: candidate.capitalShares,
+    requiredMargin,
+    marginUsedBefore: input.marginBefore,
+    marginUsedAfter: input.marginAfter,
+    blockerSourceEventId: blocker?.candidate.sourceEventId ?? null,
+    blockerSymbol: blocker?.candidate.symbol ?? null,
+    detailJson: {
+      candidateId: candidate.id,
+      candidateVersion: candidate.candidateVersion,
+      virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+      realtimeDecision: candidate.realtimeDecision,
+      signalQualityPnl100: trade?.pnl ?? null,
+      capitalPnl: virtualPnlAtCapital(candidate, trade),
+      virtualExitComplete: Boolean(trade?.completed),
+      virtualExitSourceEventId: trade?.exitSourceEventId ?? null,
+      allocationReason: input.reason,
+      eligibleForPortfolioPnlComparison: hasCompleteVirtualExit(trade),
+      maxExposure: PORTFOLIO_MAX_EXPOSURE,
+    },
+  });
+}
+
+async function persistCandidatePortfolioExit(input: {
+  version: string;
+  mode: "actual_receipt" | "minute_normalized";
+  allocation: CandidateAllocation;
+  marginBefore: number;
+  marginAfter: number;
+  priorityRank: number;
+  batchKey: string;
+}) {
+  const trade = input.allocation.trade;
+  if (!trade?.exitSourceEventId || !trade.exitCandleTime) return;
+  await upsertRtPortfolioAuditEvent({
+    portfolioVersion: input.version,
+    mode: input.mode,
+    sourceEventId: exitAuditSourceId(trade),
+    tradeDate: trade.exitTradeDate ?? trade.tradeDate,
+    candleTime: trade.exitCandleTime,
+    batchKey: input.batchKey,
+    symbol: trade.symbol,
+    routeId: trade.routeId,
+    side: trade.side,
+    priorityRank: input.priorityRank,
+    decision: "closed",
+    shares: input.allocation.candidate.capitalShares,
+    requiredMargin: input.allocation.requiredMargin,
+    marginUsedBefore: input.marginBefore,
+    marginUsedAfter: input.marginAfter,
+    blockerSourceEventId: null,
+    blockerSymbol: null,
+    detailJson: {
+      candidateId: trade.candidateId,
+      virtualExitSourceEventId: trade.exitSourceEventId,
+      virtualExitReason: trade.exitReason,
+      signalQualityPnl100: trade.pnl,
+      capitalPnl: virtualPnlAtCapital(input.allocation.candidate, trade),
+      eligibleForPortfolioPnlComparison: true,
+    },
+  });
+}
+
+async function loadAllCandidateInputs(tradeDate: string) {
+  const candidates = await getRtSignalCandidatesForDate({
+    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    tradeDate,
+  });
+  const trades = await getRtSignalCandidateTradesForDate({
+    virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+    tradeDate,
+  });
+  const tradeByCandidate = new Map(trades.map(trade => [trade.candidateId, trade]));
+  return candidates.map(candidate => ({
+    candidate,
+    trade: tradeByCandidate.get(candidate.id) ?? null,
+    requiredMargin: candidateRequiredMargin(candidate),
+    blocker: null,
+  } satisfies CandidateAllocation));
+}
+
+/** 全candidateを現行engineSequence順で再配分し、仮想exitで証拠金を解放する正式portfolio v2。 */
+export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string) {
+  const allocations = await loadAllCandidateInputs(tradeDate);
+  const decisions = await getRtRealtimeDecisionEventsForDate(tradeDate);
+  const sequenceBySource = new Map(decisions.map(event => [event.sourceEventId, event.id]));
+  const allocationsMissingExitSequence = new Set<number>();
+  type TimelineItem = { sequence: number; kind: "entry" | "exit"; allocation: CandidateAllocation };
+  const timeline: TimelineItem[] = [];
+  for (const allocation of allocations) {
+    timeline.push({ sequence: allocation.candidate.engineSequence, kind: "entry", allocation });
+    const exitSource = allocation.trade?.exitSourceEventId;
+    const exitSequence = exitSource ? sequenceBySource.get(exitSource) : null;
+    if (exitSequence !== null && exitSequence !== undefined) {
+      timeline.push({ sequence: exitSequence, kind: "exit", allocation });
+    } else if (hasCompleteVirtualExit(allocation.trade)) {
+      allocationsMissingExitSequence.add(allocation.candidate.id);
+    }
+  }
+  timeline.sort((a, b) => a.sequence - b.sequence || (a.kind === "exit" ? -1 : 1));
+
+  const open = new Map<number, CandidateAllocation>();
+  let marginUsed = 0;
+  let accepted = 0;
+  let marginBlocked = 0;
+  let closed = 0;
+  let realizedPnl = 0;
+  const blockEdges: Array<{ blockerSourceEventId: string; blockedSourceEventId: string }> = [];
+
+  for (const item of timeline) {
+    const allocation = item.allocation;
+    if (item.kind === "exit") {
+      if (!open.has(allocation.candidate.id)) continue;
+      const before = marginUsed;
+      marginUsed = Math.max(0, marginUsed - allocation.requiredMargin);
+      open.delete(allocation.candidate.id);
+      closed += 1;
+      realizedPnl += virtualPnlAtCapital(allocation.candidate, allocation.trade) ?? 0;
+      await persistCandidatePortfolioExit({
+        version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+        mode: "actual_receipt",
+        allocation,
+        marginBefore: before,
+        marginAfter: marginUsed,
+        priorityRank: item.sequence,
+        batchKey: `${tradeDate}:${allocation.trade?.exitCandleTime ?? "unknown"}`,
+      });
+      continue;
+    }
+
+    const openValues = Array.from(open.values());
+    const blocker = openValues.sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+    allocation.blocker = blocker;
+    const canAllocate = marginUsed + allocation.requiredMargin <= PORTFOLIO_MAX_EXPOSURE;
+    const before = marginUsed;
+    if (canAllocate) {
+      open.set(allocation.candidate.id, allocation);
+      marginUsed += allocation.requiredMargin;
+      accepted += 1;
+    } else {
+      marginBlocked += 1;
+      if (blocker) blockEdges.push({
+        blockerSourceEventId: blocker.candidate.sourceEventId,
+        blockedSourceEventId: allocation.candidate.sourceEventId,
+      });
+    }
+    await persistCandidatePortfolioDecision({
+      version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+      mode: "actual_receipt",
+      allocation,
+      decision: canAllocate ? "accepted" : "margin_block",
+      marginBefore: before,
+      marginAfter: marginUsed,
+      priorityRank: item.sequence,
+      batchKey: `${tradeDate}:${allocation.candidate.candleTime}`,
+      reason: canAllocate ? "engine_sequence_allocation" : "891m_limit",
+    });
+  }
+
+  return {
+    portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+    tradeDate,
+    candidates: allocations.length,
+    accepted,
+    marginBlocked,
+    closed,
+    realizedPnl,
+    openAtEnd: open.size,
+    blockEdges,
+    eligibleForPortfolioPnlComparison: allocations.every(item => hasCompleteVirtualExit(item.trade))
+      && allocationsMissingExitSequence.size === 0,
+  };
+}
+
+/** 同一分はexit先行・固定銘柄優先で全candidateを再配分する日次確定portfolio v2。 */
+export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string) {
+  const allocations = await loadAllCandidateInputs(tradeDate);
+  const groups = new Map<string, { entries: CandidateAllocation[]; exits: CandidateAllocation[] }>();
+  for (const allocation of allocations) {
+    const entryKey = allocation.candidate.candleTime;
+    const entryGroup = groups.get(entryKey) ?? { entries: [], exits: [] };
+    entryGroup.entries.push(allocation);
+    groups.set(entryKey, entryGroup);
+    const exitTime = allocation.trade?.exitCandleTime;
+    if (exitTime && (allocation.trade?.exitTradeDate ?? tradeDate) === tradeDate) {
+      const exitGroup = groups.get(exitTime) ?? { entries: [], exits: [] };
+      exitGroup.exits.push(allocation);
+      groups.set(exitTime, exitGroup);
+    }
+  }
+
+  const open = new Map<number, CandidateAllocation>();
+  let marginUsed = 0;
+  let accepted = 0;
+  let marginBlocked = 0;
+  let closed = 0;
+  let realizedPnl = 0;
+  const blockEdges: Array<{ blockerSourceEventId: string; blockedSourceEventId: string }> = [];
+  let priorityCounter = 0;
+
+  for (const [candleTime, group] of Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+    for (const allocation of group.exits.sort((a, b) => a.candidate.engineSequence - b.candidate.engineSequence)) {
+      if (!open.has(allocation.candidate.id)) continue;
+      const before = marginUsed;
+      marginUsed = Math.max(0, marginUsed - allocation.requiredMargin);
+      open.delete(allocation.candidate.id);
+      closed += 1;
+      realizedPnl += virtualPnlAtCapital(allocation.candidate, allocation.trade) ?? 0;
+      priorityCounter += 1;
+      await persistCandidatePortfolioExit({
+        version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+        mode: "minute_normalized",
+        allocation,
+        marginBefore: before,
+        marginAfter: marginUsed,
+        priorityRank: priorityCounter,
+        batchKey: `${tradeDate}:${candleTime}`,
+      });
+    }
+    const entries = [...group.entries].sort((a, b) => {
+      const aRank = FIXED_CONTROL_PRIORITY.indexOf(a.candidate.symbol as typeof FIXED_CONTROL_PRIORITY[number]);
+      const bRank = FIXED_CONTROL_PRIORITY.indexOf(b.candidate.symbol as typeof FIXED_CONTROL_PRIORITY[number]);
+      return (aRank < 0 ? 999 : aRank) - (bRank < 0 ? 999 : bRank)
+        || a.candidate.engineSequence - b.candidate.engineSequence;
+    });
+    for (const allocation of entries) {
+      const blocker = Array.from(open.values()).sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+      allocation.blocker = blocker;
+      const before = marginUsed;
+      const canAllocate = marginUsed + allocation.requiredMargin <= PORTFOLIO_MAX_EXPOSURE;
+      if (canAllocate) {
+        open.set(allocation.candidate.id, allocation);
+        marginUsed += allocation.requiredMargin;
+        accepted += 1;
+      } else {
+        marginBlocked += 1;
+        if (blocker) blockEdges.push({
+          blockerSourceEventId: blocker.candidate.sourceEventId,
+          blockedSourceEventId: allocation.candidate.sourceEventId,
+        });
+      }
+      priorityCounter += 1;
+      await persistCandidatePortfolioDecision({
+        version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+        mode: "minute_normalized",
+        allocation,
+        decision: canAllocate ? "accepted" : "margin_block",
+        marginBefore: before,
+        marginAfter: marginUsed,
+        priorityRank: priorityCounter,
+        batchKey: `${tradeDate}:${candleTime}`,
+        reason: canAllocate ? "exit_first_fixed_symbol_priority" : "891m_limit",
+      });
+    }
+  }
+
+  return {
+    portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+    tradeDate,
+    candidates: allocations.length,
+    accepted,
+    marginBlocked,
+    closed,
+    realizedPnl,
+    openAtEnd: open.size,
+    blockEdges,
+    priorityRule: FIXED_CONTROL_PRIORITY,
+    eligibleForPortfolioPnlComparison: allocations.every(item => hasCompleteVirtualExit(item.trade)),
   };
 }

@@ -68,11 +68,11 @@ describe("前向き評価の判定", () => {
     expect(evaluateForwardDecision(metrics, "2026-09-15").status).toBe("monitoring");
   });
 
-  it("2週間以上かつ20件で全基準を満たす場合だけeligibleにする", () => {
+  it("2週間以上かつ20件でもeligibleにせず中間継続判定だけにする", () => {
     const metrics = calculateForwardTradeMetrics(winning20);
     expect(evaluateForwardDecision(metrics, "2026-09-16")).toMatchObject({
-      status: "eligible",
-      reason: "two_weeks_and_twenty_signals",
+      status: "interim_continue",
+      reason: "interim_thresholds_met",
     });
   });
 
@@ -86,7 +86,7 @@ describe("前向き評価の判定", () => {
     const tenTrades = winning20.slice(0, 10);
     expect(evaluateForwardDecision(calculateForwardTradeMetrics(tenTrades), "2026-09-30")).toMatchObject({
       status: "eligible",
-      reason: "four_weeks_and_ten_signals",
+      reason: "four_weeks_and_ten_signals_manual_review_required",
     });
   });
 

@@ -32,7 +32,7 @@ export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
 
-  /** 既存4候補＋8035改善案AのstrategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
+  /** 既存4候補＋8035 depth版改善案AのstrategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
@@ -53,6 +53,10 @@ export const tradingRouter = router({
         TEL_EXECUTABLE_CONFIRM_VERSION,
       } = await import("../telExecutableConfirm");
       const {
+        TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+        TEL_EXECUTABLE_DEPTH_VERSION,
+      } = await import("../telExecutableConfirmDepth");
+      const {
         getRtDivergenceHypotheses,
         getRtOutcomeLabelsForDate,
         getRtPortfolioAuditEventsForDate,
@@ -60,6 +64,8 @@ export const tradingRouter = router({
         getRtReplayComparisonsForDate,
       } = await import("../db");
       const {
+        ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+        ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
         CURRENT_PORTFOLIO_AUDIT_VERSION,
         NORMALIZED_PORTFOLIO_AUDIT_VERSION,
       } = await import("../portfolioAudit");
@@ -68,6 +74,8 @@ export const tradingRouter = router({
         replayComparisons,
         actualReceiptPortfolio,
         minuteNormalizedPortfolio,
+        allCandidateReceiptPortfolio,
+        allCandidateMinutePortfolio,
         outcomeLabels,
         divergenceHypotheses,
       ] = await Promise.all([
@@ -75,6 +83,8 @@ export const tradingRouter = router({
         getRtReplayComparisonsForDate({ tradeDate: input.asOfDate, baselineVersion: TEL_CURRENT_PARITY_VERSION }),
         getRtPortfolioAuditEventsForDate({ portfolioVersion: CURRENT_PORTFOLIO_AUDIT_VERSION, tradeDate: input.asOfDate, mode: "actual_receipt" }),
         getRtPortfolioAuditEventsForDate({ portfolioVersion: NORMALIZED_PORTFOLIO_AUDIT_VERSION, tradeDate: input.asOfDate, mode: "minute_normalized" }),
+        getRtPortfolioAuditEventsForDate({ portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION, tradeDate: input.asOfDate, mode: "actual_receipt" }),
+        getRtPortfolioAuditEventsForDate({ portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION, tradeDate: input.asOfDate, mode: "minute_normalized" }),
         getRtOutcomeLabelsForDate({ baselineVersion: "current-realtime-outcome-label-v1", tradeDate: input.asOfDate }),
         getRtDivergenceHypotheses(input.asOfDate),
       ]);
@@ -114,6 +124,17 @@ export const tradingRouter = router({
             strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
             symbol: "8035",
             summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_CONFIRM_VERSION),
+            purpose: "superseded_stopped_audit_only" as const,
+            eligibleForAdoption: false,
+            evaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+          },
+          {
+            strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
+            symbol: "8035",
+            summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_DEPTH_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            evaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
           },
         ],
         auditStrategies: [
@@ -146,6 +167,8 @@ export const tradingRouter = router({
           },
           actualReceiptPortfolio: summarizePortfolio(actualReceiptPortfolio),
           minuteNormalizedPortfolio: summarizePortfolio(minuteNormalizedPortfolio),
+          allCandidateReceiptPortfolio: summarizePortfolio(allCandidateReceiptPortfolio),
+          allCandidateMinutePortfolio: summarizePortfolio(allCandidateMinutePortfolio),
           outcomeLabels: {
             events: outcomeLabels.length,
             completed: outcomeLabels.filter(event => event.completed).length,
@@ -155,7 +178,8 @@ export const tradingRouter = router({
           },
           divergenceHypotheses: divergenceHypotheses.slice(0, 20),
           semantics: {
-            candidateEvaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+            active8035CandidateEvaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+            superseded8035CandidateEvaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
             officialReplayOrder: "rt_realtime_decision_events.id_engine_sequence",
             relaySequenceRole: "gap_and_duplicate_diagnosis_only",
             brokerExecutionPrice: "unavailable_in_dry_run",

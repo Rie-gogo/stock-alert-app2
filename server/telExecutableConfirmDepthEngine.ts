@@ -21,15 +21,15 @@ import {
   sha256Stable,
 } from "./runtimeIdentity";
 import {
-  TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
-  TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
-  TEL_EXECUTABLE_CONFIRM_SPEC,
-  TEL_EXECUTABLE_CONFIRM_VERSION,
+  TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+  TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
+  TEL_EXECUTABLE_DEPTH_SPEC,
+  TEL_EXECUTABLE_DEPTH_VERSION,
   applyTelExecutableConfirmTransition,
   createEmptyTelExecutableConfirmState,
   normalizeTelExecutableConfirmState,
   type TelExecutableConfirmState,
-} from "./telExecutableConfirm";
+} from "./telExecutableConfirmDepth";
 
 const MODES: readonly ForwardEvaluationMode[] = FORWARD_EVALUATION_POLICY.evaluationModes;
 let versionEnsured = false;
@@ -38,45 +38,45 @@ async function ensureVersion() {
   if (versionEnsured) return;
   const identity = getRuntimeIdentity();
   await upsertRtStrategyVersion({
-    versionId: TEL_EXECUTABLE_CONFIRM_VERSION,
-    strategyId: "candidate-8035-executable-confirm",
+    versionId: TEL_EXECUTABLE_DEPTH_VERSION,
+    strategyId: "candidate-8035-executable-depth",
     baselineGitSha: BASELINE_STRATEGY_GIT_SHA,
     buildGitSha: identity.buildGitSha ?? identity.runtimeBuildIdentifier,
     sourceTreeHash: identity.sourceTreeHash,
-    configHash: sha256Stable(TEL_EXECUTABLE_CONFIRM_SPEC),
-    configJson: TEL_EXECUTABLE_CONFIRM_SPEC,
-    learningCutoffDate: TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
-    evaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+    configHash: sha256Stable(TEL_EXECUTABLE_DEPTH_SPEC),
+    configJson: TEL_EXECUTABLE_DEPTH_SPEC,
+    learningCutoffDate: TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
+    evaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
     evaluationPurpose: "candidate",
-    eligibleForAdoption: false,
-    status: "stopped",
-    statusReason: "superseded_by_candidate_8035_executable_depth_v2_before_formal_start",
+    eligibleForAdoption: true,
+    status: "monitoring",
+    statusReason: "minimum_14_calendar_days_and_forward_signals_not_reached",
   });
   versionEnsured = true;
 }
 
 async function acquireWithWait(sourceEventId: string, mode: ForwardEvaluationMode) {
   const ownerToken = createForwardShadowLockOwnerToken({
-    strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+    strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
     sourceEventId,
     evaluationMode: mode,
   });
   const deadline = Date.now() + 6_000;
   do {
     if (await acquireRtForwardShadowStateLock({
-      strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+      strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
       evaluationMode: mode,
       ownerToken,
       leaseMs: 8_000,
     })) return ownerToken;
     await new Promise(resolve => setTimeout(resolve, 50));
   } while (Date.now() < deadline);
-  throw new Error(`tel_executable_confirm_state_lock_timeout:${mode}`);
+  throw new Error(`tel_executable_depth_state_lock_timeout:${mode}`);
 }
 
 async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluationMode) {
   const initialState = await getRtForwardShadowState({
-    strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+    strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
     evaluationMode: mode,
   });
   const stateBefore = normalizeTelExecutableConfirmState(initialState?.stateJson, input.candle.tradeDate);
@@ -85,7 +85,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
     claimToken: randomUUID(),
     leaseMs: 30_000,
     data: {
-      strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+      strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
       sourceEventId: input.sourceEventId,
       evaluationMode: mode,
       tradeDate: input.candle.tradeDate,
@@ -103,7 +103,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
   try {
     ownerToken = await acquireWithWait(input.sourceEventId, mode);
     const latest = await getRtForwardShadowState({
-      strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+      strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
       evaluationMode: mode,
     });
     const state = normalizeTelExecutableConfirmState(latest?.stateJson, input.candle.tradeDate);
@@ -111,7 +111,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
     const transition = applyTelExecutableConfirmTransition(state, input, mode);
     const stateHashAfter = sha256Stable(transition.nextState);
     await upsertRtForwardShadowState({
-      strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+      strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
       evaluationMode: mode,
       stateJson: transition.nextState,
       stateHash: stateHashAfter,
@@ -120,7 +120,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
     if (transition.openedPosition) {
       const position = transition.openedPosition;
       await insertRtForwardShadowTrade({
-        strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+        strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
         evaluationMode: mode,
         symbol: "8035",
         side: position.side,
@@ -138,7 +138,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
     if (transition.closedPosition) {
       const closed = transition.closedPosition;
       await closeRtForwardShadowTrade({
-        strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+        strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
         evaluationMode: mode,
         entrySourceEventId: closed.position.entrySourceEventId,
         exitSourceEventId: input.sourceEventId,
@@ -152,7 +152,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
       });
     }
     await updateRtForwardShadowEvent({
-      strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+      strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
       sourceEventId: input.sourceEventId,
       evaluationMode: mode,
       resultType: transition.resultType,
@@ -170,7 +170,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
     return { mode, status: "processed" as const, resultType: transition.resultType, stateHashAfter };
   } catch (error) {
     await failRtForwardShadowEvent({
-      strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+      strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
       sourceEventId: input.sourceEventId,
       evaluationMode: mode,
       errorDetail: String(error),
@@ -180,7 +180,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
   } finally {
     if (ownerToken) {
       await releaseRtForwardShadowStateLock({
-        strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+        strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
         evaluationMode: mode,
         ownerToken,
       });
@@ -188,24 +188,24 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
   }
 }
 
-export async function processTelExecutableConfirmSourceEvent(input: ForwardSourceEventInput) {
+export async function processTelExecutableConfirmDepthSourceEvent(input: ForwardSourceEventInput) {
   if (input.candle.symbol !== "8035") return { skipped: "non_8035_symbol" as const };
-  if (input.candle.tradeDate < TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE) {
+  if (input.candle.tradeDate < TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE) {
     return { skipped: "before_evaluation_start" as const };
   }
   const identity = getRuntimeIdentity();
   if (!identity.tradingLogicMatchesBaseline) return { skipped: "baseline_trading_logic_mismatch" as const };
   await ensureVersion();
-  const version = await getRtStrategyVersion(TEL_EXECUTABLE_CONFIRM_VERSION);
+  const version = await getRtStrategyVersion(TEL_EXECUTABLE_DEPTH_VERSION);
   if (version?.status === "stopped" || version?.status === "insufficient") {
     return { skipped: `strategy_${version.status}` as const };
   }
   const evaluations = [];
   for (const mode of MODES) evaluations.push(await processMode(input, mode));
-  return { skipped: false as const, strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION, evaluations };
+  return { skipped: false as const, strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, evaluations };
 }
 
-export function replayTelExecutableConfirmDay(inputs: ForwardSourceEventInput[], mode: ForwardEvaluationMode) {
+export function replayTelExecutableConfirmDepthDay(inputs: ForwardSourceEventInput[], mode: ForwardEvaluationMode) {
   let state = createEmptyTelExecutableConfirmState();
   for (const input of inputs.filter(item => item.candle.symbol === "8035")) {
     state = applyTelExecutableConfirmTransition(state, input, mode).nextState;
@@ -252,14 +252,14 @@ function parseReplayInput(event: ReplaySourceEvent): ForwardSourceEventInput | n
   };
 }
 
-export function auditTelExecutableConfirmDay(sourceEvents: ReplaySourceEvent[], storedEvents: ReplayStoredEvent[]) {
+export function auditTelExecutableConfirmDepthDay(sourceEvents: ReplaySourceEvent[], storedEvents: ReplayStoredEvent[]) {
   let replayedEvents = 0;
   let mismatches = 0;
   let invalidPayloads = 0;
   for (const mode of MODES) {
     let state = createEmptyTelExecutableConfirmState();
     const stored = new Map(storedEvents
-      .filter(event => event.strategyVersion === TEL_EXECUTABLE_CONFIRM_VERSION && event.evaluationMode === mode)
+      .filter(event => event.strategyVersion === TEL_EXECUTABLE_DEPTH_VERSION && event.evaluationMode === mode)
       .map(event => [event.sourceEventId, event]));
     for (const sourceEvent of sourceEvents) {
       if (sourceEvent.status !== "processed" || sourceEvent.resultAction === "correction_ignored") continue;
@@ -283,6 +283,6 @@ export function auditTelExecutableConfirmDay(sourceEvents: ReplaySourceEvent[], 
   return { replayedEvents, mismatches, invalidPayloads };
 }
 
-export function resetTelExecutableConfirmVersionCacheForTest() {
+export function resetTelExecutableConfirmDepthVersionCacheForTest() {
   versionEnsured = false;
 }

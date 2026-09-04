@@ -1816,3 +1816,17 @@
 - [x] 2週間20件のeligible、4週間10件、TP≧SL×2の採用ゲートを決定事項と照合する
 - [x] 全体テストのDB依存失敗、匿名fixture化、共通レジストリ化の必要性を評価する
 - [x] 指摘ごとの正誤・実害・正式評価可否・修正優先順位を報告し、承認前にコードを変更しない
+
+## 正式未見評価向けP0修正実装（2026-09-04）
+- [x] 旧8035改善案Aを監査保持し、修正版の新strategyVersion・学習カットオフ・公開翌営業日の正式開始日を固定する
+- [x] 証拠金判定前の全候補をcandidateId・engineSequence・routeId・side・価格・数量・必要証拠金・SL/TP・出口仕様付きで追記保存する
+- [x] 現行10銘柄の全routeを構造化した共通routeレジストリを追加し、TP≧SL×2を候補登録時に強制する
+- [x] margin blockを含む全候補を100株固定・証拠金無制限で経路固有出口まで追跡し、signal_quality成績を保存する
+- [x] 仮想entry/exit・保有期間・blocker辺を用いて10銘柄共有891万円portfolioの実受信順版と同一分固定順版を再生する
+- [x] 8035修正版をLONG=ask側、SHORT=bid側の板depth VWAP、板数量、observedAt、鮮度Gate、正式採用Gate用0.10%stress付き別strategyVersionで実装する
+- [x] 各strategyVersion・evaluationModeをengineSequence昇順で処理し、欠番・待機・timeoutを監査保存する
+- [x] 2週間判定を継続／停止だけにし、eligibleは4週間＋10件の手動審査候補だけに限定する
+- [x] candidate保存・仮想出口・portfolio・板depth VWAP・順序・採用Gateを匿名fixtureと本番DB source auditで回帰固定する
+- [x] 16時レポートと公開APIへ旧版診断・新版正式成績・候補欠損・仮想exit coverage・portfolio適格性を追加する
+- [x] 型検査、対象回帰、全体テスト、本番ビルド、relay構文、f6878060売買ソース固定ハッシュ、DRY_RUN・注文非接続を確認する（JQUANTS_API_KEY未設定の既知2件を除く600件成功・13件skip）
+- [ ] チェックポイント保存・自動公開後に本番DB、新版開始前ゼロ状態、engineSequence連続性、親失敗0、シャドーエラー0、通常取引非混入を確認する

@@ -23,12 +23,16 @@ const auditedCurrentMock = vi.hoisted(() => vi.fn(async (input: { run: () => Pro
   },
 })));
 const shadowMock = vi.hoisted(() => vi.fn());
+const shadowDrainMock = vi.hoisted(() => vi.fn());
 const boardMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./db", () => dbMock);
 vi.mock("./realtimeSimEngine", () => ({ processCandle: processCandleMock }));
 vi.mock("./realtimeDecisionAudit", () => ({ processCurrentEngineAudited: auditedCurrentMock }));
-vi.mock("./forwardShadow", () => ({ processForwardShadowSourceEvent: shadowMock }));
+vi.mock("./forwardShadowSequence", () => ({
+  enqueueAndDrainForwardShadow: shadowMock,
+  drainForwardShadowDispatchQueue: shadowDrainMock,
+}));
 vi.mock("./kabuStation", () => ({ updateOrderBook: boardMock }));
 
 import { ingestSourceCandle } from "./sourceEventIngestion";
@@ -69,6 +73,7 @@ describe("受信イベントの一度きり処理", () => {
     });
     processCandleMock.mockResolvedValue({ symbol: "8035", tradeDate: "2026-09-03", candleTime: "10:00", action: "none" });
     shadowMock.mockResolvedValue({ skipped: false, results: [] });
+    shadowDrainMock.mockResolvedValue({ processedEngineSequences: [], stoppedReason: "empty_or_claimed" });
   });
 
   it("最初のイベントだけ現行エンジンとシャドーへ渡す", async () => {
@@ -85,7 +90,8 @@ describe("受信イベントの一度きり処理", () => {
     dbMock.getRtSourceEvent.mockResolvedValue({ status: "processed", payloadHash: "a".repeat(64), resultJson: { action: "entry" } });
     const result = await ingestSourceCandle(input);
     expect(processCandleMock).not.toHaveBeenCalled();
-    expect(shadowMock).toHaveBeenCalledTimes(1);
+    expect(shadowMock).not.toHaveBeenCalled();
+    expect(shadowDrainMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 
@@ -105,7 +111,8 @@ describe("受信イベントの一度きり処理", () => {
     expect(shadowMock).toHaveBeenCalledTimes(2);
     const retry = await ingestSourceCandle(input);
     expect(processCandleMock).toHaveBeenCalledTimes(1);
-    expect(shadowMock).toHaveBeenCalledTimes(3);
+    expect(shadowMock).toHaveBeenCalledTimes(2);
+    expect(shadowDrainMock).toHaveBeenCalledTimes(1);
     expect(retry).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 

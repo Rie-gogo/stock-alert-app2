@@ -558,6 +558,7 @@ import {
   rtTelOpenDirectionBreakoutEvents,
   rtKioxiaShortGuardEvents,
   rtSourceEvents,
+  rtShadowDispatchQueue,
   rtStrategyVersions,
   rtForwardShadowEvents,
   rtForwardShadowStates,
@@ -569,6 +570,8 @@ import {
   rtPortfolioAuditEvents,
   rtOutcomeLabels,
   rtDivergenceHypotheses,
+  rtSignalCandidates,
+  rtSignalCandidateTrades,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -591,6 +594,8 @@ import {
   type RtKioxiaShortGuardEvent,
   type InsertRtSourceEvent,
   type RtSourceEvent,
+  type InsertRtShadowDispatchQueue,
+  type RtShadowDispatchQueue,
   type InsertRtStrategyVersion,
   type RtStrategyVersion,
   type InsertRtForwardShadowEvent,
@@ -609,6 +614,10 @@ import {
   type RtOutcomeLabel,
   type InsertRtDivergenceHypothesis,
   type RtDivergenceHypothesis,
+  type InsertRtSignalCandidate,
+  type RtSignalCandidate,
+  type InsertRtSignalCandidateTrade,
+  type RtSignalCandidateTrade,
 } from "../drizzle/schema";
 
 /**
@@ -1160,12 +1169,20 @@ export async function completeRtSourceEvent(input: {
 export async function upsertRtStrategyVersion(
   data: Omit<InsertRtStrategyVersion, "createdAt" | "updatedAt">,
 ): Promise<void> {
+  const { assertForwardCandidateRiskReward } = await import("./forwardStrategyRegistration");
+  assertForwardCandidateRiskReward(data);
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.insert(rtStrategyVersions).values(data).onDuplicateKeyUpdate({
     set: {
       buildGitSha: data.buildGitSha,
       sourceTreeHash: data.sourceTreeHash,
+      evaluationPurpose: data.evaluationPurpose,
+      eligibleForAdoption: data.eligibleForAdoption,
+      ...(data.eligibleForAdoption === false ? {
+        status: data.status,
+        statusReason: data.statusReason,
+      } : {}),
     },
   });
 }
@@ -1531,6 +1548,96 @@ export async function getRtRealtimeDecisionEventsForDate(tradeDate: string): Pro
     .orderBy(rtRealtimeDecisionEvents.id);
 }
 
+export async function enqueueRtShadowDispatch(
+  data: Omit<InsertRtShadowDispatchQueue, "id" | "createdAt" | "processedAt" | "status" | "claimToken" | "leaseUntil" | "attemptCount" | "lastError">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtShadowDispatchQueue).values(data).onDuplicateKeyUpdate({
+    set: {
+      engineSequence: data.engineSequence,
+      inputJson: data.inputJson,
+    },
+  });
+}
+
+/**
+ * 未完了の最小engineSequenceだけをclaimする。先頭が他workerの有効lease中なら後続を返さず、追い越しを防ぐ。
+ */
+export async function claimNextRtShadowDispatch(input: {
+  ownerToken: string;
+  leaseMs?: number;
+  maxAttempts?: number;
+}): Promise<RtShadowDispatchQueue | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const row = (await db.select().from(rtShadowDispatchQueue)
+    .where(ne(rtShadowDispatchQueue.status, "processed"))
+    .orderBy(rtShadowDispatchQueue.engineSequence)
+    .limit(1))[0];
+  if (!row) return null;
+  const now = new Date();
+  const maxAttempts = input.maxAttempts ?? 5;
+  if (row.status === "processing" && row.leaseUntil && row.leaseUntil > now) return null;
+  if (row.attemptCount >= maxAttempts) return null;
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  await db.update(rtShadowDispatchQueue).set({
+    status: "processing",
+    claimToken: input.ownerToken,
+    leaseUntil,
+    attemptCount: sql`${rtShadowDispatchQueue.attemptCount} + 1`,
+    lastError: null,
+  }).where(and(
+    eq(rtShadowDispatchQueue.id, row.id),
+    // 同時workerが同じ先頭行を読んでも、先にattemptCountを進めた1台だけがclaimを獲得するCAS条件。
+    eq(rtShadowDispatchQueue.attemptCount, row.attemptCount),
+    or(
+      eq(rtShadowDispatchQueue.status, "pending"),
+      eq(rtShadowDispatchQueue.status, "error"),
+      and(eq(rtShadowDispatchQueue.status, "processing"), lt(rtShadowDispatchQueue.leaseUntil, now)),
+    ),
+  ));
+  const claimed = (await db.select().from(rtShadowDispatchQueue)
+    .where(eq(rtShadowDispatchQueue.id, row.id)).limit(1))[0];
+  return claimed?.claimToken === input.ownerToken ? claimed : null;
+}
+
+export async function completeRtShadowDispatch(input: {
+  id: number;
+  ownerToken: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtShadowDispatchQueue).set({
+    status: "processed",
+    claimToken: null,
+    leaseUntil: null,
+    lastError: null,
+    processedAt: new Date(),
+  }).where(and(
+    eq(rtShadowDispatchQueue.id, input.id),
+    eq(rtShadowDispatchQueue.claimToken, input.ownerToken),
+  ));
+}
+
+export async function failRtShadowDispatch(input: {
+  id: number;
+  ownerToken: string;
+  error: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtShadowDispatchQueue).set({
+    status: "error",
+    claimToken: null,
+    leaseUntil: null,
+    lastError: input.error,
+  }).where(and(
+    eq(rtShadowDispatchQueue.id, input.id),
+    eq(rtShadowDispatchQueue.claimToken, input.ownerToken),
+  ));
+}
+
 export async function upsertRtReplayComparison(
   data: Omit<InsertRtReplayComparison, "id" | "createdAt">,
 ): Promise<void> {
@@ -1672,4 +1779,109 @@ export async function getRtDivergenceHypotheses(asOfDate: string): Promise<RtDiv
   return db.select().from(rtDivergenceHypotheses)
     .where(eq(rtDivergenceHypotheses.asOfDate, asOfDate))
     .orderBy(rtDivergenceHypotheses.id);
+}
+
+export async function upsertRtSignalCandidate(
+  data: Omit<InsertRtSignalCandidate, "id" | "createdAt">,
+): Promise<RtSignalCandidate> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtSignalCandidates).values(data).onDuplicateKeyUpdate({
+    set: {
+      engineSequence: data.engineSequence,
+      routeId: data.routeId,
+      side: data.side,
+      signalReason: data.signalReason,
+      theoreticalEntryPrice: data.theoreticalEntryPrice,
+      capitalShares: data.capitalShares,
+      requiredMargin: data.requiredMargin,
+      marginUsedBefore: data.marginUsedBefore,
+      marginLimit: data.marginLimit,
+      realtimeDecision: data.realtimeDecision,
+      slPct: data.slPct,
+      tpPct: data.tpPct,
+      maxHoldingMinutes: data.maxHoldingMinutes ?? null,
+      sessionExitTime: data.sessionExitTime ?? null,
+      profitProtectionJson: data.profitProtectionJson ?? null,
+      entryObservedAtMs: data.entryObservedAtMs ?? null,
+      decisionAtMs: data.decisionAtMs,
+      inputJson: data.inputJson,
+    },
+  });
+  const row = (await db.select().from(rtSignalCandidates).where(and(
+    eq(rtSignalCandidates.candidateVersion, data.candidateVersion),
+    eq(rtSignalCandidates.sourceEventId, data.sourceEventId),
+  )).limit(1))[0];
+  if (!row) throw new Error(`Signal candidate not found after insert: ${data.sourceEventId}`);
+  return row;
+}
+
+export async function getRtSignalCandidatesForDate(input: {
+  candidateVersion: string;
+  tradeDate: string;
+}): Promise<RtSignalCandidate[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSignalCandidates).where(and(
+    eq(rtSignalCandidates.candidateVersion, input.candidateVersion),
+    eq(rtSignalCandidates.tradeDate, input.tradeDate),
+  )).orderBy(rtSignalCandidates.engineSequence, rtSignalCandidates.id);
+}
+
+export async function getRtSignalCandidateById(candidateId: number): Promise<RtSignalCandidate | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtSignalCandidates)
+    .where(eq(rtSignalCandidates.id, candidateId)).limit(1))[0] ?? null;
+}
+
+export async function upsertRtSignalCandidateTrade(
+  data: Omit<InsertRtSignalCandidateTrade, "id" | "createdAt" | "updatedAt">,
+): Promise<RtSignalCandidateTrade> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtSignalCandidateTrades).values(data).onDuplicateKeyUpdate({
+    set: {
+      stateJson: data.stateJson,
+      exitSourceEventId: data.exitSourceEventId ?? null,
+      exitTradeDate: data.exitTradeDate ?? null,
+      exitCandleTime: data.exitCandleTime ?? null,
+      exitPrice: data.exitPrice ?? null,
+      exitReason: data.exitReason ?? null,
+      pnl: data.pnl ?? null,
+      realizedR: data.realizedR ?? null,
+      mfePct: data.mfePct ?? null,
+      maePct: data.maePct ?? null,
+      completed: data.completed,
+    },
+  });
+  const row = (await db.select().from(rtSignalCandidateTrades).where(and(
+    eq(rtSignalCandidateTrades.virtualEngineVersion, data.virtualEngineVersion),
+    eq(rtSignalCandidateTrades.candidateId, data.candidateId),
+  )).limit(1))[0];
+  if (!row) throw new Error(`Signal candidate trade not found after insert: ${data.candidateId}`);
+  return row;
+}
+
+export async function getRtSignalCandidateTradesForDate(input: {
+  virtualEngineVersion: string;
+  tradeDate: string;
+}): Promise<RtSignalCandidateTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSignalCandidateTrades).where(and(
+    eq(rtSignalCandidateTrades.virtualEngineVersion, input.virtualEngineVersion),
+    eq(rtSignalCandidateTrades.tradeDate, input.tradeDate),
+  )).orderBy(rtSignalCandidateTrades.id);
+}
+
+export async function getOpenRtSignalCandidateTrades(
+  virtualEngineVersion: string,
+): Promise<RtSignalCandidateTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSignalCandidateTrades).where(and(
+    eq(rtSignalCandidateTrades.virtualEngineVersion, virtualEngineVersion),
+    eq(rtSignalCandidateTrades.completed, false),
+  )).orderBy(rtSignalCandidateTrades.id);
 }

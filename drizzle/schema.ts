@@ -799,6 +799,32 @@ export const rtSourceEvents = mysqlTable("rt_source_events", {
 export type RtSourceEvent = typeof rtSourceEvents.$inferSelect;
 export type InsertRtSourceEvent = typeof rtSourceEvents.$inferInsert;
 
+/**
+ * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
+ * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
+ */
+export const rtShadowDispatchQueue = mysqlTable("rt_shadow_dispatch_queue", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  engineSequence: int("engine_sequence").notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  inputJson: json("input_json").notNull(),
+  status: mysqlEnum("rt_shadow_dispatch_status", ["pending", "processing", "processed", "error"]).notNull().default("pending"),
+  claimToken: varchar("claim_token", { length: 64 }),
+  leaseUntil: timestamp("lease_until"),
+  attemptCount: int("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_shadow_dispatch_source_identity").on(table.sourceEventId),
+  engineSequenceIdentity: uniqueIndex("rt_shadow_dispatch_engine_sequence_identity").on(table.engineSequence),
+}));
+
+export type RtShadowDispatchQueue = typeof rtShadowDispatchQueue.$inferSelect;
+export type InsertRtShadowDispatchQueue = typeof rtShadowDispatchQueue.$inferInsert;
+
 /** 収集開始前に固定する前向き評価の戦略版。 */
 export const rtStrategyVersions = mysqlTable("rt_strategy_versions", {
   versionId: varchar("version_id", { length: 128 }).primaryKey(),
@@ -1095,3 +1121,84 @@ export const rtDivergenceHypotheses = mysqlTable("rt_divergence_hypotheses", {
 
 export type RtDivergenceHypothesis = typeof rtDivergenceHypotheses.$inferSelect;
 export type InsertRtDivergenceHypothesis = typeof rtDivergenceHypotheses.$inferInsert;
+
+/**
+ * 現行エンジンが証拠金判定へ到達した全候補を、採用・margin blockを問わず保存する追記専用台帳。
+ * 通常rt_trades・orderBridgeとは接続しない。
+ */
+export const rtSignalCandidates = mysqlTable("rt_signal_candidates", {
+  id: int("id").autoincrement().primaryKey(),
+  candidateVersion: varchar("candidate_version", { length: 64 }).notNull(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  sourceEventDbId: int("source_event_db_id").notNull(),
+  engineSequence: int("engine_sequence").notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  routeId: varchar("route_id", { length: 96 }).notNull(),
+  side: mysqlEnum("rt_signal_candidate_side", ["long", "short"]).notNull(),
+  signalReason: text("signal_reason").notNull(),
+  theoreticalEntryPrice: decimal("theoretical_entry_price", { precision: 12, scale: 4 }).notNull(),
+  signalQualityShares: int("signal_quality_shares").notNull().default(100),
+  capitalShares: int("capital_shares").notNull(),
+  requiredMargin: bigint("required_margin", { mode: "number" }).notNull(),
+  marginUsedBefore: bigint("margin_used_before", { mode: "number" }).notNull(),
+  marginLimit: bigint("margin_limit", { mode: "number" }).notNull(),
+  realtimeDecision: mysqlEnum("rt_signal_candidate_decision", ["accepted", "margin_block"]).notNull(),
+  slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
+  tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
+  maxHoldingMinutes: int("max_holding_minutes"),
+  sessionExitTime: varchar("session_exit_time", { length: 5 }),
+  profitProtectionJson: json("profit_protection_json"),
+  entryObservedAtMs: bigint("entry_observed_at_ms", { mode: "number" }),
+  decisionAtMs: bigint("decision_at_ms", { mode: "number" }).notNull(),
+  inputJson: json("input_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  candidateIdentity: uniqueIndex("rt_signal_candidate_identity").on(table.candidateVersion, table.sourceEventId),
+}));
+
+export type RtSignalCandidate = typeof rtSignalCandidates.$inferSelect;
+export type InsertRtSignalCandidate = typeof rtSignalCandidates.$inferInsert;
+
+/**
+ * rt_signal_candidatesを100株固定・証拠金制限なしで経路固有出口まで追跡した仮想取引。
+ * 診断・前向き評価専用であり、通常取引・注文生成へ接続しない。
+ */
+export const rtSignalCandidateTrades = mysqlTable("rt_signal_candidate_trades", {
+  id: int("id").autoincrement().primaryKey(),
+  virtualEngineVersion: varchar("virtual_engine_version", { length: 64 }).notNull(),
+  candidateId: int("candidate_id").notNull(),
+  entrySourceEventId: varchar("entry_source_event_id", { length: 128 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  routeId: varchar("route_id", { length: 96 }).notNull(),
+  side: mysqlEnum("rt_signal_candidate_trade_side", ["long", "short"]).notNull(),
+  entryCandleTime: varchar("entry_candle_time", { length: 5 }).notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
+  shares: int("shares").notNull().default(100),
+  slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
+  tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
+  maxHoldingMinutes: int("max_holding_minutes"),
+  stateJson: json("state_json").notNull(),
+  exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
+  exitTradeDate: varchar("exit_trade_date", { length: 10 }),
+  exitCandleTime: varchar("exit_candle_time", { length: 5 }),
+  exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
+  exitReason: varchar("exit_reason", { length: 64 }),
+  pnl: bigint("pnl", { mode: "number" }),
+  realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
+  mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
+  maePct: decimal("mae_pct", { precision: 10, scale: 6 }),
+  completed: boolean("completed").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  virtualTradeIdentity: uniqueIndex("rt_signal_candidate_trade_identity").on(
+    table.virtualEngineVersion,
+    table.candidateId,
+  ),
+}));
+
+export type RtSignalCandidateTrade = typeof rtSignalCandidateTrades.$inferSelect;
+export type InsertRtSignalCandidateTrade = typeof rtSignalCandidateTrades.$inferInsert;

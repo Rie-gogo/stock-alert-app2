@@ -5,7 +5,7 @@ import {
   getRtSourceEvent,
 } from "./db";
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
-import { processForwardShadowSourceEvent } from "./forwardShadow";
+import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow } from "./forwardShadowSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
 import { processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
@@ -93,11 +93,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     if (existing?.status === "processed") {
       try {
         // 現行processCandleは二度と呼ばず、strategyVersion別のshadow errorだけを独立claimで再試行する。
-        shadowRetry = await processForwardShadowSourceEvent({
-          sourceEventId: metadata.sourceEventId,
-          candle: input,
-          board: input.board ?? null,
-        });
+        shadowRetry = await drainForwardShadowDispatchQueue();
       } catch (shadowError) {
         shadowRetry = { error: String(shadowError) };
       }
@@ -183,7 +179,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     const result = audited.result;
     let shadowResult: unknown = null;
     try {
-      shadowResult = await processForwardShadowSourceEvent({
+      shadowResult = await enqueueAndDrainForwardShadow({
         sourceEventId: metadata.sourceEventId,
         candle: input,
         board: input.board ?? null,
@@ -192,7 +188,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     } catch (firstShadowError) {
       console.warn("[ForwardShadow] シャドー評価一時失敗。現行DRY_RUNを再実行せずシャドーだけ1回再試行:", firstShadowError);
       try {
-        shadowResult = await processForwardShadowSourceEvent({
+        shadowResult = await enqueueAndDrainForwardShadow({
           sourceEventId: metadata.sourceEventId,
           candle: input,
           board: input.board ?? null,

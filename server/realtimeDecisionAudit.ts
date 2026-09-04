@@ -5,6 +5,7 @@ import {
   getLatestRtTradeAt,
   insertRtRealtimeDecisionEvent,
   releaseRtCurrentEngineLock,
+  upsertRtSignalCandidate,
 } from "./db";
 import type { KabuOrderBook } from "./kabuStation";
 import {
@@ -16,6 +17,15 @@ import {
   type RtCandle1Min,
 } from "./realtimeSimEngine";
 import { sha256Stable } from "./runtimeIdentity";
+import {
+  CURRENT_SIGNAL_CANDIDATE_VERSION,
+  parseMarginCandidateReason,
+  parseRequiredMarginFromReason,
+  resolveCurrentRouteSpec,
+  type CandidateSide,
+} from "./currentSignalCandidateRegistry";
+import { processSignalQualityVirtualTradesForEvent } from "./signalCandidateVirtualEngine";
+import type { RtSignalCandidate } from "../drizzle/schema";
 
 export const CURRENT_REALTIME_AUDIT_VERSION = "current-realtime-audit-v1";
 const CURRENT_ENGINE_LOCK_NAME = "current-realtime-engine-v1";
@@ -44,6 +54,11 @@ export type AuditedCurrentEngineResult = {
     stateHashAfter: string;
     causalityStatus: "pass" | "violation" | "unverified" | "not_applicable";
     causalityReason: string;
+    boardObservedAtMs: number | null;
+    relayAssembledAtMs: number | null;
+    cloudReceivedAtMs: number | null;
+    decisionStartedAtMs: number;
+    decisionCompletedAtMs: number;
     error?: string;
   };
 };
@@ -199,6 +214,100 @@ function currentMarginUsed(): number {
   ));
 }
 
+function inferCandidateSide(input: {
+  reason: string;
+  latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
+  decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
+}): CandidateSide | null {
+  if (input.latestTrade?.side === "long" || input.latestTrade?.side === "short") return input.latestTrade.side;
+  if (/LONG/i.test(input.reason)) return "long";
+  if (/SHORT/i.test(input.reason)) return "short";
+  if (input.decisionSignal?.action === "buy") return "long";
+  if (input.decisionSignal?.action === "short") return "short";
+  return null;
+}
+
+async function saveStructuredCandidate(input: {
+  sourceEvent: RtSourceEvent;
+  candle: RtCandle1Min;
+  inputHash: string;
+  auditId: number;
+  auditReason: string | null;
+  resultType: AuditedCurrentEngineResult["audit"]["resultType"];
+  decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
+  latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
+  marginUsedBefore: number;
+  decisionCompletedAtMs: number;
+}): Promise<RtSignalCandidate | null> {
+  const isAccepted = input.resultType === "entry"
+    && (input.latestTrade?.action === "buy" || input.latestTrade?.action === "short");
+  const isMarginBlock = input.resultType === "rejected" && /証拠金ブロック|margin_block/i.test(input.auditReason ?? "");
+  if (!isAccepted && !isMarginBlock) return null;
+
+  const rawReason = isMarginBlock
+    ? parseMarginCandidateReason(input.auditReason)
+    : input.latestTrade?.reason ?? input.auditReason;
+  if (!rawReason) throw new Error(`candidate_reason_missing:${input.sourceEvent.sourceEventId}`);
+  const side = inferCandidateSide({
+    reason: rawReason,
+    latestTrade: input.latestTrade,
+    decisionSignal: input.decisionSignal,
+  });
+  if (!side) throw new Error(`candidate_side_missing:${input.sourceEvent.sourceEventId}:${rawReason}`);
+
+  const route = resolveCurrentRouteSpec({
+    symbol: input.candle.symbol,
+    side,
+    reason: rawReason,
+    entryCandleTime: input.candle.candleTime,
+  });
+  const price = input.candle.close;
+  const reconstructedShares = Math.floor((3_000_000 * 0.9) / price / 100) * 100;
+  const capitalShares = isAccepted && input.latestTrade?.shares
+    ? input.latestTrade.shares
+    : reconstructedShares;
+  const requiredMargin = isAccepted && input.latestTrade?.amount
+    ? Math.round(input.latestTrade.amount)
+    : parseRequiredMarginFromReason(input.auditReason) ?? Math.round(price * capitalShares);
+
+  return await upsertRtSignalCandidate({
+    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    sourceEventId: input.sourceEvent.sourceEventId,
+    sourceEventDbId: input.sourceEvent.id,
+    engineSequence: input.auditId,
+    tradeDate: input.candle.tradeDate,
+    candleTime: input.candle.candleTime,
+    symbol: input.candle.symbol,
+    routeId: route.routeId,
+    side,
+    signalReason: rawReason,
+    theoreticalEntryPrice: String(price),
+    signalQualityShares: 100,
+    capitalShares,
+    requiredMargin,
+    marginUsedBefore: input.marginUsedBefore,
+    marginLimit: 8_910_000,
+    realtimeDecision: isAccepted ? "accepted" : "margin_block",
+    slPct: String(route.slPct),
+    tpPct: String(route.tpPct),
+    maxHoldingMinutes: route.maxHoldingMinutes,
+    sessionExitTime: route.sessionExitTime,
+    profitProtectionJson: route.profitProtection,
+    entryObservedAtMs: input.sourceEvent.relayReceivedAtMs,
+    decisionAtMs: input.decisionCompletedAtMs,
+    inputJson: {
+      auditVersion: CURRENT_REALTIME_AUDIT_VERSION,
+      realtimeDecisionId: input.auditId,
+      inputHash: input.inputHash,
+      acceptedByCurrentRealtime: isAccepted,
+      marginBlockedByCurrentRealtime: isMarginBlock,
+      requiredMarginSource: isAccepted ? "rt_trade_amount" : "margin_block_reason_or_reconstructed",
+      eligibleNominalRiskReward: route.eligibleNominalRiskReward,
+      routeSpec: route,
+    },
+  });
+}
+
 function parseBoardObservedAtMs(tradeDate: string, value: string | null | undefined): number | null {
   if (!value) return null;
   const normalized = value.includes("T") ? value : `${tradeDate}T${value}`;
@@ -313,6 +422,32 @@ export async function processCurrentEngineAudited(input: {
           },
         },
       });
+      let structuredCandidate: RtSignalCandidate | null = null;
+      try {
+        structuredCandidate = await saveStructuredCandidate({
+          sourceEvent: input.sourceEvent,
+          candle: input.candle,
+          inputHash: input.inputHash,
+          auditId: saved.id,
+          auditReason,
+          resultType,
+          decisionSignal,
+          latestTrade,
+          marginUsedBefore,
+          decisionCompletedAtMs,
+        });
+      } catch (candidateError) {
+        console.error("[RealtimeAudit] 現行判断は完了したがcandidate台帳保存に失敗:", candidateError);
+      }
+      try {
+        await processSignalQualityVirtualTradesForEvent({
+          sourceEventId: input.sourceEvent.sourceEventId,
+          candle: input.candle,
+          candidate: structuredCandidate,
+        });
+      } catch (virtualTradeError) {
+        console.error("[RealtimeAudit] 現行判断は完了したが100株仮想取引更新に失敗:", virtualTradeError);
+      }
       return {
         result,
         audit: {
@@ -326,6 +461,11 @@ export async function processCurrentEngineAudited(input: {
           stateHashAfter,
           causalityStatus: causality.status,
           causalityReason: causality.reason,
+          boardObservedAtMs,
+          relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
+          cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,
+          decisionStartedAtMs,
+          decisionCompletedAtMs,
         },
       };
     } catch (auditError) {
@@ -343,6 +483,11 @@ export async function processCurrentEngineAudited(input: {
           stateHashAfter,
           causalityStatus: causality.status,
           causalityReason: causality.reason,
+          boardObservedAtMs,
+          relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
+          cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,
+          decisionStartedAtMs,
+          decisionCompletedAtMs,
           error: String(auditError),
         },
       };

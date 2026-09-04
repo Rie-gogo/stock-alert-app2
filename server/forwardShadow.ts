@@ -58,7 +58,15 @@ import {
 } from "./telExecutableConfirm";
 import { auditTelExecutableConfirmDay } from "./telExecutableConfirmEngine";
 import {
+  TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+  TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
+  TEL_EXECUTABLE_DEPTH_VERSION,
+} from "./telExecutableConfirmDepth";
+import { auditTelExecutableConfirmDepthDay } from "./telExecutableConfirmDepthEngine";
+import {
   buildActualReceiptPortfolioAuditForDate,
+  buildAllCandidateMinutePortfolioForDate,
+  buildAllCandidateReceiptPortfolioForDate,
   buildMinuteNormalizedPortfolioAuditForDate,
 } from "./portfolioAudit";
 import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
@@ -94,6 +102,11 @@ export interface ForwardSourceEventInput {
     stateHashAfter: string;
     causalityStatus: string;
     causalityReason: string;
+    boardObservedAtMs: number | null;
+    relayAssembledAtMs: number | null;
+    cloudReceivedAtMs: number | null;
+    decisionStartedAtMs: number;
+    decisionCompletedAtMs: number;
   };
   /** 8035既存シャドーを内部再帰で一度だけ呼ぶための非永続フラグ。 */
   internalSkipTelParity?: boolean;
@@ -554,12 +567,14 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   if (input.candle.symbol === "8035" && !input.internalSkipTelParity) {
     const { processTelCurrentParitySourceEvent } = await import("./telCurrentParityEngine");
     const { processTelExecutableConfirmSourceEvent } = await import("./telExecutableConfirmEngine");
+    const { processTelExecutableConfirmDepthSourceEvent } = await import("./telExecutableConfirmDepthEngine");
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     for (const evaluate of [
       () => processForwardShadowSourceEvent({ ...input, internalSkipTelParity: true }),
       () => processTelCurrentParitySourceEvent(input, input.currentAudit?.marginUsedBefore ?? 0),
       () => processTelExecutableConfirmSourceEvent(input),
+      () => processTelExecutableConfirmDepthSourceEvent(input),
     ]) {
       try {
         evaluations.push(await evaluate());
@@ -693,13 +708,11 @@ export function evaluateForwardDecision(
     && (metrics.profitFactor === null || metrics.profitFactor >= FORWARD_EVALUATION_POLICY.minimumProfitFactor)
     && metrics.expectedR >= FORWARD_EVALUATION_POLICY.minimumExpectedR
     && metrics.pnlAfterAdverseExit > 0;
-  const finalBySignals = days >= FORWARD_EVALUATION_POLICY.minimumCalendarDaysForSignalCountDecision
-    && metrics.closedTrades >= FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision;
   const finalByTime = days >= FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision
     && metrics.closedTrades >= FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision;
-  if (finalBySignals || finalByTime) {
+  if (finalByTime) {
     return passesCore
-      ? { status: "eligible" as const, reason: finalBySignals ? "two_weeks_and_twenty_signals" : "four_weeks_and_ten_signals", days }
+      ? { status: "eligible" as const, reason: "four_weeks_and_ten_signals_manual_review_required", days }
       : { status: "stopped" as const, reason: "final_thresholds_not_met", days };
   }
   if (days >= FORWARD_EVALUATION_POLICY.maximumCalendarDays) {
@@ -722,6 +735,8 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
         ? KIOXIA_ATR_FORWARD_EVALUATION_START_DATE
         : strategyVersion === TEL_EXECUTABLE_CONFIRM_VERSION
           ? TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE
+          : strategyVersion === TEL_EXECUTABLE_DEPTH_VERSION
+            ? TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE
           : FORWARD_EVALUATION_START_DATE;
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
     const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
@@ -843,10 +858,19 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
     getRtSourceEventsForDate(asOfDate),
     getRtForwardShadowEventsForDate(asOfDate),
   ]);
-  const [realtimeDecisionEvents, actualPortfolio, normalizedPortfolio, outcomeLabels] = await Promise.all([
+  const [
+    realtimeDecisionEvents,
+    actualPortfolio,
+    normalizedPortfolio,
+    allCandidateReceiptPortfolio,
+    allCandidateMinutePortfolio,
+    outcomeLabels,
+  ] = await Promise.all([
     getRtRealtimeDecisionEventsForDate(asOfDate),
     buildActualReceiptPortfolioAuditForDate(asOfDate),
     buildMinuteNormalizedPortfolioAuditForDate(asOfDate),
+    buildAllCandidateReceiptPortfolioForDate(asOfDate),
+    buildAllCandidateMinutePortfolioForDate(asOfDate),
     buildOutcomeLabelsForDate(asOfDate),
   ]);
   const divergence = await buildDivergenceHypotheses(asOfDate);
@@ -858,6 +882,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: FORWARD_EVALUATION_START_DATE,
       cutoffDate: FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayForwardShadowDay(sourceEvents, shadowEvents),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
     },
     {
       versionId: FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -866,6 +892,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: FUJIKURA_FORWARD_EVALUATION_START_DATE,
       cutoffDate: FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayFujikuraForwardShadowDay(sourceEvents, shadowEvents),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
     },
     {
       versionId: KIOXIA_FORWARD_STRATEGY_VERSION,
@@ -874,6 +902,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: KIOXIA_FORWARD_EVALUATION_START_DATE,
       cutoffDate: KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayKioxiaForwardShadowDay(sourceEvents, shadowEvents),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
     },
     {
       versionId: KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
@@ -882,6 +912,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: KIOXIA_ATR_FORWARD_EVALUATION_START_DATE,
       cutoffDate: KIOXIA_ATR_FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayKioxiaAtrForwardShadowDay(sourceEvents, shadowEvents),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
     },
     {
       versionId: TEL_EXECUTABLE_CONFIRM_VERSION,
@@ -890,6 +922,18 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
       cutoffDate: TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
       replay: () => auditTelExecutableConfirmDay(sourceEvents, shadowEvents),
+      adoptionEligible: false,
+      lifecycle: "superseded_stopped_audit_only",
+    },
+    {
+      versionId: TEL_EXECUTABLE_DEPTH_VERSION,
+      symbol: "8035",
+      title: "8035 次イベント・side別板depth VWAP継続確認A案 v2",
+      startDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+      cutoffDate: TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
+      replay: () => auditTelExecutableConfirmDepthDay(sourceEvents, shadowEvents),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
     },
   ] as const;
   const sections: string[] = [];
@@ -905,11 +949,17 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       }
     }
     const signalQuality = summaries.find(item => item.mode === "signal_quality");
-    if (signalQuality) {
+    if (signalQuality && definition.adoptionEligible) {
       await updateRtStrategyVersionStatus({
         versionId: definition.versionId,
         status: signalQuality.decision.status,
         statusReason: signalQuality.decision.reason,
+      });
+    } else if (!definition.adoptionEligible) {
+      await updateRtStrategyVersionStatus({
+        versionId: definition.versionId,
+        status: "stopped",
+        statusReason: definition.lifecycle,
       });
     }
     const lines = summaries.map(item => {
@@ -922,15 +972,16 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
         `    損益: ${item.metrics.pnl >= 0 ? "+" : ""}${item.metrics.pnl.toLocaleString()}円 / 0.10%不利出口後: ${item.metrics.pnlAfterAdverseExit >= 0 ? "+" : ""}${item.metrics.pnlAfterAdverseExit.toLocaleString()}円`,
         `    PF: ${formatNullable(item.metrics.profitFactor)} / 期待値: ${item.metrics.expectedR.toFixed(3)}R / 実現平均利益÷平均損失: ${formatNullable(item.metrics.realizedPayoffRatio)}`,
         `    最大DD: ${item.metrics.maxDrawdown.toLocaleString()}円 / 最大連敗: ${item.metrics.maxConsecutiveLosses} / 判定: ${item.decision.status} (${item.decision.reason})`,
-        `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
+        `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件到達時も継続判定のみ: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
         `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
       ].join("\n");
     });
     sections.push(`
-【${definition.title}】
-  戦略版: ${definition.versionId}
-  計測開始: ${definition.startDate}（学習終了: ${definition.cutoffDate}）
-  注文接続: なし（strategyVersion別シャドーテーブルのみ）
+	【${definition.title}】
+	  戦略版: ${definition.versionId}
+	  計測開始: ${definition.startDate}（学習終了: ${definition.cutoffDate}）
+	  採用審査: ${definition.adoptionEligible ? "対象（自動採用・自動置換なし）" : "対象外（旧版停止・監査保持のみ）"}
+	  注文接続: なし（strategyVersion別シャドーテーブルのみ）
   当日シャドー判断: ${versionEvents.length}件（error=${versionEvents.filter(event => event.resultType === "error").length}, 状態ハッシュ連続不一致=${stateContinuityMismatches}）
   当日固定版再生: ${replayAudit.replayedEvents}判断再生（実時との差=${replayAudit.mismatches}, 不正payload=${replayAudit.invalidPayloads}）
 	${lines.join("\n")}`);
@@ -967,7 +1018,10 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
 【10銘柄・891万円 portfolio監査】
   実受信・実状態更新順: ${actualPortfolio.processed}判断 / 採用${actualPortfolio.accepted} / margin_block${actualPortfolio.marginBlocked} / 決済${actualPortfolio.closed} / 証拠金状態不一致${actualPortfolio.marginStateMismatches}
   同一分固定優先順位: ${normalizedPortfolio.candidateBatches}候補分 / 採用${normalizedPortfolio.accepted} / margin_block${normalizedPortfolio.marginBlocked} / blocker辺${normalizedPortfolio.blockEdges.length}
-  注意: 固定優先順位版は全発火仮想exit未収録のため、現在はblocker診断専用・portfolio損益比較不可
+  旧診断版注意: 上記固定優先順位版は実採用＋margin_blockの局所診断であり、portfolio損益比較には使わない
+  全candidate正式v2・engineSequence実受信順: 候補${allCandidateReceiptPortfolio.candidates} / 採用${allCandidateReceiptPortfolio.accepted} / margin_block${allCandidateReceiptPortfolio.marginBlocked} / 仮想決済${allCandidateReceiptPortfolio.closed} / 実現損益${allCandidateReceiptPortfolio.realizedPnl >= 0 ? "+" : ""}${allCandidateReceiptPortfolio.realizedPnl.toLocaleString()}円 / blocker辺${allCandidateReceiptPortfolio.blockEdges.length} / 比較適格=${allCandidateReceiptPortfolio.eligibleForPortfolioPnlComparison}
+  全candidate正式v2・同一分exit先行＋固定銘柄優先: 候補${allCandidateMinutePortfolio.candidates} / 採用${allCandidateMinutePortfolio.accepted} / margin_block${allCandidateMinutePortfolio.marginBlocked} / 仮想決済${allCandidateMinutePortfolio.closed} / 実現損益${allCandidateMinutePortfolio.realizedPnl >= 0 ? "+" : ""}${allCandidateMinutePortfolio.realizedPnl.toLocaleString()}円 / blocker辺${allCandidateMinutePortfolio.blockEdges.length} / 比較適格=${allCandidateMinutePortfolio.eligibleForPortfolioPnlComparison}
+  未完了仮想tradeが1件でもあれば比較適格=false。2版の損益を混同せず別versionで保存
 【成績乖離原因分析】
   診断ラベル: ${outcomeLabels.labels}件（完了${outcomeLabels.completed} / 証拠金拒否${outcomeLabels.blocked}）
   原因候補: ${divergence.hypotheses.length}件（確信度highは未見シャドー再現まで禁止）

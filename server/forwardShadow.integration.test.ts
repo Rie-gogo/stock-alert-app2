@@ -43,6 +43,7 @@ import { processForwardShadowSourceEvent } from "./forwardShadow";
 import {
   FORWARD_STRATEGY_VERSION,
   TEL_CURRENT_PARITY_VERSION,
+  TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
 } from "./runtimeIdentity";
 
@@ -123,7 +124,7 @@ describe("8035未見データ前向きシャドー統合", () => {
     expect(memory.events).toHaveLength(eventCount);
   });
 
-  it("9月7日以降は既存8035・現行parity・改善案Aを別version・別2評価状態で並走する", async () => {
+  it("9月7日以降は既存8035・現行parity・旧A・depth新版を別version・別2評価状態で並走する", async () => {
     for (let index = 0; index < 30; index += 1) {
       await processForwardShadowSourceEvent({
         sourceEventId: `triple:${index + 1}`,
@@ -146,12 +147,14 @@ describe("8035未見データ前向きシャドー統合", () => {
         symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:10",
         open: 100, high: 101.1, low: 99.9, close: 101, volume: 200,
       },
-      board: { currentPrice: 101 },
-      currentAudit: {
-        engineSequence: 31, resultType: "entry", routeId: "8035_open_direction_breakout_long",
-        marginUsedBefore: 0, marginUsedAfter: 2_700_000,
-        stateHashBefore: "before", stateHashAfter: "after",
-        causalityStatus: "violation", causalityReason: "bar_close_fill",
+        board: { currentPrice: 101, asks: [{ price: 101.02, qty: 100_000 }], bids: [{ price: 100.98, qty: 100_000 }] },
+        currentAudit: {
+          engineSequence: 31, resultType: "entry", routeId: "8035_open_direction_breakout_long",
+          marginUsedBefore: 0, marginUsedAfter: 2_700_000,
+          stateHashBefore: "before", stateHashAfter: "after",
+          causalityStatus: "violation", causalityReason: "bar_close_fill",
+          boardObservedAtMs: 1_000, relayAssembledAtMs: 1_000, cloudReceivedAtMs: 1_100,
+          decisionStartedAtMs: 1_100, decisionCompletedAtMs: 1_200,
       },
     });
     await processForwardShadowSourceEvent({
@@ -160,12 +163,14 @@ describe("8035未見データ前向きシャドー統合", () => {
         symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:11",
         open: 101, high: 101.2, low: 100.9, close: 101.1, volume: 100,
       },
-      board: { currentPrice: 101.05 },
-      currentAudit: {
+        board: { currentPrice: 101.05, asks: [{ price: 101.05, qty: 100_000 }], bids: [{ price: 101.03, qty: 100_000 }] },
+        currentAudit: {
         engineSequence: 32, resultType: "hold", routeId: null,
         marginUsedBefore: 2_700_000, marginUsedAfter: 2_700_000,
-        stateHashBefore: "before", stateHashAfter: "after",
-        causalityStatus: "pass", causalityReason: "no_fill_price_used",
+          stateHashBefore: "before", stateHashAfter: "after",
+          causalityStatus: "pass", causalityReason: "no_fill_price_used",
+          boardObservedAtMs: 2_000, relayAssembledAtMs: 2_000, cloudReceivedAtMs: 2_100,
+          decisionStartedAtMs: 2_100, decisionCompletedAtMs: 2_200,
       },
     });
 
@@ -174,6 +179,7 @@ describe("8035未見データ前向きシャドー統合", () => {
       FORWARD_STRATEGY_VERSION,
       TEL_CURRENT_PARITY_VERSION,
       TEL_EXECUTABLE_CONFIRM_VERSION,
+      TEL_EXECUTABLE_DEPTH_VERSION,
     ]));
     for (const version of versions) {
       expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);

@@ -25,6 +25,8 @@ vi.mock("./telParityComparison", () => ({
 vi.mock("./portfolioAudit", () => ({
   buildActualReceiptPortfolioAuditForDate: vi.fn(async () => ({ processed: 0, accepted: 0, marginBlocked: 0, closed: 0 })),
   buildMinuteNormalizedPortfolioAuditForDate: vi.fn(async () => ({ candidateBatches: 0, accepted: 0, marginBlocked: 0, blockEdges: [] })),
+  buildAllCandidateReceiptPortfolioForDate: vi.fn(async () => ({ candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: true })),
+  buildAllCandidateMinutePortfolioForDate: vi.fn(async () => ({ candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: true })),
 }));
 vi.mock("./outcomeDivergenceAudit", () => ({
   buildOutcomeLabelsForDate: vi.fn(async () => ({ labels: 0, completed: 0, blocked: 0 })),
@@ -33,11 +35,15 @@ vi.mock("./outcomeDivergenceAudit", () => ({
 vi.mock("./telExecutableConfirmEngine", () => ({
   auditTelExecutableConfirmDay: vi.fn(() => ({ replayedEvents: 0, mismatches: 0, invalidPayloads: 0 })),
 }));
+vi.mock("./telExecutableConfirmDepthEngine", () => ({
+  auditTelExecutableConfirmDepthDay: vi.fn(() => ({ replayedEvents: 0, mismatches: 0, invalidPayloads: 0 })),
+}));
 
 import { formatForwardShadowDryRunReport, getForwardShadowSummary } from "./forwardShadow";
 import {
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
 } from "./runtimeIdentity";
 
@@ -52,9 +58,14 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("285A 現行5経路・ATR7 0.36%未満の該当経路日次終了");
     expect(section).toContain("戦略版: candidate-8035-executable-confirm-v1");
     expect(section).toContain("8035 次イベント・ブレイク継続確認A案");
+    expect(section).toContain("戦略版: candidate-8035-executable-depth-v2");
+    expect(section).toContain("8035 次イベント・side別板depth VWAP継続確認A案 v2");
+    expect(section).toContain("対象外（旧版停止・監査保持のみ）");
     expect(section).toContain("8035 現行完全再現監査");
     expect(section).toContain("現行 因果性Gate");
     expect(section).toContain("10銘柄・891万円 portfolio監査");
+    expect(section).toContain("全candidate正式v2・engineSequence実受信順");
+    expect(section).toContain("全candidate正式v2・同一分exit先行＋固定銘柄優先");
     expect(section).toContain("成績乖離原因分析");
     expect(section).toContain("計測開始: 2026-09-07（学習終了: 2026-09-03）");
     expect(section).toContain("売買ロジックf6878060一致: OK");
@@ -66,7 +77,7 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("891万円上限・可変株数（5803単独パイロット");
     expect(section).toContain("891万円上限・可変株数（285A単独パイロット");
     expect(section).toContain("一次判定まで: あと13日");
-    expect(section).toContain("20件まで: あと20件");
+    expect(section).toContain("20件到達時も継続判定のみ: あと20件");
     expect(section).toContain("4週間10件条件: あと27日・あと10件");
   });
 
@@ -80,8 +91,10 @@ describe("未見データ前向きシャドー16時報告", () => {
   });
 
   it("8035改善案Aは正式開始日の2026-09-07より前を評価日数へ含めない", async () => {
-    const summaries = await getForwardShadowSummary("2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
-    expect(summaries.every(item => item.decision.days === 0)).toBe(true);
-    expect(summaries.every(item => item.decision.status === "monitoring")).toBe(true);
+    for (const version of [TEL_EXECUTABLE_CONFIRM_VERSION, TEL_EXECUTABLE_DEPTH_VERSION]) {
+      const summaries = await getForwardShadowSummary("2026-09-04", version);
+      expect(summaries.every(item => item.decision.days === 0)).toBe(true);
+      expect(summaries.every(item => item.decision.status === "monitoring")).toBe(true);
+    }
   });
 });

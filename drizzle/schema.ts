@@ -801,7 +801,7 @@ export type InsertRtSourceEvent = typeof rtSourceEvents.$inferInsert;
 
 /** 収集開始前に固定する前向き評価の戦略版。 */
 export const rtStrategyVersions = mysqlTable("rt_strategy_versions", {
-  versionId: varchar("version_id", { length: 64 }).primaryKey(),
+  versionId: varchar("version_id", { length: 128 }).primaryKey(),
   strategyId: varchar("strategy_id", { length: 64 }).notNull(),
   baselineGitSha: varchar("baseline_git_sha", { length: 64 }).notNull(),
   buildGitSha: varchar("build_git_sha", { length: 64 }).notNull(),
@@ -824,7 +824,7 @@ export type InsertRtStrategyVersion = typeof rtStrategyVersions.$inferInsert;
 /** 戦略版・受信イベント・評価方式ごとの一度きりの判断記録。 */
 export const rtForwardShadowEvents = mysqlTable("rt_forward_shadow_events", {
   id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
   sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
   evaluationMode: mysqlEnum("rt_forward_evaluation_mode", ["signal_quality", "capital_constrained"]).notNull(),
   tradeDate: varchar("trade_date", { length: 10 }).notNull(),
@@ -853,7 +853,7 @@ export type InsertRtForwardShadowEvent = typeof rtForwardShadowEvents.$inferInse
 /** 全発火版と資金制約版が独立して復元する状態スナップショット。 */
 export const rtForwardShadowStates = mysqlTable("rt_forward_shadow_states", {
   id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
   evaluationMode: mysqlEnum("rt_forward_state_mode", ["signal_quality", "capital_constrained"]).notNull(),
   stateJson: json("state_json").notNull(),
   stateHash: varchar("state_hash", { length: 64 }).notNull(),
@@ -869,7 +869,7 @@ export type InsertRtForwardShadowState = typeof rtForwardShadowStates.$inferInse
 /** strategyVersion・評価方式単位の短時間リース。複数サーバーでも状態更新を直列化する。 */
 export const rtForwardShadowLocks = mysqlTable("rt_forward_shadow_locks", {
   id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
   evaluationMode: mysqlEnum("rt_forward_lock_mode", ["signal_quality", "capital_constrained"]).notNull(),
   ownerToken: varchar("owner_token", { length: 64 }),
   leaseUntil: timestamp("lease_until"),
@@ -884,7 +884,7 @@ export type InsertRtForwardShadowLock = typeof rtForwardShadowLocks.$inferInsert
 /** 次足始値を使った前向きシャドー取引。orderBridgeから完全分離する。 */
 export const rtForwardShadowTrades = mysqlTable("rt_forward_shadow_trades", {
   id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 64 }).notNull(),
+  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
   evaluationMode: mysqlEnum("rt_forward_trade_mode", ["signal_quality", "capital_constrained"]).notNull(),
   symbol: varchar("symbol", { length: 10 }).notNull(),
   side: mysqlEnum("rt_forward_trade_side", ["long", "short"]).notNull(),

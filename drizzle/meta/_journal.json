@@ -127,6 +127,13 @@
       "when": 1788480352251,
       "tag": "0017_left_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1788485140469,
+      "tag": "0018_outgoing_wendigo",
+      "breakpoints": true
     }
   ]
 }

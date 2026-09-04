@@ -32,4 +32,11 @@ describe("本番稼働版自己証明", () => {
       adverseExitPct: 0.1,
     });
   });
+
+  it("既存の長い5803版を変更せず、全候補・監査versionをDB上限128文字以内に保つ", () => {
+    const identity = getRuntimeIdentity();
+    const versions = [...identity.strategyVersions, ...identity.auditStrategyVersions];
+    expect(versions.some(version => version.length > 64)).toBe(true);
+    expect(versions.every(version => version.length <= 128)).toBe(true);
+  });
 });

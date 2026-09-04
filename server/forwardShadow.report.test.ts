@@ -35,7 +35,11 @@ vi.mock("./telExecutableConfirmEngine", () => ({
 }));
 
 import { formatForwardShadowDryRunReport, getForwardShadowSummary } from "./forwardShadow";
-import { KIOXIA_ATR_FORWARD_STRATEGY_VERSION, KIOXIA_FORWARD_STRATEGY_VERSION } from "./runtimeIdentity";
+import {
+  KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
+  KIOXIA_FORWARD_STRATEGY_VERSION,
+  TEL_EXECUTABLE_CONFIRM_VERSION,
+} from "./runtimeIdentity";
 
 describe("未見データ前向きシャドー16時報告", () => {
   it("自己証明・受信監査・2方式・残日数と残件数・注文非接続を表示する", async () => {
@@ -73,5 +77,11 @@ describe("未見データ前向きシャドー16時報告", () => {
     const candidate2 = await getForwardShadowSummary("2026-09-03", KIOXIA_ATR_FORWARD_STRATEGY_VERSION);
     expect(candidate2.every(item => item.decision.days === 0)).toBe(true);
     expect(candidate2.every(item => item.decision.status === "monitoring")).toBe(true);
+  });
+
+  it("8035改善案Aは正式開始日の2026-09-07より前を評価日数へ含めない", async () => {
+    const summaries = await getForwardShadowSummary("2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
+    expect(summaries.every(item => item.decision.days === 0)).toBe(true);
+    expect(summaries.every(item => item.decision.status === "monitoring")).toBe(true);
   });
 });

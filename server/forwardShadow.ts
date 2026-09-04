@@ -720,7 +720,9 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       ? KIOXIA_FORWARD_EVALUATION_START_DATE
       : strategyVersion === KIOXIA_ATR_FORWARD_STRATEGY_VERSION
         ? KIOXIA_ATR_FORWARD_EVALUATION_START_DATE
-      : FORWARD_EVALUATION_START_DATE;
+        : strategyVersion === TEL_EXECUTABLE_CONFIRM_VERSION
+          ? TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE
+          : FORWARD_EVALUATION_START_DATE;
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
     const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
     const metrics = calculateForwardTradeMetrics(modeTrades);

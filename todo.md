@@ -1828,5 +1828,7 @@
 - [x] 2週間判定を継続／停止だけにし、eligibleは4週間＋10件の手動審査候補だけに限定する
 - [x] candidate保存・仮想出口・portfolio・板depth VWAP・順序・採用Gateを匿名fixtureと本番DB source auditで回帰固定する
 - [x] 16時レポートと公開APIへ旧版診断・新版正式成績・候補欠損・仮想exit coverage・portfolio適格性を追加する
-- [x] 型検査、対象回帰、全体テスト、本番ビルド、relay構文、f6878060売買ソース固定ハッシュ、DRY_RUN・注文非接続を確認する（JQUANTS_API_KEY未設定の既知2件を除く600件成功・13件skip）
-- [ ] チェックポイント保存・自動公開後に本番DB、新版開始前ゼロ状態、engineSequence連続性、親失敗0、シャドーエラー0、通常取引非混入を確認する
+- [x] 型検査、対象回帰、全体テスト、本番ビルド、relay構文、f6878060売買ソース固定ハッシュ、DRY_RUN・注文非接続を確認する（JQUANTS_API_KEY未設定の既知2件を除く601件成功・13件skip）
+- [x] チェックポイント保存・自動公開後に本番DB表、新版開始前ゼロ状態、公開revision起動エラー0、親失敗0、シャドーエラー0、通常取引非混入を確認する
+- [x] 旧8035 Aの公開summary decisionを監視中ではなく停止・監査専用へ統一し、API回帰を確認する
+- [ ] 2026-09-07の最初の実KABU受信後、非ゼロqueueでengineSequence連続性・親失敗0・シャドーエラー0・candidate/仮想trade独立保存を確認する

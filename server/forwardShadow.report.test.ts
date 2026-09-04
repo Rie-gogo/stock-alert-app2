@@ -91,10 +91,13 @@ describe("未見データ前向きシャドー16時報告", () => {
   });
 
   it("8035改善案Aは正式開始日の2026-09-07より前を評価日数へ含めない", async () => {
-    for (const version of [TEL_EXECUTABLE_CONFIRM_VERSION, TEL_EXECUTABLE_DEPTH_VERSION]) {
-      const summaries = await getForwardShadowSummary("2026-09-04", version);
-      expect(summaries.every(item => item.decision.days === 0)).toBe(true);
-      expect(summaries.every(item => item.decision.status === "monitoring")).toBe(true);
-    }
+    const legacy = await getForwardShadowSummary("2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
+    expect(legacy.every(item => item.decision.days === 0)).toBe(true);
+    expect(legacy.every(item => item.decision.status === "stopped")).toBe(true);
+    expect(legacy.every(item => item.decision.reason === "superseded_by_depth_v2_audit_only")).toBe(true);
+
+    const depth = await getForwardShadowSummary("2026-09-04", TEL_EXECUTABLE_DEPTH_VERSION);
+    expect(depth.every(item => item.decision.days === 0)).toBe(true);
+    expect(depth.every(item => item.decision.status === "monitoring")).toBe(true);
   });
 });

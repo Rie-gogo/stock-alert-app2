@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  applyForwardStrategyLifecyclePolicy,
   applyForwardShadowTransition,
   calculateForwardExitForTest,
   calculateForwardTradeMetrics,
@@ -93,6 +94,15 @@ describe("前向き評価の判定", () => {
   it("5連敗は期間を待たず停止する", () => {
     const losses = Array.from({ length: 5 }, () => ({ pnl: -100, pnlAfterAdverseExit: -110, realizedR: "-1.000000" }));
     expect(evaluateForwardDecision(calculateForwardTradeMetrics(losses), "2026-09-07").status).toBe("stopped");
+  });
+
+  it("旧8035 Aは件数・期間にかかわらず停止・監査専用として表示する", () => {
+    const metrics = calculateForwardTradeMetrics(winning20);
+    const decision = evaluateForwardDecision(metrics, "2026-09-16");
+    expect(applyForwardStrategyLifecyclePolicy("candidate-8035-executable-confirm-v1", decision)).toMatchObject({
+      status: "stopped",
+      reason: "superseded_by_depth_v2_audit_only",
+    });
   });
 });
 

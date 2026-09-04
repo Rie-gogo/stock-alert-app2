@@ -725,6 +725,20 @@ export function evaluateForwardDecision(
     : { status: "stopped" as const, reason: "two_week_interim_thresholds_not_met", days };
 }
 
+export function applyForwardStrategyLifecyclePolicy(
+  strategyVersion: string,
+  decision: ReturnType<typeof evaluateForwardDecision>,
+) {
+  if (strategyVersion === TEL_EXECUTABLE_CONFIRM_VERSION) {
+    return {
+      ...decision,
+      status: "stopped" as const,
+      reason: "superseded_by_depth_v2_audit_only",
+    };
+  }
+  return decision;
+}
+
 export async function getForwardShadowSummary(asOfDate: string, strategyVersion = FORWARD_STRATEGY_VERSION) {
   const trades = await getRtForwardShadowTrades(strategyVersion);
   const evaluationStartDate = strategyVersion === FUJIKURA_FORWARD_STRATEGY_VERSION
@@ -741,10 +755,11 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
     const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
     const metrics = calculateForwardTradeMetrics(modeTrades);
+    const decision = evaluateForwardDecision(metrics, asOfDate, evaluationStartDate);
     return {
       mode,
       metrics,
-      decision: evaluateForwardDecision(metrics, asOfDate, evaluationStartDate),
+      decision: applyForwardStrategyLifecyclePolicy(strategyVersion, decision),
       pilotOnly: mode === "capital_constrained",
     };
   });

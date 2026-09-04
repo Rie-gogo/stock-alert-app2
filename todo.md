@@ -1861,5 +1861,5 @@
 - [x] 正式開始日を修正前データ除外で再固定し、2026-09-07を確認日、全Gate正常なら2026-09-08を最短正式開始日とする（自動開始せず別checkpointによる手動有効化）
 - [x] 本番同型margin block、同一銘柄重複、raw signal/board出口、親停止回収、candidate/virtual保存失敗、clock skewの障害注入テストを追加する（P0対象12ファイル・39件成功）
 - [x] TypeScript、対象39件、J-Quants鍵依存2件を除く全616件、13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`、DRY_RUN・LIVE拒否・注文非接続を総合監査する
-- [ ] migrationを本番へ非破壊適用し、checkpoint保存・自動公開後にRuntimeIdentity・API・DB・ログを確認する
+- [x] migration 0021/0022を本番へ非破壊適用し、checkpoint`42600e50`保存・自動公開後にRuntimeIdentity・API・DB・ログを確認する（固定hash一致、DRY_RUN、LIVE未承認、正式Gate pending、stale lease/outbox 0、通常取引混入0、公開後例外0）
 - [ ] 2026-09-07の実KABU受信でcandidate・virtual・portfolio・queue・親回収/retryを1営業日確認し、正常なら翌営業日から正式集計を開始する

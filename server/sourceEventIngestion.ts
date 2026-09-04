@@ -1,13 +1,17 @@
+import { randomUUID } from "node:crypto";
 import {
   claimRtSourceEvent,
   completeRtSourceEvent,
   getPriorRtSourceEventForCandle,
+  getRtRealtimeDecisionEvent,
   getRtSourceEvent,
+  markRtSourceEventEngineStarted,
+  reclaimRtSourceEventProcessing,
 } from "./db";
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
 import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow } from "./forwardShadowSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
-import { processCurrentEngineAudited } from "./realtimeDecisionAudit";
+import { drainCurrentCandidateVirtualQueue, processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
 
 export interface SourceEventMetadata {
@@ -23,6 +27,8 @@ export interface SourceEventMetadata {
 export interface IngestCandleInput extends RtCandle1Min, SourceEventMetadata {
   board?: Omit<KabuOrderBook, "symbol" | "receivedAt"> | null;
 }
+
+const SOURCE_EVENT_LEASE_MS = 60_000;
 
 function normalizeMetadata(input: IngestCandleInput) {
   const canonicalPayload = {
@@ -54,7 +60,12 @@ function normalizeMetadata(input: IngestCandleInput) {
 export async function ingestSourceCandle(input: IngestCandleInput) {
   const cloudReceivedAtMs = Date.now();
   const metadata = normalizeMetadata(input);
-  const claimed = await claimRtSourceEvent({
+  const parentOwnerToken = sha256Stable({
+    scope: "rt-source-event-parent-v1",
+    sourceEventId: metadata.sourceEventId,
+    nonce: randomUUID(),
+  });
+  let claimed = await claimRtSourceEvent({
     sourceEventId: metadata.sourceEventId,
     relaySessionId: metadata.relaySessionId,
     eventSeq: metadata.eventSeq,
@@ -68,13 +79,17 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     cloudReceivedAtMs,
     correctedEventId: input.correctedEventId ?? null,
     status: "processing",
+    processingStage: "claimed",
+    claimToken: parentOwnerToken,
+    leaseUntil: new Date(cloudReceivedAtMs + SOURCE_EVENT_LEASE_MS),
+    attemptCount: 1,
     resultAction: null,
     resultJson: null,
     errorDetail: null,
   });
 
   if (!claimed) {
-    const existing = await getRtSourceEvent(metadata.sourceEventId);
+    let existing = await getRtSourceEvent(metadata.sourceEventId);
     if (existing && existing.payloadHash !== metadata.payloadHash) {
       return {
         symbol: input.symbol,
@@ -86,11 +101,111 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
         sourceEventDuplicate: true as const,
       };
     }
+    if (existing?.status === "processing") {
+      const recovered = await reclaimRtSourceEventProcessing({
+        sourceEventId: metadata.sourceEventId,
+        ownerToken: parentOwnerToken,
+        leaseMs: SOURCE_EVENT_LEASE_MS,
+        maxAttempts: 5,
+      });
+      if (recovered) {
+        existing = recovered;
+        const persistedAudit = await getRtRealtimeDecisionEvent(metadata.sourceEventId);
+        if (persistedAudit) {
+          let candidateVirtualRetry: unknown = null;
+          let shadowRetry: unknown = null;
+          try {
+            candidateVirtualRetry = await drainCurrentCandidateVirtualQueue();
+          } catch (error) {
+            candidateVirtualRetry = { error: String(error) };
+          }
+          const auditResult = persistedAudit.resultJson && typeof persistedAudit.resultJson === "object"
+            ? persistedAudit.resultJson as Record<string, any>
+            : {};
+          const availability = auditResult.availabilityTimeline ?? {};
+          const recoveredAudit = {
+            saved: true,
+            engineSequence: persistedAudit.id,
+            resultType: persistedAudit.resultType,
+            routeId: persistedAudit.routeId,
+            marginUsedBefore: persistedAudit.marginUsedBefore ?? 0,
+            marginUsedAfter: persistedAudit.marginUsedAfter ?? 0,
+            stateHashBefore: persistedAudit.stateHashBefore,
+            stateHashAfter: persistedAudit.stateHashAfter,
+            causalityStatus: persistedAudit.causalityStatus,
+            causalityReason: persistedAudit.causalityReason ?? "",
+            boardObservedAtMs: availability.boardObservedAtMs ?? null,
+            relayAssembledAtMs: persistedAudit.resultJson && typeof persistedAudit.resultJson === "object"
+              ? availability.relayAssembledAtMs ?? null
+              : null,
+            relaySentAtMs: availability.relaySentAtMs ?? null,
+            cloudReceivedAtMs: availability.cloudReceivedAtMs ?? null,
+            decisionStartedAtMs: persistedAudit.decisionStartedAtMs,
+            decisionCompletedAtMs: persistedAudit.decisionCompletedAtMs,
+          };
+          try {
+            shadowRetry = await enqueueAndDrainForwardShadow({
+              sourceEventId: metadata.sourceEventId,
+              candle: input,
+              board: input.board ?? null,
+              currentAudit: recoveredAudit,
+            });
+          } catch (error) {
+            shadowRetry = { error: String(error) };
+          }
+          const recoveredResult = {
+            ...(auditResult.result ?? {}),
+            sourceEventId: metadata.sourceEventId,
+            sourceEventDuplicate: true as const,
+            reason: "recovered_after_engine_audit",
+            realtimeAudit: recoveredAudit,
+            candidateVirtualRetry,
+            shadowRetry,
+          };
+          await completeRtSourceEvent({
+            sourceEventId: metadata.sourceEventId,
+            status: "processed",
+            resultAction: String((auditResult.result as any)?.action ?? "none"),
+            resultJson: recoveredResult,
+          });
+          return recoveredResult;
+        }
+        if (recovered.processingStage !== "claimed") {
+          const quarantineResult = {
+            symbol: input.symbol,
+            tradeDate: input.tradeDate,
+            candleTime: input.candleTime,
+            action: "none" as const,
+            reason: "engine_started_without_audit_quarantined",
+            sourceEventId: metadata.sourceEventId,
+            sourceEventDuplicate: true as const,
+          };
+          await completeRtSourceEvent({
+            sourceEventId: metadata.sourceEventId,
+            status: "failed",
+            resultAction: "error",
+            resultJson: quarantineResult,
+            errorDetail: "engine_started_without_realtime_audit; current engine not replayed",
+          });
+          return quarantineResult;
+        }
+        claimed = true;
+      }
+    }
+    if (claimed) {
+      // lease期限切れだが現行engine開始前だったため、このworkerが以後の処理を引き継ぐ。
+    } else {
     const existingResult = existing?.status === "processed" && existing.resultJson && typeof existing.resultJson === "object"
       ? existing.resultJson as Record<string, unknown>
       : {};
     let shadowRetry: unknown = null;
+    let candidateVirtualRetry: unknown = null;
     if (existing?.status === "processed") {
+      try {
+        candidateVirtualRetry = await drainCurrentCandidateVirtualQueue();
+      } catch (candidateVirtualError) {
+        candidateVirtualRetry = { error: String(candidateVirtualError) };
+      }
       try {
         // 現行processCandleは二度と呼ばず、strategyVersion別のshadow errorだけを独立claimで再試行する。
         shadowRetry = await drainForwardShadowDispatchQueue();
@@ -107,8 +222,10 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
       sourceEventId: metadata.sourceEventId,
       sourceEventDuplicate: true as const,
       originalResult: existingResult,
+      candidateVirtualRetry,
       shadowRetry,
     };
+    }
   }
 
 
@@ -137,6 +254,14 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
       resultJson: correctionResult,
     });
     return correctionResult;
+  }
+
+  const engineStartClaimed = await markRtSourceEventEngineStarted({
+    sourceEventId: metadata.sourceEventId,
+    ownerToken: parentOwnerToken,
+  });
+  if (!engineStartClaimed) {
+    throw new Error(`source_event_engine_start_claim_lost:${metadata.sourceEventId}`);
   }
 
   try {

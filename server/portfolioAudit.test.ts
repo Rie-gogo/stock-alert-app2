@@ -94,4 +94,38 @@ describe("10銘柄共有portfolio監査", () => {
       detailJson: expect.objectContaining({ eligibleForPortfolioPnlComparison: false }),
     }));
   });
+
+  it("実受信順・同一分固定順とも同一銘柄1ポジションを専用区分で強制する", async () => {
+    dbMock.getRtSignalCandidatesForDate.mockResolvedValue([
+      { id: 11, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "same-1", engineSequence: 11, tradeDate: "2026-09-08", candleTime: "10:00", symbol: "8035", routeId: "r1", side: "long", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "accepted" },
+      { id: 12, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "same-2", engineSequence: 12, tradeDate: "2026-09-08", candleTime: "10:05", symbol: "8035", routeId: "r2", side: "short", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "margin_block" },
+    ]);
+    dbMock.getRtSignalCandidateTradesForDate.mockResolvedValue([
+      { candidateId: 11, tradeDate: "2026-09-08", symbol: "8035", routeId: "r1", side: "long", shares: 100, completed: true, pnl: 1000, exitSourceEventId: "same-x1", exitTradeDate: "2026-09-08", exitCandleTime: "10:10", exitPrice: "41000" },
+      { candidateId: 12, tradeDate: "2026-09-08", symbol: "8035", routeId: "r2", side: "short", shares: 100, completed: true, pnl: 1000, exitSourceEventId: "same-x2", exitTradeDate: "2026-09-08", exitCandleTime: "10:11", exitPrice: "39000" },
+    ]);
+    dbMock.getRtRealtimeDecisionEventsForDate.mockResolvedValue([
+      { sourceEventId: "same-x1", id: 13 },
+      { sourceEventId: "same-x2", id: 14 },
+    ]);
+
+    const receipt = await buildAllCandidateReceiptPortfolioForDate("2026-09-08");
+    expect(receipt).toMatchObject({ accepted: 1, marginBlocked: 0, symbolPositionBlocked: 1, closed: 1, openAtEnd: 0 });
+    expect(dbMock.upsertRtPortfolioAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      sourceEventId: "same-2",
+      decision: "symbol_position_block",
+      blockerSourceEventId: "same-1",
+      blockerSymbol: "8035",
+      detailJson: expect.objectContaining({ allocationReason: "same_symbol_position_open" }),
+    }));
+
+    dbMock.upsertRtPortfolioAuditEvent.mockClear();
+    const minute = await buildAllCandidateMinutePortfolioForDate("2026-09-08");
+    expect(minute).toMatchObject({ accepted: 1, marginBlocked: 0, symbolPositionBlocked: 1, closed: 1, openAtEnd: 0 });
+    expect(dbMock.upsertRtPortfolioAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      sourceEventId: "same-2",
+      decision: "symbol_position_block",
+      detailJson: expect.objectContaining({ allocationReason: "same_symbol_position_open" }),
+    }));
+  });
 });

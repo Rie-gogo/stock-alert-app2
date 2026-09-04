@@ -5,6 +5,9 @@ import {
 } from "./db";
 import { CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION } from "./currentSignalCandidateRegistry";
 import type { RtCandle1Min } from "./realtimeSimEngine";
+import type { CurrentBoardExitSignal, CurrentRawSignal } from "./currentVirtualMarketContext";
+
+const CURRENT_BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;
 
 type VirtualState = {
   armedAt: string | null;
@@ -44,8 +47,10 @@ function evaluateExit(input: {
   trade: RtSignalCandidateTrade;
   candle: RtCandle1Min;
   state: VirtualState;
+  rawSignal: CurrentRawSignal;
+  boardSignal: CurrentBoardExitSignal;
 }): { exitPrice: number; exitReason: string } | null {
-  const { trade, candle, state } = input;
+  const { trade, candle, state, rawSignal, boardSignal } = input;
   const entry = Number(trade.entryPrice);
   const slPct = Number(trade.slPct);
   const tpPct = Number(trade.tpPct);
@@ -72,12 +77,35 @@ function evaluateExit(input: {
     maxHoldingMinutes?: number | null;
     timeExitPriceMode?: "next_bar_open" | "boundary_close" | null;
     profitProtection?: { triggerPct: number; floorPct: number } | null;
+    usesSignalReversalExit?: boolean;
+    usesBoardEarlyExit?: boolean;
   } | undefined;
   const protection = routeSpec?.profitProtection;
   if (side === "short" && protection) {
     const floor = entry * (1 - protection.floorPct / 100);
     if (state.armedAt && state.armedAt !== candle.candleTime && candle.high >= floor) {
       return { exitPrice: Math.max(candle.open, floor), exitReason: "profit_protection" };
+    }
+  }
+
+  if (routeSpec?.usesSignalReversalExit && rawSignal) {
+    if (side === "long" && rawSignal.type === "sell") {
+      return { exitPrice: candle.close, exitReason: `signal_reversal:${rawSignal.reason}` };
+    }
+    if (side === "short" && rawSignal.type === "buy") {
+      return { exitPrice: candle.close, exitReason: `signal_reversal:${rawSignal.reason}` };
+    }
+  }
+
+  if (routeSpec?.usesBoardEarlyExit) {
+    const pnlPct = side === "long"
+      ? ((candle.close - entry) / entry) * 100
+      : ((entry - candle.close) / entry) * 100;
+    const oppositeBoard = side === "long"
+      ? boardSignal === "sell_pressure" || boardSignal === "large_sell_wall"
+      : boardSignal === "buy_pressure" || boardSignal === "large_buy_wall";
+    if (pnlPct >= CURRENT_BOARD_EARLY_EXIT_MIN_PROFIT_PCT && oppositeBoard) {
+      return { exitPrice: candle.close, exitReason: `board_early_exit:${boardSignal}` };
     }
   }
 
@@ -102,6 +130,8 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
   sourceEventId: string;
   candle: RtCandle1Min;
   candidate: RtSignalCandidate | null;
+  rawSignal?: CurrentRawSignal;
+  boardSignal?: CurrentBoardExitSignal;
 }): Promise<{ opened: number; updated: number; closed: number }> {
   const openTrades = (await getOpenRtSignalCandidateTrades(CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION))
     .filter(trade => trade.symbol === input.candle.symbol);
@@ -121,7 +151,9 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
       const trigger = entry * (1 - routeSpec.profitProtection.triggerPct / 100);
       if (input.candle.low <= trigger) state.armedAt = input.candle.candleTime;
     }
-    const exit = evaluateExit({ trade, candle: input.candle, state });
+    const rawSignal = input.rawSignal ?? null;
+    const boardSignal = input.boardSignal ?? "neutral";
+    const exit = evaluateExit({ trade, candle: input.candle, state, rawSignal, boardSignal });
     await upsertRtSignalCandidateTrade({
       virtualEngineVersion: trade.virtualEngineVersion,
       candidateId: trade.candidateId,
@@ -136,7 +168,15 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
       slPct: trade.slPct,
       tpPct: trade.tpPct,
       maxHoldingMinutes: trade.maxHoldingMinutes,
-      stateJson: { ...(trade.stateJson as object), ...state },
+      stateJson: {
+        ...(trade.stateJson as object),
+        ...state,
+        lastMarketContext: {
+          sourceEventId: input.sourceEventId,
+          rawSignal,
+          boardSignal,
+        },
+      },
       exitSourceEventId: exit ? input.sourceEventId : trade.exitSourceEventId,
       exitTradeDate: exit ? input.candle.tradeDate : trade.exitTradeDate,
       exitCandleTime: exit ? input.candle.candleTime : trade.exitCandleTime,

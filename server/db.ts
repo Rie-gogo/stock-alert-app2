@@ -1115,6 +1115,57 @@ export async function claimRtSourceEvent(
   }
 }
 
+/** processing中にworkerが停止した親イベントだけを、期限切れlease後にCASで回収する。 */
+export async function reclaimRtSourceEventProcessing(input: {
+  sourceEventId: string;
+  ownerToken: string;
+  leaseMs?: number;
+  maxAttempts?: number;
+}): Promise<RtSourceEvent | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const row = (await db.select().from(rtSourceEvents)
+    .where(eq(rtSourceEvents.sourceEventId, input.sourceEventId)).limit(1))[0];
+  if (!row || row.status !== "processing") return null;
+  const now = new Date();
+  if (row.leaseUntil && row.leaseUntil > now) return null;
+  if (row.attemptCount >= (input.maxAttempts ?? 5)) return null;
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  await db.update(rtSourceEvents).set({
+    claimToken: input.ownerToken,
+    leaseUntil,
+    attemptCount: sql`${rtSourceEvents.attemptCount} + 1`,
+    errorDetail: null,
+  }).where(and(
+    eq(rtSourceEvents.id, row.id),
+    eq(rtSourceEvents.status, "processing"),
+    eq(rtSourceEvents.attemptCount, row.attemptCount),
+    or(isNull(rtSourceEvents.leaseUntil), lt(rtSourceEvents.leaseUntil, now)),
+  ));
+  const claimed = (await db.select().from(rtSourceEvents)
+    .where(eq(rtSourceEvents.id, row.id)).limit(1))[0];
+  return claimed?.claimToken === input.ownerToken ? claimed : null;
+}
+
+export async function markRtSourceEventEngineStarted(input: {
+  sourceEventId: string;
+  ownerToken: string;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtSourceEvents).set({
+    processingStage: "engine_started",
+  }).where(and(
+    eq(rtSourceEvents.sourceEventId, input.sourceEventId),
+    eq(rtSourceEvents.status, "processing"),
+    eq(rtSourceEvents.processingStage, "claimed"),
+    eq(rtSourceEvents.claimToken, input.ownerToken),
+  ));
+  const row = (await db.select().from(rtSourceEvents)
+    .where(eq(rtSourceEvents.sourceEventId, input.sourceEventId)).limit(1))[0];
+  return row?.claimToken === input.ownerToken && row.processingStage === "engine_started";
+}
+
 export async function getRtSourceEvent(sourceEventId: string): Promise<RtSourceEvent | null> {
   const db = await getDb();
   if (!db) return null;
@@ -1159,6 +1210,9 @@ export async function completeRtSourceEvent(input: {
   if (!db) throw new Error("Database not available");
   await db.update(rtSourceEvents).set({
     status: input.status,
+    processingStage: "engine_completed",
+    claimToken: null,
+    leaseUntil: null,
     resultAction: input.resultAction ?? null,
     resultJson: input.resultJson ?? null,
     errorDetail: input.errorDetail ?? null,
@@ -1546,6 +1600,80 @@ export async function getRtRealtimeDecisionEventsForDate(tradeDate: string): Pro
   return db.select().from(rtRealtimeDecisionEvents)
     .where(eq(rtRealtimeDecisionEvents.tradeDate, tradeDate))
     .orderBy(rtRealtimeDecisionEvents.id);
+}
+
+/** candidate台帳・100株virtual更新outboxの未完了先頭行をCASでclaimする。 */
+export async function claimNextRtCandidateVirtualWork(input: {
+  ownerToken: string;
+  leaseMs?: number;
+  maxAttempts?: number;
+}): Promise<RtRealtimeDecisionEvent | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const row = (await db.select().from(rtRealtimeDecisionEvents)
+    .where(ne(rtRealtimeDecisionEvents.candidateVirtualStatus, "processed"))
+    .orderBy(rtRealtimeDecisionEvents.id)
+    .limit(1))[0];
+  if (!row) return null;
+  const now = new Date();
+  if (row.candidateVirtualStatus === "processing"
+    && row.candidateVirtualLeaseUntil
+    && row.candidateVirtualLeaseUntil > now) return null;
+  if (row.candidateVirtualAttemptCount >= (input.maxAttempts ?? 5)) return null;
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  await db.update(rtRealtimeDecisionEvents).set({
+    candidateVirtualStatus: "processing",
+    candidateVirtualClaimToken: input.ownerToken,
+    candidateVirtualLeaseUntil: leaseUntil,
+    candidateVirtualAttemptCount: sql`${rtRealtimeDecisionEvents.candidateVirtualAttemptCount} + 1`,
+    candidateVirtualLastError: null,
+  }).where(and(
+    eq(rtRealtimeDecisionEvents.id, row.id),
+    eq(rtRealtimeDecisionEvents.candidateVirtualAttemptCount, row.candidateVirtualAttemptCount),
+    or(
+      eq(rtRealtimeDecisionEvents.candidateVirtualStatus, "pending"),
+      eq(rtRealtimeDecisionEvents.candidateVirtualStatus, "error"),
+      and(
+        eq(rtRealtimeDecisionEvents.candidateVirtualStatus, "processing"),
+        or(
+          isNull(rtRealtimeDecisionEvents.candidateVirtualLeaseUntil),
+          lt(rtRealtimeDecisionEvents.candidateVirtualLeaseUntil, now),
+        ),
+      ),
+    ),
+  ));
+  const claimed = (await db.select().from(rtRealtimeDecisionEvents)
+    .where(eq(rtRealtimeDecisionEvents.id, row.id)).limit(1))[0];
+  return claimed?.candidateVirtualClaimToken === input.ownerToken ? claimed : null;
+}
+
+export async function completeRtCandidateVirtualWork(input: { id: number; ownerToken: string }): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtRealtimeDecisionEvents).set({
+    candidateVirtualStatus: "processed",
+    candidateVirtualClaimToken: null,
+    candidateVirtualLeaseUntil: null,
+    candidateVirtualLastError: null,
+    candidateVirtualProcessedAt: new Date(),
+  }).where(and(
+    eq(rtRealtimeDecisionEvents.id, input.id),
+    eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
+  ));
+}
+
+export async function failRtCandidateVirtualWork(input: { id: number; ownerToken: string; error: string }): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtRealtimeDecisionEvents).set({
+    candidateVirtualStatus: "error",
+    candidateVirtualClaimToken: null,
+    candidateVirtualLeaseUntil: null,
+    candidateVirtualLastError: input.error,
+  }).where(and(
+    eq(rtRealtimeDecisionEvents.id, input.id),
+    eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
+  ));
 }
 
 export async function enqueueRtShadowDispatch(

@@ -18,6 +18,11 @@ import {
   upsertRtStrategyVersion,
 } from "./db";
 import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
+import { applyForwardRouteParityGate, resolveForwardRouteParityGate } from "./forwardRouteParityGate";
+import {
+  P0_FORMAL_EVALUATION_EARLIEST_START_DATE,
+  resolveForwardFormalEvaluationGate,
+} from "./forwardFormalEvaluationGate";
 import {
   TEL_OPEN_DIRECTION_BREAKOUT_SPEC,
   calculateTelOpenDirectionBreakoutMetrics,
@@ -104,6 +109,7 @@ export interface ForwardSourceEventInput {
     causalityReason: string;
     boardObservedAtMs: number | null;
     relayAssembledAtMs: number | null;
+    relaySentAtMs?: number | null;
     cloudReceivedAtMs: number | null;
     decisionStartedAtMs: number;
     decisionCompletedAtMs: number;
@@ -741,25 +747,23 @@ export function applyForwardStrategyLifecyclePolicy(
 
 export async function getForwardShadowSummary(asOfDate: string, strategyVersion = FORWARD_STRATEGY_VERSION) {
   const trades = await getRtForwardShadowTrades(strategyVersion);
-  const evaluationStartDate = strategyVersion === FUJIKURA_FORWARD_STRATEGY_VERSION
-    ? FUJIKURA_FORWARD_EVALUATION_START_DATE
-    : strategyVersion === KIOXIA_FORWARD_STRATEGY_VERSION
-      ? KIOXIA_FORWARD_EVALUATION_START_DATE
-      : strategyVersion === KIOXIA_ATR_FORWARD_STRATEGY_VERSION
-        ? KIOXIA_ATR_FORWARD_EVALUATION_START_DATE
-        : strategyVersion === TEL_EXECUTABLE_CONFIRM_VERSION
-          ? TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE
-          : strategyVersion === TEL_EXECUTABLE_DEPTH_VERSION
-            ? TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE
-          : FORWARD_EVALUATION_START_DATE;
+  const evaluationStartDate = P0_FORMAL_EVALUATION_EARLIEST_START_DATE;
+  const formalEvaluationGate = resolveForwardFormalEvaluationGate(asOfDate);
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
-    const modeTrades = trades.filter(trade => trade.evaluationMode === mode);
+    const modeTrades = trades.filter(trade => trade.evaluationMode === mode
+      && trade.entryTradeDate >= evaluationStartDate);
     const metrics = calculateForwardTradeMetrics(modeTrades);
-    const decision = evaluateForwardDecision(metrics, asOfDate, evaluationStartDate);
+    const decision = formalEvaluationGate.status === "active"
+      ? evaluateForwardDecision(metrics, asOfDate, evaluationStartDate)
+      : { status: "monitoring" as const, reason: "formal_evaluation_gate_pending", days: 0 };
+    const routeParityGate = resolveForwardRouteParityGate(strategyVersion);
+    const lifecycleDecision = applyForwardStrategyLifecyclePolicy(strategyVersion, decision);
     return {
       mode,
       metrics,
-      decision: applyForwardStrategyLifecyclePolicy(strategyVersion, decision),
+      decision: applyForwardRouteParityGate(lifecycleDecision, routeParityGate),
+      routeParityGate,
+      formalEvaluationGate,
       pilotOnly: mode === "capital_constrained",
     };
   });
@@ -987,6 +991,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
         `    損益: ${item.metrics.pnl >= 0 ? "+" : ""}${item.metrics.pnl.toLocaleString()}円 / 0.10%不利出口後: ${item.metrics.pnlAfterAdverseExit >= 0 ? "+" : ""}${item.metrics.pnlAfterAdverseExit.toLocaleString()}円`,
         `    PF: ${formatNullable(item.metrics.profitFactor)} / 期待値: ${item.metrics.expectedR.toFixed(3)}R / 実現平均利益÷平均損失: ${formatNullable(item.metrics.realizedPayoffRatio)}`,
         `    最大DD: ${item.metrics.maxDrawdown.toLocaleString()}円 / 最大連敗: ${item.metrics.maxConsecutiveLosses} / 判定: ${item.decision.status} (${item.decision.reason})`,
+        `    経路parity Gate: ${item.routeParityGate.status} / 対象=${item.routeParityGate.requiredRoutes.join(",") || "なし"} / 証拠=${item.routeParityGate.evidence.kind}`,
+        `    正式評価Gate: ${item.formalEvaluationGate.status} / 確認日=${item.formalEvaluationGate.validationDate} / 最短開始=${item.formalEvaluationGate.formalStartDate} / 修正前データ除外=${item.formalEvaluationGate.excludesPreFixData}`,
         `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件到達時も継続判定のみ: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
         `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
       ].join("\n");
@@ -994,7 +1000,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
     sections.push(`
 	【${definition.title}】
 	  戦略版: ${definition.versionId}
-	  計測開始: ${definition.startDate}（学習終了: ${definition.cutoffDate}）
+	  候補収集開始: ${definition.startDate}（学習終了: ${definition.cutoffDate}）
+	  正式集計最短開始: ${P0_FORMAL_EVALUATION_EARLIEST_START_DATE}（2026-09-07実受信確認後に手動有効化。修正前データは除外）
 	  採用審査: ${definition.adoptionEligible ? "対象（自動採用・自動置換なし）" : "対象外（旧版停止・監査保持のみ）"}
 	  注文接続: なし（strategyVersion別シャドーテーブルのみ）
   当日シャドー判断: ${versionEvents.length}件（error=${versionEvents.filter(event => event.resultType === "error").length}, 状態ハッシュ連続不一致=${stateContinuityMismatches}）

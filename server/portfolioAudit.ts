@@ -306,7 +306,7 @@ async function persistCandidatePortfolioDecision(input: {
   version: string;
   mode: "actual_receipt" | "minute_normalized";
   allocation: CandidateAllocation;
-  decision: "accepted" | "margin_block";
+  decision: "accepted" | "margin_block" | "symbol_position_block";
   marginBefore: number;
   marginAfter: number;
   priorityRank: number;
@@ -427,9 +427,11 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
   timeline.sort((a, b) => a.sequence - b.sequence || (a.kind === "exit" ? -1 : 1));
 
   const open = new Map<number, CandidateAllocation>();
+  const openBySymbol = new Map<string, CandidateAllocation>();
   let marginUsed = 0;
   let accepted = 0;
   let marginBlocked = 0;
+  let symbolPositionBlocked = 0;
   let closed = 0;
   let realizedPnl = 0;
   const blockEdges: Array<{ blockerSourceEventId: string; blockedSourceEventId: string }> = [];
@@ -441,6 +443,9 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
       const before = marginUsed;
       marginUsed = Math.max(0, marginUsed - allocation.requiredMargin);
       open.delete(allocation.candidate.id);
+      if (openBySymbol.get(allocation.candidate.symbol)?.candidate.id === allocation.candidate.id) {
+        openBySymbol.delete(allocation.candidate.symbol);
+      }
       closed += 1;
       realizedPnl += virtualPnlAtCapital(allocation.candidate, allocation.trade) ?? 0;
       await persistCandidatePortfolioExit({
@@ -456,14 +461,26 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
     }
 
     const openValues = Array.from(open.values());
-    const blocker = openValues.sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+    const symbolBlocker = openBySymbol.get(allocation.candidate.symbol) ?? null;
+    const marginBlocker = openValues.sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+    const blocker = symbolBlocker ?? marginBlocker;
     allocation.blocker = blocker;
-    const canAllocate = marginUsed + allocation.requiredMargin <= PORTFOLIO_MAX_EXPOSURE;
+    const blockedBySymbol = symbolBlocker !== null;
+    const blockedByMargin = !blockedBySymbol
+      && marginUsed + allocation.requiredMargin > PORTFOLIO_MAX_EXPOSURE;
+    const canAllocate = !blockedBySymbol && !blockedByMargin;
     const before = marginUsed;
     if (canAllocate) {
       open.set(allocation.candidate.id, allocation);
+      openBySymbol.set(allocation.candidate.symbol, allocation);
       marginUsed += allocation.requiredMargin;
       accepted += 1;
+    } else if (blockedBySymbol) {
+      symbolPositionBlocked += 1;
+      if (blocker) blockEdges.push({
+        blockerSourceEventId: blocker.candidate.sourceEventId,
+        blockedSourceEventId: allocation.candidate.sourceEventId,
+      });
     } else {
       marginBlocked += 1;
       if (blocker) blockEdges.push({
@@ -475,12 +492,12 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
       version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
       mode: "actual_receipt",
       allocation,
-      decision: canAllocate ? "accepted" : "margin_block",
+      decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
       marginBefore: before,
       marginAfter: marginUsed,
       priorityRank: item.sequence,
       batchKey: `${tradeDate}:${allocation.candidate.candleTime}`,
-      reason: canAllocate ? "engine_sequence_allocation" : "891m_limit",
+      reason: canAllocate ? "engine_sequence_allocation" : blockedBySymbol ? "same_symbol_position_open" : "891m_limit",
     });
   }
 
@@ -490,6 +507,7 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
     candidates: allocations.length,
     accepted,
     marginBlocked,
+    symbolPositionBlocked,
     closed,
     realizedPnl,
     openAtEnd: open.size,
@@ -517,9 +535,11 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
   }
 
   const open = new Map<number, CandidateAllocation>();
+  const openBySymbol = new Map<string, CandidateAllocation>();
   let marginUsed = 0;
   let accepted = 0;
   let marginBlocked = 0;
+  let symbolPositionBlocked = 0;
   let closed = 0;
   let realizedPnl = 0;
   const blockEdges: Array<{ blockerSourceEventId: string; blockedSourceEventId: string }> = [];
@@ -531,6 +551,9 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
       const before = marginUsed;
       marginUsed = Math.max(0, marginUsed - allocation.requiredMargin);
       open.delete(allocation.candidate.id);
+      if (openBySymbol.get(allocation.candidate.symbol)?.candidate.id === allocation.candidate.id) {
+        openBySymbol.delete(allocation.candidate.symbol);
+      }
       closed += 1;
       realizedPnl += virtualPnlAtCapital(allocation.candidate, allocation.trade) ?? 0;
       priorityCounter += 1;
@@ -551,14 +574,26 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
         || a.candidate.engineSequence - b.candidate.engineSequence;
     });
     for (const allocation of entries) {
-      const blocker = Array.from(open.values()).sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+      const symbolBlocker = openBySymbol.get(allocation.candidate.symbol) ?? null;
+      const marginBlocker = Array.from(open.values()).sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+      const blocker = symbolBlocker ?? marginBlocker;
       allocation.blocker = blocker;
       const before = marginUsed;
-      const canAllocate = marginUsed + allocation.requiredMargin <= PORTFOLIO_MAX_EXPOSURE;
+      const blockedBySymbol = symbolBlocker !== null;
+      const blockedByMargin = !blockedBySymbol
+        && marginUsed + allocation.requiredMargin > PORTFOLIO_MAX_EXPOSURE;
+      const canAllocate = !blockedBySymbol && !blockedByMargin;
       if (canAllocate) {
         open.set(allocation.candidate.id, allocation);
+        openBySymbol.set(allocation.candidate.symbol, allocation);
         marginUsed += allocation.requiredMargin;
         accepted += 1;
+      } else if (blockedBySymbol) {
+        symbolPositionBlocked += 1;
+        if (blocker) blockEdges.push({
+          blockerSourceEventId: blocker.candidate.sourceEventId,
+          blockedSourceEventId: allocation.candidate.sourceEventId,
+        });
       } else {
         marginBlocked += 1;
         if (blocker) blockEdges.push({
@@ -571,12 +606,12 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
         version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
         mode: "minute_normalized",
         allocation,
-        decision: canAllocate ? "accepted" : "margin_block",
+        decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
         marginBefore: before,
         marginAfter: marginUsed,
         priorityRank: priorityCounter,
         batchKey: `${tradeDate}:${candleTime}`,
-        reason: canAllocate ? "exit_first_fixed_symbol_priority" : "891m_limit",
+        reason: canAllocate ? "exit_first_fixed_symbol_priority" : blockedBySymbol ? "same_symbol_position_open" : "891m_limit",
       });
     }
   }
@@ -587,6 +622,7 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
     candidates: allocations.length,
     accepted,
     marginBlocked,
+    symbolPositionBlocked,
     closed,
     realizedPnl,
     openAtEnd: open.size,

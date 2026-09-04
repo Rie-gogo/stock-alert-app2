@@ -4,7 +4,10 @@ const dbMock = vi.hoisted(() => ({
   claimRtSourceEvent: vi.fn(),
   completeRtSourceEvent: vi.fn(),
   getPriorRtSourceEventForCandle: vi.fn(),
+  getRtRealtimeDecisionEvent: vi.fn(),
   getRtSourceEvent: vi.fn(),
+  markRtSourceEventEngineStarted: vi.fn(),
+  reclaimRtSourceEventProcessing: vi.fn(),
 }));
 const processCandleMock = vi.hoisted(() => vi.fn());
 const auditedCurrentMock = vi.hoisted(() => vi.fn(async (input: { run: () => Promise<unknown> }) => ({
@@ -24,11 +27,15 @@ const auditedCurrentMock = vi.hoisted(() => vi.fn(async (input: { run: () => Pro
 })));
 const shadowMock = vi.hoisted(() => vi.fn());
 const shadowDrainMock = vi.hoisted(() => vi.fn());
+const candidateDrainMock = vi.hoisted(() => vi.fn());
 const boardMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./db", () => dbMock);
 vi.mock("./realtimeSimEngine", () => ({ processCandle: processCandleMock }));
-vi.mock("./realtimeDecisionAudit", () => ({ processCurrentEngineAudited: auditedCurrentMock }));
+vi.mock("./realtimeDecisionAudit", () => ({
+  processCurrentEngineAudited: auditedCurrentMock,
+  drainCurrentCandidateVirtualQueue: candidateDrainMock,
+}));
 vi.mock("./forwardShadowSequence", () => ({
   enqueueAndDrainForwardShadow: shadowMock,
   drainForwardShadowDispatchQueue: shadowDrainMock,
@@ -56,6 +63,9 @@ describe("受信イベントの一度きり処理", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.getPriorRtSourceEventForCandle.mockResolvedValue(null);
+    dbMock.getRtRealtimeDecisionEvent.mockResolvedValue(null);
+    dbMock.markRtSourceEventEngineStarted.mockResolvedValue(true);
+    dbMock.reclaimRtSourceEventProcessing.mockResolvedValue(null);
     dbMock.getRtSourceEvent.mockResolvedValue({
       id: 1,
       sourceEventId: input.sourceEventId,
@@ -74,6 +84,7 @@ describe("受信イベントの一度きり処理", () => {
     processCandleMock.mockResolvedValue({ symbol: "8035", tradeDate: "2026-09-03", candleTime: "10:00", action: "none" });
     shadowMock.mockResolvedValue({ skipped: false, results: [] });
     shadowDrainMock.mockResolvedValue({ processedEngineSequences: [], stoppedReason: "empty_or_claimed" });
+    candidateDrainMock.mockResolvedValue({ processedEngineSequences: [], stoppedReason: "empty_or_claimed" });
   });
 
   it("最初のイベントだけ現行エンジンとシャドーへ渡す", async () => {
@@ -92,6 +103,7 @@ describe("受信イベントの一度きり処理", () => {
     expect(processCandleMock).not.toHaveBeenCalled();
     expect(shadowMock).not.toHaveBeenCalled();
     expect(shadowDrainMock).toHaveBeenCalledTimes(1);
+    expect(candidateDrainMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 
@@ -154,5 +166,87 @@ describe("受信イベントの一度きり処理", () => {
     expect(processCandleMock).not.toHaveBeenCalled();
     expect(shadowMock).not.toHaveBeenCalled();
     expect(result.reason).toBe("correction_stored_not_replayed");
+  });
+
+  it("lease期限切れでもengine開始前ならCAS回収後に現行処理を一度だけ再開する", async () => {
+    dbMock.claimRtSourceEvent.mockResolvedValue(false);
+    dbMock.getRtSourceEvent.mockResolvedValue({
+      status: "processing",
+      processingStage: "claimed",
+      payloadHash: "a".repeat(64),
+    });
+    dbMock.reclaimRtSourceEventProcessing.mockResolvedValue({
+      id: 1,
+      status: "processing",
+      processingStage: "claimed",
+      payloadHash: "a".repeat(64),
+    });
+
+    const result = await ingestSourceCandle(input);
+
+    expect(processCandleMock).toHaveBeenCalledTimes(1);
+    expect(dbMock.markRtSourceEventEngineStarted).toHaveBeenCalledTimes(1);
+    expect(result.sourceEventDuplicate).toBe(false);
+  });
+
+  it("engine開始後に停止していても監査行があれば現行処理を再実行せず後処理だけ再開する", async () => {
+    dbMock.claimRtSourceEvent.mockResolvedValue(false);
+    dbMock.getRtSourceEvent.mockResolvedValue({
+      status: "processing",
+      processingStage: "engine_started",
+      payloadHash: "a".repeat(64),
+    });
+    dbMock.reclaimRtSourceEventProcessing.mockResolvedValue({
+      id: 1,
+      status: "processing",
+      processingStage: "engine_started",
+      payloadHash: "a".repeat(64),
+    });
+    dbMock.getRtRealtimeDecisionEvent.mockResolvedValue({
+      id: 77,
+      resultType: "entry",
+      routeId: "8035_open_direction_breakout_long",
+      marginUsedBefore: 0,
+      marginUsedAfter: 10_000,
+      stateHashBefore: "before",
+      stateHashAfter: "after",
+      causalityStatus: "violation",
+      causalityReason: "bar_close",
+      decisionStartedAtMs: 1_000,
+      decisionCompletedAtMs: 1_010,
+      resultJson: {
+        result: { symbol: "8035", tradeDate: "2026-09-03", candleTime: "10:00", action: "entry" },
+        availabilityTimeline: {},
+      },
+    });
+
+    const result = await ingestSourceCandle(input);
+
+    expect(processCandleMock).not.toHaveBeenCalled();
+    expect(candidateDrainMock).toHaveBeenCalledTimes(1);
+    expect(shadowMock).toHaveBeenCalledTimes(1);
+    expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "processed" }));
+    expect(result.reason).toBe("recovered_after_engine_audit");
+  });
+
+  it("engine開始済みなのに監査行がない曖昧状態は二重実行せず隔離する", async () => {
+    dbMock.claimRtSourceEvent.mockResolvedValue(false);
+    dbMock.getRtSourceEvent.mockResolvedValue({
+      status: "processing",
+      processingStage: "engine_started",
+      payloadHash: "a".repeat(64),
+    });
+    dbMock.reclaimRtSourceEventProcessing.mockResolvedValue({
+      id: 1,
+      status: "processing",
+      processingStage: "engine_started",
+      payloadHash: "a".repeat(64),
+    });
+
+    const result = await ingestSourceCandle(input);
+
+    expect(processCandleMock).not.toHaveBeenCalled();
+    expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
+    expect(result.reason).toBe("engine_started_without_audit_quarantined");
   });
 });

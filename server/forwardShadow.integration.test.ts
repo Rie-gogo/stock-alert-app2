@@ -153,7 +153,7 @@ describe("8035未見データ前向きシャドー統合", () => {
           marginUsedBefore: 0, marginUsedAfter: 2_700_000,
           stateHashBefore: "before", stateHashAfter: "after",
           causalityStatus: "violation", causalityReason: "bar_close_fill",
-          boardObservedAtMs: 1_000, relayAssembledAtMs: 1_000, cloudReceivedAtMs: 1_100,
+          boardObservedAtMs: 1_000, relayAssembledAtMs: 1_000, relaySentAtMs: 1_050, cloudReceivedAtMs: 1_100,
           decisionStartedAtMs: 1_100, decisionCompletedAtMs: 1_200,
       },
     });
@@ -169,7 +169,7 @@ describe("8035未見データ前向きシャドー統合", () => {
         marginUsedBefore: 2_700_000, marginUsedAfter: 2_700_000,
           stateHashBefore: "before", stateHashAfter: "after",
           causalityStatus: "pass", causalityReason: "no_fill_price_used",
-          boardObservedAtMs: 2_000, relayAssembledAtMs: 2_000, cloudReceivedAtMs: 2_100,
+          boardObservedAtMs: 2_000, relayAssembledAtMs: 2_000, relaySentAtMs: 2_050, cloudReceivedAtMs: 2_100,
           decisionStartedAtMs: 2_100, decisionCompletedAtMs: 2_200,
       },
     });

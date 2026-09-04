@@ -67,7 +67,11 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("全candidate正式v2・engineSequence実受信順");
     expect(section).toContain("全candidate正式v2・同一分exit先行＋固定銘柄優先");
     expect(section).toContain("成績乖離原因分析");
-    expect(section).toContain("計測開始: 2026-09-07（学習終了: 2026-09-03）");
+    expect(section).toContain("候補収集開始: 2026-09-07（学習終了: 2026-09-03）");
+    expect(section).toContain("正式集計最短開始: 2026-09-08");
+    expect(section).toContain("経路parity Gate: passed");
+    expect(section).toContain("経路parity Gate: required");
+    expect(section).toContain("正式評価Gate: pending_validation_day");
     expect(section).toContain("売買ロジックf6878060一致: OK");
     expect(section).toContain("注文接続: なし");
     expect(section).toContain("当日受信監査: 1件");
@@ -76,9 +80,9 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("891万円上限・可変株数（8035単独パイロット");
     expect(section).toContain("891万円上限・可変株数（5803単独パイロット");
     expect(section).toContain("891万円上限・可変株数（285A単独パイロット");
-    expect(section).toContain("一次判定まで: あと13日");
+    expect(section).toContain("一次判定まで: あと14日");
     expect(section).toContain("20件到達時も継続判定のみ: あと20件");
-    expect(section).toContain("4週間10件条件: あと27日・あと10件");
+    expect(section).toContain("4週間10件条件: あと28日・あと10件");
   });
 
   it("285Aは学習終了日の2026-09-03を正式評価へ数えず、翌営業日から0日目として扱う", async () => {

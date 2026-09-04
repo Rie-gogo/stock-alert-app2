@@ -25,6 +25,8 @@ function resolveGitSha() {
     if (process.env[key]) return process.env[key];
   }
   try {
+    const status = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim();
+    if (status.length > 0) return "unavailable";
     return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   } catch {
     return "unavailable";

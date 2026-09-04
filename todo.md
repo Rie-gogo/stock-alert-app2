@@ -1849,3 +1849,17 @@
 - [x] 891万円portfolio v2が同一銘柄の重複保有を防いでいるか、再探索候補を含むfixtureで確認する（2方式とも2件重複採用を再現）
 - [x] 10銘柄parity範囲、親processingリース回収、candidate/virtual保存再試行、routeId優先順位、Windows/クラウド時計差をP0/P1へ分類する
 - [x] 指摘が事実の場合は修正内容と正式未見評価開始日の再設定方針をユーザーへ提示し、承認前に売買ロジックを変更しない（監査報告書作成、コード変更なし）
+
+## P0再修正・正式評価開始Gate（2026-09-04承認）
+- [x] margin block時は監査表示理由とcandidate解析理由を用途別に選び、本番同型`result.reason=margin_block`でも詳細route・side・必要証拠金を保存する（型検査・本番同型回帰2件成功）
+- [x] portfolio監査decisionへ`symbol_position_block`専用区分を非破壊追加し、実受信順・同一分固定順の両方で同一銘柄1ポジションを強制する（0021本番適用、型検査・portfolio回帰5件成功）
+- [x] 100株仮想出口へ判断時点のraw signalと同時点board snapshotを渡し、経路別のシグナル反転・板早期利確・専用停止条件を現行仕様どおり再現する（現行売買ファイル不変、型検査・関連回帰7件成功）
+- [x] 親source eventの`processing`を期限付きlease/CASで安全に回収し、同じ現行判断を二重実行しない障害回復契約を実装する（engine開始前は再開、監査済みは後処理のみ、開始済み監査欠損は二重実行せず隔離）
+- [x] candidate台帳・100株virtual保存をrealtime監査行の永続outboxへ分離し、親処理完了後もengineSequence順に冪等再試行できるようにする（0022本番適用、関連回帰20件成功）
+- [x] 8035 depth版の板鮮度をWindows壁時計とcloud壁時計の直接差から、relay内・cloud内の同一時計区間合計で計算する（network transit未計測を明示、clock skew回帰を含む関連20件成功）
+- [x] 各シャドー案の採用判定前に、属する現行経路のparity一致を必須Gateとしてsummary・16時レポート・APIへ表示し、未通過なら4週間10件後もeligibleへ進めない
+- [x] 正式開始日を修正前データ除外で再固定し、2026-09-07を確認日、全Gate正常なら2026-09-08を最短正式開始日とする（自動開始せず別checkpointによる手動有効化）
+- [x] 本番同型margin block、同一銘柄重複、raw signal/board出口、親停止回収、candidate/virtual保存失敗、clock skewの障害注入テストを追加する（P0対象12ファイル・39件成功）
+- [x] TypeScript、対象39件、J-Quants鍵依存2件を除く全616件、13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`、DRY_RUN・LIVE拒否・注文非接続を総合監査する
+- [ ] migrationを本番へ非破壊適用し、checkpoint保存・自動公開後にRuntimeIdentity・API・DB・ログを確認する
+- [ ] 2026-09-07の実KABU受信でcandidate・virtual・portfolio・queue・親回収/retryを1営業日確認し、正常なら翌営業日から正式集計を開始する

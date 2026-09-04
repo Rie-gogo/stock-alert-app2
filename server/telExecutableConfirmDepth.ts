@@ -13,6 +13,47 @@ export const TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE = "2026-09-07";
 export const TEL_EXECUTABLE_DEPTH_MAX_ADVERSE_PCT = 0.1;
 export const TEL_EXECUTABLE_DEPTH_MAX_BOARD_AGE_MS = 5_000;
 
+export type TelClockSafeBoardAge = {
+  timestampsAvailable: boolean;
+  causal: boolean;
+  fresh: boolean;
+  boardAgeMs: number | null;
+  relayPackagingMs: number | null;
+  cloudProcessingMs: number | null;
+  basis: "same_clock_intervals";
+  networkTransitMeasurement: "unavailable_cross_clock_not_subtracted";
+};
+
+/** Windows壁時計とcloud壁時計を直接引かず、各環境内の経過時間だけを合算する。 */
+export function calculateClockSafeBoardAge(
+  audit: ForwardSourceEventInput["currentAudit"],
+): TelClockSafeBoardAge {
+  const relayAssembledAtMs = audit?.relayAssembledAtMs ?? null;
+  const relaySentAtMs = audit?.relaySentAtMs ?? null;
+  const cloudReceivedAtMs = audit?.cloudReceivedAtMs ?? null;
+  const decisionAtMs = audit?.decisionCompletedAtMs ?? null;
+  const timestampsAvailable = relayAssembledAtMs !== null
+    && relaySentAtMs !== null
+    && cloudReceivedAtMs !== null
+    && decisionAtMs !== null;
+  const relayPackagingMs = timestampsAvailable ? relaySentAtMs - relayAssembledAtMs : null;
+  const cloudProcessingMs = timestampsAvailable ? decisionAtMs - cloudReceivedAtMs : null;
+  const causal = relayPackagingMs !== null && cloudProcessingMs !== null
+    && relayPackagingMs >= 0
+    && cloudProcessingMs >= 0;
+  const boardAgeMs = causal ? relayPackagingMs + cloudProcessingMs : null;
+  return {
+    timestampsAvailable,
+    causal,
+    fresh: boardAgeMs !== null && boardAgeMs <= TEL_EXECUTABLE_DEPTH_MAX_BOARD_AGE_MS,
+    boardAgeMs,
+    relayPackagingMs,
+    cloudProcessingMs,
+    basis: "same_clock_intervals",
+    networkTransitMeasurement: "unavailable_cross_clock_not_subtracted",
+  };
+}
+
 export interface TelExecutablePending {
   side: "long" | "short";
   signalSourceEventId: string;
@@ -255,12 +296,8 @@ export function applyTelExecutableConfirmTransition(stateBefore: TelExecutableCo
     const boardObservedAtMs = input.currentAudit?.relayAssembledAtMs ?? null;
     const boardSourcePriceTimeMs = input.currentAudit?.boardObservedAtMs ?? null;
     const decisionAtMs = input.currentAudit?.decisionCompletedAtMs ?? null;
-    const boardAgeMs = boardObservedAtMs !== null && decisionAtMs !== null
-      ? decisionAtMs - boardObservedAtMs
-      : null;
-    const timestampsAvailable = boardObservedAtMs !== null && decisionAtMs !== null;
-    const causal = timestampsAvailable && boardObservedAtMs <= decisionAtMs;
-    const fresh = causal && boardAgeMs !== null && boardAgeMs <= TEL_EXECUTABLE_DEPTH_MAX_BOARD_AGE_MS;
+    const clockAge = calculateClockSafeBoardAge(input.currentAudit);
+    const { timestampsAvailable, causal, fresh, boardAgeMs } = clockAge;
     const adversePct = executable === null ? null : adverseEntryPct(pending, executable);
     const breakoutMaintained = executable !== null && (pending.side === "long"
       ? executable > pending.breakoutLevel
@@ -273,7 +310,7 @@ export function applyTelExecutableConfirmTransition(stateBefore: TelExecutableCo
         reason: !timestampsAvailable
           ? "board_observed_or_decision_time_unavailable"
           : !causal
-            ? "board_observed_after_decision"
+            ? "same_clock_interval_negative"
             : !fresh
               ? "board_snapshot_stale_over_5000ms"
               : executable === null
@@ -292,6 +329,10 @@ export function applyTelExecutableConfirmTransition(stateBefore: TelExecutableCo
         boardSourcePriceTimeMs,
         decisionAtMs,
         boardAgeMs,
+        boardAgeBasis: clockAge.basis,
+        relayPackagingMs: clockAge.relayPackagingMs,
+        cloudProcessingMs: clockAge.cloudProcessingMs,
+        networkTransitMeasurement: clockAge.networkTransitMeasurement,
         causal,
         fresh,
         adverseEntryPct: adversePct,
@@ -333,6 +374,10 @@ export function applyTelExecutableConfirmTransition(stateBefore: TelExecutableCo
         boardSourcePriceTimeMs,
         decisionAtMs,
         boardAgeMs,
+        boardAgeBasis: clockAge.basis,
+        relayPackagingMs: clockAge.relayPackagingMs,
+        cloudProcessingMs: clockAge.cloudProcessingMs,
+        networkTransitMeasurement: clockAge.networkTransitMeasurement,
         adverseEntryPct,
         shares,
       });
@@ -393,7 +438,9 @@ export const TEL_EXECUTABLE_DEPTH_SPEC = Object.freeze({
     short: "bid_depth_vwap_for_shares < original_5bar_low",
     executablePriceProxy: "side_specific_orderbook_depth_vwap",
     maxBoardAgeMs: TEL_EXECUTABLE_DEPTH_MAX_BOARD_AGE_MS,
-    causality: "relay_assembled_at_ms <= decision_at_ms",
+    causality: "relay_and_cloud_same_clock_intervals_non_negative",
+    boardAgeBasis: "(relaySent-relayAssembled)+(decisionCompleted-cloudReceived)",
+    networkTransitMeasurement: "unavailable_cross_clock_not_subtracted",
     maxAdversePctFromSignalClose: TEL_EXECUTABLE_DEPTH_MAX_ADVERSE_PCT,
     missingBoard: "reject_without_consuming_daily_slot",
     rejectedImpulse: "never_reused_on_same_event",

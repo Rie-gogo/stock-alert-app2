@@ -1,0 +1,1 @@
+ALTER TABLE `rt_portfolio_audit_events` MODIFY COLUMN `rt_portfolio_audit_decision` enum('accepted','margin_block','symbol_position_block','not_candidate','missing','closed') NOT NULL;

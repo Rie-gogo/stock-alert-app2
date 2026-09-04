@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { RtSourceEvent } from "../drizzle/schema";
 import {
   acquireRtCurrentEngineLock,
+  claimNextRtCandidateVirtualWork,
+  completeRtCandidateVirtualWork,
+  failRtCandidateVirtualWork,
   getLatestRtTradeAt,
   insertRtRealtimeDecisionEvent,
   releaseRtCurrentEngineLock,
@@ -26,6 +29,10 @@ import {
 } from "./currentSignalCandidateRegistry";
 import { processSignalQualityVirtualTradesForEvent } from "./signalCandidateVirtualEngine";
 import type { RtSignalCandidate } from "../drizzle/schema";
+import {
+  deriveCurrentBoardExitSignal,
+  deriveCurrentRawSignalForEvent,
+} from "./currentVirtualMarketContext";
 
 export const CURRENT_REALTIME_AUDIT_VERSION = "current-realtime-audit-v1";
 const CURRENT_ENGINE_LOCK_NAME = "current-realtime-engine-v1";
@@ -39,6 +46,22 @@ export type CurrentEngineResult = {
   action: "entry" | "exit" | "stop_loss" | "take_profit" | "forced_close" | "none";
   reason?: string;
   pnl?: number;
+};
+
+type CandidateVirtualWorkPayload = {
+  sourceEvent: Pick<RtSourceEvent, "id" | "sourceEventId" | "relayReceivedAtMs">;
+  candle: RtCandle1Min;
+  inputHash: string;
+  auditReason: string | null;
+  candidateReason: string | null;
+  resultType: "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
+  decisionSignal: ReturnType<typeof getSignalHistory>[number] | null;
+  latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
+  marginUsedBefore: number;
+  decisionCompletedAtMs: number;
+  rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
+  boardSignal: ReturnType<typeof deriveCurrentBoardExitSignal>;
+  marketContextError: string | null;
 };
 
 export type AuditedCurrentEngineResult = {
@@ -56,6 +79,7 @@ export type AuditedCurrentEngineResult = {
     causalityReason: string;
     boardObservedAtMs: number | null;
     relayAssembledAtMs: number | null;
+    relaySentAtMs: number | null;
     cloudReceivedAtMs: number | null;
     decisionStartedAtMs: number;
     decisionCompletedAtMs: number;
@@ -228,11 +252,12 @@ function inferCandidateSide(input: {
 }
 
 async function saveStructuredCandidate(input: {
-  sourceEvent: RtSourceEvent;
+  sourceEvent: Pick<RtSourceEvent, "id" | "sourceEventId" | "relayReceivedAtMs">;
   candle: RtCandle1Min;
   inputHash: string;
   auditId: number;
   auditReason: string | null;
+  candidateReason: string | null;
   resultType: AuditedCurrentEngineResult["audit"]["resultType"];
   decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
   latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
@@ -241,11 +266,12 @@ async function saveStructuredCandidate(input: {
 }): Promise<RtSignalCandidate | null> {
   const isAccepted = input.resultType === "entry"
     && (input.latestTrade?.action === "buy" || input.latestTrade?.action === "short");
-  const isMarginBlock = input.resultType === "rejected" && /証拠金ブロック|margin_block/i.test(input.auditReason ?? "");
+  const isMarginBlock = input.resultType === "rejected"
+    && /証拠金(?:ブロック|使用率制限)|margin_block/i.test(input.candidateReason ?? input.auditReason ?? "");
   if (!isAccepted && !isMarginBlock) return null;
 
   const rawReason = isMarginBlock
-    ? parseMarginCandidateReason(input.auditReason)
+    ? parseMarginCandidateReason(input.candidateReason)
     : input.latestTrade?.reason ?? input.auditReason;
   if (!rawReason) throw new Error(`candidate_reason_missing:${input.sourceEvent.sourceEventId}`);
   const side = inferCandidateSide({
@@ -268,7 +294,7 @@ async function saveStructuredCandidate(input: {
     : reconstructedShares;
   const requiredMargin = isAccepted && input.latestTrade?.amount
     ? Math.round(input.latestTrade.amount)
-    : parseRequiredMarginFromReason(input.auditReason) ?? Math.round(price * capitalShares);
+    : parseRequiredMarginFromReason(input.candidateReason) ?? Math.round(price * capitalShares);
 
   return await upsertRtSignalCandidate({
     candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
@@ -306,6 +332,62 @@ async function saveStructuredCandidate(input: {
       routeSpec: route,
     },
   });
+}
+
+function candidateVirtualErrorMessage(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+async function processCandidateVirtualWork(row: {
+  id: number;
+  candidateVirtualInputJson: unknown;
+}): Promise<void> {
+  const payload = row.candidateVirtualInputJson as CandidateVirtualWorkPayload | null;
+  if (!payload) throw new Error(`candidate_virtual_payload_missing:${row.id}`);
+  const structuredCandidate = await saveStructuredCandidate({
+    sourceEvent: payload.sourceEvent,
+    candle: payload.candle,
+    inputHash: payload.inputHash,
+    auditId: row.id,
+    auditReason: payload.auditReason,
+    candidateReason: payload.candidateReason,
+    resultType: payload.resultType,
+    decisionSignal: payload.decisionSignal ?? undefined,
+    latestTrade: payload.latestTrade,
+    marginUsedBefore: payload.marginUsedBefore,
+    decisionCompletedAtMs: payload.decisionCompletedAtMs,
+  });
+  await processSignalQualityVirtualTradesForEvent({
+    sourceEventId: payload.sourceEvent.sourceEventId,
+    candle: payload.candle,
+    candidate: structuredCandidate,
+    rawSignal: payload.rawSignal,
+    boardSignal: payload.boardSignal,
+  });
+}
+
+export async function drainCurrentCandidateVirtualQueue(): Promise<{
+  processedEngineSequences: number[];
+  stoppedReason: "empty_or_claimed" | "max_batch";
+}> {
+  const processedEngineSequences: number[] = [];
+  for (let index = 0; index < 100; index += 1) {
+    const ownerToken = sha256Stable({
+      scope: "current-candidate-virtual-outbox-v1",
+      nonce: randomUUID(),
+    });
+    const row = await claimNextRtCandidateVirtualWork({ ownerToken, leaseMs: 30_000, maxAttempts: 5 });
+    if (!row) return { processedEngineSequences, stoppedReason: "empty_or_claimed" };
+    try {
+      await processCandidateVirtualWork(row);
+      await completeRtCandidateVirtualWork({ id: row.id, ownerToken });
+      processedEngineSequences.push(row.id);
+    } catch (error) {
+      await failRtCandidateVirtualWork({ id: row.id, ownerToken, error: candidateVirtualErrorMessage(error) });
+      throw error;
+    }
+  }
+  return { processedEngineSequences, stoppedReason: "max_batch" };
 }
 
 function parseBoardObservedAtMs(tradeDate: string, value: string | null | undefined): number | null {
@@ -352,8 +434,17 @@ export async function processCurrentEngineAudited(input: {
     const decisionSignal = stateAfter.latestSymbolSignals.find(signal => signal.time === input.candle.candleTime
       && !beforeSignalKeys.has(JSON.stringify(signal)));
     const auditReason = latestTrade?.reason ?? result.reason ?? decisionSignal?.reason ?? null;
+    const isMarginBlockResult = result.action === "none"
+      && /証拠金(?:ブロック|使用率制限)|margin_block/i.test(
+        `${result.reason ?? ""} ${decisionSignal?.reason ?? ""}`,
+      );
+    // 現行engineの返り値はmargin block時に短い`margin_block`だけを返す。
+    // 監査表示は返り値を保持し、candidate復元だけは同じ判断で追加された詳細signal reasonを使う。
+    const candidateReason = isMarginBlockResult
+      ? decisionSignal?.reason ?? result.reason ?? latestTrade?.reason ?? null
+      : latestTrade?.reason ?? result.reason ?? decisionSignal?.reason ?? null;
     const resultType = classifyResult(result, Boolean(positionAfter), auditReason);
-    const routeId = resolveRealtimeRouteId(auditReason);
+    const routeId = resolveRealtimeRouteId(candidateReason ?? auditReason);
     const causality = evaluateCausality({ result, latestTrade, board: input.board });
     const boardObservedAtMs = parseBoardObservedAtMs(input.candle.tradeDate, input.board?.currentPriceTime);
     const availabilityTimeline = {
@@ -373,6 +464,34 @@ export async function processCurrentEngineAudited(input: {
       cloudToDecisionStartMs: nonNegativeDelta(decisionStartedAtMs, input.sourceEvent.cloudReceivedAtMs),
       decisionDurationMs: nonNegativeDelta(decisionCompletedAtMs, decisionStartedAtMs),
       boardAgeAtDecisionMs: nonNegativeDelta(decisionStartedAtMs, boardObservedAtMs),
+    };
+    let rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>> = null;
+    let marketContextError: string | null = null;
+    try {
+      rawSignal = await deriveCurrentRawSignalForEvent(input.candle);
+    } catch (error) {
+      marketContextError = candidateVirtualErrorMessage(error);
+      console.error("[RealtimeAudit] raw signal再計算に失敗。outboxへunavailableとして固定:", error);
+    }
+    const boardSignal = deriveCurrentBoardExitSignal(input.candle.symbol, input.board);
+    const candidateVirtualInput: CandidateVirtualWorkPayload = {
+      sourceEvent: {
+        id: input.sourceEvent.id,
+        sourceEventId: input.sourceEvent.sourceEventId,
+        relayReceivedAtMs: input.sourceEvent.relayReceivedAtMs,
+      },
+      candle: input.candle,
+      inputHash: input.inputHash,
+      auditReason,
+      candidateReason,
+      resultType,
+      decisionSignal: decisionSignal ?? null,
+      latestTrade,
+      marginUsedBefore,
+      decisionCompletedAtMs,
+      rawSignal,
+      boardSignal,
+      marketContextError,
     };
     try {
       const saved = await insertRtRealtimeDecisionEvent({
@@ -410,6 +529,10 @@ export async function processCurrentEngineAudited(input: {
           result,
           trade: latestTrade,
           decisionSignal: decisionSignal ?? null,
+          candidateReason,
+          rawSignal,
+          boardSignal,
+          marketContextError,
           stateCoverage: stateAfter.coverage,
           availabilityTimeline,
           latency,
@@ -421,32 +544,18 @@ export async function processCurrentEngineAudited(input: {
             brokerExecutionPrice: "unavailable_in_dry_run",
           },
         },
+        candidateVirtualStatus: "pending",
+        candidateVirtualInputJson: candidateVirtualInput,
+        candidateVirtualClaimToken: null,
+        candidateVirtualLeaseUntil: null,
+        candidateVirtualAttemptCount: 0,
+        candidateVirtualLastError: null,
+        candidateVirtualProcessedAt: null,
       });
-      let structuredCandidate: RtSignalCandidate | null = null;
       try {
-        structuredCandidate = await saveStructuredCandidate({
-          sourceEvent: input.sourceEvent,
-          candle: input.candle,
-          inputHash: input.inputHash,
-          auditId: saved.id,
-          auditReason,
-          resultType,
-          decisionSignal,
-          latestTrade,
-          marginUsedBefore,
-          decisionCompletedAtMs,
-        });
-      } catch (candidateError) {
-        console.error("[RealtimeAudit] 現行判断は完了したがcandidate台帳保存に失敗:", candidateError);
-      }
-      try {
-        await processSignalQualityVirtualTradesForEvent({
-          sourceEventId: input.sourceEvent.sourceEventId,
-          candle: input.candle,
-          candidate: structuredCandidate,
-        });
-      } catch (virtualTradeError) {
-        console.error("[RealtimeAudit] 現行判断は完了したが100株仮想取引更新に失敗:", virtualTradeError);
+        await drainCurrentCandidateVirtualQueue();
+      } catch (candidateVirtualError) {
+        console.error("[RealtimeAudit] 現行判断は完了。candidate/virtual outboxは次回再試行:", candidateVirtualError);
       }
       return {
         result,
@@ -463,6 +572,7 @@ export async function processCurrentEngineAudited(input: {
           causalityReason: causality.reason,
           boardObservedAtMs,
           relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
+          relaySentAtMs: input.sourceEvent.relaySentAtMs,
           cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,
           decisionStartedAtMs,
           decisionCompletedAtMs,
@@ -485,6 +595,7 @@ export async function processCurrentEngineAudited(input: {
           causalityReason: causality.reason,
           boardObservedAtMs,
           relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
+          relaySentAtMs: input.sourceEvent.relaySentAtMs,
           cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,
           decisionStartedAtMs,
           decisionCompletedAtMs,

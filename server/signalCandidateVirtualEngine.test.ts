@@ -57,4 +57,81 @@ describe("全candidate 100株signal_quality仮想取引", () => {
       pnl: -60,
     });
   });
+
+  it("routeで許可されたraw signal反転をSL/TP後・時間出口前に適用する", async () => {
+    memory.trades.push({
+      id: 1,
+      virtualEngineVersion: "current-signal-quality-100-v1",
+      candidateId: 1,
+      entrySourceEventId: "entry:signal",
+      tradeDate: "2026-09-07",
+      symbol: "8035",
+      routeId: "generic_long",
+      side: "long",
+      entryCandleTime: "10:00",
+      entryPrice: "100",
+      shares: 100,
+      slPct: "1",
+      tpPct: "2",
+      maxHoldingMinutes: 30,
+      stateJson: { routeSpec: { usesSignalReversalExit: true, usesBoardEarlyExit: true }, armedAt: null, mfePct: 0, maePct: 0 },
+      completed: false,
+    });
+
+    await processSignalQualityVirtualTradesForEvent({
+      sourceEventId: "signal:1",
+      candle: candle("10:01", 100.2, 100.4, 100.1, 100.2) as any,
+      candidate: null,
+      rawSignal: { type: "sell", reason: "匿名反転" },
+      boardSignal: "neutral",
+    });
+
+    expect(memory.trades[0]).toMatchObject({
+      completed: true,
+      exitPrice: "100.2",
+      exitReason: "signal_reversal:匿名反転",
+      pnl: 20,
+    });
+  });
+
+  it("routeで許可された同時点board逆圧力を最低利益率到達後だけ早期利確へ使う", async () => {
+    memory.trades.push({
+      id: 1,
+      virtualEngineVersion: "current-signal-quality-100-v1",
+      candidateId: 2,
+      entrySourceEventId: "entry:board",
+      tradeDate: "2026-09-07",
+      symbol: "8035",
+      routeId: "generic_short",
+      side: "short",
+      entryCandleTime: "10:00",
+      entryPrice: "100",
+      shares: 100,
+      slPct: "1",
+      tpPct: "2",
+      maxHoldingMinutes: 30,
+      stateJson: { routeSpec: { usesSignalReversalExit: true, usesBoardEarlyExit: true }, armedAt: null, mfePct: 0, maePct: 0 },
+      completed: false,
+    });
+
+    await processSignalQualityVirtualTradesForEvent({
+      sourceEventId: "board:1",
+      candle: candle("10:01", 99.9, 99.95, 99.8, 99.9) as any,
+      candidate: null,
+      rawSignal: null,
+      boardSignal: "buy_pressure",
+    });
+
+    expect(memory.trades[0]).toMatchObject({
+      completed: true,
+      exitPrice: "99.9",
+      exitReason: "board_early_exit:buy_pressure",
+      pnl: 10,
+    });
+    expect(memory.trades[0].stateJson.lastMarketContext).toEqual({
+      sourceEventId: "board:1",
+      rawSignal: null,
+      boardSignal: "buy_pressure",
+    });
+  });
 });

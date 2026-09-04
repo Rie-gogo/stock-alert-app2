@@ -43,6 +43,8 @@ import { formatForwardShadowDryRunReport, getForwardShadowSummary } from "./forw
 import {
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  SOFTBANK_DEPTH_CONFIRM_VERSION,
+  SOFTBANK_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
 } from "./runtimeIdentity";
@@ -60,6 +62,13 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("8035 次イベント・ブレイク継続確認A案");
     expect(section).toContain("戦略版: candidate-8035-executable-depth-v2");
     expect(section).toContain("8035 次イベント・side別板depth VWAP継続確認A案 v2");
+    expect(section).toContain(`戦略版: ${SOFTBANK_DEPTH_CONFIRM_VERSION}`);
+    expect(section).toContain("9984 前場10本高値更新LONG A・次イベント100株ask depth継続確認");
+    expect(section).toContain(`戦略版: ${SOFTBANK_RR2_PROTECT_VERSION}`);
+    expect(section).toContain("9984 前場10本高値更新LONG B・2R出口＋次足利益保護");
+    expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");
+    expect(section).toContain("TP到達=0/0（未算出）");
+    expect(section).toContain("891万円比較=manual_comparison_required");
     expect(section).toContain("対象外（旧版停止・監査保持のみ）");
     expect(section).toContain("8035 現行完全再現監査");
     expect(section).toContain("現行 因果性Gate");

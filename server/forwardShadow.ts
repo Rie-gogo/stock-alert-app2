@@ -36,6 +36,8 @@ import {
   FUJIKURA_FORWARD_STRATEGY_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  SOFTBANK_DEPTH_CONFIRM_VERSION,
+  SOFTBANK_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -75,6 +77,15 @@ import {
   buildMinuteNormalizedPortfolioAuditForDate,
 } from "./portfolioAudit";
 import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
+import {
+  SOFTBANK_FORWARD_COLLECTION_START_DATE,
+  SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
+} from "./softbankForwardShadow";
+import { auditSoftbankForwardShadowDay } from "./softbankForwardShadowEngine";
+import {
+  applySoftbankAdoptionGate,
+  resolveSoftbankAdoptionGate,
+} from "./softbankForwardAdoptionGate";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -613,6 +624,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const { processFujikuraForwardShadowSourceEvent } = await import("./fujikuraForwardShadowEngine");
     return processFujikuraForwardShadowSourceEvent(input);
   }
+  if (input.candle.symbol === "9984") {
+    const { processSoftbankForwardShadowSourceEvent } = await import("./softbankForwardShadowEngine");
+    return processSoftbankForwardShadowSourceEvent(input);
+  }
   if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_shadow_symbol" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) {
     console.error("[ForwardShadow] f6878060売買ロジック固定ハッシュ不一致のため計測停止");
@@ -758,12 +773,19 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       : { status: "monitoring" as const, reason: "formal_evaluation_gate_pending", days: 0 };
     const routeParityGate = resolveForwardRouteParityGate(strategyVersion);
     const lifecycleDecision = applyForwardStrategyLifecyclePolicy(strategyVersion, decision);
+    const softbankAdoptionGate = resolveSoftbankAdoptionGate({
+      strategyVersion,
+      realizedPayoffRatio: metrics.realizedPayoffRatio,
+      trades: modeTrades,
+    });
+    const candidateDecision = applySoftbankAdoptionGate(lifecycleDecision, softbankAdoptionGate);
     return {
       mode,
       metrics,
-      decision: applyForwardRouteParityGate(lifecycleDecision, routeParityGate),
+      decision: applyForwardRouteParityGate(candidateDecision, routeParityGate),
       routeParityGate,
       formalEvaluationGate,
+      softbankAdoptionGate,
       pilotOnly: mode === "capital_constrained",
     };
   });
@@ -954,6 +976,26 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
+    {
+      versionId: SOFTBANK_DEPTH_CONFIRM_VERSION,
+      symbol: "9984",
+      title: "9984 前場10本高値更新LONG A・次イベント100株ask depth継続確認",
+      startDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => auditSoftbankForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "depth_confirm"),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
+    {
+      versionId: SOFTBANK_RR2_PROTECT_VERSION,
+      symbol: "9984",
+      title: "9984 前場10本高値更新LONG B・2R出口＋次足利益保護",
+      startDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => auditSoftbankForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "rr2_protect"),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
   ] as const;
   const sections: string[] = [];
   for (const definition of strategyDefinitions) {
@@ -993,6 +1035,9 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
         `    最大DD: ${item.metrics.maxDrawdown.toLocaleString()}円 / 最大連敗: ${item.metrics.maxConsecutiveLosses} / 判定: ${item.decision.status} (${item.decision.reason})`,
         `    経路parity Gate: ${item.routeParityGate.status} / 対象=${item.routeParityGate.requiredRoutes.join(",") || "なし"} / 証拠=${item.routeParityGate.evidence.kind}`,
         `    正式評価Gate: ${item.formalEvaluationGate.status} / 確認日=${item.formalEvaluationGate.validationDate} / 最短開始=${item.formalEvaluationGate.formalStartDate} / 修正前データ除外=${item.formalEvaluationGate.excludesPreFixData}`,
+        item.softbankAdoptionGate.applicable
+          ? `    9984追加Gate: 実現平均利益÷平均損失=${formatNullable(item.softbankAdoptionGate.realizedPayoffRatio)}（最低0.80、${item.softbankAdoptionGate.payoffStatus}） / TP到達=${item.softbankAdoptionGate.takeProfitExits}/${item.softbankAdoptionGate.completedTrades}（${item.softbankAdoptionGate.takeProfitReachRatePct === null ? "未算出" : `${item.softbankAdoptionGate.takeProfitReachRatePct.toFixed(2)}%`}） / 891万円比較=${item.softbankAdoptionGate.portfolioGate.status}`
+          : "    9984追加Gate: 対象外",
         `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件到達時も継続判定のみ: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
         `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
       ].join("\n");

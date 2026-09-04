@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   BASELINE_STRATEGY_GIT_SHA,
   FORWARD_EVALUATION_POLICY,
+  SOFTBANK_DEPTH_CONFIRM_VERSION,
+  SOFTBANK_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
 } from "./runtimeIdentity";
 
@@ -36,6 +38,10 @@ describe("本番稼働版自己証明", () => {
   it("既存の長い5803版を変更せず、全候補・監査versionをDB上限128文字以内に保つ", () => {
     const identity = getRuntimeIdentity();
     const versions = [...identity.strategyVersions, ...identity.auditStrategyVersions];
+    expect(identity.strategyVersions).toEqual(expect.arrayContaining([
+      SOFTBANK_DEPTH_CONFIRM_VERSION,
+      SOFTBANK_RR2_PROTECT_VERSION,
+    ]));
     expect(versions.some(version => version.length > 64)).toBe(true);
     expect(versions.every(version => version.length <= 128)).toBe(true);
   });

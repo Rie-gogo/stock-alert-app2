@@ -42,6 +42,8 @@ vi.mock("./db", () => ({
 import { processForwardShadowSourceEvent } from "./forwardShadow";
 import {
   FORWARD_STRATEGY_VERSION,
+  SOFTBANK_DEPTH_CONFIRM_VERSION,
+  SOFTBANK_RR2_PROTECT_VERSION,
   TEL_CURRENT_PARITY_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
@@ -182,6 +184,55 @@ describe("8035未見データ前向きシャドー統合", () => {
       TEL_EXECUTABLE_DEPTH_VERSION,
     ]));
     for (const version of versions) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
+  });
+
+  it("9984現行source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
+    for (let index = 0; index < 20; index += 1) {
+      await processForwardShadowSourceEvent({
+        sourceEventId: `softbank:${index + 1}`,
+        candle: {
+          symbol: "9984", tradeDate: "2026-09-07", candleTime: minuteTime(index),
+          open: 98.95 + index * 0.1, high: 99.05 + index * 0.1,
+          low: 98.9 + index * 0.1, close: 99 + index * 0.1, volume: 100,
+        },
+        board: null,
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "softbank:signal",
+      candle: {
+        symbol: "9984", tradeDate: "2026-09-07", candleTime: "10:00",
+        open: 102.4, high: 103.1, low: 102.3, close: 103, volume: 200,
+      },
+      board: null,
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "softbank:confirm",
+      candle: {
+        symbol: "9984", tradeDate: "2026-09-07", candleTime: "10:01",
+        open: 103, high: 103.2, low: 102.8, close: 103.1, volume: 100,
+      },
+      board: { asks: [{ price: 102.9, qty: 100 }] },
+      currentAudit: {
+        engineSequence: 22, resultType: "no_signal", routeId: null,
+        marginUsedBefore: 0, marginUsedAfter: 0,
+        stateHashBefore: "before", stateHashAfter: "after",
+        causalityStatus: "pass", causalityReason: "test",
+        boardObservedAtMs: 1_000, relayAssembledAtMs: 1_050, relaySentAtMs: 1_100,
+        cloudReceivedAtMs: 50_000, decisionStartedAtMs: 50_050, decisionCompletedAtMs: 50_200,
+      },
+    });
+
+    expect(new Set(memory.trades.map(item => item.strategyVersion))).toEqual(new Set([
+      SOFTBANK_DEPTH_CONFIRM_VERSION,
+      SOFTBANK_RR2_PROTECT_VERSION,
+    ]));
+    expect(memory.trades).toHaveLength(4);
+    for (const version of [SOFTBANK_DEPTH_CONFIRM_VERSION, SOFTBANK_RR2_PROTECT_VERSION]) {
       expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
       expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
       expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);

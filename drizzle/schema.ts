@@ -784,6 +784,7 @@ export const rtSourceEvents = mysqlTable("rt_source_events", {
   payloadJson: json("payload_json").notNull(),
   relayReceivedAtMs: bigint("relay_received_at_ms", { mode: "number" }),
   relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
+  cloudReceivedAtMs: bigint("cloud_received_at_ms", { mode: "number" }),
   correctedEventId: varchar("corrected_event_id", { length: 128 }),
   status: mysqlEnum("rt_source_event_status", ["processing", "processed", "failed", "payload_mismatch"]).notNull().default("processing"),
   resultAction: varchar("result_action", { length: 32 }),
@@ -809,6 +810,8 @@ export const rtStrategyVersions = mysqlTable("rt_strategy_versions", {
   configJson: json("config_json").notNull(),
   learningCutoffDate: varchar("learning_cutoff_date", { length: 10 }).notNull(),
   evaluationStartDate: varchar("evaluation_start_date", { length: 10 }).notNull(),
+  evaluationPurpose: mysqlEnum("rt_strategy_evaluation_purpose", ["candidate", "parity_only", "causality_audit"]).notNull().default("candidate"),
+  eligibleForAdoption: boolean("eligible_for_adoption").notNull().default(true),
   status: mysqlEnum("rt_strategy_version_status", ["monitoring", "interim_continue", "eligible", "stopped", "insufficient"]).notNull().default("monitoring"),
   statusReason: text("status_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -914,3 +917,181 @@ export const rtForwardShadowTrades = mysqlTable("rt_forward_shadow_trades", {
 
 export type RtForwardShadowTrade = typeof rtForwardShadowTrades.$inferSelect;
 export type InsertRtForwardShadowTrade = typeof rtForwardShadowTrades.$inferInsert;
+
+/** 現行リアルタイム状態機械をサーバー間でも一列に実行する短時間リース。 */
+export const rtCurrentEngineLocks = mysqlTable("rt_current_engine_locks", {
+  id: int("id").autoincrement().primaryKey(),
+  lockName: varchar("lock_name", { length: 64 }).notNull(),
+  ownerToken: varchar("owner_token", { length: 64 }),
+  leaseUntil: timestamp("lease_until"),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  lockIdentity: uniqueIndex("rt_current_engine_lock_identity").on(table.lockName),
+}));
+
+export type RtCurrentEngineLock = typeof rtCurrentEngineLocks.$inferSelect;
+export type InsertRtCurrentEngineLock = typeof rtCurrentEngineLocks.$inferInsert;
+
+/**
+ * 現行DRY_RUNが実際に状態更新した順序と判断前後状態を保存する追記専用台帳。
+ * idがengineSequenceであり、source eventのDB受信順とは別に扱う。
+ */
+export const rtRealtimeDecisionEvents = mysqlTable("rt_realtime_decision_events", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceEventDbId: int("source_event_db_id").notNull(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
+  eventSeq: int("event_seq").notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  decisionStartedAtMs: bigint("decision_started_at_ms", { mode: "number" }).notNull(),
+  decisionCompletedAtMs: bigint("decision_completed_at_ms", { mode: "number" }).notNull(),
+  resultType: mysqlEnum("rt_realtime_decision_result", ["no_signal", "pending", "rejected", "entry", "hold", "exit", "error"]).notNull(),
+  routeId: varchar("route_id", { length: 96 }),
+  side: mysqlEnum("rt_realtime_decision_side", ["long", "short"]),
+  reason: text("reason"),
+  inputHash: varchar("input_hash", { length: 64 }).notNull(),
+  stateBeforeJson: json("state_before_json").notNull(),
+  stateAfterJson: json("state_after_json").notNull(),
+  stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
+  stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
+  signalReferencePrice: decimal("signal_reference_price", { precision: 12, scale: 4 }),
+  marketObservedPrice: decimal("market_observed_price", { precision: 12, scale: 4 }),
+  boardPriceTime: varchar("board_price_time", { length: 40 }),
+  executablePriceProxy: decimal("executable_price_proxy", { precision: 12, scale: 4 }),
+  simulatedBarFillPrice: decimal("simulated_bar_fill_price", { precision: 12, scale: 4 }),
+  brokerExecutionPrice: decimal("broker_execution_price", { precision: 12, scale: 4 }),
+  shares: int("shares"),
+  amount: bigint("amount", { mode: "number" }),
+  marginUsedBefore: bigint("margin_used_before", { mode: "number" }),
+  marginUsedAfter: bigint("margin_used_after", { mode: "number" }),
+  causalityStatus: mysqlEnum("rt_realtime_causality_status", ["pass", "violation", "unverified", "not_applicable"]).notNull().default("unverified"),
+  causalityReason: text("causality_reason"),
+  resultJson: json("result_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_realtime_decision_source_identity").on(table.sourceEventId),
+}));
+
+export type RtRealtimeDecisionEvent = typeof rtRealtimeDecisionEvents.$inferSelect;
+export type InsertRtRealtimeDecisionEvent = typeof rtRealtimeDecisionEvents.$inferInsert;
+
+/** strategyVersionごとに実時現行と固定版再生を項目別比較した結果。 */
+export const rtReplayComparisons = mysqlTable("rt_replay_comparisons", {
+  id: int("id").autoincrement().primaryKey(),
+  baselineVersion: varchar("baseline_version", { length: 64 }).notNull(),
+  sourceEventDbId: int("source_event_db_id").notNull(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  engineSequence: int("engine_sequence"),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  matchStatus: mysqlEnum("rt_replay_match_status", ["match", "mismatch", "skipped", "error"]).notNull(),
+  isFirstMismatch: boolean("is_first_mismatch").notNull().default(false),
+  mismatchType: varchar("mismatch_type", { length: 64 }),
+  realtimeDecisionId: int("realtime_decision_id"),
+  realtimeStateHash: varchar("realtime_state_hash", { length: 64 }),
+  replayStateHash: varchar("replay_state_hash", { length: 64 }),
+  diffJson: json("diff_json"),
+  replayResultJson: json("replay_result_json"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  comparisonIdentity: uniqueIndex("rt_replay_comparison_identity").on(table.baselineVersion, table.sourceEventId),
+}));
+
+export type RtReplayComparison = typeof rtReplayComparisons.$inferSelect;
+export type InsertRtReplayComparison = typeof rtReplayComparisons.$inferInsert;
+
+/** 10銘柄共有891万円を実受信順または同一分固定優先順位で配分した判断台帳。 */
+export const rtPortfolioAuditEvents = mysqlTable("rt_portfolio_audit_events", {
+  id: int("id").autoincrement().primaryKey(),
+  portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
+  mode: mysqlEnum("rt_portfolio_audit_mode", ["actual_receipt", "minute_normalized"]).notNull(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  batchKey: varchar("batch_key", { length: 32 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  routeId: varchar("route_id", { length: 96 }),
+  side: mysqlEnum("rt_portfolio_audit_side", ["long", "short"]),
+  priorityRank: int("priority_rank"),
+  decision: mysqlEnum("rt_portfolio_audit_decision", ["accepted", "margin_block", "not_candidate", "missing", "closed"]).notNull(),
+  shares: int("shares"),
+  requiredMargin: bigint("required_margin", { mode: "number" }),
+  marginUsedBefore: bigint("margin_used_before", { mode: "number" }).notNull().default(0),
+  marginUsedAfter: bigint("margin_used_after", { mode: "number" }).notNull().default(0),
+  blockerSourceEventId: varchar("blocker_source_event_id", { length: 128 }),
+  blockerSymbol: varchar("blocker_symbol", { length: 10 }),
+  detailJson: json("detail_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  portfolioIdentity: uniqueIndex("rt_portfolio_audit_identity").on(table.portfolioVersion, table.mode, table.sourceEventId),
+}));
+
+export type RtPortfolioAuditEvent = typeof rtPortfolioAuditEvents.$inferSelect;
+export type InsertRtPortfolioAuditEvent = typeof rtPortfolioAuditEvents.$inferInsert;
+
+/** MFE・MAE・経過後リターンなど、入口条件には使わない診断専用結果ラベル。 */
+export const rtOutcomeLabels = mysqlTable("rt_outcome_labels", {
+  id: int("id").autoincrement().primaryKey(),
+  baselineVersion: varchar("baseline_version", { length: 64 }).notNull(),
+  entrySourceEventId: varchar("entry_source_event_id", { length: 128 }).notNull(),
+  exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  routeId: varchar("route_id", { length: 96 }).notNull(),
+  side: mysqlEnum("rt_outcome_label_side", ["long", "short"]).notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
+  exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
+  shares: int("shares").notNull(),
+  mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
+  maePct: decimal("mae_pct", { precision: 10, scale: 6 }),
+  after1mPct: decimal("after_1m_pct", { precision: 10, scale: 6 }),
+  after3mPct: decimal("after_3m_pct", { precision: 10, scale: 6 }),
+  after5mPct: decimal("after_5m_pct", { precision: 10, scale: 6 }),
+  finalPnl: bigint("final_pnl", { mode: "number" }),
+  counterfactualJson: json("counterfactual_json"),
+  diagnosisOnly: boolean("diagnosis_only").notNull().default(true),
+  completed: boolean("completed").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  outcomeIdentity: uniqueIndex("rt_outcome_label_identity").on(table.baselineVersion, table.entrySourceEventId),
+}));
+
+export type RtOutcomeLabel = typeof rtOutcomeLabels.$inferSelect;
+export type InsertRtOutcomeLabel = typeof rtOutcomeLabels.$inferInsert;
+
+/** 原因候補と反実仮想影響。高確信度は未見シャドーで再現した場合だけ許可する。 */
+export const rtDivergenceHypotheses = mysqlTable("rt_divergence_hypotheses", {
+  id: int("id").autoincrement().primaryKey(),
+  analysisVersion: varchar("analysis_version", { length: 64 }).notNull(),
+  asOfDate: varchar("as_of_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  routeId: varchar("route_id", { length: 96 }).notNull(),
+  causeCode: varchar("cause_code", { length: 64 }).notNull(),
+  confidence: mysqlEnum("rt_divergence_confidence", ["low", "medium", "high"]).notNull(),
+  realtimeLossCount: int("realtime_loss_count").notNull().default(0),
+  historicalLossHit: int("historical_loss_hit").notNull().default(0),
+  historicalWinHit: int("historical_win_hit").notNull().default(0),
+  preventedLossYen: bigint("prevented_loss_yen", { mode: "number" }).notNull().default(0),
+  lostWinYen: bigint("lost_win_yen", { mode: "number" }).notNull().default(0),
+  followingTradeDeltaYen: bigint("following_trade_delta_yen", { mode: "number" }).notNull().default(0),
+  portfolioDeltaYen: bigint("portfolio_delta_yen", { mode: "number" }).notNull().default(0),
+  status: mysqlEnum("rt_divergence_status", ["observing", "shadow_candidate", "rejected"]).notNull().default("observing"),
+  metricsJson: json("metrics_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  hypothesisIdentity: uniqueIndex("rt_divergence_hypothesis_identity").on(
+    table.analysisVersion,
+    table.asOfDate,
+    table.symbol,
+    table.routeId,
+    table.causeCode,
+  ),
+}));
+
+export type RtDivergenceHypothesis = typeof rtDivergenceHypotheses.$inferSelect;
+export type InsertRtDivergenceHypothesis = typeof rtDivergenceHypotheses.$inferInsert;

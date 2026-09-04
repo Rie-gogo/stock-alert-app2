@@ -32,7 +32,7 @@ export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
 
-  /** 8035・5803・285A第1案・285A第2案のstrategyVersion別未見データ前向き成績。注文指示とは分離される。 */
+  /** 既存4候補＋8035改善案AのstrategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
@@ -43,6 +43,51 @@ export const tradingRouter = router({
         KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
         KIOXIA_FORWARD_STRATEGY_VERSION,
       } = await import("../runtimeIdentity");
+      const {
+        TEL_AUDIT_EVALUATION_START_DATE,
+        TEL_CAUSALITY_AUDIT_VERSION,
+        TEL_CURRENT_PARITY_VERSION,
+      } = await import("../telCurrentParity");
+      const {
+        TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+        TEL_EXECUTABLE_CONFIRM_VERSION,
+      } = await import("../telExecutableConfirm");
+      const {
+        getRtDivergenceHypotheses,
+        getRtOutcomeLabelsForDate,
+        getRtPortfolioAuditEventsForDate,
+        getRtRealtimeDecisionEventsForDate,
+        getRtReplayComparisonsForDate,
+      } = await import("../db");
+      const {
+        CURRENT_PORTFOLIO_AUDIT_VERSION,
+        NORMALIZED_PORTFOLIO_AUDIT_VERSION,
+      } = await import("../portfolioAudit");
+      const [
+        currentDecisions,
+        replayComparisons,
+        actualReceiptPortfolio,
+        minuteNormalizedPortfolio,
+        outcomeLabels,
+        divergenceHypotheses,
+      ] = await Promise.all([
+        getRtRealtimeDecisionEventsForDate(input.asOfDate),
+        getRtReplayComparisonsForDate({ tradeDate: input.asOfDate, baselineVersion: TEL_CURRENT_PARITY_VERSION }),
+        getRtPortfolioAuditEventsForDate({ portfolioVersion: CURRENT_PORTFOLIO_AUDIT_VERSION, tradeDate: input.asOfDate, mode: "actual_receipt" }),
+        getRtPortfolioAuditEventsForDate({ portfolioVersion: NORMALIZED_PORTFOLIO_AUDIT_VERSION, tradeDate: input.asOfDate, mode: "minute_normalized" }),
+        getRtOutcomeLabelsForDate({ baselineVersion: "current-realtime-outcome-label-v1", tradeDate: input.asOfDate }),
+        getRtDivergenceHypotheses(input.asOfDate),
+      ]);
+      const countBy = (values: Array<string | null | undefined>) => Object.fromEntries(
+        Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
+          .map(value => [value, values.filter(item => item === value).length]),
+      );
+      const summarizePortfolio = (events: typeof actualReceiptPortfolio) => ({
+        events: events.length,
+        byDecision: countBy(events.map(event => event.decision)),
+        blockEdges: events.filter(event => event.decision === "margin_block" && event.blockerSourceEventId).length,
+        maxMarginUsed: events.reduce((max, event) => Math.max(max, event.marginUsedAfter ?? 0), 0),
+      });
       return {
         strategies: [
           {
@@ -65,7 +110,58 @@ export const tradingRouter = router({
             symbol: "285A",
             summaries: await getForwardShadowSummary(input.asOfDate, KIOXIA_ATR_FORWARD_STRATEGY_VERSION),
           },
+          {
+            strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
+            symbol: "8035",
+            summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_CONFIRM_VERSION),
+          },
         ],
+        auditStrategies: [
+          {
+            strategyVersion: TEL_CURRENT_PARITY_VERSION,
+            symbol: "8035",
+            purpose: "parity_only" as const,
+            eligibleForAdoption: false,
+            evaluationStartDate: TEL_AUDIT_EVALUATION_START_DATE,
+          },
+          {
+            strategyVersion: TEL_CAUSALITY_AUDIT_VERSION,
+            symbol: "8035",
+            purpose: "causality_audit" as const,
+            eligibleForAdoption: false,
+            evaluationStartDate: TEL_AUDIT_EVALUATION_START_DATE,
+          },
+        ],
+        audit: {
+          currentDecisions: {
+            events: currentDecisions.length,
+            byResultType: countBy(currentDecisions.map(event => event.resultType)),
+            byCausalityStatus: countBy(currentDecisions.map(event => event.causalityStatus)),
+            lastEngineSequence: currentDecisions.at(-1)?.id ?? null,
+          },
+          replayComparisons: {
+            events: replayComparisons.length,
+            byMatchStatus: countBy(replayComparisons.map(event => event.matchStatus)),
+            firstMismatch: replayComparisons.find(event => event.isFirstMismatch) ?? null,
+          },
+          actualReceiptPortfolio: summarizePortfolio(actualReceiptPortfolio),
+          minuteNormalizedPortfolio: summarizePortfolio(minuteNormalizedPortfolio),
+          outcomeLabels: {
+            events: outcomeLabels.length,
+            completed: outcomeLabels.filter(event => event.completed).length,
+            blocked: outcomeLabels.filter(event => event.counterfactualJson
+              && typeof event.counterfactualJson === "object"
+              && (event.counterfactualJson as Record<string, unknown>).wasMarginBlocked === true).length,
+          },
+          divergenceHypotheses: divergenceHypotheses.slice(0, 20),
+          semantics: {
+            candidateEvaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+            officialReplayOrder: "rt_realtime_decision_events.id_engine_sequence",
+            relaySequenceRole: "gap_and_duplicate_diagnosis_only",
+            brokerExecutionPrice: "unavailable_in_dry_run",
+            automaticAdoption: false,
+          },
+        },
       };
     }),
 

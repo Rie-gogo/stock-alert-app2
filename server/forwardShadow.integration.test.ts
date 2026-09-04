@@ -40,7 +40,11 @@ vi.mock("./db", () => ({
 }));
 
 import { processForwardShadowSourceEvent } from "./forwardShadow";
-import { FORWARD_STRATEGY_VERSION } from "./runtimeIdentity";
+import {
+  FORWARD_STRATEGY_VERSION,
+  TEL_CURRENT_PARITY_VERSION,
+  TEL_EXECUTABLE_CONFIRM_VERSION,
+} from "./runtimeIdentity";
 
 function minuteTime(index: number): string {
   const total = 9 * 60 + 40 + index;
@@ -117,5 +121,64 @@ describe("8035未見データ前向きシャドー統合", () => {
       board: { currentPrice: 102.5 },
     });
     expect(memory.events).toHaveLength(eventCount);
+  });
+
+  it("9月7日以降は既存8035・現行parity・改善案Aを別version・別2評価状態で並走する", async () => {
+    for (let index = 0; index < 30; index += 1) {
+      await processForwardShadowSourceEvent({
+        sourceEventId: `triple:${index + 1}`,
+        candle: {
+          symbol: "8035", tradeDate: "2026-09-07", candleTime: minuteTime(index),
+          open: 100, high: 100.1, low: 99.9, close: 100, volume: 100,
+        },
+        board: { currentPrice: 100 },
+        currentAudit: {
+          engineSequence: index + 1, resultType: "no_signal", routeId: null,
+          marginUsedBefore: 0, marginUsedAfter: 0,
+          stateHashBefore: "before", stateHashAfter: "after",
+          causalityStatus: "pass", causalityReason: "test",
+        },
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "triple:31",
+      candle: {
+        symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:10",
+        open: 100, high: 101.1, low: 99.9, close: 101, volume: 200,
+      },
+      board: { currentPrice: 101 },
+      currentAudit: {
+        engineSequence: 31, resultType: "entry", routeId: "8035_open_direction_breakout_long",
+        marginUsedBefore: 0, marginUsedAfter: 2_700_000,
+        stateHashBefore: "before", stateHashAfter: "after",
+        causalityStatus: "violation", causalityReason: "bar_close_fill",
+      },
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "triple:32",
+      candle: {
+        symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:11",
+        open: 101, high: 101.2, low: 100.9, close: 101.1, volume: 100,
+      },
+      board: { currentPrice: 101.05 },
+      currentAudit: {
+        engineSequence: 32, resultType: "hold", routeId: null,
+        marginUsedBefore: 2_700_000, marginUsedAfter: 2_700_000,
+        stateHashBefore: "before", stateHashAfter: "after",
+        causalityStatus: "pass", causalityReason: "no_fill_price_used",
+      },
+    });
+
+    const versions = new Set(memory.trades.map(item => item.strategyVersion));
+    expect(versions).toEqual(new Set([
+      FORWARD_STRATEGY_VERSION,
+      TEL_CURRENT_PARITY_VERSION,
+      TEL_EXECUTABLE_CONFIRM_VERSION,
+    ]));
+    for (const version of versions) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
   });
 });

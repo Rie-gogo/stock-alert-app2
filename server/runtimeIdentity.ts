@@ -10,11 +10,19 @@ export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-pric
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const KIOXIA_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-confirmed-long-momentum-protect-v1";
 export const KIOXIA_ATR_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
+export const TEL_CURRENT_PARITY_VERSION = "baseline-8035-current-parity-v1";
+export const TEL_CAUSALITY_AUDIT_VERSION = "baseline-8035-causality-audit-v1";
+export const TEL_EXECUTABLE_CONFIRM_VERSION = "candidate-8035-executable-confirm-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
+  TEL_EXECUTABLE_CONFIRM_VERSION,
+]);
+export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
+  TEL_CURRENT_PARITY_VERSION,
+  TEL_CAUSALITY_AUDIT_VERSION,
 ]);
 export const FORWARD_EVALUATION_POLICY = Object.freeze({
   dryRunOnly: true,
@@ -74,6 +82,7 @@ export function getRuntimeIdentity() {
     receivedSymbols,
     policy: FORWARD_EVALUATION_POLICY,
     strategyVersions: FORWARD_STRATEGY_VERSIONS,
+    auditStrategyVersions: FORWARD_AUDIT_STRATEGY_VERSIONS,
   });
   const generatedGitSha: string = GENERATED_BUILD_IDENTITY.gitSha;
   const exactBuildGitSha = generatedGitSha === "unavailable"
@@ -94,6 +103,7 @@ export function getRuntimeIdentity() {
     configHash,
     strategyVersion: FORWARD_STRATEGY_VERSION,
     strategyVersions: FORWARD_STRATEGY_VERSIONS,
+    auditStrategyVersions: FORWARD_AUDIT_STRATEGY_VERSIONS,
     activeEntrySymbols,
     receivedSymbols,
     dryRunRequired: true as const,

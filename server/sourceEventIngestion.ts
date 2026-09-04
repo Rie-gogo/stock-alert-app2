@@ -7,6 +7,7 @@ import {
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
 import { processForwardShadowSourceEvent } from "./forwardShadow";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
+import { processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
 
 export interface SourceEventMetadata {
@@ -51,6 +52,7 @@ function normalizeMetadata(input: IngestCandleInput) {
 }
 
 export async function ingestSourceCandle(input: IngestCandleInput) {
+  const cloudReceivedAtMs = Date.now();
   const metadata = normalizeMetadata(input);
   const claimed = await claimRtSourceEvent({
     sourceEventId: metadata.sourceEventId,
@@ -63,6 +65,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     payloadJson: metadata.canonicalPayload,
     relayReceivedAtMs: input.relayReceivedAtMs ?? null,
     relaySentAtMs: input.relaySentAtMs ?? null,
+    cloudReceivedAtMs,
     correctedEventId: input.correctedEventId ?? null,
     status: "processing",
     resultAction: null,
@@ -141,29 +144,50 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
   }
 
   try {
-    if (input.board) {
-      updateOrderBook({
+    const sourceEvent = await getRtSourceEvent(metadata.sourceEventId);
+    if (!sourceEvent) throw new Error(`claimed_source_event_missing:${metadata.sourceEventId}`);
+    const audited = await processCurrentEngineAudited({
+      sourceEvent,
+      candle: {
         symbol: input.symbol,
-        ...input.board,
-        receivedAt: Date.now(),
-      } as KabuOrderBook);
-    }
-    const result = await processCandle({
-      symbol: input.symbol,
-      tradeDate: input.tradeDate,
-      candleTime: input.candleTime,
-      open: input.open,
-      high: input.high,
-      low: input.low,
-      close: input.close,
-      volume: input.volume,
+        tradeDate: input.tradeDate,
+        candleTime: input.candleTime,
+        open: input.open,
+        high: input.high,
+        low: input.low,
+        close: input.close,
+        volume: input.volume,
+      },
+      board: input.board ?? null,
+      inputHash: metadata.serverPayloadHash,
+      run: async () => {
+        if (input.board) {
+          updateOrderBook({
+            symbol: input.symbol,
+            ...input.board,
+            receivedAt: Date.now(),
+          } as KabuOrderBook);
+        }
+        return processCandle({
+          symbol: input.symbol,
+          tradeDate: input.tradeDate,
+          candleTime: input.candleTime,
+          open: input.open,
+          high: input.high,
+          low: input.low,
+          close: input.close,
+          volume: input.volume,
+        });
+      },
     });
+    const result = audited.result;
     let shadowResult: unknown = null;
     try {
       shadowResult = await processForwardShadowSourceEvent({
         sourceEventId: metadata.sourceEventId,
         candle: input,
         board: input.board ?? null,
+        currentAudit: audited.audit,
       });
     } catch (firstShadowError) {
       console.warn("[ForwardShadow] シャドー評価一時失敗。現行DRY_RUNを再実行せずシャドーだけ1回再試行:", firstShadowError);
@@ -172,6 +196,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
           sourceEventId: metadata.sourceEventId,
           candle: input,
           board: input.board ?? null,
+          currentAudit: audited.audit,
         });
       } catch (retryShadowError) {
         console.error("[ForwardShadow] シャドー評価再試行も失敗（現行DRY_RUN処理は継続）:", retryShadowError);
@@ -186,6 +211,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
       ...result,
       sourceEventId: metadata.sourceEventId,
       sourceEventDuplicate: false as const,
+      realtimeAudit: audited.audit,
       shadowEvaluation: shadowResult,
     };
     await completeRtSourceEvent({

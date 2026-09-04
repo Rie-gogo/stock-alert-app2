@@ -6,6 +6,7 @@ import {
   failRtForwardShadowEvent,
   getRtForwardShadowEventsForDate,
   getRtSourceEventsForDate,
+  getRtRealtimeDecisionEventsForDate,
   getRtStrategyVersion,
   getRtForwardShadowState,
   getRtForwardShadowTrades,
@@ -49,6 +50,18 @@ import {
   processKioxiaAtrForwardShadowSourceEvent,
   replayKioxiaAtrForwardShadowDay,
 } from "./kioxiaAtrForwardShadowEngine";
+import { compareTelCurrentParityForDate } from "./telParityComparison";
+import {
+  TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+  TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
+  TEL_EXECUTABLE_CONFIRM_VERSION,
+} from "./telExecutableConfirm";
+import { auditTelExecutableConfirmDay } from "./telExecutableConfirmEngine";
+import {
+  buildActualReceiptPortfolioAuditForDate,
+  buildMinuteNormalizedPortfolioAuditForDate,
+} from "./portfolioAudit";
+import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -71,6 +84,19 @@ export interface ForwardSourceEventInput {
   sourceEventId: string;
   candle: ForwardSourceCandle;
   board: unknown | null;
+  currentAudit?: {
+    engineSequence: number | null;
+    resultType: string;
+    routeId: string | null;
+    marginUsedBefore: number;
+    marginUsedAfter: number;
+    stateHashBefore: string;
+    stateHashAfter: string;
+    causalityStatus: string;
+    causalityReason: string;
+  };
+  /** 8035既存シャドーを内部再帰で一度だけ呼ぶための非永続フラグ。 */
+  internalSkipTelParity?: boolean;
 }
 
 interface PendingEntry {
@@ -525,6 +551,27 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
 }
 
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput) {
+  if (input.candle.symbol === "8035" && !input.internalSkipTelParity) {
+    const { processTelCurrentParitySourceEvent } = await import("./telCurrentParityEngine");
+    const { processTelExecutableConfirmSourceEvent } = await import("./telExecutableConfirmEngine");
+    const evaluations: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    for (const evaluate of [
+      () => processForwardShadowSourceEvent({ ...input, internalSkipTelParity: true }),
+      () => processTelCurrentParitySourceEvent(input, input.currentAudit?.marginUsedBefore ?? 0),
+      () => processTelExecutableConfirmSourceEvent(input),
+    ]) {
+      try {
+        evaluations.push(await evaluate());
+      } catch (error) {
+        errors.push(String(error));
+      }
+    }
+    if (errors.length > 0) {
+      throw new Error(`tel_forward_shadow_partial_failure:${errors.join(" | ")}`);
+    }
+    return { skipped: false as const, symbol: "8035", evaluations };
+  }
   if (input.candle.symbol === "285A") {
     const { processKioxiaForwardShadowSourceEvent } = await import("./kioxiaForwardShadowEngine");
     const evaluations: Array<Record<string, unknown>> = [];
@@ -784,10 +831,23 @@ function formatNullable(value: number | null, digits = 2): string {
 
 export async function formatForwardShadowDryRunReport(asOfDate: string): Promise<string> {
   const identity = getRuntimeIdentity();
+  let telParityAudit: Awaited<ReturnType<typeof compareTelCurrentParityForDate>> | { skipped: "error"; error: string };
+  try {
+    telParityAudit = await compareTelCurrentParityForDate(asOfDate);
+  } catch (error) {
+    telParityAudit = { skipped: "error", error: String(error) };
+  }
   const [sourceEvents, shadowEvents] = await Promise.all([
     getRtSourceEventsForDate(asOfDate),
     getRtForwardShadowEventsForDate(asOfDate),
   ]);
+  const [realtimeDecisionEvents, actualPortfolio, normalizedPortfolio, outcomeLabels] = await Promise.all([
+    getRtRealtimeDecisionEventsForDate(asOfDate),
+    buildActualReceiptPortfolioAuditForDate(asOfDate),
+    buildMinuteNormalizedPortfolioAuditForDate(asOfDate),
+    buildOutcomeLabelsForDate(asOfDate),
+  ]);
+  const divergence = await buildDivergenceHypotheses(asOfDate);
   const strategyDefinitions = [
     {
       versionId: FORWARD_STRATEGY_VERSION,
@@ -820,6 +880,14 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       startDate: KIOXIA_ATR_FORWARD_EVALUATION_START_DATE,
       cutoffDate: KIOXIA_ATR_FORWARD_LEARNING_CUTOFF_DATE,
       replay: () => replayKioxiaAtrForwardShadowDay(sourceEvents, shadowEvents),
+    },
+    {
+      versionId: TEL_EXECUTABLE_CONFIRM_VERSION,
+      symbol: "8035",
+      title: "8035 次イベント・ブレイク継続確認A案",
+      startDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
+      cutoffDate: TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
+      replay: () => auditTelExecutableConfirmDay(sourceEvents, shadowEvents),
     },
   ] as const;
   const sections: string[] = [];
@@ -863,8 +931,13 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
   注文接続: なし（strategyVersion別シャドーテーブルのみ）
   当日シャドー判断: ${versionEvents.length}件（error=${versionEvents.filter(event => event.resultType === "error").length}, 状態ハッシュ連続不一致=${stateContinuityMismatches}）
   当日固定版再生: ${replayAudit.replayedEvents}判断再生（実時との差=${replayAudit.mismatches}, 不正payload=${replayAudit.invalidPayloads}）
-${lines.join("\n")}`);
+	${lines.join("\n")}`);
   }
+  const activeEntrySymbols = new Set(identity.activeEntrySymbols);
+  const targetSourceEvents = sourceEvents.filter(event => activeEntrySymbols.has(event.symbol));
+  const targetRealtimeDecisionEvents = realtimeDecisionEvents.filter(event => activeEntrySymbols.has(event.symbol));
+  const targetProcessedEvents = targetSourceEvents.filter(event => event.status === "processed").length;
+  const auditJournalGap = Math.max(0, targetProcessedEvents - targetRealtimeDecisionEvents.length);
   return `
 【未見データ前向きシャドー評価】
   build Git SHA: ${identity.buildGitSha ?? "未提供（売買ソース固定hashで照合）"}
@@ -876,6 +949,27 @@ ${lines.join("\n")}`);
   対象銘柄: ${identity.activeEntrySymbols.join(",")}
   注文接続: なし（シャドーテーブルのみ）
   当日受信監査: ${sourceEvents.length}件（processed=${sourceEvents.filter(event => event.status === "processed").length}, failed=${sourceEvents.filter(event => event.status === "failed").length}, processing=${sourceEvents.filter(event => event.status === "processing").length}）
+【8035 現行完全再現監査】
+  戦略版: baseline-8035-current-parity-v1（比較専用・採用審査対象外）
+  結果: ${telParityAudit.skipped === false
+    ? `${telParityAudit.processed}件再生 / 一致${telParityAudit.matched} / 不一致${telParityAudit.mismatched} / 不正payload${telParityAudit.invalidPayloads}`
+    : `未実行 (${telParityAudit.skipped}${"error" in telParityAudit ? `: ${telParityAudit.error}` : ""})`}
+  最初の不一致: ${telParityAudit.skipped === false && telParityAudit.firstMismatch
+    ? JSON.stringify(telParityAudit.firstMismatch)
+    : "なし"}
+  再起動位置変更監査: ${telParityAudit.skipped === false ? (telParityAudit.restartAudit.matched ? "一致" : "不一致") : "未実行"}
+【現行 因果性Gate】
+  現行10銘柄の判断台帳: 期待${targetProcessedEvents}件 / 保存${targetRealtimeDecisionEvents.length}件 / 欠損${auditJournalGap}件
+  因果性: pass=${targetRealtimeDecisionEvents.filter(event => event.causalityStatus === "pass").length} / violation=${targetRealtimeDecisionEvents.filter(event => event.causalityStatus === "violation").length} / unverified=${targetRealtimeDecisionEvents.filter(event => event.causalityStatus === "unverified").length}
+  価格名称: signal_reference / market_observed / executable_price_proxy / simulated_bar_fill（実約定価格はDRY_RUNのため取得なし）
+【10銘柄・891万円 portfolio監査】
+  実受信・実状態更新順: ${actualPortfolio.processed}判断 / 採用${actualPortfolio.accepted} / margin_block${actualPortfolio.marginBlocked} / 決済${actualPortfolio.closed} / 証拠金状態不一致${actualPortfolio.marginStateMismatches}
+  同一分固定優先順位: ${normalizedPortfolio.candidateBatches}候補分 / 採用${normalizedPortfolio.accepted} / margin_block${normalizedPortfolio.marginBlocked} / blocker辺${normalizedPortfolio.blockEdges.length}
+  注意: 固定優先順位版は全発火仮想exit未収録のため、現在はblocker診断専用・portfolio損益比較不可
+【成績乖離原因分析】
+  診断ラベル: ${outcomeLabels.labels}件（完了${outcomeLabels.completed} / 証拠金拒否${outcomeLabels.blocked}）
+  原因候補: ${divergence.hypotheses.length}件（確信度highは未見シャドー再現まで禁止）
+  MFE・MAE・1/3/5分後は診断専用。改善条件にはobservedAt <= decisionAtの特徴量だけ使用可
 ${sections.join("\n")}
 `;
 }

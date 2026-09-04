@@ -1,4 +1,4 @@
-import { eq, ne, desc, gte, inArray, and, or, isNull, lt, sql } from "drizzle-orm";
+import { eq, ne, desc, gte, lte, inArray, and, or, isNull, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -563,6 +563,12 @@ import {
   rtForwardShadowStates,
   rtForwardShadowLocks,
   rtForwardShadowTrades,
+  rtCurrentEngineLocks,
+  rtRealtimeDecisionEvents,
+  rtReplayComparisons,
+  rtPortfolioAuditEvents,
+  rtOutcomeLabels,
+  rtDivergenceHypotheses,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -593,6 +599,16 @@ import {
   type RtForwardShadowState,
   type InsertRtForwardShadowTrade,
   type RtForwardShadowTrade,
+  type InsertRtRealtimeDecisionEvent,
+  type RtRealtimeDecisionEvent,
+  type InsertRtReplayComparison,
+  type RtReplayComparison,
+  type InsertRtPortfolioAuditEvent,
+  type RtPortfolioAuditEvent,
+  type InsertRtOutcomeLabel,
+  type RtOutcomeLabel,
+  type InsertRtDivergenceHypothesis,
+  type RtDivergenceHypothesis,
 } from "../drizzle/schema";
 
 /**
@@ -650,6 +666,21 @@ export async function getRtTradesForDate(tradeDate: string): Promise<RtTrade[]> 
     .from(rtTrades)
     .where(eq(rtTrades.tradeDate, tradeDate))
     .orderBy(desc(rtTrades.id));
+}
+
+/** 同一イベント処理直後に、その銘柄・時刻で最後に保存されたDRY_RUN取引を取得する。 */
+export async function getLatestRtTradeAt(input: {
+  tradeDate: string;
+  symbol: string;
+  tradeTime: string;
+}): Promise<RtTrade | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtTrades).where(and(
+    eq(rtTrades.tradeDate, input.tradeDate),
+    eq(rtTrades.symbol, input.symbol),
+    eq(rtTrades.tradeTime, input.tradeTime),
+  )).orderBy(desc(rtTrades.id)).limit(1))[0] ?? null;
 }
 
 /**
@@ -1417,4 +1448,228 @@ export async function getRtForwardShadowTrades(
   return db.select().from(rtForwardShadowTrades)
     .where(eq(rtForwardShadowTrades.strategyVersion, strategyVersion))
     .orderBy(rtForwardShadowTrades.id);
+}
+
+// ============================================================
+// 現行実時・固定版再生・因果性・共有資金 監査 helpers
+// ============================================================
+
+/** 現行processCandle全体を複数サーバー間でも一列に実行する短時間リース。 */
+export async function acquireRtCurrentEngineLock(input: {
+  lockName: string;
+  ownerToken: string;
+  leaseMs?: number;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.insert(rtCurrentEngineLocks).values({
+      lockName: input.lockName,
+      ownerToken: null,
+      leaseUntil: null,
+    });
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) throw error;
+  }
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  await db.update(rtCurrentEngineLocks).set({
+    ownerToken: input.ownerToken,
+    leaseUntil,
+  }).where(and(
+    eq(rtCurrentEngineLocks.lockName, input.lockName),
+    or(
+      isNull(rtCurrentEngineLocks.ownerToken),
+      isNull(rtCurrentEngineLocks.leaseUntil),
+      lt(rtCurrentEngineLocks.leaseUntil, now),
+      eq(rtCurrentEngineLocks.ownerToken, input.ownerToken),
+    ),
+  ));
+  const row = (await db.select().from(rtCurrentEngineLocks)
+    .where(eq(rtCurrentEngineLocks.lockName, input.lockName)).limit(1))[0];
+  return row?.ownerToken === input.ownerToken;
+}
+
+export async function releaseRtCurrentEngineLock(input: {
+  lockName: string;
+  ownerToken: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtCurrentEngineLocks).set({ ownerToken: null, leaseUntil: null }).where(and(
+    eq(rtCurrentEngineLocks.lockName, input.lockName),
+    eq(rtCurrentEngineLocks.ownerToken, input.ownerToken),
+  ));
+}
+
+export async function insertRtRealtimeDecisionEvent(
+  data: Omit<InsertRtRealtimeDecisionEvent, "id" | "createdAt">,
+): Promise<RtRealtimeDecisionEvent> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtRealtimeDecisionEvents).values(data).onDuplicateKeyUpdate({
+    set: { sourceEventId: data.sourceEventId },
+  });
+  const row = (await db.select().from(rtRealtimeDecisionEvents)
+    .where(eq(rtRealtimeDecisionEvents.sourceEventId, data.sourceEventId)).limit(1))[0];
+  if (!row) throw new Error(`Realtime decision event not found after insert: ${data.sourceEventId}`);
+  return row;
+}
+
+export async function getRtRealtimeDecisionEvent(sourceEventId: string): Promise<RtRealtimeDecisionEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtRealtimeDecisionEvents)
+    .where(eq(rtRealtimeDecisionEvents.sourceEventId, sourceEventId)).limit(1))[0] ?? null;
+}
+
+export async function getRtRealtimeDecisionEventsForDate(tradeDate: string): Promise<RtRealtimeDecisionEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtRealtimeDecisionEvents)
+    .where(eq(rtRealtimeDecisionEvents.tradeDate, tradeDate))
+    .orderBy(rtRealtimeDecisionEvents.id);
+}
+
+export async function upsertRtReplayComparison(
+  data: Omit<InsertRtReplayComparison, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtReplayComparisons).values(data).onDuplicateKeyUpdate({
+    set: {
+      engineSequence: data.engineSequence ?? null,
+      matchStatus: data.matchStatus,
+      isFirstMismatch: data.isFirstMismatch,
+      mismatchType: data.mismatchType ?? null,
+      realtimeDecisionId: data.realtimeDecisionId ?? null,
+      realtimeStateHash: data.realtimeStateHash ?? null,
+      replayStateHash: data.replayStateHash ?? null,
+      diffJson: data.diffJson ?? null,
+      replayResultJson: data.replayResultJson ?? null,
+    },
+  });
+}
+
+export async function getRtReplayComparisonsForDate(input: {
+  baselineVersion: string;
+  tradeDate: string;
+}): Promise<RtReplayComparison[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtReplayComparisons).where(and(
+    eq(rtReplayComparisons.baselineVersion, input.baselineVersion),
+    eq(rtReplayComparisons.tradeDate, input.tradeDate),
+  )).orderBy(rtReplayComparisons.id);
+}
+
+export async function upsertRtPortfolioAuditEvent(
+  data: Omit<InsertRtPortfolioAuditEvent, "id" | "createdAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtPortfolioAuditEvents).values(data).onDuplicateKeyUpdate({
+    set: {
+      routeId: data.routeId ?? null,
+      side: data.side ?? null,
+      priorityRank: data.priorityRank ?? null,
+      decision: data.decision,
+      shares: data.shares ?? null,
+      requiredMargin: data.requiredMargin ?? null,
+      marginUsedBefore: data.marginUsedBefore,
+      marginUsedAfter: data.marginUsedAfter,
+      blockerSourceEventId: data.blockerSourceEventId ?? null,
+      blockerSymbol: data.blockerSymbol ?? null,
+      detailJson: data.detailJson,
+    },
+  });
+}
+
+export async function getRtPortfolioAuditEventsForDate(input: {
+  portfolioVersion: string;
+  mode: RtPortfolioAuditEvent["mode"];
+  tradeDate: string;
+}): Promise<RtPortfolioAuditEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtPortfolioAuditEvents).where(and(
+    eq(rtPortfolioAuditEvents.portfolioVersion, input.portfolioVersion),
+    eq(rtPortfolioAuditEvents.mode, input.mode),
+    eq(rtPortfolioAuditEvents.tradeDate, input.tradeDate),
+  )).orderBy(rtPortfolioAuditEvents.id);
+}
+
+export async function upsertRtOutcomeLabel(
+  data: Omit<InsertRtOutcomeLabel, "id" | "createdAt" | "updatedAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtOutcomeLabels).values(data).onDuplicateKeyUpdate({
+    set: {
+      exitSourceEventId: data.exitSourceEventId ?? null,
+      exitPrice: data.exitPrice ?? null,
+      mfePct: data.mfePct ?? null,
+      maePct: data.maePct ?? null,
+      after1mPct: data.after1mPct ?? null,
+      after3mPct: data.after3mPct ?? null,
+      after5mPct: data.after5mPct ?? null,
+      finalPnl: data.finalPnl ?? null,
+      counterfactualJson: data.counterfactualJson ?? null,
+      diagnosisOnly: data.diagnosisOnly,
+      completed: data.completed,
+    },
+  });
+}
+
+export async function getRtOutcomeLabelsForDate(input: {
+  baselineVersion: string;
+  tradeDate: string;
+}): Promise<RtOutcomeLabel[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtOutcomeLabels).where(and(
+    eq(rtOutcomeLabels.baselineVersion, input.baselineVersion),
+    eq(rtOutcomeLabels.tradeDate, input.tradeDate),
+  )).orderBy(rtOutcomeLabels.id);
+}
+
+export async function getRtOutcomeLabelsThroughDate(input: {
+  baselineVersion: string;
+  asOfDate: string;
+}): Promise<RtOutcomeLabel[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtOutcomeLabels).where(and(
+    eq(rtOutcomeLabels.baselineVersion, input.baselineVersion),
+    lte(rtOutcomeLabels.tradeDate, input.asOfDate),
+  )).orderBy(rtOutcomeLabels.id);
+}
+
+export async function upsertRtDivergenceHypothesis(
+  data: Omit<InsertRtDivergenceHypothesis, "id" | "createdAt" | "updatedAt">,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtDivergenceHypotheses).values(data).onDuplicateKeyUpdate({
+    set: {
+      confidence: data.confidence,
+      realtimeLossCount: data.realtimeLossCount,
+      historicalLossHit: data.historicalLossHit,
+      historicalWinHit: data.historicalWinHit,
+      preventedLossYen: data.preventedLossYen,
+      lostWinYen: data.lostWinYen,
+      followingTradeDeltaYen: data.followingTradeDeltaYen,
+      portfolioDeltaYen: data.portfolioDeltaYen,
+      status: data.status,
+      metricsJson: data.metricsJson,
+    },
+  });
+}
+
+export async function getRtDivergenceHypotheses(asOfDate: string): Promise<RtDivergenceHypothesis[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtDivergenceHypotheses)
+    .where(eq(rtDivergenceHypotheses.asOfDate, asOfDate))
+    .orderBy(rtDivergenceHypotheses.id);
 }

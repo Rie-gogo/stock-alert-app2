@@ -7,11 +7,27 @@ const dbMock = vi.hoisted(() => ({
   getRtSourceEvent: vi.fn(),
 }));
 const processCandleMock = vi.hoisted(() => vi.fn());
+const auditedCurrentMock = vi.hoisted(() => vi.fn(async (input: { run: () => Promise<unknown> }) => ({
+  result: await input.run(),
+  audit: {
+    saved: true,
+    engineSequence: 1,
+    resultType: "no_signal",
+    routeId: null,
+    marginUsedBefore: 0,
+    marginUsedAfter: 0,
+    stateHashBefore: "before",
+    stateHashAfter: "after",
+    causalityStatus: "pass",
+    causalityReason: "test",
+  },
+})));
 const shadowMock = vi.hoisted(() => vi.fn());
 const boardMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./db", () => dbMock);
 vi.mock("./realtimeSimEngine", () => ({ processCandle: processCandleMock }));
+vi.mock("./realtimeDecisionAudit", () => ({ processCurrentEngineAudited: auditedCurrentMock }));
 vi.mock("./forwardShadow", () => ({ processForwardShadowSourceEvent: shadowMock }));
 vi.mock("./kabuStation", () => ({ updateOrderBook: boardMock }));
 
@@ -36,6 +52,21 @@ describe("受信イベントの一度きり処理", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.getPriorRtSourceEventForCandle.mockResolvedValue(null);
+    dbMock.getRtSourceEvent.mockResolvedValue({
+      id: 1,
+      sourceEventId: input.sourceEventId,
+      relaySessionId: input.relaySessionId,
+      eventSeq: input.eventSeq,
+      symbol: input.symbol,
+      tradeDate: input.tradeDate,
+      candleTime: input.candleTime,
+      payloadHash: input.payloadHash,
+      payloadJson: input,
+      relayReceivedAtMs: null,
+      relaySentAtMs: null,
+      cloudReceivedAtMs: Date.now(),
+      status: "processing",
+    });
     processCandleMock.mockResolvedValue({ symbol: "8035", tradeDate: "2026-09-03", candleTime: "10:00", action: "none" });
     shadowMock.mockResolvedValue({ skipped: false, results: [] });
   });

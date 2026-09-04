@@ -32,7 +32,7 @@ export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
 
-  /** 既存4候補＋8035 depth版改善案AのstrategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
+  /** strategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
@@ -42,7 +42,13 @@ export const tradingRouter = router({
         FUJIKURA_FORWARD_STRATEGY_VERSION,
         KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
         KIOXIA_FORWARD_STRATEGY_VERSION,
+        SOFTBANK_DEPTH_CONFIRM_VERSION,
+        SOFTBANK_RR2_PROTECT_VERSION,
       } = await import("../runtimeIdentity");
+      const {
+        SOFTBANK_FORWARD_COLLECTION_START_DATE,
+        SOFTBANK_FORWARD_FORMAL_START_DATE,
+      } = await import("../softbankForwardShadow");
       const {
         TEL_AUDIT_EVALUATION_START_DATE,
         TEL_CAUSALITY_AUDIT_VERSION,
@@ -135,6 +141,24 @@ export const tradingRouter = router({
             purpose: "candidate" as const,
             eligibleForAdoption: true,
             evaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+          },
+          {
+            strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION,
+            symbol: "9984",
+            summaries: await getForwardShadowSummary(input.asOfDate, SOFTBANK_DEPTH_CONFIRM_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: SOFTBANK_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: SOFTBANK_RR2_PROTECT_VERSION,
+            symbol: "9984",
+            summaries: await getForwardShadowSummary(input.asOfDate, SOFTBANK_RR2_PROTECT_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: SOFTBANK_FORWARD_FORMAL_START_DATE,
           },
         ],
         auditStrategies: [

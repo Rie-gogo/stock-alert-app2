@@ -45,6 +45,8 @@ import {
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  TAIYO_BOARD_DEMAND_VERSION,
+  TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
 } from "./runtimeIdentity";
@@ -66,7 +68,14 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("9984 前場10本高値更新LONG A・次イベント100株ask depth継続確認");
     expect(section).toContain(`戦略版: ${SOFTBANK_RR2_PROTECT_VERSION}`);
     expect(section).toContain("9984 前場10本高値更新LONG B・2R出口＋次足利益保護");
+    expect(section).toContain(`戦略版: ${TAIYO_BOARD_DEMAND_VERSION}`);
+    expect(section).toContain("6976 候補B・10本高値更新LONG A・同時点BPR1.30＋大口売り壁なし");
+    expect(section).toContain(`戦略版: ${TAIYO_RR2_PROTECT_VERSION}`);
+    expect(section).toContain("6976 候補B・10本高値更新LONG B・2R出口＋次足利益保護");
     expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");
+    expect(section).toContain("6976追加Gate: 案=board_demand");
+    expect(section).toContain("板需給案は追加0.80基準なし");
+    expect(section).toContain("6976追加Gate: 案=rr2_protect");
     expect(section).toContain("TP到達=0/0（未算出）");
     expect(section).toContain("891万円比較=manual_comparison_required");
     expect(section).toContain("対象外（旧版停止・監査保持のみ）");

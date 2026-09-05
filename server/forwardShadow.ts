@@ -38,6 +38,8 @@ import {
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  TAIYO_BOARD_DEMAND_VERSION,
+  TAIYO_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -83,9 +85,18 @@ import {
 } from "./softbankForwardShadow";
 import { auditSoftbankForwardShadowDay } from "./softbankForwardShadowEngine";
 import {
+  TAIYO_FORWARD_COLLECTION_START_DATE,
+  TAIYO_FORWARD_LEARNING_CUTOFF_DATE,
+} from "./taiyoForwardShadow";
+import { auditTaiyoForwardShadowDay } from "./taiyoForwardShadowEngine";
+import {
   applySoftbankAdoptionGate,
   resolveSoftbankAdoptionGate,
 } from "./softbankForwardAdoptionGate";
+import {
+  applyTaiyoAdoptionGate,
+  resolveTaiyoAdoptionGate,
+} from "./taiyoForwardAdoptionGate";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -628,6 +639,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const { processSoftbankForwardShadowSourceEvent } = await import("./softbankForwardShadowEngine");
     return processSoftbankForwardShadowSourceEvent(input);
   }
+  if (input.candle.symbol === "6976") {
+    const { processTaiyoForwardShadowSourceEvent } = await import("./taiyoForwardShadowEngine");
+    return processTaiyoForwardShadowSourceEvent(input);
+  }
   if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_shadow_symbol" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) {
     console.error("[ForwardShadow] f6878060売買ロジック固定ハッシュ不一致のため計測停止");
@@ -778,7 +793,13 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       realizedPayoffRatio: metrics.realizedPayoffRatio,
       trades: modeTrades,
     });
-    const candidateDecision = applySoftbankAdoptionGate(lifecycleDecision, softbankAdoptionGate);
+    const taiyoAdoptionGate = resolveTaiyoAdoptionGate({
+      strategyVersion,
+      realizedPayoffRatio: metrics.realizedPayoffRatio,
+      trades: modeTrades,
+    });
+    const softbankDecision = applySoftbankAdoptionGate(lifecycleDecision, softbankAdoptionGate);
+    const candidateDecision = applyTaiyoAdoptionGate(softbankDecision, taiyoAdoptionGate);
     return {
       mode,
       metrics,
@@ -786,6 +807,7 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       routeParityGate,
       formalEvaluationGate,
       softbankAdoptionGate,
+      taiyoAdoptionGate,
       pilotOnly: mode === "capital_constrained",
     };
   });
@@ -996,6 +1018,26 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
+    {
+      versionId: TAIYO_BOARD_DEMAND_VERSION,
+      symbol: "6976",
+      title: "6976 候補B・10本高値更新LONG A・同時点BPR1.30＋大口売り壁なし",
+      startDate: TAIYO_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: TAIYO_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => auditTaiyoForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "board_demand"),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
+    {
+      versionId: TAIYO_RR2_PROTECT_VERSION,
+      symbol: "6976",
+      title: "6976 候補B・10本高値更新LONG B・2R出口＋次足利益保護",
+      startDate: TAIYO_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: TAIYO_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => auditTaiyoForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "rr2_protect"),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
   ] as const;
   const sections: string[] = [];
   for (const definition of strategyDefinitions) {
@@ -1038,6 +1080,9 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
         item.softbankAdoptionGate.applicable
           ? `    9984追加Gate: 実現平均利益÷平均損失=${formatNullable(item.softbankAdoptionGate.realizedPayoffRatio)}（最低0.80、${item.softbankAdoptionGate.payoffStatus}） / TP到達=${item.softbankAdoptionGate.takeProfitExits}/${item.softbankAdoptionGate.completedTrades}（${item.softbankAdoptionGate.takeProfitReachRatePct === null ? "未算出" : `${item.softbankAdoptionGate.takeProfitReachRatePct.toFixed(2)}%`}） / 891万円比較=${item.softbankAdoptionGate.portfolioGate.status}`
           : "    9984追加Gate: 対象外",
+        item.taiyoAdoptionGate.applicable
+          ? `    6976追加Gate: 案=${item.taiyoAdoptionGate.strategyVariant} / 実現平均利益÷平均損失=${formatNullable(item.taiyoAdoptionGate.realizedPayoffRatio)}（${item.taiyoAdoptionGate.realizedPayoffRatioRequired ? `最低0.80、${item.taiyoAdoptionGate.payoffStatus}` : "板需給案は追加0.80基準なし"}） / TP到達=${item.taiyoAdoptionGate.takeProfitExits}/${item.taiyoAdoptionGate.completedTrades}（${item.taiyoAdoptionGate.takeProfitReachRatePct === null ? "未算出" : `${item.taiyoAdoptionGate.takeProfitReachRatePct.toFixed(2)}%`}） / 891万円比較=${item.taiyoAdoptionGate.portfolioGate.status}`
+          : "    6976追加Gate: 対象外",
         `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件到達時も継続判定のみ: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
         `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
       ].join("\n");

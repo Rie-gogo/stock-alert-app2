@@ -16,6 +16,8 @@ export const TEL_EXECUTABLE_CONFIRM_VERSION = "candidate-8035-executable-confirm
 export const TEL_EXECUTABLE_DEPTH_VERSION = "candidate-8035-executable-depth-v2";
 export const SOFTBANK_DEPTH_CONFIRM_VERSION = "forward-shadow-9984-breakout-depth-confirm-v1";
 export const SOFTBANK_RR2_PROTECT_VERSION = "forward-shadow-9984-breakout-rr2-protect-v1";
+export const TAIYO_BOARD_DEMAND_VERSION = "candidate-6976-board-demand-bpr130-v1";
+export const TAIYO_RR2_PROTECT_VERSION = "candidate-6976-rr2-protect-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -25,6 +27,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   TEL_EXECUTABLE_DEPTH_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  TAIYO_BOARD_DEMAND_VERSION,
+  TAIYO_RR2_PROTECT_VERSION,
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

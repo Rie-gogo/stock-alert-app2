@@ -44,11 +44,17 @@ export const tradingRouter = router({
         KIOXIA_FORWARD_STRATEGY_VERSION,
         SOFTBANK_DEPTH_CONFIRM_VERSION,
         SOFTBANK_RR2_PROTECT_VERSION,
+        TAIYO_BOARD_DEMAND_VERSION,
+        TAIYO_RR2_PROTECT_VERSION,
       } = await import("../runtimeIdentity");
       const {
         SOFTBANK_FORWARD_COLLECTION_START_DATE,
         SOFTBANK_FORWARD_FORMAL_START_DATE,
       } = await import("../softbankForwardShadow");
+      const {
+        TAIYO_FORWARD_COLLECTION_START_DATE,
+        TAIYO_FORWARD_FORMAL_START_DATE,
+      } = await import("../taiyoForwardShadow");
       const {
         TEL_AUDIT_EVALUATION_START_DATE,
         TEL_CAUSALITY_AUDIT_VERSION,
@@ -159,6 +165,24 @@ export const tradingRouter = router({
             eligibleForAdoption: true,
             collectionStartDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
             evaluationStartDate: SOFTBANK_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: TAIYO_BOARD_DEMAND_VERSION,
+            symbol: "6976",
+            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_BOARD_DEMAND_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: TAIYO_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: TAIYO_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: TAIYO_RR2_PROTECT_VERSION,
+            symbol: "6976",
+            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_RR2_PROTECT_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: TAIYO_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: TAIYO_FORWARD_FORMAL_START_DATE,
           },
         ],
         auditStrategies: [

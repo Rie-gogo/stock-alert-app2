@@ -4,6 +4,8 @@ import {
   FORWARD_EVALUATION_POLICY,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  TAIYO_BOARD_DEMAND_VERSION,
+  TAIYO_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
 } from "./runtimeIdentity";
 
@@ -41,6 +43,8 @@ describe("本番稼働版自己証明", () => {
     expect(identity.strategyVersions).toEqual(expect.arrayContaining([
       SOFTBANK_DEPTH_CONFIRM_VERSION,
       SOFTBANK_RR2_PROTECT_VERSION,
+      TAIYO_BOARD_DEMAND_VERSION,
+      TAIYO_RR2_PROTECT_VERSION,
     ]));
     expect(versions.some(version => version.length > 64)).toBe(true);
     expect(versions.every(version => version.length <= 128)).toBe(true);

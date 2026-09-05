@@ -44,6 +44,8 @@ import {
   FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  TAIYO_BOARD_DEMAND_VERSION,
+  TAIYO_RR2_PROTECT_VERSION,
   TEL_CURRENT_PARITY_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
@@ -233,6 +235,65 @@ describe("8035未見データ前向きシャドー統合", () => {
     ]));
     expect(memory.trades).toHaveLength(4);
     for (const version of [SOFTBANK_DEPTH_CONFIRM_VERSION, SOFTBANK_RR2_PROTECT_VERSION]) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
+  });
+
+  it("6976候補B source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
+    for (let index = 0; index < 20; index += 1) {
+      await processForwardShadowSourceEvent({
+        sourceEventId: `taiyo:${index + 1}`,
+        candle: {
+          symbol: "6976",
+          tradeDate: "2026-09-08",
+          candleTime: `09:${String(25 + index).padStart(2, "0")}`,
+          open: 100,
+          high: 100.2,
+          low: 99.8,
+          close: 100,
+          volume: 100,
+        },
+        board: null,
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo:signal",
+      candle: {
+        symbol: "6976", tradeDate: "2026-09-08", candleTime: "09:45",
+        open: 100.1, high: 101.2, low: 100, close: 101, volume: 100,
+      },
+      board: null,
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo:confirm",
+      candle: {
+        symbol: "6976", tradeDate: "2026-09-08", candleTime: "09:46",
+        open: 101, high: 101.6, low: 100.9, close: 101.5, volume: 100,
+      },
+      board: {
+        asks: [{ price: 101.6, qty: 100 }, { price: 101.7, qty: 100 }],
+        bids: [{ price: 101.4, qty: 150 }, { price: 101.3, qty: 150 }],
+        overSellQty: 0,
+        underBuyQty: 0,
+      },
+      currentAudit: {
+        engineSequence: 22, resultType: "no_signal", routeId: null,
+        marginUsedBefore: 0, marginUsedAfter: 0,
+        stateHashBefore: "before", stateHashAfter: "after",
+        causalityStatus: "pass", causalityReason: "test",
+        boardObservedAtMs: 1_000, relayAssembledAtMs: 1_050, relaySentAtMs: 1_100,
+        cloudReceivedAtMs: 50_000, decisionStartedAtMs: 50_050, decisionCompletedAtMs: 50_200,
+      },
+    });
+
+    expect(new Set(memory.trades.map(item => item.strategyVersion))).toEqual(new Set([
+      TAIYO_BOARD_DEMAND_VERSION,
+      TAIYO_RR2_PROTECT_VERSION,
+    ]));
+    expect(memory.trades).toHaveLength(4);
+    for (const version of [TAIYO_BOARD_DEMAND_VERSION, TAIYO_RR2_PROTECT_VERSION]) {
       expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
       expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
       expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);

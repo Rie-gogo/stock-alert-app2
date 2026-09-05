@@ -1914,4 +1914,5 @@
 - [x] 16時レポート・公開API・RuntimeIdentity・固定版再生へ2案を独立表示する
 - [x] 匿名fixture、本番同型、再探索、板欠損、窓下げ、利益保護同足禁止、日次リセット、時間/前場越境決済、再起動、冪等性、片側障害、clock-safe固定版再生、注文非接続を回帰固定する
 - [x] 型検査、6976関連11ファイル49件、J-Quants鍵依存2件を除く全658件成功・13件skip、本番ビルド、relay Python構文、固定売買hash`42006f0e…`一致、現行`realtimeSimEngine.ts`差分0、DRY_RUN必須・LIVE未承認・注文/通常`rt_trades`非接続を総合監査する
-- [ ] checkpoint保存・自動公開後に本番API/DB/ログ・開始前ゼロ状態を確認し、初回実受信確認の翌営業日を正式開始日として別Gateで有効化する
+- [x] checkpoint`ef58f86f`保存・自動公開後に本番RuntimeIdentity・forward summary・DB・ログを確認する（2 version表示、固定hash一致、DRY_RUN必須、LIVE未承認、formal Gate pending、route parity required、strategy/state/event/trade/lock開始前0、通常`rt_trades`混入0、公開後例外0）
+- [ ] 6976 A/Bの初回実KABU受信後、2 version×2評価方式、engineSequence順、片側再試行、固定版再生、`taiyoCandidateBLong` route parityを確認し、正常なら翌営業日を正式開始日として別Gateで手動有効化する

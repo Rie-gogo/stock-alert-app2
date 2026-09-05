@@ -1916,3 +1916,9 @@
 - [x] 型検査、6976関連11ファイル49件、J-Quants鍵依存2件を除く全658件成功・13件skip、本番ビルド、relay Python構文、固定売買hash`42006f0e…`一致、現行`realtimeSimEngine.ts`差分0、DRY_RUN必須・LIVE未承認・注文/通常`rt_trades`非接続を総合監査する
 - [x] checkpoint`ef58f86f`保存・自動公開後に本番RuntimeIdentity・forward summary・DB・ログを確認する（2 version表示、固定hash一致、DRY_RUN必須、LIVE未承認、formal Gate pending、route parity required、strategy/state/event/trade/lock開始前0、通常`rt_trades`混入0、公開後例外0）
 - [ ] 6976 A/Bの初回実KABU受信後、2 version×2評価方式、engineSequence順、片側再試行、固定版再生、`taiyoCandidateBLong` route parityを確認し、正常なら翌営業日を正式開始日として別Gateで手動有効化する
+
+## 2026-08-26以降 本番実取引＋証拠金ブロック候補集計（2026-09-05）
+- [x] 2026-08-26〜2026-09-04の本番`rt_trades`96行から48入口・48決済を全件対応付け、未決済0件を確認する
+- [x] 同期間に専用経路監査へ永続化された`margin_block`5件を抽出し、保存KABU 1分足と各現行出口仕様だけで100株仮想決済する（candidate台帳は期間内0件、揮発性signalHistoryの未永続分は網羅保証外）
+- [x] 実取引と証拠金ブロック候補を区別し、21経路・53件の勝敗と勝率を同一件数基準で集計する（実損益と100株仮想損益は非合算）
+- [x] `rt_daily_summaries`との件数48・22勝26敗・確定損益-243,548円一致を検算し、勝率順の経路集計と全53件明細レポートを作成する

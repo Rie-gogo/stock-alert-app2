@@ -40,6 +40,8 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SUMCO_TIME_15_VERSION,
+  SUMCO_VOLUME_110_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
@@ -97,6 +99,11 @@ import {
 } from "./socionextForwardShadow";
 import { auditSocionextForwardShadowDay } from "./socionextForwardShadowEngine";
 import {
+  SUMCO_FORWARD_COLLECTION_START_DATE,
+  SUMCO_FORWARD_LEARNING_CUTOFF_DATE,
+} from "./sumcoForwardShadow";
+import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
+import {
   applySoftbankAdoptionGate,
   resolveSoftbankAdoptionGate,
 } from "./softbankForwardAdoptionGate";
@@ -108,6 +115,10 @@ import {
   applySocionextAdoptionGate,
   resolveSocionextAdoptionGate,
 } from "./socionextForwardAdoptionGate";
+import {
+  applySumcoAdoptionGate,
+  resolveSumcoAdoptionGate,
+} from "./sumcoForwardAdoptionGate";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -658,6 +669,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const { processSocionextForwardShadowSourceEvent } = await import("./socionextForwardShadowEngine");
     return processSocionextForwardShadowSourceEvent(input);
   }
+  if (input.candle.symbol === "3436") {
+    const { processSumcoForwardShadowSourceEvent } = await import("./sumcoForwardShadowEngine");
+    return processSumcoForwardShadowSourceEvent(input);
+  }
   if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_shadow_symbol" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) {
     console.error("[ForwardShadow] f6878060売買ロジック固定ハッシュ不一致のため計測停止");
@@ -814,9 +829,11 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       trades: modeTrades,
     });
     const socionextAdoptionGate = resolveSocionextAdoptionGate(strategyVersion);
+    const sumcoAdoptionGate = resolveSumcoAdoptionGate(strategyVersion);
     const softbankDecision = applySoftbankAdoptionGate(lifecycleDecision, softbankAdoptionGate);
     const taiyoDecision = applyTaiyoAdoptionGate(softbankDecision, taiyoAdoptionGate);
-    const candidateDecision = applySocionextAdoptionGate(taiyoDecision, socionextAdoptionGate);
+    const socionextDecision = applySocionextAdoptionGate(taiyoDecision, socionextAdoptionGate);
+    const candidateDecision = applySumcoAdoptionGate(socionextDecision, sumcoAdoptionGate);
     return {
       mode,
       metrics,
@@ -826,6 +843,7 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       softbankAdoptionGate,
       taiyoAdoptionGate,
       socionextAdoptionGate,
+      sumcoAdoptionGate,
       pilotOnly: mode === "capital_constrained",
     };
   });
@@ -1076,6 +1094,26 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
+    {
+      versionId: SUMCO_VOLUME_110_VERSION,
+      symbol: "3436",
+      title: "3436 前場15本安値更新SHORT A・出来高1.10倍＋15分2R",
+      startDate: SUMCO_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: SUMCO_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => auditSumcoForwardShadowDay(sourceEvents, shadowEvents, "volume_110"),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
+    {
+      versionId: SUMCO_TIME_15_VERSION,
+      symbol: "3436",
+      title: "3436 前場15本安値更新SHORT B・現行入口＋15分2R",
+      startDate: SUMCO_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: SUMCO_FORWARD_LEARNING_CUTOFF_DATE,
+      replay: () => auditSumcoForwardShadowDay(sourceEvents, shadowEvents, "time_15"),
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
   ] as const;
   const sections: string[] = [];
   for (const definition of strategyDefinitions) {
@@ -1124,6 +1162,9 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
         item.socionextAdoptionGate.applicable
           ? `    6526追加Gate: 案=${item.socionextAdoptionGate.strategyVariant} / 51保存日勝率=${item.socionextAdoptionGate.historicalSelection.winRatePct?.toFixed(2)}% / 役割=${item.socionextAdoptionGate.historicalSelection.role} / 採用適格=${item.socionextAdoptionGate.eligibleForAdoption} / 891万円比較=${item.socionextAdoptionGate.portfolioGate.status}`
           : "    6526追加Gate: 対象外",
+        item.sumcoAdoptionGate.applicable
+          ? `    3436追加Gate: 案=${item.sumcoAdoptionGate.strategyVariant} / 選定用34保存日勝率=${item.sumcoAdoptionGate.historicalSelection.winRatePct?.toFixed(2)}% / 役割=${item.sumcoAdoptionGate.historicalSelection.role} / 追加5日既知欠損=${item.sumcoAdoptionGate.historicalSelection.supplementHasKnownGap} / 891万円比較=${item.sumcoAdoptionGate.portfolioGate.status}`
+          : "    3436追加Gate: 対象外",
         `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件到達時も継続判定のみ: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
         `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
       ].join("\n");

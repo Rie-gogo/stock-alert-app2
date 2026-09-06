@@ -1967,3 +1967,17 @@
 - [x] 4案を件数、勝率、損益、PF、最大DD、0.05/0.10%不利、期間分割、最新5/10日、閾値感度で比較する
 - [x] 実行可能価格近似の限界、次足始値のリアルタイム再現不可、未来情報、受信遅延、日次終了、`sumcoBreakdownShort` route parity、4週10件・891万円Gateを監査する
 - [x] 異なる観点と完全再現性から、出来高1.10倍案を第一、現行入口15分案を第二に選び、下落継続案は予備診断、ATRスコア案は仕様再固定まで保留と報告書へ整理する
+
+## 3436 VOLUME110/TIME15前向きシャドー実装（2026-09-06）
+- [x] 2026-08-31〜09-04の3436保存KABU 1分足を29日fixtureへ追補固定し、選定用34日と正式未見期間の境界を固定する
+- [x] VOLUME110案を現行入口＋出来高1.10倍、SL0.8%／TP1.6%／15分、拒否後再探索の独立純粋状態機械として実装する
+- [x] TIME15案を現行入口維持、SL0.8%／TP1.6%／15分、拒否後再探索の独立純粋状態機械として実装する
+- [x] 両案の現行同型30本ウォームアップ、SL優先、SHORT窓上げ不利始値、15分境界欠損時の次受信足決済、日次枠、日次リセット、JSON再起動復元を固定する
+- [x] A/Bを短い別strategyVersion・別state・別event・別trade・2評価方式で永続化し、state lock・冪等性・variant/mode単位の部分失敗再試行を実装する
+- [x] 同一3436 source eventをengineSequence永続queueからA/Bへ独立配信し、現行売買・OrderBridge・通常`rt_trades`へ接続しない
+- [x] 両案を`sumcoBreakdownShort` route parityへ紐付け、4週10件・勝率70%・PF1.5・期待値+0.15R・0.10%不利・891万円portfolio非悪化をGate化する
+- [x] RuntimeIdentity・固定版再生・16時レポート・公開forward summaryへA/Bを独立統合し、自動採用・自動置換を禁止する
+- [x] 匿名fixture・29/34日固定再生・dispatch・API・report・Gate・冪等性・部分障害・注文非接続の回帰を追加する
+- [x] 型検査、対象10ファイル51件、J-Quants鍵依存2件を除く全712件成功・13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、現行売買差分0、DRY_RUN/LIVE拒否、残留Vitestなしを総合監査する
+- [ ] checkpoint保存・自動公開後に本番RuntimeIdentity・summary・DB開始前ゼロ・通常`rt_trades`非混入・公開後ログを確認する
+- [ ] 初回実KABU受信後にA/B×2評価方式・engineSequence順・固定版再生・route parityを確認し、正式評価は翌営業日以降に手動有効化する

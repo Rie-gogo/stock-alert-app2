@@ -8,6 +8,8 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SUMCO_TIME_15_VERSION,
+  SUMCO_VOLUME_110_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
@@ -40,6 +42,16 @@ describe("候補経路別parity Gate", () => {
       expect(resolveForwardRouteParityGate(version)).toMatchObject({
         status: "required",
         requiredRoutes: ["socionextConfirmedLong"],
+        evidence: { kind: "missing_route_parity" },
+      });
+    }
+  });
+
+  it("3436 A/Bは現行sumcoBreakdownShort経路のparity証拠を必須にする", () => {
+    for (const version of [SUMCO_VOLUME_110_VERSION, SUMCO_TIME_15_VERSION]) {
+      expect(resolveForwardRouteParityGate(version)).toMatchObject({
+        status: "required",
+        requiredRoutes: ["sumcoBreakdownShort"],
         evidence: { kind: "missing_route_parity" },
       });
     }

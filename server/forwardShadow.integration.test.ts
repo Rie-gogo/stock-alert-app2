@@ -46,6 +46,8 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SUMCO_TIME_15_VERSION,
+  SUMCO_VOLUME_110_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_CURRENT_PARITY_VERSION,
@@ -342,6 +344,44 @@ describe("8035未見データ前向きシャドー統合", () => {
     ]));
     expect(memory.trades).toHaveLength(4);
     for (const version of [SOCIONEXT_INITIAL_STRENGTH_VERSION, SOCIONEXT_CONFIRM_STRENGTH_VERSION]) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
+  });
+
+  it("3436前場SHORT source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
+    for (let index = 0; index < 30; index += 1) {
+      await processForwardShadowSourceEvent({
+        sourceEventId: `sumco:${index + 1}`,
+        candle: {
+          symbol: "3436",
+          tradeDate: "2026-09-08",
+          candleTime: `09:${String(index).padStart(2, "0")}`,
+          open: 100,
+          high: 100.2,
+          low: 99.8,
+          close: 100,
+          volume: 100,
+        },
+        board: null,
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "sumco:signal",
+      candle: {
+        symbol: "3436", tradeDate: "2026-09-08", candleTime: "09:30",
+        open: 100, high: 100.1, low: 98.4, close: 98.5, volume: 110,
+      },
+      board: null,
+    });
+
+    expect(new Set(memory.trades.map(item => item.strategyVersion))).toEqual(new Set([
+      SUMCO_VOLUME_110_VERSION,
+      SUMCO_TIME_15_VERSION,
+    ]));
+    expect(memory.trades).toHaveLength(4);
+    for (const version of [SUMCO_VOLUME_110_VERSION, SUMCO_TIME_15_VERSION]) {
       expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
       expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
       expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);

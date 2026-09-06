@@ -6,6 +6,8 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SUMCO_TIME_15_VERSION,
+  SUMCO_VOLUME_110_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
@@ -49,6 +51,8 @@ describe("本番稼働版自己証明", () => {
       TAIYO_RR2_PROTECT_VERSION,
       SOCIONEXT_INITIAL_STRENGTH_VERSION,
       SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+      SUMCO_VOLUME_110_VERSION,
+      SUMCO_TIME_15_VERSION,
     ]));
     expect(versions.some(version => version.length > 64)).toBe(true);
     expect(versions.every(version => version.length <= 128)).toBe(true);

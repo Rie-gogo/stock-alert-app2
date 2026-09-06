@@ -30,6 +30,8 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SUMCO_TIME_15_VERSION,
+  SUMCO_VOLUME_110_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
 } from "./runtimeIdentity";
@@ -38,7 +40,7 @@ import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
 import { TEL_EXECUTABLE_DEPTH_VERSION } from "./telExecutableConfirmDepth";
 
 describe("trading.getForwardShadowSummary", () => {
-  it("既存順序を保ち、8035監査版・9984・6976・6526のA/Bを独立追加する", async () => {
+  it("既存順序を保ち、8035監査版・9984・6976・6526・3436のA/Bを独立追加する", async () => {
     const caller = tradingRouter.createCaller({} as never);
     const result = await caller.getForwardShadowSummary({ asOfDate: "2026-09-04" });
 
@@ -58,6 +60,8 @@ describe("trading.getForwardShadowSummary", () => {
       { strategyVersion: TAIYO_RR2_PROTECT_VERSION, symbol: "6976" },
       { strategyVersion: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526" },
       { strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526" },
+      { strategyVersion: SUMCO_VOLUME_110_VERSION, symbol: "3436" },
+      { strategyVersion: SUMCO_TIME_15_VERSION, symbol: "3436" },
     ]);
     expect(result.strategies[4]).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
     expect(result.strategies[5]).toMatchObject({ eligibleForAdoption: true, purpose: "candidate" });
@@ -97,6 +101,18 @@ describe("trading.getForwardShadowSummary", () => {
       collectionStartDate: "2026-09-07",
       evaluationStartDate: "2026-09-08",
     });
+    expect(result.strategies[12]).toMatchObject({
+      eligibleForAdoption: true,
+      purpose: "candidate",
+      collectionStartDate: "2026-09-07",
+      evaluationStartDate: "2026-09-08",
+    });
+    expect(result.strategies[13]).toMatchObject({
+      eligibleForAdoption: true,
+      purpose: "candidate",
+      collectionStartDate: "2026-09-07",
+      evaluationStartDate: "2026-09-08",
+    });
     expect(result.auditStrategies).toEqual([
       expect.objectContaining({ strategyVersion: TEL_CURRENT_PARITY_VERSION, purpose: "parity_only", eligibleForAdoption: false }),
       expect.objectContaining({ strategyVersion: TEL_CAUSALITY_AUDIT_VERSION, purpose: "causality_audit", eligibleForAdoption: false }),
@@ -106,7 +122,7 @@ describe("trading.getForwardShadowSummary", () => {
       brokerExecutionPrice: "unavailable_in_dry_run",
       automaticAdoption: false,
     });
-    expect(summaryMock).toHaveBeenCalledTimes(12);
+    expect(summaryMock).toHaveBeenCalledTimes(14);
     expect(summaryMock).toHaveBeenNthCalledWith(3, "2026-09-04", KIOXIA_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(4, "2026-09-04", KIOXIA_ATR_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(5, "2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
@@ -117,5 +133,7 @@ describe("trading.getForwardShadowSummary", () => {
     expect(summaryMock).toHaveBeenNthCalledWith(10, "2026-09-04", TAIYO_RR2_PROTECT_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(11, "2026-09-04", SOCIONEXT_INITIAL_STRENGTH_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(12, "2026-09-04", SOCIONEXT_CONFIRM_STRENGTH_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(13, "2026-09-04", SUMCO_VOLUME_110_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(14, "2026-09-04", SUMCO_TIME_15_VERSION);
   });
 });

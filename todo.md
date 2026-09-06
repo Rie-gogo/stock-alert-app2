@@ -2004,3 +2004,17 @@
 - [x] 前向き同時点boardで評価する「bid 100株depth入口＋0.10%追随上限、ask 100株depth出口＋exit intent再試行」の実行品質案を設計する
 - [x] 2案を原因、入口時点、出口、取引頻度、TP/SL、再探索、因果性、正式評価Gateで比較し、利益保護・確認下落幅追加は過去損益悪化のため不採用と確認する
 - [x] 第一を現行入口維持＋2R/45分出口、第二を同時点depth実行確認とし、過去51日・9/3〜4を選定資料に限定して未見評価から除外する固定仕様を報告書へ整理する
+
+## 6976後場反転SHORT 2R出口/depth実行品質シャドー実装（2026-09-06）
+- [x] 2R出口案を現行初動＋1本確認、09:00以降始値、SL0.8%／TP1.6%／45分、確認失敗後再探索の独立状態機械として実装する
+- [x] depth案を次イベントbid側100株VWAP、確認終値以下、元5本安値未満、不利差0.10%以内、clock-safe鮮度5秒で実装する
+- [x] depth案のSL0.8%／TP1.6%／45分出口をask側100株VWAPで実行し、板不良時は理由固定exit intentを保持して次イベントで再試行する
+- [x] 両案のSL優先、SHORT窓上げ不利始値、時間境界、日次枠非消費・元初動再利用禁止、日次リセット、JSON再起動復元を固定する
+- [x] A/Bを短い別strategyVersion・別state・別event・別trade・2評価方式で永続化し、state lock・冪等性・variant/mode部分失敗再試行を実装する
+- [x] 同一6976 source eventをengineSequence永続queueからA/Bへ独立配信し、現行売買・OrderBridge・通常`rt_trades`へ接続しない
+- [x] 両案を`taiyoAfternoonReversal`のSHORT側route parityへ紐付け、4週10件・勝率70%・PF1.5・期待値+0.15R・0.10%不利・891万円非悪化をGate化する
+- [x] RuntimeIdentity・固定版再生・16時レポート・公開forward summaryへA/Bを独立統合し、自動採用・自動置換を禁止する
+- [x] 匿名fixture・実depth2日・exit intent・dispatch・API・report・Gate・冪等性・部分障害・注文非接続の回帰を追加し、選定用51日理論成績を専用Gateへ固定する
+- [x] 型検査、対象9ファイル53件、J-Quants鍵依存2件を除く全738件成功・13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、現行売買差分0、DRY_RUN/LIVE拒否、残留Vitestなしを総合監査する
+- [ ] checkpoint保存・自動公開後に本番RuntimeIdentity・summary・DB開始前ゼロ・通常`rt_trades`非混入・公開後ログを確認する
+- [ ] 初回実KABU受信後にA/B×2評価方式・engineSequence順・depth入口/出口・exit intent・固定版再生・route parityを確認し、正式評価は翌営業日以降に手動有効化する

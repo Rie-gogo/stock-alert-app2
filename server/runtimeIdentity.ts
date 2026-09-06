@@ -22,6 +22,8 @@ export const SOCIONEXT_INITIAL_STRENGTH_VERSION = "candidate-6526-initial-streng
 export const SOCIONEXT_CONFIRM_STRENGTH_VERSION = "candidate-6526-confirm-strength-daily-stop-v1";
 export const SUMCO_VOLUME_110_VERSION = "candidate-3436-volume110-time15-v1";
 export const SUMCO_TIME_15_VERSION = "candidate-3436-current-entry-time15-v1";
+export const TAIYO_AFTERNOON_RR2_VERSION = "candidate-6976-afternoon-short-rr2-45-v1";
+export const TAIYO_AFTERNOON_DEPTH_VERSION = "candidate-6976-afternoon-short-depth-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -37,6 +39,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SUMCO_VOLUME_110_VERSION,
   SUMCO_TIME_15_VERSION,
+  TAIYO_AFTERNOON_RR2_VERSION,
+  TAIYO_AFTERNOON_DEPTH_VERSION,
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

@@ -32,6 +32,8 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
+  TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
 } from "./runtimeIdentity";
@@ -58,6 +60,8 @@ describe("trading.getForwardShadowSummary", () => {
       { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984" },
       { strategyVersion: TAIYO_BOARD_DEMAND_VERSION, symbol: "6976" },
       { strategyVersion: TAIYO_RR2_PROTECT_VERSION, symbol: "6976" },
+      { strategyVersion: TAIYO_AFTERNOON_RR2_VERSION, symbol: "6976" },
+      { strategyVersion: TAIYO_AFTERNOON_DEPTH_VERSION, symbol: "6976" },
       { strategyVersion: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526" },
       { strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526" },
       { strategyVersion: SUMCO_VOLUME_110_VERSION, symbol: "3436" },
@@ -90,8 +94,8 @@ describe("trading.getForwardShadowSummary", () => {
       evaluationStartDate: "2026-09-08",
     });
     expect(result.strategies[10]).toMatchObject({
-      eligibleForAdoption: false,
-      purpose: "diagnostic_candidate",
+      eligibleForAdoption: true,
+      purpose: "candidate",
       collectionStartDate: "2026-09-07",
       evaluationStartDate: "2026-09-08",
     });
@@ -102,12 +106,24 @@ describe("trading.getForwardShadowSummary", () => {
       evaluationStartDate: "2026-09-08",
     });
     expect(result.strategies[12]).toMatchObject({
+      eligibleForAdoption: false,
+      purpose: "diagnostic_candidate",
+      collectionStartDate: "2026-09-07",
+      evaluationStartDate: "2026-09-08",
+    });
+    expect(result.strategies[13]).toMatchObject({
       eligibleForAdoption: true,
       purpose: "candidate",
       collectionStartDate: "2026-09-07",
       evaluationStartDate: "2026-09-08",
     });
-    expect(result.strategies[13]).toMatchObject({
+    expect(result.strategies[14]).toMatchObject({
+      eligibleForAdoption: true,
+      purpose: "candidate",
+      collectionStartDate: "2026-09-07",
+      evaluationStartDate: "2026-09-08",
+    });
+    expect(result.strategies[15]).toMatchObject({
       eligibleForAdoption: true,
       purpose: "candidate",
       collectionStartDate: "2026-09-07",
@@ -122,7 +138,7 @@ describe("trading.getForwardShadowSummary", () => {
       brokerExecutionPrice: "unavailable_in_dry_run",
       automaticAdoption: false,
     });
-    expect(summaryMock).toHaveBeenCalledTimes(14);
+    expect(summaryMock).toHaveBeenCalledTimes(16);
     expect(summaryMock).toHaveBeenNthCalledWith(3, "2026-09-04", KIOXIA_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(4, "2026-09-04", KIOXIA_ATR_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(5, "2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
@@ -131,9 +147,11 @@ describe("trading.getForwardShadowSummary", () => {
     expect(summaryMock).toHaveBeenNthCalledWith(8, "2026-09-04", SOFTBANK_RR2_PROTECT_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(9, "2026-09-04", TAIYO_BOARD_DEMAND_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(10, "2026-09-04", TAIYO_RR2_PROTECT_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(11, "2026-09-04", SOCIONEXT_INITIAL_STRENGTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(12, "2026-09-04", SOCIONEXT_CONFIRM_STRENGTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(13, "2026-09-04", SUMCO_VOLUME_110_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(14, "2026-09-04", SUMCO_TIME_15_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(11, "2026-09-04", TAIYO_AFTERNOON_RR2_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(12, "2026-09-04", TAIYO_AFTERNOON_DEPTH_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(13, "2026-09-04", SOCIONEXT_INITIAL_STRENGTH_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(14, "2026-09-04", SOCIONEXT_CONFIRM_STRENGTH_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(15, "2026-09-04", SUMCO_VOLUME_110_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(16, "2026-09-04", SUMCO_TIME_15_VERSION);
   });
 });

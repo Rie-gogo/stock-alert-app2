@@ -48,6 +48,8 @@ export const tradingRouter = router({
         SOCIONEXT_INITIAL_STRENGTH_VERSION,
         SUMCO_TIME_15_VERSION,
         SUMCO_VOLUME_110_VERSION,
+        TAIYO_AFTERNOON_DEPTH_VERSION,
+        TAIYO_AFTERNOON_RR2_VERSION,
         TAIYO_BOARD_DEMAND_VERSION,
         TAIYO_RR2_PROTECT_VERSION,
       } = await import("../runtimeIdentity");
@@ -59,6 +61,10 @@ export const tradingRouter = router({
         TAIYO_FORWARD_COLLECTION_START_DATE,
         TAIYO_FORWARD_FORMAL_START_DATE,
       } = await import("../taiyoForwardShadow");
+      const {
+        TAIYO_AFTERNOON_COLLECTION_START_DATE,
+        TAIYO_AFTERNOON_FORMAL_START_DATE,
+      } = await import("../taiyoAfternoonForwardShadow");
       const {
         SOCIONEXT_FORWARD_COLLECTION_START_DATE,
         SOCIONEXT_FORWARD_FORMAL_START_DATE,
@@ -195,6 +201,24 @@ export const tradingRouter = router({
             eligibleForAdoption: true,
             collectionStartDate: TAIYO_FORWARD_COLLECTION_START_DATE,
             evaluationStartDate: TAIYO_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: TAIYO_AFTERNOON_RR2_VERSION,
+            symbol: "6976",
+            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_AFTERNOON_RR2_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
+            evaluationStartDate: TAIYO_AFTERNOON_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: TAIYO_AFTERNOON_DEPTH_VERSION,
+            symbol: "6976",
+            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_AFTERNOON_DEPTH_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
+            evaluationStartDate: TAIYO_AFTERNOON_FORMAL_START_DATE,
           },
           {
             strategyVersion: SOCIONEXT_INITIAL_STRENGTH_VERSION,

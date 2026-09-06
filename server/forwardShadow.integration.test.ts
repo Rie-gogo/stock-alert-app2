@@ -48,6 +48,8 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
+  TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_CURRENT_PARITY_VERSION,
@@ -298,6 +300,77 @@ describe("8035未見データ前向きシャドー統合", () => {
     ]));
     expect(memory.trades).toHaveLength(4);
     for (const version of [TAIYO_BOARD_DEMAND_VERSION, TAIYO_RR2_PROTECT_VERSION]) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
+  });
+
+  it("6976後場反転SHORT source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
+    let sequence = 0;
+    const currentAudit = () => {
+      sequence += 1;
+      return {
+        engineSequence: sequence, resultType: "no_signal", routeId: null,
+        marginUsedBefore: 0, marginUsedAfter: 0,
+        stateHashBefore: "before", stateHashAfter: "after",
+        causalityStatus: "pass", causalityReason: "test",
+        boardObservedAtMs: 1_000 + sequence * 1_000,
+        relayAssembledAtMs: 1_050 + sequence * 1_000,
+        relaySentAtMs: 1_100 + sequence * 1_000,
+        cloudReceivedAtMs: 50_000 + sequence * 1_000,
+        decisionStartedAtMs: 50_050 + sequence * 1_000,
+        decisionCompletedAtMs: 50_100 + sequence * 1_000,
+      };
+    };
+    for (let index = 0; index < 20; index += 1) {
+      await processForwardShadowSourceEvent({
+        sourceEventId: `taiyo-afternoon:morning:${index}`,
+        candle: {
+          symbol: "6976", tradeDate: "2026-09-08", candleTime: `11:${String(index).padStart(2, "0")}`,
+          open: index === 0 ? 100 : 104, high: 104.2, low: index === 0 ? 99.8 : 103.8, close: 104, volume: 100,
+        },
+        board: null,
+        currentAudit: currentAudit(),
+      });
+    }
+    for (let index = 0; index < 9; index += 1) {
+      const close = 103 - index * 0.25;
+      await processForwardShadowSourceEvent({
+        sourceEventId: `taiyo-afternoon:prefix:${index}`,
+        candle: {
+          symbol: "6976", tradeDate: "2026-09-08", candleTime: `12:${String(50 + index).padStart(2, "0")}`,
+          open: close + 0.1, high: close + 0.2, low: close - 0.1, close, volume: 100,
+        },
+        board: null,
+        currentAudit: currentAudit(),
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo-afternoon:trigger",
+      candle: { symbol: "6976", tradeDate: "2026-09-08", candleTime: "13:00", open: 100.9, high: 101, low: 100.1, close: 100.2, volume: 150 },
+      board: null,
+      currentAudit: currentAudit(),
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo-afternoon:confirm",
+      candle: { symbol: "6976", tradeDate: "2026-09-08", candleTime: "13:01", open: 99.8, high: 99.9, low: 98.9, close: 99, volume: 120 },
+      board: null,
+      currentAudit: currentAudit(),
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo-afternoon:depth",
+      candle: { symbol: "6976", tradeDate: "2026-09-08", candleTime: "13:02", open: 98.98, high: 99.1, low: 98.8, close: 98.95, volume: 100 },
+      board: { bids: [{ price: 98.96, qty: 60 }, { price: 98.94, qty: 40 }], asks: [{ price: 98.98, qty: 100 }] },
+      currentAudit: currentAudit(),
+    });
+
+    expect(new Set(memory.trades.map(item => item.strategyVersion))).toEqual(new Set([
+      TAIYO_AFTERNOON_RR2_VERSION,
+      TAIYO_AFTERNOON_DEPTH_VERSION,
+    ]));
+    expect(memory.trades).toHaveLength(4);
+    for (const version of [TAIYO_AFTERNOON_RR2_VERSION, TAIYO_AFTERNOON_DEPTH_VERSION]) {
       expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
       expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
       expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);

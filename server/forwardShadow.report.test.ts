@@ -49,6 +49,8 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
+  TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
@@ -76,6 +78,10 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("6976 候補B・10本高値更新LONG A・同時点BPR1.30＋大口売り壁なし");
     expect(section).toContain(`戦略版: ${TAIYO_RR2_PROTECT_VERSION}`);
     expect(section).toContain("6976 候補B・10本高値更新LONG B・2R出口＋次足利益保護");
+    expect(section).toContain(`戦略版: ${TAIYO_AFTERNOON_RR2_VERSION}`);
+    expect(section).toContain("6976 後場反転SHORT A・現行入口＋45分2R出口");
+    expect(section).toContain(`戦略版: ${TAIYO_AFTERNOON_DEPTH_VERSION}`);
+    expect(section).toContain("6976 後場反転SHORT B・bid/ask100株depth実行品質");
     expect(section).toContain(`戦略版: ${SOCIONEXT_INITIAL_STRENGTH_VERSION}`);
     expect(section).toContain("6526 確認型LONG A・初動始値比+0.25%未満で日次終了");
     expect(section).toContain(`戦略版: ${SOCIONEXT_CONFIRM_STRENGTH_VERSION}`);
@@ -100,6 +106,13 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("3436追加Gate: 案=time_15");
     expect(section).toContain("選定用34保存日勝率=73.08%");
     expect(section).toContain("追加5日既知欠損=true");
+    expect(section).toContain("6976後場SHORT追加Gate: 案=rr2_exit");
+    expect(section).toContain("選定用51保存日取引=8");
+    expect(section).toContain("選定用勝率=87.50%");
+    expect(section).toContain("6976後場SHORT追加Gate: 案=depth_execution");
+    expect(section).toContain("選定用勝率=算定不能");
+    expect(section).toContain("depth再生日=2");
+    expect(section).toContain("正式成績利用不可=true");
     expect(section).toContain("891万円比較=manual_comparison_required");
     expect(section).toContain("対象外（旧版停止・監査保持のみ）");
     expect(section).toContain("8035 現行完全再現監査");

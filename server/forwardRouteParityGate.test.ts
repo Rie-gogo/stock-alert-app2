@@ -10,6 +10,8 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
+  TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
@@ -32,6 +34,16 @@ describe("候補経路別parity Gate", () => {
       expect(resolveForwardRouteParityGate(version)).toMatchObject({
         status: "required",
         requiredRoutes: ["taiyoCandidateBLong"],
+        evidence: { kind: "missing_route_parity" },
+      });
+    }
+  });
+
+  it("6976後場SHORT A/Bは現行taiyoAfternoonReversalShort経路のparity証拠を必須にする", () => {
+    for (const version of [TAIYO_AFTERNOON_RR2_VERSION, TAIYO_AFTERNOON_DEPTH_VERSION]) {
+      expect(resolveForwardRouteParityGate(version)).toMatchObject({
+        status: "required",
+        requiredRoutes: ["taiyoAfternoonReversalShort"],
         evidence: { kind: "missing_route_parity" },
       });
     }

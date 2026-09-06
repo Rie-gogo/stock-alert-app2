@@ -6,6 +6,8 @@ import {
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
@@ -28,6 +30,16 @@ describe("候補経路別parity Gate", () => {
       expect(resolveForwardRouteParityGate(version)).toMatchObject({
         status: "required",
         requiredRoutes: ["taiyoCandidateBLong"],
+        evidence: { kind: "missing_route_parity" },
+      });
+    }
+  });
+
+  it("6526 A/Bは現行socionextConfirmedLong経路のparity証拠を必須にする", () => {
+    for (const version of [SOCIONEXT_INITIAL_STRENGTH_VERSION, SOCIONEXT_CONFIRM_STRENGTH_VERSION]) {
+      expect(resolveForwardRouteParityGate(version)).toMatchObject({
+        status: "required",
+        requiredRoutes: ["socionextConfirmedLong"],
         evidence: { kind: "missing_route_parity" },
       });
     }

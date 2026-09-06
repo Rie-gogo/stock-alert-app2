@@ -44,6 +44,8 @@ import {
   FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_CURRENT_PARITY_VERSION,
@@ -294,6 +296,52 @@ describe("8035未見データ前向きシャドー統合", () => {
     ]));
     expect(memory.trades).toHaveLength(4);
     for (const version of [TAIYO_BOARD_DEMAND_VERSION, TAIYO_RR2_PROTECT_VERSION]) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
+  });
+
+  it("6526確認型LONG source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
+    for (let index = 0; index < 20; index += 1) {
+      await processForwardShadowSourceEvent({
+        sourceEventId: `socionext:${index + 1}`,
+        candle: {
+          symbol: "6526",
+          tradeDate: "2026-09-08",
+          candleTime: `09:${String(10 + index).padStart(2, "0")}`,
+          open: index === 0 ? 100 : 99.9,
+          high: 99.95,
+          low: 99.85,
+          close: 99.9,
+          volume: 100,
+        },
+        board: null,
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "socionext:signal",
+      candle: {
+        symbol: "6526", tradeDate: "2026-09-08", candleTime: "09:30",
+        open: 100.2, high: 100.55, low: 100.15, close: 100.5, volume: 200,
+      },
+      board: null,
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "socionext:confirm",
+      candle: {
+        symbol: "6526", tradeDate: "2026-09-08", candleTime: "09:31",
+        open: 100.5, high: 100.7, low: 100.45, close: 100.6, volume: 100,
+      },
+      board: null,
+    });
+
+    expect(new Set(memory.trades.map(item => item.strategyVersion))).toEqual(new Set([
+      SOCIONEXT_INITIAL_STRENGTH_VERSION,
+      SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+    ]));
+    expect(memory.trades).toHaveLength(4);
+    for (const version of [SOCIONEXT_INITIAL_STRENGTH_VERSION, SOCIONEXT_CONFIRM_STRENGTH_VERSION]) {
       expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
       expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
       expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);

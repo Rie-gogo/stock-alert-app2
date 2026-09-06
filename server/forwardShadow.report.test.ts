@@ -45,6 +45,8 @@ import {
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
@@ -72,11 +74,20 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("6976 候補B・10本高値更新LONG A・同時点BPR1.30＋大口売り壁なし");
     expect(section).toContain(`戦略版: ${TAIYO_RR2_PROTECT_VERSION}`);
     expect(section).toContain("6976 候補B・10本高値更新LONG B・2R出口＋次足利益保護");
+    expect(section).toContain(`戦略版: ${SOCIONEXT_INITIAL_STRENGTH_VERSION}`);
+    expect(section).toContain("6526 確認型LONG A・初動始値比+0.25%未満で日次終了");
+    expect(section).toContain(`戦略版: ${SOCIONEXT_CONFIRM_STRENGTH_VERSION}`);
+    expect(section).toContain("6526 確認型LONG B・確認上昇率+0.075%未満で日次終了");
     expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");
     expect(section).toContain("6976追加Gate: 案=board_demand");
     expect(section).toContain("板需給案は追加0.80基準なし");
     expect(section).toContain("6976追加Gate: 案=rr2_protect");
     expect(section).toContain("TP到達=0/0（未算出）");
+    expect(section).toContain("6526追加Gate: 案=initial_strength");
+    expect(section).toContain("51保存日勝率=68.75%");
+    expect(section).toContain("役割=diagnostic_candidate");
+    expect(section).toContain("6526追加Gate: 案=confirmation_strength");
+    expect(section).toContain("51保存日勝率=73.33%");
     expect(section).toContain("891万円比較=manual_comparison_required");
     expect(section).toContain("対象外（旧版停止・監査保持のみ）");
     expect(section).toContain("8035 現行完全再現監査");

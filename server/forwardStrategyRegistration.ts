@@ -30,8 +30,7 @@ export function assertForwardCandidateRiskReward(input: {
   configJson: unknown;
 }): RiskPair[] {
   const purpose = input.evaluationPurpose ?? "candidate";
-  const eligible = input.eligibleForAdoption ?? true;
-  if (purpose !== "candidate" || !eligible) return [];
+  if (purpose !== "candidate") return [];
   const pairs = collectRiskPairs(input.configJson);
   if (pairs.length === 0) {
     throw new Error(`candidate_risk_reward_missing:${input.versionId}`);

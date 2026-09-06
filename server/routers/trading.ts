@@ -44,6 +44,8 @@ export const tradingRouter = router({
         KIOXIA_FORWARD_STRATEGY_VERSION,
         SOFTBANK_DEPTH_CONFIRM_VERSION,
         SOFTBANK_RR2_PROTECT_VERSION,
+        SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+        SOCIONEXT_INITIAL_STRENGTH_VERSION,
         TAIYO_BOARD_DEMAND_VERSION,
         TAIYO_RR2_PROTECT_VERSION,
       } = await import("../runtimeIdentity");
@@ -55,6 +57,10 @@ export const tradingRouter = router({
         TAIYO_FORWARD_COLLECTION_START_DATE,
         TAIYO_FORWARD_FORMAL_START_DATE,
       } = await import("../taiyoForwardShadow");
+      const {
+        SOCIONEXT_FORWARD_COLLECTION_START_DATE,
+        SOCIONEXT_FORWARD_FORMAL_START_DATE,
+      } = await import("../socionextForwardShadow");
       const {
         TEL_AUDIT_EVALUATION_START_DATE,
         TEL_CAUSALITY_AUDIT_VERSION,
@@ -183,6 +189,24 @@ export const tradingRouter = router({
             eligibleForAdoption: true,
             collectionStartDate: TAIYO_FORWARD_COLLECTION_START_DATE,
             evaluationStartDate: TAIYO_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: SOCIONEXT_INITIAL_STRENGTH_VERSION,
+            symbol: "6526",
+            summaries: await getForwardShadowSummary(input.asOfDate, SOCIONEXT_INITIAL_STRENGTH_VERSION),
+            purpose: "diagnostic_candidate" as const,
+            eligibleForAdoption: false,
+            collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: SOCIONEXT_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+            symbol: "6526",
+            summaries: await getForwardShadowSummary(input.asOfDate, SOCIONEXT_CONFIRM_STRENGTH_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: SOCIONEXT_FORWARD_FORMAL_START_DATE,
           },
         ],
         auditStrategies: [

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { assertForwardCandidateRiskReward } from "./forwardStrategyRegistration";
 import { SOFTBANK_DEPTH_CONFIRM_SPEC, SOFTBANK_RR2_PROTECT_SPEC } from "./softbankForwardShadow";
 import { TAIYO_BOARD_DEMAND_SPEC, TAIYO_RR2_PROTECT_SPEC } from "./taiyoForwardShadow";
+import { SOCIONEXT_CONFIRM_STRENGTH_SPEC, SOCIONEXT_INITIAL_STRENGTH_SPEC } from "./socionextForwardShadow";
 import {
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
 } from "./runtimeIdentity";
@@ -30,6 +33,19 @@ describe("前向きcandidate登録Gate", () => {
       versionId: TAIYO_RR2_PROTECT_VERSION,
       configJson: TAIYO_RR2_PROTECT_SPEC,
     })).toEqual([{ path: "config.exit", slPct: 0.8, tpPct: 1.6 }]);
+  });
+
+  it("6526 A/Bは実装specの全SL/TP組で2R登録Gateを通過する", () => {
+    expect(assertForwardCandidateRiskReward({
+      versionId: SOCIONEXT_INITIAL_STRENGTH_VERSION,
+      evaluationPurpose: "candidate",
+      eligibleForAdoption: false,
+      configJson: SOCIONEXT_INITIAL_STRENGTH_SPEC,
+    })).toEqual([{ path: "config.exit", slPct: 0.25, tpPct: 0.5 }]);
+    expect(assertForwardCandidateRiskReward({
+      versionId: SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+      configJson: SOCIONEXT_CONFIRM_STRENGTH_SPEC,
+    })).toEqual([{ path: "config.exit", slPct: 0.35, tpPct: 0.7 }]);
   });
 
   it("TPがSLの2倍以上なら登録可能", () => {

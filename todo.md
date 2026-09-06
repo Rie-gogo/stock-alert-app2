@@ -1951,3 +1951,11 @@
 - [x] 型検査、対象10ファイル48件、J-Quants鍵依存2件を除く全685件成功・13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、現行売買差分0、DRY_RUN/LIVE拒否を総合監査する
 - [x] checkpoint`c7c2d0ce`保存・自動公開後に本番RuntimeIdentity・summary・DB・ログを確認する（2 version表示、固定hash一致、DRY_RUN必須、LIVE未承認、A診断/B候補、収集2026-09-07・正式最短2026-09-08、formal Gate pending、route parity required、strategy/state/event/trade/lock開始前0、通常`rt_trades`混入0、公開後例外0）
 - [ ] 初回実KABU受信後にA/B×2評価方式・engineSequence順・固定版再生・route parityを確認し、正式評価は翌営業日以降に手動有効化する
+
+## 3436前場15本安値更新SHORT A/B案精査（2026-09-06）
+- [x] 現行`sumcoBreakdownShort.ts`と提示A/Bの入口、出来高倍率、拒否後再探索、出口順序、15分境界を照合する
+- [x] 29日fixtureを現行エンジン全Gateで再生し、A=21件17勝4敗+53,465.99円、B=22件17勝5敗+54,560.36円を独立再現する
+- [x] 出来高1.075〜1.20倍、保有14〜17分、0.05/0.10%不利約定、PF、DD、実現平均利益損失比、期間分割を再検証する
+- [x] 本番DBの2026-08-31〜09-04追加5日も同型再生し、A=25件19勝6敗76.00%、B=26件19勝7敗73.08%、追加5日単独は双方2勝2敗と確認する（8/31午前1分欠損・未Git固定のため補助診断のみ）
+- [x] 未来情報不使用、SL優先・窓不利、日次枠非消費再探索、`sumcoBreakdownShort` route parity必須、4週10件・891万円Gateを確認する
+- [x] A第一・B第二で並行シャドーが妥当と判定し、15分固定・欠損越境決済・別version/state・選定用34日除外等の実装前注意を報告書へ整理する

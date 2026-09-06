@@ -1981,3 +1981,11 @@
 - [x] 型検査、対象10ファイル51件、J-Quants鍵依存2件を除く全712件成功・13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、現行売買差分0、DRY_RUN/LIVE拒否、残留Vitestなしを総合監査する
 - [x] checkpoint`ec2d3048`保存・自動公開後に本番RuntimeIdentity・summary・DB・ログを確認する（2 version表示、固定hash一致、DRY_RUN必須、LIVE未承認、収集2026-09-07・正式最短2026-09-08、formal Gate pending、`sumcoBreakdownShort` parity required、strategy/state/event/trade/lock開始前0、通常`rt_trades`混入0、公開後例外0）
 - [ ] 初回実KABU受信後にA/B×2評価方式・engineSequence順・固定版再生・route parityを確認し、正式評価は翌営業日以降に手動有効化する
+
+## 6976後場反転SHORT A/B案精査（2026-09-06）
+- [x] 現行6976後場反転SHORTの時間帯・前場上昇率・高値乖離・5本安値・MA8・出来高・確認・SL/TP・始値アンカーを提示A/Bへ照合する
+- [x] 保存KABU 1分足51日16,409本で、実行可能価格継続A・二段階確認Bを全発火100株・証拠金無制限で同一基準再計算し、A=7件6勝1敗+135,852円、B=5件5勝+85,910円を再現する
+- [x] A/Bの確認失敗日次取消、再探索、次足始値約定の因果性、境界決済、SL優先・窓不利を検証し、提示成績は再探索あり、本文Bの日次終了とは不一致と確認する
+- [x] 0.05/0.10%不利約定、実現平均利益損失比、TP到達率、PF、DD、期待値R、95% Wilson下限、最新5日を比較する（A最新5日=9/4の0勝1敗-7,484円、B=0件）
+- [x] 現行routeId`taiyoAfternoonReversal`のSHORT側parity、4週10件、勝率70%、PF1.5、期待値+0.15R、891万円portfolio非悪化、選定用データ除外を確認する
+- [x] A第一・B第二の方向性は妥当だが、次足始値を同時点bid側100株depth VWAPへ修正し、確認失敗後は新規初動を再探索する必要があると報告書へ整理する

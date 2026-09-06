@@ -2018,3 +2018,11 @@
 - [x] 型検査、対象9ファイル53件、J-Quants鍵依存2件を除く全738件成功・13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、現行売買差分0、DRY_RUN/LIVE拒否、残留Vitestなしを総合監査する
 - [x] checkpoint`8cb2a494`保存・自動公開後に本番RuntimeIdentity・summary・DB・ログを確認する（2 version表示、固定hash一致、DRY_RUN必須、LIVE未承認、収集2026-09-07・正式最短2026-09-08、formal Gate pending、`taiyoAfternoonReversalShort` parity required、strategy/state/event/trade/lock開始前0、通常`rt_trades`混入0、公開後例外0）
 - [ ] 初回実KABU受信後にA/B×2評価方式・engineSequence順・depth入口/出口・exit intent・固定版再生・route parityを確認し、正式評価は翌営業日以降に手動有効化する
+
+## 6981安値反転ブレイクLONG A/B案精査（2026-09-06）
+- [x] 現行6981 LONGの初動・確認・SHORT排他順・始値・SL1.0%／TP1.5%・反転/板早期/前場出口を提示A/Bへ照合する
+- [x] 52保存日で現行17件と、出来高A・午前限定Bを全発火100株・証拠金無制限・現行SHORT排他込みで再計算する
+- [x] Aの出来高上限1.5〜2.0倍を初動足/確認足/日次終了の各解釈で検証し、提示14件11勝3敗を再現する単一仕様がなく、提示の不利約定成績も正式評価不可と確認する
+- [x] Bの09:45〜11:30、次イベントask側100株depth VWAP、元5本高値維持、0.10%追随上限、板鮮度/数量不足拒否、再探索を監査し、depth前部分は13件10勝3敗・理論+42,685.20円まで再現する
+- [x] 6981の`lowReversalBreakLong` route parityをsymbol=6981で分離し、4週10件、勝率70%、PF1.5、期待値+0.15R、891万円portfolio非悪化、選定用データ除外を確認する
+- [x] Bを第一候補、Aを仕様再固定まで診断候補と判定し、LONG出口bid depth、午前境界、実行価格感度、52日raw depth不足を報告書へ整理する

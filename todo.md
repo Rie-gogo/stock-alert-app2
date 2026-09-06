@@ -1949,5 +1949,5 @@
 - [x] RuntimeIdentity・固定版再生・16時レポート・公開forward summaryへA/Bを独立統合する
 - [x] 匿名fixture・46/51日固定再生・dispatch・API・report・Gate・冪等性・部分障害・注文非接続の回帰を追加する
 - [x] 型検査、対象10ファイル48件、J-Quants鍵依存2件を除く全685件成功・13件skip、本番ビルド、relay構文、固定売買hash`42006f0e…`一致、現行売買差分0、DRY_RUN/LIVE拒否を総合監査する
-- [ ] checkpoint保存・自動公開後に本番RuntimeIdentity・summary・DB開始前ゼロ・通常`rt_trades`非混入・公開後ログを確認する
+- [x] checkpoint`c7c2d0ce`保存・自動公開後に本番RuntimeIdentity・summary・DB・ログを確認する（2 version表示、固定hash一致、DRY_RUN必須、LIVE未承認、A診断/B候補、収集2026-09-07・正式最短2026-09-08、formal Gate pending、route parity required、strategy/state/event/trade/lock開始前0、通常`rt_trades`混入0、公開後例外0）
 - [ ] 初回実KABU受信後にA/B×2評価方式・engineSequence順・固定版再生・route parityを確認し、正式評価は翌営業日以降に手動有効化する

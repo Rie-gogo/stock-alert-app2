@@ -36,11 +36,14 @@ const outboxHarness = vi.hoisted(() => {
       }
     }),
     completeRtCandidateVirtualWork: vi.fn(async () => {
-      memory.row.candidateVirtualStatus = [memory.row.candidatePhaseStatus, memory.row.virtualPhaseStatus].includes("terminal_error")
+      const statuses = [memory.row.candidatePhaseStatus, memory.row.virtualPhaseStatus];
+      memory.row.candidateVirtualStatus = statuses.includes("terminal_error")
         ? "terminal"
-        : "processed";
+        : statuses.includes("retryable_error") || statuses.includes("pending") || statuses.includes("processing")
+          ? "error"
+          : "processed";
       memory.claimed = false;
-      if (memory.nextRow) {
+      if (["processed", "terminal"].includes(memory.row.candidateVirtualStatus) && memory.nextRow) {
         memory.row = memory.nextRow;
         memory.nextRow = null;
       }
@@ -87,6 +90,10 @@ describe("現行実時判断監査", () => {
     outboxHarness.memory.claimed = false;
     outboxHarness.memory.candidate = null;
     outboxHarness.memory.workerLockAvailable = true;
+    dbMock.upsertRtSignalCandidate.mockReset().mockImplementation(async input => {
+      outboxHarness.memory.candidate = { id: 88, ...input };
+      return outboxHarness.memory.candidate;
+    });
     dbMock.getLatestRtTradeAt.mockResolvedValue({
       action: "buy", side: "long", price: 100, shares: 100, amount: 10_000,
       reason: "東京エレクトロン始値方向付き短期ブレイクLONG",
@@ -123,6 +130,7 @@ describe("現行実時判断監査", () => {
         priceLabels: expect.objectContaining({ brokerExecutionPrice: "unavailable_in_dry_run" }),
       }),
       candidateDescriptorJson: expect.objectContaining({ side: "long", routeId: "telShortBreak" }),
+      candidateDescriptorStatus: "complete",
       candidatePhaseStatus: "pending",
       virtualPhaseStatus: "pending",
     }));
@@ -233,7 +241,7 @@ describe("現行実時判断監査", () => {
     const retried = await drainCurrentCandidateVirtualQueue();
     expect(retried.processedEngineSequences).toEqual([77]);
     expect(run).toHaveBeenCalledTimes(1);
-    expect(dbMock.completeRtCandidateVirtualWork).toHaveBeenCalledTimes(1);
+    expect(dbMock.completeRtCandidateVirtualWork).toHaveBeenCalledTimes(2);
     expect(virtualMock).toHaveBeenCalledTimes(1);
   });
 
@@ -280,6 +288,7 @@ describe("現行実時判断監査", () => {
       virtualPhaseAttemptCount: 0,
       candidateVirtualInputJson: basePayload,
       candidateDescriptorJson: basePayload.candidateDescriptor,
+      candidateDescriptorStatus: "complete",
     };
     outboxHarness.memory.nextRow = {
       id: 78,
@@ -300,6 +309,7 @@ describe("現行実時判断監査", () => {
         candidateDescriptor: null,
       },
       candidateDescriptorJson: null,
+      candidateDescriptorStatus: "not_candidate",
     };
     dbMock.upsertRtSignalCandidate.mockRejectedValueOnce(new Error("permanent candidate failure"));
 
@@ -325,6 +335,7 @@ describe("現行実時判断監査", () => {
       virtualPhaseStatus: "pending",
       virtualPhaseAttemptCount: 0,
       candidateDescriptorJson: null,
+      candidateDescriptorStatus: undefined,
       candidateVirtualInputJson: {
         sourceEvent: { id: 21, sourceEventId: "legacy:1634", relayReceivedAtMs: 1_000 },
         candle: { symbol: "285A", tradeDate: "2026-09-07", candleTime: "10:35", open: 58100, high: 58200, low: 58000, close: 58100, volume: 1000 },
@@ -351,6 +362,55 @@ describe("現行実時判断監査", () => {
       side: "short",
       realtimeDecision: "margin_block",
     }));
+  });
+
+  it("descriptor生成失敗をnot_applicableにせずcandidate phase errorとしてattemptへ計上する", async () => {
+    outboxHarness.memory.row = {
+      id: 77,
+      sourceEventId: "descriptor:error:1",
+      tradeDate: "2026-09-07",
+      candidateVirtualStatus: "error",
+      candidateVirtualAttemptCount: 0,
+      candidatePhaseStatus: "pending",
+      candidatePhaseAttemptCount: 0,
+      virtualPhaseStatus: "pending",
+      virtualPhaseAttemptCount: 0,
+      candidateDescriptorJson: null,
+      candidateDescriptorStatus: "error",
+      candidateVirtualInputJson: {
+        sourceEvent: { id: 31, sourceEventId: "descriptor:error:1", relayReceivedAtMs: 1_000 },
+        candle: { symbol: "285A", tradeDate: "2026-09-07", candleTime: "10:36", open: 58100, high: 58200, low: 58000, close: 58100, volume: 1000 },
+        inputHash: "descriptor-error-hash",
+        auditReason: "margin_block",
+        candidateReason: "candidate descriptor source missing",
+        resultType: "rejected",
+        decisionSignal: null,
+        latestTrade: null,
+        marginUsedBefore: 8_000_000,
+        decisionCompletedAtMs: 2_000,
+        rawSignal: null,
+        boardSignal: "neutral",
+        marketContextError: null,
+        candidateDescriptorStatus: "error",
+        candidateDescriptor: null,
+        candidateDescriptorError: "candidate_side_missing",
+      },
+    };
+
+    const result = await drainCurrentCandidateVirtualQueue({ maxRows: 10, maxAttempts: 5 });
+
+    expect(result.stoppedReason).toBe("retryable_error");
+    expect(dbMock.markRtCandidateVirtualPhaseProcessing).toHaveBeenCalledWith(expect.objectContaining({ phase: "candidate" }));
+    expect(dbMock.markRtCandidateVirtualPhaseError).toHaveBeenCalledWith(expect.objectContaining({
+      phase: "candidate",
+      terminal: false,
+      error: expect.stringContaining("candidate_side_missing"),
+    }));
+    expect(dbMock.markRtCandidateVirtualPhaseComplete).not.toHaveBeenCalledWith(expect.objectContaining({
+      phase: "candidate",
+      notApplicable: true,
+    }));
+    expect(virtualMock).toHaveBeenCalledTimes(1);
   });
 
   it("別workerがlease中なら処理せずworker_busyを返す", async () => {

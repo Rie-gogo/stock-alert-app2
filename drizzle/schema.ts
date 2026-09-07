@@ -1002,6 +1002,7 @@ export const rtRealtimeDecisionEvents = mysqlTable("rt_realtime_decision_events"
   candidateVirtualStatus: mysqlEnum("rt_candidate_virtual_status", ["pending", "processing", "processed", "error", "terminal"]).notNull().default("processed"),
   candidateVirtualInputJson: json("candidate_virtual_input_json"),
   candidateDescriptorJson: json("candidate_descriptor_json"),
+  candidateDescriptorStatus: mysqlEnum("candidate_descriptor_status", ["not_candidate", "complete", "error"]).notNull().default("not_candidate"),
   candidatePhaseStatus: mysqlEnum("candidate_phase_status", ["pending", "processing", "complete", "retryable_error", "terminal_error", "not_applicable"]).notNull().default("pending"),
   candidatePhaseAttemptCount: int("candidate_phase_attempt_count").notNull().default(0),
   candidatePhaseLastError: text("candidate_phase_last_error"),
@@ -1055,6 +1056,7 @@ export const rtPortfolioAuditEvents = mysqlTable("rt_portfolio_audit_events", {
   id: int("id").autoincrement().primaryKey(),
   portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
   mode: mysqlEnum("rt_portfolio_audit_mode", ["actual_receipt", "minute_normalized"]).notNull(),
+  generation: int("generation").notNull().default(1),
   sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
   tradeDate: varchar("trade_date", { length: 10 }).notNull(),
   candleTime: varchar("candle_time", { length: 5 }).notNull(),
@@ -1073,7 +1075,7 @@ export const rtPortfolioAuditEvents = mysqlTable("rt_portfolio_audit_events", {
   detailJson: json("detail_json").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, table => ({
-  portfolioIdentity: uniqueIndex("rt_portfolio_audit_identity").on(table.portfolioVersion, table.mode, table.sourceEventId),
+  portfolioIdentity: uniqueIndex("rt_portfolio_audit_identity").on(table.portfolioVersion, table.mode, table.generation, table.sourceEventId),
 }));
 
 export type RtPortfolioAuditEvent = typeof rtPortfolioAuditEvents.$inferSelect;
@@ -1264,6 +1266,8 @@ export const rtPortfolioMaterializationProgress = mysqlTable("rt_portfolio_mater
   mode: mysqlEnum("portfolio_materialization_mode", ["actual_receipt", "minute_normalized"]).notNull(),
   tradeDate: varchar("trade_date", { length: 10 }).notNull(),
   status: mysqlEnum("portfolio_materialization_status", ["pending", "processing", "complete", "error", "incomplete_source"]).notNull().default("pending"),
+  activeGeneration: int("active_generation"),
+  buildingGeneration: int("building_generation"),
   processedThroughEngineSequence: int("processed_through_engine_sequence").notNull().default(0),
   sourceDecisionCount: int("source_decision_count").notNull().default(0),
   openAllocationsJson: json("open_allocations_json").notNull(),
@@ -1280,6 +1284,25 @@ export const rtPortfolioMaterializationProgress = mysqlTable("rt_portfolio_mater
 
 export type RtPortfolioMaterializationProgress = typeof rtPortfolioMaterializationProgress.$inferSelect;
 export type InsertRtPortfolioMaterializationProgress = typeof rtPortfolioMaterializationProgress.$inferInsert;
+
+/** 日次監査の上流watermarkとclosed/reopened状態。時刻だけでcompleteにしないための正本。 */
+export const rtAuditTradeDateFinality = mysqlTable("rt_audit_trade_date_finality", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  status: mysqlEnum("audit_trade_date_finality_status", ["open", "closed", "reopened"]).notNull().default("open"),
+  watermarkHash: varchar("watermark_hash", { length: 64 }),
+  watermarkJson: json("watermark_json").notNull(),
+  latestUpstreamCreatedAt: timestamp("latest_upstream_created_at"),
+  closedAt: timestamp("closed_at"),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  tradeDateIdentity: uniqueIndex("rt_audit_trade_date_finality_identity").on(table.tradeDate),
+}));
+
+export type RtAuditTradeDateFinality = typeof rtAuditTradeDateFinality.$inferSelect;
+export type InsertRtAuditTradeDateFinality = typeof rtAuditTradeDateFinality.$inferInsert;
 
 /** replay/outcome等の重い日次監査をレポートから分離する保存済みsnapshot。 */
 export const rtDailyAuditMaterializations = mysqlTable("rt_daily_audit_materializations", {

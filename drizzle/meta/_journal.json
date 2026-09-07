@@ -176,6 +176,13 @@
       "when": 1788800379522,
       "tag": "0024_curvy_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1788820446973,
+      "tag": "0025_true_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

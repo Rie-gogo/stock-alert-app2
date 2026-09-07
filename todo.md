@@ -2082,7 +2082,28 @@
 - [x] 9月7日復旧完了後にHeartbeat間隔を低頻度へ戻し、workerのno_work応答とDB負荷を確認する
 - [x] 本番Heartbeatの実測30秒timeoutを受け、worker上限を最大100件・20秒へ即時復元して連続成功を確認する
 - [x] 市場時間外の一回限りの運用として、同じ100件・20秒・single lease drainを短い休止付きで反復し、Heartbeatと競合せず9月7日を復旧する
-- [ ] JST日付跨ぎ後の一回限りの運用として、9月7日を明示指定し1回1component・single leaseでaudit materializationを完了する
+- [x] JST日付跨ぎ後の一回限りの運用として、9月7日を明示指定し1回1component・single leaseでaudit materializationを完了する
 - [x] `rt_daily_audit_materializations.version`を全strategyVersionが収まる長さへ非破壊拡張し、5803 replay保存失敗を修正する
 - [x] 9月7日の旧8035 exit rowはstateBeforeのposition.entryReasonからrouteIdを監査比較時に復元し、現行エンジン・追記台帳を変更せずparity 319/319へ直す
 - [x] candidate-8035 depth v2 replayへ保存済みrealtime availability timelineを復元し、10:17のcurrentAudit欠落起因4差を0件へ直す
+
+## 他AI「0a4bd5a8残存P0」再精査（2026-09-08）
+- [x] candidateDescriptorErrorがnot_applicable化またはattempt非加算で永久再試行になり得るか確認する
+- [x] 15:31確定後の遅延source/decisionがcomplete snapshotをdirty化せず取りこぼされるか確認する
+- [x] portfolio dirty再構築時に旧世代の派生決済eventが残留し得るか確認する
+- [x] sourceEvent重複/lease復旧経路に同期candidate worker drainが残っているか確認する
+- [x] 一回限り復旧scriptの停止条件`no_work`と実返却`empty_or_claimed`の不一致を確認する
+- [x] terminal gap詳細がphase別attempt/errorではなく共通値を記録する箇所を確認する
+- [x] 指摘を採用・修正採用・誤りへ分類し、正式評価前の修正順と開始条件を報告する（精査中はコード・Gate・売買条件を変更しない）
+
+## 残存P0六点の修正実装（2026-09-08承認）
+- [x] descriptor状態を`not_candidate`・`complete`・`error`へ分離し、error時はphase attempt加算・terminal gap化を保証する
+- [x] terminal gap detailへphase別attempt・phase別last error・terminal直前/直後状態を保存する
+- [x] source duplicate/lease復旧経路から同期candidate drainを除去し、独立workerへ完全移管する
+- [x] 一回限り復旧scriptをDB実状態と一致する安全な停止条件へ修正する
+- [x] 日次completeへsource/decision/outbox watermarkとupstream closed markerを導入し、complete後の変化で自動dirty化する
+- [x] portfolio audit eventへgenerationを導入し、新世代完全成功後だけactive generationを切り替える
+- [x] 既存9月7日v2データをgeneration 1へ非破壊backfillし、公開/正式集計をactive generation限定にする
+- [x] descriptor failure・late no-signal・complete後遅延・accepted→blocked再構築・同期drain禁止・script停止・phase gap詳細のVitestを追加する
+- [x] migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
+- [ ] checkpoint公開後に9月7日を新generationで再materializeし、worker・DB・公開API・formal Gateを再監査する

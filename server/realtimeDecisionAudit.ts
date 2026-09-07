@@ -69,6 +69,7 @@ type CandidateVirtualWorkPayload = {
   rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
   boardSignal: ReturnType<typeof deriveCurrentBoardExitSignal>;
   marketContextError: string | null;
+  candidateDescriptorStatus?: "not_candidate" | "complete" | "error";
   candidateDescriptor: CandidateDescriptor | null;
   candidateDescriptorError: string | null;
 };
@@ -379,7 +380,21 @@ function candidateVirtualErrorMessage(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-function descriptorForPayload(payload: CandidateVirtualWorkPayload): CandidateDescriptor | null {
+function descriptorForPayload(
+  payload: CandidateVirtualWorkPayload,
+  persistedStatus?: RtRealtimeDecisionEvent["candidateDescriptorStatus"],
+  persistedDescriptor?: CandidateDescriptor | null,
+): CandidateDescriptor | null {
+  const status = persistedStatus ?? payload.candidateDescriptorStatus;
+  if (status === "error" || payload.candidateDescriptorError) {
+    throw new Error(payload.candidateDescriptorError ?? "candidate_descriptor_error_without_detail");
+  }
+  if (status === "complete") {
+    const descriptor = persistedDescriptor ?? payload.candidateDescriptor;
+    if (!descriptor) throw new Error("candidate_descriptor_complete_without_payload");
+    return descriptor;
+  }
+  if (status === "not_candidate") return null;
   if (payload.candidateDescriptor !== undefined) return payload.candidateDescriptor;
   return buildCandidateDescriptor({
     candle: payload.candle,
@@ -396,35 +411,28 @@ async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerTo
   const payload = row.candidateVirtualInputJson as CandidateVirtualWorkPayload | null;
   if (!payload) {
     const error = `candidate_virtual_payload_missing:${row.id}`;
+    await markRtCandidateVirtualPhaseProcessing({ id: row.id, ownerToken, phase: "candidate" });
     await markRtCandidateVirtualPhaseError({ row, ownerToken, phase: "candidate", error, terminal: true });
+    await markRtCandidateVirtualPhaseProcessing({ id: row.id, ownerToken, phase: "virtual" });
     await markRtCandidateVirtualPhaseError({ row, ownerToken, phase: "virtual", error, terminal: true });
     await completeRtCandidateVirtualWork({ id: row.id, ownerToken });
     return "terminal";
   }
 
   let descriptor: CandidateDescriptor | null = null;
-  let descriptorTerminal = false;
-  try {
-    descriptor = (row.candidateDescriptorJson as CandidateDescriptor | null | undefined)
-      ?? descriptorForPayload(payload);
-  } catch (error) {
-    descriptorTerminal = row.candidatePhaseAttemptCount + 1 >= maxAttempts;
-    await markRtCandidateVirtualPhaseError({
-      row,
-      ownerToken,
-      phase: "candidate",
-      error: candidateVirtualErrorMessage(error),
-      terminal: descriptorTerminal,
-    });
-    if (!descriptorTerminal) return "retryable_error";
-  }
   let structuredCandidate: RtSignalCandidate | null = null;
-  let terminalOutcome = descriptorTerminal || row.candidatePhaseStatus === "terminal_error" || row.virtualPhaseStatus === "terminal_error";
-  const candidateDone = descriptorTerminal || ["complete", "not_applicable", "terminal_error"].includes(row.candidatePhaseStatus);
+  let retryableOutcome = false;
+  let terminalOutcome = row.candidatePhaseStatus === "terminal_error" || row.virtualPhaseStatus === "terminal_error";
+  const candidateDone = ["complete", "not_applicable", "terminal_error"].includes(row.candidatePhaseStatus);
 
   if (!candidateDone) {
     await markRtCandidateVirtualPhaseProcessing({ id: row.id, ownerToken, phase: "candidate" });
     try {
+      descriptor = descriptorForPayload(
+        payload,
+        row.candidateDescriptorStatus,
+        row.candidateDescriptorJson as CandidateDescriptor | null,
+      );
       structuredCandidate = await saveStructuredCandidate({
         sourceEvent: payload.sourceEvent,
         candle: payload.candle,
@@ -449,17 +457,31 @@ async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerTo
         error: candidateVirtualErrorMessage(error),
         terminal,
       });
-      if (!terminal) return "retryable_error";
-      terminalOutcome = true;
+      retryableOutcome = retryableOutcome || !terminal;
+      terminalOutcome = terminalOutcome || terminal;
     }
-  } else if (row.candidatePhaseStatus === "complete" && descriptor) {
-    structuredCandidate = await getRtSignalCandidateBySourceEventId({
-      candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
-      sourceEventId: payload.sourceEvent.sourceEventId,
-    });
-    if (!structuredCandidate) {
-      const error = `candidate_phase_complete_without_candidate:${row.id}`;
-      await markRtCandidateVirtualPhaseError({ row, ownerToken, phase: "candidate", error, terminal: true });
+  } else if (row.candidatePhaseStatus === "complete") {
+    try {
+      descriptor = descriptorForPayload(
+        payload,
+        row.candidateDescriptorStatus,
+        row.candidateDescriptorJson as CandidateDescriptor | null,
+      );
+      if (descriptor) {
+        structuredCandidate = await getRtSignalCandidateBySourceEventId({
+          candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+          sourceEventId: payload.sourceEvent.sourceEventId,
+        });
+      }
+      if (descriptor && !structuredCandidate) throw new Error(`candidate_phase_complete_without_candidate:${row.id}`);
+    } catch (error) {
+      await markRtCandidateVirtualPhaseError({
+        row,
+        ownerToken,
+        phase: "candidate",
+        error: candidateVirtualErrorMessage(error),
+        terminal: true,
+      });
       terminalOutcome = true;
     }
   }
@@ -485,13 +507,13 @@ async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerTo
         error: candidateVirtualErrorMessage(error),
         terminal,
       });
-      if (!terminal) return "retryable_error";
-      terminalOutcome = true;
+      retryableOutcome = retryableOutcome || !terminal;
+      terminalOutcome = terminalOutcome || terminal;
     }
   }
 
   await completeRtCandidateVirtualWork({ id: row.id, ownerToken });
-  return terminalOutcome ? "terminal" : "processed";
+  return terminalOutcome ? "terminal" : retryableOutcome ? "retryable_error" : "processed";
 }
 
 export async function drainCurrentCandidateVirtualQueue(options: {
@@ -634,6 +656,11 @@ export async function processCurrentEngineAudited(input: {
     } catch (error) {
       candidateDescriptorError = candidateVirtualErrorMessage(error);
     }
+    const candidateDescriptorStatus: CandidateVirtualWorkPayload["candidateDescriptorStatus"] = candidateDescriptorError
+      ? "error"
+      : candidateDescriptor
+        ? "complete"
+        : "not_candidate";
     const candidateVirtualInput: CandidateVirtualWorkPayload = {
       sourceEvent: {
         id: input.sourceEvent.id,
@@ -652,6 +679,7 @@ export async function processCurrentEngineAudited(input: {
       rawSignal,
       boardSignal,
       marketContextError,
+      candidateDescriptorStatus,
       candidateDescriptor,
       candidateDescriptorError,
     };
@@ -709,6 +737,7 @@ export async function processCurrentEngineAudited(input: {
         candidateVirtualStatus: "pending",
         candidateVirtualInputJson: candidateVirtualInput,
         candidateDescriptorJson: candidateDescriptor,
+        candidateDescriptorStatus,
         candidatePhaseStatus: "pending",
         candidatePhaseAttemptCount: 0,
         candidatePhaseLastError: candidateDescriptorError,

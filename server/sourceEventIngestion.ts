@@ -11,7 +11,7 @@ import {
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
 import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow } from "./forwardShadowSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
-import { drainCurrentCandidateVirtualQueue, processCurrentEngineAudited } from "./realtimeDecisionAudit";
+import { processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
 
 export interface SourceEventMetadata {
@@ -112,13 +112,11 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
         existing = recovered;
         const persistedAudit = await getRtRealtimeDecisionEvent(metadata.sourceEventId);
         if (persistedAudit) {
-          let candidateVirtualRetry: unknown = null;
+          const candidateVirtualRetry = {
+            deferred: true,
+            reason: "independent_candidate_virtual_worker",
+          };
           let shadowRetry: unknown = null;
-          try {
-            candidateVirtualRetry = await drainCurrentCandidateVirtualQueue();
-          } catch (error) {
-            candidateVirtualRetry = { error: String(error) };
-          }
           const auditResult = persistedAudit.resultJson && typeof persistedAudit.resultJson === "object"
             ? persistedAudit.resultJson as Record<string, any>
             : {};
@@ -199,13 +197,10 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
       ? existing.resultJson as Record<string, unknown>
       : {};
     let shadowRetry: unknown = null;
-    let candidateVirtualRetry: unknown = null;
+    const candidateVirtualRetry = existing?.status === "processed"
+      ? { deferred: true, reason: "independent_candidate_virtual_worker" }
+      : null;
     if (existing?.status === "processed") {
-      try {
-        candidateVirtualRetry = await drainCurrentCandidateVirtualQueue();
-      } catch (candidateVirtualError) {
-        candidateVirtualRetry = { error: String(candidateVirtualError) };
-      }
       try {
         // 現行processCandleは二度と呼ばず、strategyVersion別のshadow errorだけを独立claimで再試行する。
         shadowRetry = await drainForwardShadowDispatchQueue();

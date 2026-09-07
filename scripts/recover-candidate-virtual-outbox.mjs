@@ -1,4 +1,9 @@
 import { drainCurrentCandidateVirtualQueue } from "../server/realtimeDecisionAudit.ts";
+import { getRtCandidateVirtualWorkCounts } from "../server/db.ts";
+import {
+  isCandidateVirtualRecoveryComplete,
+  shouldVerifyCandidateVirtualRecovery,
+} from "../server/candidateVirtualRecoveryPolicy.ts";
 
 const maxBatches = Number.parseInt(process.argv[2] ?? "40", 10);
 const pauseMs = Number.parseInt(process.argv[3] ?? "3000", 10);
@@ -30,6 +35,10 @@ for (let batch = 1; batch <= maxBatches; batch += 1) {
   };
   console.log(JSON.stringify(summary));
 
-  if (result.stoppedReason === "no_work") break;
+  if (shouldVerifyCandidateVirtualRecovery(result)) {
+    const counts = await getRtCandidateVirtualWorkCounts();
+    console.log(JSON.stringify({ batch, verification: "db_work_counts", ...counts }));
+    if (isCandidateVirtualRecoveryComplete(counts)) break;
+  }
   await sleep(result.stoppedReason === "worker_busy" ? Math.max(pauseMs, 5000) : pauseMs);
 }

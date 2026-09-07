@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
   acquireRtNamedWorkerLock,
+  getRtAuditTradeDateFinality,
+  getRtAuditTradeDateWatermark,
   getRtDailyAuditMaterialization,
   getRtPortfolioMaterializationProgress,
+  reopenRtAuditMaterializationsForTradeDate,
   releaseRtNamedWorkerLock,
+  upsertRtAuditTradeDateFinality,
   upsertRtDailyAuditMaterialization,
+  type RtAuditTradeDateWatermark,
 } from "./db";
 import {
   ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
@@ -16,6 +21,7 @@ import {
 import { compareTelCurrentParityForDate } from "./telParityComparison";
 import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
 import { materializeNextForwardReplayForDate } from "./forwardReplayMaterializer";
+import { sha256Stable } from "./runtimeIdentity";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -24,17 +30,81 @@ export const OUTCOME_LABELS_MATERIALIZATION_VERSION = "current-outcome-labels-ma
 export const DIVERGENCE_MATERIALIZATION_COMPONENT = "divergence_hypotheses";
 export const DIVERGENCE_MATERIALIZATION_VERSION = "current-divergence-materialized-v1";
 const AUDIT_MATERIALIZER_LOCK_NAME = "audit-materializer-p0-v1";
+const UPSTREAM_QUIET_PERIOD_MS = 5 * 60 * 1000;
 
 function jstTradeDate(now = new Date()): string {
   return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function canFinalizeTradeDate(tradeDate: string, now = new Date()): boolean {
+function canCloseTradeDate(tradeDate: string, now = new Date()): boolean {
   const today = jstTradeDate(now);
   if (tradeDate < today) return true;
   if (tradeDate > today) return false;
   const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16);
   return jstTime >= "15:31";
+}
+
+function stableWatermark(watermark: RtAuditTradeDateWatermark) {
+  return {
+    ...watermark,
+    latestUpstreamCreatedAt: watermark.latestUpstreamCreatedAt?.toISOString() ?? null,
+  };
+}
+
+function watermarkHash(watermark: RtAuditTradeDateWatermark): string {
+  return sha256Stable(stableWatermark(watermark));
+}
+
+function watermarkReady(watermark: RtAuditTradeDateWatermark): boolean {
+  return watermark.source.count > 0
+    && watermark.source.processed === watermark.source.count
+    && watermark.source.processing === 0
+    && watermark.source.failed === 0
+    && watermark.decision.count === watermark.source.count
+    && watermark.candidateOutbox.processed === watermark.decision.count
+    && watermark.candidateOutbox.pending === 0
+    && watermark.candidateOutbox.processing === 0
+    && watermark.candidateOutbox.retryableError === 0
+    && watermark.candidateOutbox.terminal === 0
+    && watermark.shadowOutbox.count === watermark.source.count
+    && watermark.shadowOutbox.processed === watermark.shadowOutbox.count
+    && watermark.shadowOutbox.pending === 0
+    && watermark.shadowOutbox.processing === 0
+    && watermark.shadowOutbox.error === 0
+    && watermark.unresolvedGaps === 0;
+}
+
+async function ensureTradeDateFinality(tradeDate: string, now = new Date()) {
+  const [existing, watermark] = await Promise.all([
+    getRtAuditTradeDateFinality(tradeDate),
+    getRtAuditTradeDateWatermark(tradeDate),
+  ]);
+  const hash = watermarkHash(watermark);
+  const changed = Boolean(existing?.watermarkHash && existing.watermarkHash !== hash);
+  if (changed && existing?.status === "closed") {
+    await reopenRtAuditMaterializationsForTradeDate(tradeDate);
+  }
+  const quietPeriodSatisfied = watermark.latestUpstreamCreatedAt !== null
+    && now.getTime() - watermark.latestUpstreamCreatedAt.getTime() >= UPSTREAM_QUIET_PERIOD_MS;
+  const ready = canCloseTradeDate(tradeDate, now) && quietPeriodSatisfied && watermarkReady(watermark);
+  const status = ready ? "closed" as const : changed ? "reopened" as const : existing?.status === "reopened" ? "reopened" as const : "open" as const;
+  const reason = ready
+    ? changed ? "watermark_changed_then_revalidated" : "upstream_closed_and_watermark_complete"
+    : !canCloseTradeDate(tradeDate, now)
+      ? "before_close_time"
+      : !quietPeriodSatisfied
+        ? "upstream_quiet_period_not_satisfied"
+        : "upstream_or_outbox_incomplete";
+  const row = await upsertRtAuditTradeDateFinality({
+    tradeDate,
+    status,
+    watermarkHash: hash,
+    watermarkJson: stableWatermark(watermark),
+    latestUpstreamCreatedAt: watermark.latestUpstreamCreatedAt,
+    closedAt: ready ? changed ? now : existing?.closedAt ?? now : null,
+    reason,
+  });
+  return { row, watermark, hash, ready };
 }
 
 async function persistComponent(input: {
@@ -66,7 +136,8 @@ async function materializeNextAuditComponentUnlocked(
   tradeDate: string,
   options: { now?: Date; maxTimelineItems?: number; maxMinutes?: number } = {},
 ) {
-  const finalizeDay = canFinalizeTradeDate(tradeDate, options.now);
+  const finality = await ensureTradeDateFinality(tradeDate, options.now);
+  const finalizeDay = finality.ready && finality.row.status === "closed";
   const existingPortfolio = await getRtDailyAuditMaterialization({
     component: PORTFOLIO_BUNDLE_COMPONENT,
     version: PORTFOLIO_MATERIALIZATION_VERSION,
@@ -204,11 +275,26 @@ export async function materializeNextAuditComponentForDate(
 }
 
 export async function readAuditMaterializationsForReport(tradeDate: string) {
-  const [portfolio, telParity, outcomeLabels, divergence] = await Promise.all([
+  const [portfolio, telParity, outcomeLabels, divergence, finality, watermark] = await Promise.all([
     getRtDailyAuditMaterialization({ component: PORTFOLIO_BUNDLE_COMPONENT, version: PORTFOLIO_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: TEL_PARITY_MATERIALIZATION_COMPONENT, version: TEL_PARITY_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, version: OUTCOME_LABELS_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DIVERGENCE_MATERIALIZATION_COMPONENT, version: DIVERGENCE_MATERIALIZATION_VERSION, tradeDate }),
+    getRtAuditTradeDateFinality(tradeDate),
+    getRtAuditTradeDateWatermark(tradeDate),
   ]);
-  return { portfolio, telParity, outcomeLabels, divergence };
+  const valid = finality?.status === "closed"
+    && finality.watermarkHash === watermarkHash(watermark)
+    && watermarkReady(watermark);
+  if (valid) return { portfolio, telParity, outcomeLabels, divergence, finality };
+  const invalidate = <T extends { status: string; lastError?: string | null } | null>(row: T): T => row
+    ? { ...row, status: "processing", lastError: "audit_watermark_not_closed_or_changed" } as T
+    : row;
+  return {
+    portfolio: invalidate(portfolio),
+    telParity: invalidate(telParity),
+    outcomeLabels: invalidate(outcomeLabels),
+    divergence: invalidate(divergence),
+    finality,
+  };
 }

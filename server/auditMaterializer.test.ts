@@ -2,12 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
   acquireRtNamedWorkerLock: vi.fn(async () => true),
+  getRtAuditTradeDateFinality: vi.fn(async () => null),
+  getRtAuditTradeDateWatermark: vi.fn(async () => ({
+    source: { count: 10, maxId: 10, processed: 10, processing: 0, failed: 0 },
+    decision: { count: 10, maxId: 10 },
+    candidateOutbox: { processed: 10, pending: 0, processing: 0, retryableError: 0, terminal: 0 },
+    shadowOutbox: { count: 10, processed: 10, pending: 0, processing: 0, error: 0 },
+    unresolvedGaps: 0,
+    latestUpstreamCreatedAt: new Date("2026-09-07T06:50:00Z"),
+  })),
   getRtDailyAuditMaterialization: vi.fn(async () => null),
   getRtPortfolioMaterializationProgress: vi.fn(async () => ({
     processedThroughEngineSequence: 10,
     sourceDecisionCount: 10,
   })),
+  reopenRtAuditMaterializationsForTradeDate: vi.fn(),
   releaseRtNamedWorkerLock: vi.fn(),
+  upsertRtAuditTradeDateFinality: vi.fn(async input => ({ id: 1, ...input })),
   upsertRtDailyAuditMaterialization: vi.fn(async input => input),
 }));
 const portfolioMock = vi.hoisted(() => ({
@@ -54,6 +65,7 @@ describe("P0 audit materializer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.getRtDailyAuditMaterialization.mockResolvedValue(null);
+    dbMock.getRtAuditTradeDateFinality.mockResolvedValue(null);
     dbMock.acquireRtNamedWorkerLock.mockResolvedValue(true);
     portfolioMock.materializePortfolioBundleForDate.mockResolvedValue({ status: "processing" });
     forwardReplayMock.materializeNextForwardReplayForDate.mockResolvedValue({ status: "complete", completedVersions: 16 });
@@ -118,6 +130,27 @@ describe("P0 audit materializer", () => {
     expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildDivergenceHypotheses).not.toHaveBeenCalled();
+  });
+
+  it("closed後にwatermarkが変化した場合は全snapshotをreopenedへ戻す", async () => {
+    dbMock.getRtAuditTradeDateFinality.mockResolvedValue({
+      tradeDate: "2026-09-07",
+      status: "closed",
+      watermarkHash: "old-watermark",
+      closedAt: new Date("2026-09-07T07:00:00Z"),
+    });
+
+    const result = await materializeNextAuditComponentForDate("2026-09-07", {
+      now: new Date("2026-09-08T00:00:00Z"),
+    });
+
+    expect(dbMock.reopenRtAuditMaterializationsForTradeDate).toHaveBeenCalledWith("2026-09-07");
+    expect(dbMock.upsertRtAuditTradeDateFinality).toHaveBeenCalledWith(expect.objectContaining({
+      tradeDate: "2026-09-07",
+      status: "closed",
+      reason: "watermark_changed_then_revalidated",
+    }));
+    expect(result).toMatchObject({ status: "processing", component: "portfolio_bundle" });
   });
 
   it("別materializerがlease中なら重いbuilderを呼ばずworker_busyを返す", async () => {

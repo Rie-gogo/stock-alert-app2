@@ -124,6 +124,7 @@ export async function buildActualReceiptPortfolioAuditForDate(tradeDate: string)
     await upsertRtPortfolioAuditEvent({
       portfolioVersion: CURRENT_PORTFOLIO_AUDIT_VERSION,
       mode: "actual_receipt",
+      generation: 1,
       sourceEventId: event.sourceEventId,
       tradeDate,
       candleTime: event.candleTime,
@@ -230,6 +231,7 @@ export async function buildMinuteNormalizedPortfolioAuditForDate(tradeDate: stri
       await upsertRtPortfolioAuditEvent({
         portfolioVersion: NORMALIZED_PORTFOLIO_AUDIT_VERSION,
         mode: "minute_normalized",
+        generation: 1,
         sourceEventId: event.sourceEventId,
         tradeDate,
         candleTime: event.candleTime,
@@ -311,6 +313,7 @@ function exitAuditSourceId(trade: RtSignalCandidateTrade): string {
 async function persistCandidatePortfolioDecision(input: {
   version: string;
   mode: "actual_receipt" | "minute_normalized";
+  generation: number;
   allocation: CandidateAllocation;
   decision: "accepted" | "margin_block" | "symbol_position_block";
   marginBefore: number;
@@ -323,6 +326,7 @@ async function persistCandidatePortfolioDecision(input: {
   await upsertRtPortfolioAuditEvent({
     portfolioVersion: input.version,
     mode: input.mode,
+    generation: input.generation,
     sourceEventId: candidate.sourceEventId,
     tradeDate: candidate.tradeDate,
     candleTime: candidate.candleTime,
@@ -357,6 +361,7 @@ async function persistCandidatePortfolioDecision(input: {
 async function persistCandidatePortfolioExit(input: {
   version: string;
   mode: "actual_receipt" | "minute_normalized";
+  generation: number;
   allocation: CandidateAllocation;
   marginBefore: number;
   marginAfter: number;
@@ -368,6 +373,7 @@ async function persistCandidatePortfolioExit(input: {
   await upsertRtPortfolioAuditEvent({
     portfolioVersion: input.version,
     mode: input.mode,
+    generation: input.generation,
     sourceEventId: exitAuditSourceId(trade),
     tradeDate: trade.exitTradeDate ?? trade.tradeDate,
     candleTime: trade.exitCandleTime,
@@ -457,6 +463,7 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
       await persistCandidatePortfolioExit({
         version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
         mode: "actual_receipt",
+        generation: 1,
         allocation,
         marginBefore: before,
         marginAfter: marginUsed,
@@ -497,6 +504,7 @@ export async function buildAllCandidateReceiptPortfolioForDate(tradeDate: string
     await persistCandidatePortfolioDecision({
       version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
       mode: "actual_receipt",
+      generation: 1,
       allocation,
       decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
       marginBefore: before,
@@ -566,6 +574,7 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
       await persistCandidatePortfolioExit({
         version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
         mode: "minute_normalized",
+        generation: 1,
         allocation,
         marginBefore: before,
         marginAfter: marginUsed,
@@ -611,6 +620,7 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
       await persistCandidatePortfolioDecision({
         version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
         mode: "minute_normalized",
+        generation: 1,
         allocation,
         decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
         marginBefore: before,
@@ -723,6 +733,16 @@ function finalizeEligibility(input: {
     && (input.missingExitSequence?.size ?? 0) === 0;
 }
 
+function materializationGeneration(
+  progress: Awaited<ReturnType<typeof getRtPortfolioMaterializationProgress>>,
+  rebuildFromStart: boolean,
+): number {
+  if (rebuildFromStart) {
+    return Math.max(progress?.activeGeneration ?? 0, progress?.buildingGeneration ?? 0) + 1;
+  }
+  return progress?.buildingGeneration ?? progress?.activeGeneration ?? 1;
+}
+
 /** engineSequence順の正式portfolioをbounded batchで増分materializeする。 */
 export async function materializeAllCandidateReceiptPortfolioBatch(
   tradeDate: string,
@@ -741,6 +761,7 @@ export async function materializeAllCandidateReceiptPortfolioBatch(
   const rebuildFromStart = progress?.dirtyFromEngineSequence !== null
     && progress?.dirtyFromEngineSequence !== undefined
     && progress.dirtyFromEngineSequence <= progress.processedThroughEngineSequence;
+  const generation = materializationGeneration(progress, rebuildFromStart);
   const cursor = rebuildFromStart ? 0 : progress?.processedThroughEngineSequence ?? 0;
   if (cursor > coverage.safeHighWater) throw new Error(`portfolio_cursor_ahead_of_safe_high_water:${cursor}:${coverage.safeHighWater}`);
   const state = rebuildFromStart ? structuredClone(EMPTY_MATERIALIZED_STATE) : parseMaterializedState(progress?.resultJson);
@@ -782,6 +803,7 @@ export async function materializeAllCandidateReceiptPortfolioBatch(
       await persistCandidatePortfolioExit({
         version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
         mode: "actual_receipt",
+        generation,
         allocation,
         marginBefore: before,
         marginAfter: marginUsed,
@@ -814,6 +836,7 @@ export async function materializeAllCandidateReceiptPortfolioBatch(
     await persistCandidatePortfolioDecision({
       version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
       mode: "actual_receipt",
+      generation,
       allocation,
       decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
       marginBefore: before,
@@ -839,6 +862,7 @@ export async function materializeAllCandidateReceiptPortfolioBatch(
   const result = {
     ...state,
     portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+    generation,
     tradeDate,
     candidates: allocations.length,
     openAtEnd: open.size,
@@ -851,6 +875,8 @@ export async function materializeAllCandidateReceiptPortfolioBatch(
     mode: "actual_receipt",
     tradeDate,
     status: complete ? "complete" : "processing",
+    activeGeneration: complete ? generation : progress?.activeGeneration ?? null,
+    buildingGeneration: complete ? null : generation,
     processedThroughEngineSequence: nextCursor,
     sourceDecisionCount: coverage.sourceDecisionCount,
     openAllocationsJson: { candidateIds: Array.from(open.keys()) },
@@ -881,6 +907,7 @@ export async function materializeAllCandidateMinutePortfolioBatch(
   const rebuildFromStart = progress?.dirtyFromEngineSequence !== null
     && progress?.dirtyFromEngineSequence !== undefined
     && progress.dirtyFromEngineSequence <= progress.processedThroughEngineSequence;
+  const generation = materializationGeneration(progress, rebuildFromStart);
   const state = rebuildFromStart ? structuredClone(EMPTY_MATERIALIZED_STATE) : parseMaterializedState(progress?.resultJson);
   const { open, openBySymbol } = restoreOpenAllocations(
     rebuildFromStart ? [] : parseOpenCandidateIds(progress?.openAllocationsJson),
@@ -918,6 +945,7 @@ export async function materializeAllCandidateMinutePortfolioBatch(
       await persistCandidatePortfolioExit({
         version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
         mode: "minute_normalized",
+        generation,
         allocation,
         marginBefore: before,
         marginAfter: marginUsed,
@@ -956,6 +984,7 @@ export async function materializeAllCandidateMinutePortfolioBatch(
       await persistCandidatePortfolioDecision({
         version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
         mode: "minute_normalized",
+        generation,
         allocation,
         decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
         marginBefore: before,
@@ -986,6 +1015,7 @@ export async function materializeAllCandidateMinutePortfolioBatch(
   const result = {
     ...state,
     portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+    generation,
     tradeDate,
     candidates: allocations.length,
     openAtEnd: open.size,
@@ -999,6 +1029,8 @@ export async function materializeAllCandidateMinutePortfolioBatch(
     mode: "minute_normalized",
     tradeDate,
     status: complete ? "complete" : "processing",
+    activeGeneration: complete ? generation : progress?.activeGeneration ?? null,
+    buildingGeneration: complete ? null : generation,
     processedThroughEngineSequence: nextCursor,
     sourceDecisionCount: coverage.sourceDecisionCount,
     openAllocationsJson: { candidateIds: Array.from(open.keys()) },

@@ -96,14 +96,14 @@ describe("受信イベントの一度きり処理", () => {
     expect(result.sourceEventDuplicate).toBe(false);
   });
 
-  it("同じイベントIDの再送は現行エンジンを再実行せず、シャドーerrorだけを冪等再試行する", async () => {
+  it("同じイベントIDの再送は現行エンジンを再実行せず、candidateは独立workerに任せてシャドーerrorだけを冪等再試行する", async () => {
     dbMock.claimRtSourceEvent.mockResolvedValue(false);
     dbMock.getRtSourceEvent.mockResolvedValue({ status: "processed", payloadHash: "a".repeat(64), resultJson: { action: "entry" } });
     const result = await ingestSourceCandle(input);
     expect(processCandleMock).not.toHaveBeenCalled();
     expect(shadowMock).not.toHaveBeenCalled();
     expect(shadowDrainMock).toHaveBeenCalledTimes(1);
-    expect(candidateDrainMock).toHaveBeenCalledTimes(1);
+    expect(candidateDrainMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 
@@ -189,7 +189,7 @@ describe("受信イベントの一度きり処理", () => {
     expect(result.sourceEventDuplicate).toBe(false);
   });
 
-  it("engine開始後に停止していても監査行があれば現行処理を再実行せず後処理だけ再開する", async () => {
+  it("engine開始後に停止していても監査行があれば現行処理を再実行せず、candidateは独立workerのまま後処理だけ再開する", async () => {
     dbMock.claimRtSourceEvent.mockResolvedValue(false);
     dbMock.getRtSourceEvent.mockResolvedValue({
       status: "processing",
@@ -223,7 +223,7 @@ describe("受信イベントの一度きり処理", () => {
     const result = await ingestSourceCandle(input);
 
     expect(processCandleMock).not.toHaveBeenCalled();
-    expect(candidateDrainMock).toHaveBeenCalledTimes(1);
+    expect(candidateDrainMock).not.toHaveBeenCalled();
     expect(shadowMock).toHaveBeenCalledTimes(1);
     expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "processed" }));
     expect(result.reason).toBe("recovered_after_engine_audit");

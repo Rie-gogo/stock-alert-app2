@@ -575,6 +575,7 @@ import {
   rtCandidateVirtualWorkerLocks,
   rtCandidateVirtualGaps,
   rtPortfolioMaterializationProgress,
+  rtAuditTradeDateFinality,
   rtDailyAuditMaterializations,
   rtForwardEvaluationControls,
   type InsertRtCandle,
@@ -627,6 +628,8 @@ import {
   type RtCandidateVirtualGap,
   type InsertRtPortfolioMaterializationProgress,
   type RtPortfolioMaterializationProgress,
+  type InsertRtAuditTradeDateFinality,
+  type RtAuditTradeDateFinality,
   type InsertRtDailyAuditMaterialization,
   type RtDailyAuditMaterialization,
   type InsertRtForwardEvaluationControl,
@@ -1874,6 +1877,17 @@ export async function markRtCandidateVirtualPhaseError(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const phaseStatus = input.terminal ? "terminal_error" as const : "retryable_error" as const;
+  const phaseAttemptCount = input.phase === "candidate"
+    ? input.row.candidatePhaseAttemptCount + 1
+    : input.row.virtualPhaseAttemptCount + 1;
+  const statusBefore = {
+    candidate: input.row.candidatePhaseStatus,
+    virtual: input.row.virtualPhaseStatus,
+  };
+  const statusAfter = {
+    candidate: input.phase === "candidate" ? phaseStatus : input.row.candidatePhaseStatus,
+    virtual: input.phase === "virtual" ? phaseStatus : input.row.virtualPhaseStatus,
+  };
   await db.transaction(async tx => {
     const phaseSet = input.phase === "candidate"
       ? { candidatePhaseStatus: phaseStatus, candidatePhaseLastError: input.error }
@@ -1885,8 +1899,6 @@ export async function markRtCandidateVirtualPhaseError(input: {
     } : {
       ...phaseSet,
       candidateVirtualStatus: "error",
-      candidateVirtualClaimToken: null,
-      candidateVirtualLeaseUntil: null,
       candidateVirtualLastError: input.error,
     }).where(and(
       eq(rtRealtimeDecisionEvents.id, input.row.id),
@@ -1901,9 +1913,12 @@ export async function markRtCandidateVirtualPhaseError(input: {
         reasonCode: "max_attempts_exhausted",
         detailJson: {
           error: input.error,
-          attemptCount: input.row.candidateVirtualAttemptCount,
-          candidatePhaseStatus: input.row.candidatePhaseStatus,
-          virtualPhaseStatus: input.row.virtualPhaseStatus,
+          attemptCount: phaseAttemptCount,
+          phaseLastError: input.error,
+          candidatePhaseAttemptCount: input.phase === "candidate" ? phaseAttemptCount : input.row.candidatePhaseAttemptCount,
+          virtualPhaseAttemptCount: input.phase === "virtual" ? phaseAttemptCount : input.row.virtualPhaseAttemptCount,
+          statusBefore,
+          statusAfter,
         },
         resolved: false,
       };
@@ -1948,6 +1963,12 @@ export async function terminalizeExhaustedRtCandidateVirtualWork(input: {
         virtualPhaseStatus: virtualStatus,
       }).where(eq(rtRealtimeDecisionEvents.id, row.id));
       for (const phase of phases) {
+        const phaseAttemptCount = phase === "candidate"
+          ? row.candidatePhaseAttemptCount
+          : row.virtualPhaseAttemptCount;
+        const phaseLastError = phase === "candidate"
+          ? row.candidatePhaseLastError
+          : row.virtualPhaseLastError;
         const gap: InsertRtCandidateVirtualGap = {
           decisionEventId: row.id,
           sourceEventId: row.sourceEventId,
@@ -1955,10 +1976,19 @@ export async function terminalizeExhaustedRtCandidateVirtualWork(input: {
           phase,
           reasonCode: "max_attempts_exhausted",
           detailJson: {
-            error: row.candidateVirtualLastError,
-            attemptCount: row.candidateVirtualAttemptCount,
-            candidatePhaseStatus: row.candidatePhaseStatus,
-            virtualPhaseStatus: row.virtualPhaseStatus,
+            error: phaseLastError,
+            attemptCount: phaseAttemptCount,
+            phaseLastError,
+            candidatePhaseAttemptCount: row.candidatePhaseAttemptCount,
+            virtualPhaseAttemptCount: row.virtualPhaseAttemptCount,
+            statusBefore: {
+              candidate: row.candidatePhaseStatus,
+              virtual: row.virtualPhaseStatus,
+            },
+            statusAfter: {
+              candidate: candidateStatus,
+              virtual: virtualStatus,
+            },
           },
           resolved: false,
         };
@@ -1981,12 +2011,13 @@ export async function completeRtCandidateVirtualWork(input: { id: number; ownerT
   )).limit(1))[0];
   if (!row) return;
   const terminal = row.candidatePhaseStatus === "terminal_error" || row.virtualPhaseStatus === "terminal_error";
+  const retryable = row.candidatePhaseStatus === "retryable_error" || row.virtualPhaseStatus === "retryable_error";
   await db.update(rtRealtimeDecisionEvents).set({
-    candidateVirtualStatus: terminal ? "terminal" : "processed",
+    candidateVirtualStatus: terminal ? "terminal" : retryable ? "error" : "processed",
     candidateVirtualClaimToken: null,
     candidateVirtualLeaseUntil: null,
     candidateVirtualLastError: terminal ? row.candidateVirtualLastError : null,
-    candidateVirtualProcessedAt: terminal ? null : new Date(),
+    candidateVirtualProcessedAt: terminal || retryable ? null : new Date(),
     candidateVirtualTerminalAt: terminal ? row.candidateVirtualTerminalAt ?? new Date() : null,
   }).where(and(
     eq(rtRealtimeDecisionEvents.id, input.id),
@@ -2014,6 +2045,29 @@ export async function getRtCandidateVirtualGapsForDate(tradeDate: string): Promi
   return db.select().from(rtCandidateVirtualGaps)
     .where(eq(rtCandidateVirtualGaps.tradeDate, tradeDate))
     .orderBy(rtCandidateVirtualGaps.decisionEventId, rtCandidateVirtualGaps.id);
+}
+
+export async function getRtCandidateVirtualWorkCounts(): Promise<{
+  pending: number;
+  processing: number;
+  retryableError: number;
+}> {
+  const db = await getDb();
+  if (!db) return { pending: 0, processing: 0, retryableError: 0 };
+  const rows = await db.select({
+    status: rtRealtimeDecisionEvents.candidateVirtualStatus,
+    rowCount: sql<number>`count(*)`,
+  }).from(rtRealtimeDecisionEvents)
+    .where(inArray(rtRealtimeDecisionEvents.candidateVirtualStatus, ["pending", "processing", "error"]))
+    .groupBy(rtRealtimeDecisionEvents.candidateVirtualStatus);
+  const counts = { pending: 0, processing: 0, retryableError: 0 };
+  for (const row of rows) {
+    const value = Number(row.rowCount ?? 0);
+    if (row.status === "pending") counts.pending = value;
+    else if (row.status === "processing") counts.processing = value;
+    else if (row.status === "error") counts.retryableError = value;
+  }
+  return counts;
 }
 
 export async function enqueueRtShadowDispatch(
@@ -2164,13 +2218,24 @@ export async function getRtPortfolioAuditEventsForDate(input: {
   portfolioVersion: string;
   mode: RtPortfolioAuditEvent["mode"];
   tradeDate: string;
+  generation?: number;
 }): Promise<RtPortfolioAuditEvent[]> {
   const db = await getDb();
   if (!db) return [];
+  const progress = input.generation === undefined
+    ? await getRtPortfolioMaterializationProgress({
+        portfolioVersion: input.portfolioVersion,
+        mode: input.mode,
+        tradeDate: input.tradeDate,
+      })
+    : null;
+  if (input.generation === undefined && progress && progress.activeGeneration === null) return [];
+  const generation = input.generation ?? progress?.activeGeneration ?? 1;
   return db.select().from(rtPortfolioAuditEvents).where(and(
     eq(rtPortfolioAuditEvents.portfolioVersion, input.portfolioVersion),
     eq(rtPortfolioAuditEvents.mode, input.mode),
     eq(rtPortfolioAuditEvents.tradeDate, input.tradeDate),
+    eq(rtPortfolioAuditEvents.generation, generation),
   )).orderBy(rtPortfolioAuditEvents.id);
 }
 
@@ -2407,6 +2472,143 @@ export async function getRtPortfolioMaterializationProgress(input: {
   )).limit(1))[0] ?? null;
 }
 
+export type RtAuditTradeDateWatermark = {
+  source: { count: number; maxId: number; processed: number; processing: number; failed: number };
+  decision: { count: number; maxId: number };
+  candidateOutbox: { processed: number; pending: number; processing: number; retryableError: number; terminal: number };
+  shadowOutbox: { count: number; processed: number; pending: number; processing: number; error: number };
+  unresolvedGaps: number;
+  latestUpstreamCreatedAt: Date | null;
+};
+
+function numeric(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function getRtAuditTradeDateWatermark(tradeDate: string): Promise<RtAuditTradeDateWatermark> {
+  const db = await getDb();
+  if (!db) {
+    return {
+      source: { count: 0, maxId: 0, processed: 0, processing: 0, failed: 0 },
+      decision: { count: 0, maxId: 0 },
+      candidateOutbox: { processed: 0, pending: 0, processing: 0, retryableError: 0, terminal: 0 },
+      shadowOutbox: { count: 0, processed: 0, pending: 0, processing: 0, error: 0 },
+      unresolvedGaps: 0,
+      latestUpstreamCreatedAt: null,
+    };
+  }
+  const [sourceRows, decisionRows, shadowRows, gapRows] = await Promise.all([
+    db.select({
+      count: sql<number>`count(*)`,
+      maxId: sql<number>`coalesce(max(${rtSourceEvents.id}), 0)`,
+      processed: sql<number>`coalesce(sum(case when ${rtSourceEvents.status} = 'processed' then 1 else 0 end), 0)`,
+      processing: sql<number>`coalesce(sum(case when ${rtSourceEvents.status} = 'processing' then 1 else 0 end), 0)`,
+      failed: sql<number>`coalesce(sum(case when ${rtSourceEvents.status} = 'failed' then 1 else 0 end), 0)`,
+      latestCreatedAt: sql<Date | null>`max(${rtSourceEvents.createdAt})`,
+    }).from(rtSourceEvents).where(eq(rtSourceEvents.tradeDate, tradeDate)),
+    db.select({
+      count: sql<number>`count(*)`,
+      maxId: sql<number>`coalesce(max(${rtRealtimeDecisionEvents.id}), 0)`,
+      candidateProcessed: sql<number>`coalesce(sum(case when ${rtRealtimeDecisionEvents.candidateVirtualStatus} = 'processed' then 1 else 0 end), 0)`,
+      candidatePending: sql<number>`coalesce(sum(case when ${rtRealtimeDecisionEvents.candidateVirtualStatus} = 'pending' then 1 else 0 end), 0)`,
+      candidateProcessing: sql<number>`coalesce(sum(case when ${rtRealtimeDecisionEvents.candidateVirtualStatus} = 'processing' then 1 else 0 end), 0)`,
+      candidateError: sql<number>`coalesce(sum(case when ${rtRealtimeDecisionEvents.candidateVirtualStatus} = 'error' then 1 else 0 end), 0)`,
+      candidateTerminal: sql<number>`coalesce(sum(case when ${rtRealtimeDecisionEvents.candidateVirtualStatus} = 'terminal' then 1 else 0 end), 0)`,
+      latestCreatedAt: sql<Date | null>`max(${rtRealtimeDecisionEvents.createdAt})`,
+    }).from(rtRealtimeDecisionEvents).where(eq(rtRealtimeDecisionEvents.tradeDate, tradeDate)),
+    db.select({
+      count: sql<number>`count(*)`,
+      processed: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'processed' then 1 else 0 end), 0)`,
+      pending: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'pending' then 1 else 0 end), 0)`,
+      processing: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'processing' then 1 else 0 end), 0)`,
+      error: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'error' then 1 else 0 end), 0)`,
+    }).from(rtShadowDispatchQueue)
+      .innerJoin(rtSourceEvents, eq(rtShadowDispatchQueue.sourceEventId, rtSourceEvents.sourceEventId))
+      .where(eq(rtSourceEvents.tradeDate, tradeDate)),
+    db.select({ count: sql<number>`count(*)` }).from(rtCandidateVirtualGaps).where(and(
+      eq(rtCandidateVirtualGaps.tradeDate, tradeDate),
+      eq(rtCandidateVirtualGaps.resolved, false),
+    )),
+  ]);
+  const source = sourceRows[0];
+  const decision = decisionRows[0];
+  const shadow = shadowRows[0];
+  const latestDates = [source?.latestCreatedAt, decision?.latestCreatedAt]
+    .map(value => value ? new Date(value) : null)
+    .filter((value): value is Date => Boolean(value && Number.isFinite(value.getTime())));
+  return {
+    source: {
+      count: numeric(source?.count),
+      maxId: numeric(source?.maxId),
+      processed: numeric(source?.processed),
+      processing: numeric(source?.processing),
+      failed: numeric(source?.failed),
+    },
+    decision: { count: numeric(decision?.count), maxId: numeric(decision?.maxId) },
+    candidateOutbox: {
+      processed: numeric(decision?.candidateProcessed),
+      pending: numeric(decision?.candidatePending),
+      processing: numeric(decision?.candidateProcessing),
+      retryableError: numeric(decision?.candidateError),
+      terminal: numeric(decision?.candidateTerminal),
+    },
+    shadowOutbox: {
+      count: numeric(shadow?.count),
+      processed: numeric(shadow?.processed),
+      pending: numeric(shadow?.pending),
+      processing: numeric(shadow?.processing),
+      error: numeric(shadow?.error),
+    },
+    unresolvedGaps: numeric(gapRows[0]?.count),
+    latestUpstreamCreatedAt: latestDates.length > 0
+      ? new Date(Math.max(...latestDates.map(value => value.getTime())))
+      : null,
+  };
+}
+
+export async function getRtAuditTradeDateFinality(tradeDate: string): Promise<RtAuditTradeDateFinality | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtAuditTradeDateFinality)
+    .where(eq(rtAuditTradeDateFinality.tradeDate, tradeDate)).limit(1))[0] ?? null;
+}
+
+export async function upsertRtAuditTradeDateFinality(
+  data: Omit<InsertRtAuditTradeDateFinality, "id" | "createdAt" | "updatedAt">,
+): Promise<RtAuditTradeDateFinality> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtAuditTradeDateFinality).values(data).onDuplicateKeyUpdate({
+    set: {
+      status: data.status,
+      watermarkHash: data.watermarkHash ?? null,
+      watermarkJson: data.watermarkJson,
+      latestUpstreamCreatedAt: data.latestUpstreamCreatedAt ?? null,
+      closedAt: data.closedAt ?? null,
+      reason: data.reason,
+    },
+  });
+  const row = await getRtAuditTradeDateFinality(data.tradeDate);
+  if (!row) throw new Error(`Audit trade-date finality not found after upsert: ${data.tradeDate}`);
+  return row;
+}
+
+export async function reopenRtAuditMaterializationsForTradeDate(tradeDate: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtPortfolioMaterializationProgress).set({
+    status: "processing",
+    dirtyFromEngineSequence: 1,
+    buildingGeneration: null,
+    generatedAt: null,
+  }).where(eq(rtPortfolioMaterializationProgress.tradeDate, tradeDate));
+  await db.update(rtDailyAuditMaterializations).set({
+    status: "processing",
+    generatedAt: null,
+  }).where(eq(rtDailyAuditMaterializations.tradeDate, tradeDate));
+}
+
 export async function upsertRtPortfolioMaterializationProgress(
   data: Omit<InsertRtPortfolioMaterializationProgress, "id" | "createdAt" | "updatedAt">,
 ): Promise<RtPortfolioMaterializationProgress> {
@@ -2415,6 +2617,8 @@ export async function upsertRtPortfolioMaterializationProgress(
   await db.insert(rtPortfolioMaterializationProgress).values(data).onDuplicateKeyUpdate({
     set: {
       status: data.status,
+      activeGeneration: data.activeGeneration ?? null,
+      buildingGeneration: data.buildingGeneration ?? null,
       processedThroughEngineSequence: data.processedThroughEngineSequence,
       sourceDecisionCount: data.sourceDecisionCount,
       openAllocationsJson: data.openAllocationsJson,

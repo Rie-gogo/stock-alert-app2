@@ -79,8 +79,11 @@ describe("P0 portfolio増分materialization", () => {
     expect(result.processedThroughEngineSequence).toBe(2);
     expect(result.accepted).toBe(1);
     expect(dbMock.upsertRtPortfolioAuditEvent).toHaveBeenCalledTimes(1);
+    expect(dbMock.upsertRtPortfolioAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ generation: 1 }));
     expect(dbMock.upsertRtPortfolioMaterializationProgress).toHaveBeenCalledWith(expect.objectContaining({
       status: "processing",
+      activeGeneration: null,
+      buildingGeneration: 1,
       processedThroughEngineSequence: 2,
       openAllocationsJson: { candidateIds: [11] },
       marginUsed: 10_000,
@@ -123,6 +126,8 @@ describe("P0 portfolio増分materialization", () => {
     dbMock.getRtPortfolioMaterializationProgress.mockResolvedValue({
       processedThroughEngineSequence: 3,
       dirtyFromEngineSequence: 2,
+      activeGeneration: 1,
+      buildingGeneration: null,
       resultJson: { accepted: 99, processedTimelineItems: 99 },
       openAllocationsJson: { candidateIds: [] },
     });
@@ -132,9 +137,57 @@ describe("P0 portfolio増分materialization", () => {
     expect(rebuilt.accepted).toBe(1);
     expect(rebuilt.processedTimelineItems).toBe(1);
     expect(rebuilt.processedThroughEngineSequence).toBe(2);
+    expect(rebuilt.generation).toBe(2);
+    expect(dbMock.upsertRtPortfolioAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }));
     expect(dbMock.upsertRtPortfolioMaterializationProgress).toHaveBeenCalledWith(expect.objectContaining({
+      activeGeneration: 1,
+      buildingGeneration: 2,
       dirtyFromEngineSequence: null,
       openAllocationsJson: { candidateIds: [11] },
+    }));
+  });
+
+  it("dirty再構築が完全成功した時だけ新generationをactiveへ切り替える", async () => {
+    dbMock.getRtRealtimeDecisionEventsForDate.mockResolvedValue([
+      decision(1, "10:00"),
+      decision(2, "10:01"),
+    ]);
+    dbMock.getRtSignalCandidatesForDate.mockResolvedValue([{
+      ...candidate(11, 1, "10:00"),
+      requiredMargin: 9_000_000,
+    }]);
+    dbMock.getRtSignalCandidateTradesForDate.mockResolvedValue([{
+      candidateId: 11,
+      completed: true,
+      shares: 100,
+      exitSourceEventId: "source:2",
+      exitTradeDate: "2026-09-07",
+      exitCandleTime: "10:01",
+      exitPrice: "101",
+      pnl: "100",
+    }]);
+    dbMock.getRtPortfolioMaterializationProgress.mockResolvedValue({
+      processedThroughEngineSequence: 1,
+      dirtyFromEngineSequence: 1,
+      activeGeneration: 1,
+      buildingGeneration: null,
+      resultJson: { accepted: 1, processedTimelineItems: 1 },
+      openAllocationsJson: { candidateIds: [] },
+    });
+
+    const rebuilt = await materializeAllCandidateReceiptPortfolioBatch("2026-09-07", {
+      maxTimelineItems: 10,
+      finalizeDay: true,
+    });
+
+    expect(rebuilt.status).toBe("complete");
+    expect(rebuilt.generation).toBe(2);
+    expect(rebuilt.marginBlocked).toBe(1);
+    expect(dbMock.upsertRtPortfolioAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }));
+    expect(dbMock.upsertRtPortfolioMaterializationProgress).toHaveBeenCalledWith(expect.objectContaining({
+      status: "complete",
+      activeGeneration: 2,
+      buildingGeneration: null,
     }));
   });
 

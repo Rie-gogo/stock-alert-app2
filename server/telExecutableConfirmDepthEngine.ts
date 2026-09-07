@@ -218,6 +218,9 @@ interface ReplaySourceEvent {
   status: string;
   resultAction: string | null;
   payloadJson: unknown;
+  relayReceivedAtMs?: number | null;
+  relaySentAtMs?: number | null;
+  cloudReceivedAtMs?: number | null;
 }
 
 interface ReplayStoredEvent {
@@ -229,7 +232,57 @@ interface ReplayStoredEvent {
   stateHashAfter: string;
 }
 
-function parseReplayInput(event: ReplaySourceEvent): ForwardSourceEventInput | null {
+interface ReplayRealtimeEvent {
+  id: number;
+  sourceEventId: string;
+  resultType: string;
+  routeId: string | null;
+  marginUsedBefore: number | null;
+  marginUsedAfter: number | null;
+  stateHashBefore: string;
+  stateHashAfter: string;
+  causalityStatus: string;
+  causalityReason: string | null;
+  decisionStartedAtMs: number;
+  decisionCompletedAtMs: number;
+  resultJson: unknown;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function buildTelExecutableDepthReplayCurrentAudit(
+  event: ReplaySourceEvent,
+  realtime?: ReplayRealtimeEvent,
+): ForwardSourceEventInput["currentAudit"] | undefined {
+  if (!realtime) return undefined;
+  const resultJson = realtime.resultJson && typeof realtime.resultJson === "object"
+    ? realtime.resultJson as Record<string, unknown>
+    : {};
+  const availability = resultJson.availabilityTimeline && typeof resultJson.availabilityTimeline === "object"
+    ? resultJson.availabilityTimeline as Record<string, unknown>
+    : {};
+  return {
+    engineSequence: realtime.id,
+    resultType: realtime.resultType,
+    routeId: realtime.routeId,
+    marginUsedBefore: realtime.marginUsedBefore ?? 0,
+    marginUsedAfter: realtime.marginUsedAfter ?? 0,
+    stateHashBefore: realtime.stateHashBefore,
+    stateHashAfter: realtime.stateHashAfter,
+    causalityStatus: realtime.causalityStatus,
+    causalityReason: realtime.causalityReason ?? "unavailable",
+    boardObservedAtMs: numberOrNull(availability.boardObservedAtMs),
+    relayAssembledAtMs: numberOrNull(availability.relayAssembledAtMs) ?? event.relayReceivedAtMs ?? null,
+    relaySentAtMs: numberOrNull(availability.relaySentAtMs) ?? event.relaySentAtMs ?? null,
+    cloudReceivedAtMs: numberOrNull(availability.cloudReceivedAtMs) ?? event.cloudReceivedAtMs ?? null,
+    decisionStartedAtMs: realtime.decisionStartedAtMs,
+    decisionCompletedAtMs: realtime.decisionCompletedAtMs,
+  };
+}
+
+function parseReplayInput(event: ReplaySourceEvent, realtime?: ReplayRealtimeEvent): ForwardSourceEventInput | null {
   if (!event.payloadJson || typeof event.payloadJson !== "object") return null;
   const raw = event.payloadJson as Record<string, unknown>;
   if (raw.symbol !== "8035"
@@ -249,13 +302,19 @@ function parseReplayInput(event: ReplaySourceEvent): ForwardSourceEventInput | n
       volume: raw.volume as number,
     },
     board: raw.board ?? null,
+    currentAudit: buildTelExecutableDepthReplayCurrentAudit(event, realtime),
   };
 }
 
-export function auditTelExecutableConfirmDepthDay(sourceEvents: ReplaySourceEvent[], storedEvents: ReplayStoredEvent[]) {
+export function auditTelExecutableConfirmDepthDay(
+  sourceEvents: ReplaySourceEvent[],
+  storedEvents: ReplayStoredEvent[],
+  realtimeEvents: ReplayRealtimeEvent[] = [],
+) {
   let replayedEvents = 0;
   let mismatches = 0;
   let invalidPayloads = 0;
+  const realtimeBySourceId = new Map(realtimeEvents.map(event => [event.sourceEventId, event]));
   for (const mode of MODES) {
     let state = createEmptyTelExecutableConfirmState();
     const stored = new Map(storedEvents
@@ -263,7 +322,7 @@ export function auditTelExecutableConfirmDepthDay(sourceEvents: ReplaySourceEven
       .map(event => [event.sourceEventId, event]));
     for (const sourceEvent of sourceEvents) {
       if (sourceEvent.status !== "processed" || sourceEvent.resultAction === "correction_ignored") continue;
-      const input = parseReplayInput(sourceEvent);
+      const input = parseReplayInput(sourceEvent, realtimeBySourceId.get(sourceEvent.sourceEventId));
       if (!input) {
         if ((sourceEvent.payloadJson as Record<string, unknown> | null)?.symbol === "8035") invalidPayloads += 1;
         continue;

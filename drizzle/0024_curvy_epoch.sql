@@ -1,0 +1,1 @@
+ALTER TABLE `rt_daily_audit_materializations` MODIFY COLUMN `version` varchar(128) NOT NULL;

@@ -2074,10 +2074,15 @@
 - [x] portfolio・replay・outcome・旧simulationの重い日次処理を分離し、16時レポートを完成済み集計の読取専用へ変更する
 - [x] 一時失敗・最大試行・部分成功・重複実行・遅延candidate・昼休み足・OOM回避のVitest回帰/障害注入テストを追加する
 - [x] schema migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
-- [ ] 公開後に独立workerを登録し、9/7の保存payloadをbounded batchで復旧してpending/processing/retryable error 0、未決済0、coverage 100%、重複0を確認する
+- [x] 公開後に独立workerを登録し、9/7の保存payloadをbounded batchで復旧してpending/processing/retryable error 0、未決済0、coverage 100%、重複0を確認する
 - [ ] route parity・portfolio両方式の内部整合・16時完了を再監査し、正式評価Gateは別承認まで無効のまま維持する
 
 ## P0バックログ復旧速度の一時調整（2026-09-07）
 - [x] 市場時間外に限りcandidate/virtual workerを最大150件・50秒へ拡張し、2分callback上限・single lease・engineSequence順を維持する
-- [ ] 9月7日復旧完了後にHeartbeat間隔を低頻度へ戻し、workerのno_work応答とDB負荷を確認する
+- [x] 9月7日復旧完了後にHeartbeat間隔を低頻度へ戻し、workerのno_work応答とDB負荷を確認する
 - [x] 本番Heartbeatの実測30秒timeoutを受け、worker上限を最大100件・20秒へ即時復元して連続成功を確認する
+- [x] 市場時間外の一回限りの運用として、同じ100件・20秒・single lease drainを短い休止付きで反復し、Heartbeatと競合せず9月7日を復旧する
+- [ ] JST日付跨ぎ後の一回限りの運用として、9月7日を明示指定し1回1component・single leaseでaudit materializationを完了する
+- [x] `rt_daily_audit_materializations.version`を全strategyVersionが収まる長さへ非破壊拡張し、5803 replay保存失敗を修正する
+- [x] 9月7日の旧8035 exit rowはstateBeforeのposition.entryReasonからrouteIdを監査比較時に復元し、現行エンジン・追記台帳を変更せずparity 319/319へ直す
+- [x] candidate-8035 depth v2 replayへ保存済みrealtime availability timelineを復元し、10:17のcurrentAudit欠落起因4差を0件へ直す

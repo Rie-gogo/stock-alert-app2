@@ -5,6 +5,7 @@ import {
   upsertRtReplayComparison,
 } from "./db";
 import { sha256Stable } from "./runtimeIdentity";
+import { resolveRealtimeRouteId } from "./realtimeDecisionAudit";
 import {
   TEL_AUDIT_EVALUATION_START_DATE,
   TEL_CURRENT_PARITY_VERSION,
@@ -70,6 +71,19 @@ function replayAction(decision: Record<string, unknown>): "entry" | "exit" | "no
   return "none";
 }
 
+/** 0023以前のexit rowはrouteIdがnullのため、追記台帳を変更せず保有positionの入口理由から監査時だけ復元する。 */
+export function normalizedCurrentRouteIdForParity(event: RtRealtimeDecisionEvent): string | null {
+  if (event.routeId) return event.routeId;
+  if (currentAction(event) !== "exit") return null;
+  const state = event.stateBeforeJson && typeof event.stateBeforeJson === "object"
+    ? event.stateBeforeJson as Record<string, unknown>
+    : {};
+  const positions = Array.isArray(state.positions) ? state.positions : [];
+  const position = positions.find(item => item && typeof item === "object"
+    && (item as Record<string, unknown>).symbol === "8035") as Record<string, unknown> | undefined;
+  return resolveRealtimeRouteId(typeof position?.entryReason === "string" ? position.entryReason : null);
+}
+
 function normalizeCurrentPosition(event: RtRealtimeDecisionEvent) {
   const state = event.stateAfterJson && typeof event.stateAfterJson === "object"
     ? event.stateAfterJson as Record<string, unknown>
@@ -103,7 +117,7 @@ function makeDiff(input: {
 }) {
   const current = {
     action: currentAction(input.realtime),
-    routeId: input.realtime.routeId,
+    routeId: normalizedCurrentRouteIdForParity(input.realtime),
     position: normalizeCurrentPosition(input.realtime),
     symbolCandleCount: Number((input.realtime.stateAfterJson as Record<string, unknown> | null)?.symbolCandleCount ?? 0),
   };

@@ -1285,7 +1285,7 @@ export type InsertRtPortfolioMaterializationProgress = typeof rtPortfolioMateria
 export const rtDailyAuditMaterializations = mysqlTable("rt_daily_audit_materializations", {
   id: int("id").autoincrement().primaryKey(),
   component: varchar("component", { length: 64 }).notNull(),
-  version: varchar("version", { length: 64 }).notNull(),
+  version: varchar("version", { length: 128 }).notNull(),
   tradeDate: varchar("trade_date", { length: 10 }).notNull(),
   status: mysqlEnum("daily_audit_materialization_status", ["pending", "processing", "complete", "error", "incomplete_source"]).notNull().default("pending"),
   processedThroughEngineSequence: int("processed_through_engine_sequence").notNull().default(0),

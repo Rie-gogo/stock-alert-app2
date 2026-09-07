@@ -49,7 +49,7 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: KIOXIA_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaForwardShadowDay(source, shadow) },
   { version: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaAtrForwardShadowDay(source, shadow) },
   { version: TEL_EXECUTABLE_CONFIRM_VERSION, symbol: "8035", run: (source, shadow) => auditTelExecutableConfirmDay(source, shadow) },
-  { version: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", run: (source, shadow) => auditTelExecutableConfirmDepthDay(source, shadow) },
+  { version: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", run: (source, shadow, realtime) => auditTelExecutableConfirmDepthDay(source, shadow, realtime) },
   { version: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", run: (source, shadow, realtime) => auditSoftbankForwardShadowDay(source, shadow, realtime, "depth_confirm") },
   { version: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", run: (source, shadow, realtime) => auditSoftbankForwardShadowDay(source, shadow, realtime, "rr2_protect") },
   { version: TAIYO_BOARD_DEMAND_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoForwardShadowDay(source, shadow, realtime, "board_demand") },

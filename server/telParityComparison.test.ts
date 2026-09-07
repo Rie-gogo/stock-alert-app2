@@ -7,7 +7,7 @@ const dbMock = vi.hoisted(() => ({
 }));
 vi.mock("./db", () => dbMock);
 
-import { compareTelCurrentParityForDate } from "./telParityComparison";
+import { compareTelCurrentParityForDate, normalizedCurrentRouteIdForParity } from "./telParityComparison";
 
 describe("8035現行完全再現の日次比較", () => {
   beforeEach(() => {
@@ -32,5 +32,18 @@ describe("8035現行完全再現の日次比較", () => {
       matchStatus: "mismatch", isFirstMismatch: true, mismatchType: "symbolCandleCount",
       diffJson: expect.objectContaining({ fields: expect.objectContaining({ symbolCandleCount: expect.any(Object) }) }),
     }));
+  });
+
+  it("旧exit rowのrouteId欠落をstateBeforeの8035入口理由から監査時だけ復元する", () => {
+    expect(normalizedCurrentRouteIdForParity({
+      routeId: null,
+      stateBeforeJson: {
+        positions: [{
+          symbol: "8035",
+          entryReason: "東京エレクトロン短期ブレイクLONG: 終値5本更新",
+        }],
+      },
+      resultJson: { result: { action: "exit" } },
+    } as never)).toBe("8035_open_direction_breakout_long");
   });
 });

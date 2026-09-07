@@ -2076,3 +2076,7 @@
 - [x] schema migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
 - [ ] 公開後に独立workerを登録し、9/7の保存payloadをbounded batchで復旧してpending/processing/retryable error 0、未決済0、coverage 100%、重複0を確認する
 - [ ] route parity・portfolio両方式の内部整合・16時完了を再監査し、正式評価Gateは別承認まで無効のまま維持する
+
+## P0バックログ復旧速度の一時調整（2026-09-07）
+- [x] 市場時間外に限りcandidate/virtual workerを最大150件・50秒へ拡張し、2分callback上限・single lease・engineSequence順を維持する
+- [ ] 9月7日復旧完了後にHeartbeat間隔を低頻度へ戻し、workerのno_work応答とDB負荷を確認する

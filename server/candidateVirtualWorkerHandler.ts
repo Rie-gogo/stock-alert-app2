@@ -3,8 +3,8 @@ import { sdk } from "./_core/sdk";
 import { drainCurrentCandidateVirtualQueue } from "./realtimeDecisionAudit";
 
 export const CANDIDATE_VIRTUAL_WORKER_LIMITS = Object.freeze({
-  maxRows: 150,
-  maxDurationMs: 50_000,
+  maxRows: 100,
+  maxDurationMs: 20_000,
   maxAttempts: 5,
 });
 

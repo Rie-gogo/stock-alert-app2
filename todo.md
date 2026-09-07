@@ -2080,3 +2080,4 @@
 ## P0バックログ復旧速度の一時調整（2026-09-07）
 - [x] 市場時間外に限りcandidate/virtual workerを最大150件・50秒へ拡張し、2分callback上限・single lease・engineSequence順を維持する
 - [ ] 9月7日復旧完了後にHeartbeat間隔を低頻度へ戻し、workerのno_work応答とDB負荷を確認する
+- [x] 本番Heartbeatの実測30秒timeoutを受け、worker上限を最大100件・20秒へ即時復元して連続成功を確認する

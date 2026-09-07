@@ -1052,11 +1052,11 @@ export async function materializePortfolioBundleForDate(
   if (actualReceipt.status !== "complete" || minuteNormalized.status !== "complete") {
     return { status: "processing" as const, actualReceipt, minuteNormalized };
   }
-  const [actualPilot, normalizedPilot] = await Promise.all([
-    buildActualReceiptPortfolioAuditForDate(tradeDate),
-    buildMinuteNormalizedPortfolioAuditForDate(tradeDate),
-  ]);
-  const result = { actualPilot, normalizedPilot, actualReceipt, minuteNormalized };
+  const result = {
+    legacyPilotStatus: "retired_incremental_v2_only" as const,
+    actualReceipt,
+    minuteNormalized,
+  };
   await upsertRtDailyAuditMaterialization({
     component: PORTFOLIO_BUNDLE_COMPONENT,
     version: PORTFOLIO_MATERIALIZATION_VERSION,

@@ -997,8 +997,6 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
     ? materializations.telParity.resultJson as any
     : { skipped: "materialization_pending", error: materializations.telParity?.lastError ?? "snapshot_not_ready" };
   const portfolioBundle = materializations.portfolio?.resultJson as any;
-  const actualPortfolio = portfolioBundle?.actualPilot ?? { processed: 0, accepted: 0, marginBlocked: 0, closed: 0, marginStateMismatches: 0 };
-  const normalizedPortfolio = portfolioBundle?.normalizedPilot ?? { candidateBatches: 0, accepted: 0, marginBlocked: 0, blockEdges: [] };
   const allCandidateReceiptPortfolio = portfolioBundle?.actualReceipt ?? { candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: false };
   const allCandidateMinutePortfolio = portfolioBundle?.minuteNormalized ?? { candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: false };
   const outcomeLabels = materializations.outcomeLabels?.status === "complete"
@@ -1254,8 +1252,7 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
   因果性: pass=${targetRealtimeDecisionStats.filter(event => event.causalityStatus === "pass").reduce((sum, event) => sum + event.eventCount, 0)} / violation=${targetRealtimeDecisionStats.filter(event => event.causalityStatus === "violation").reduce((sum, event) => sum + event.eventCount, 0)} / unverified=${targetRealtimeDecisionStats.filter(event => event.causalityStatus === "unverified").reduce((sum, event) => sum + event.eventCount, 0)}
   価格名称: signal_reference / market_observed / executable_price_proxy / simulated_bar_fill（実約定価格はDRY_RUNのため取得なし）
 【10銘柄・891万円 portfolio監査】
-  実受信・実状態更新順: ${actualPortfolio.processed}判断 / 採用${actualPortfolio.accepted} / margin_block${actualPortfolio.marginBlocked} / 決済${actualPortfolio.closed} / 証拠金状態不一致${actualPortfolio.marginStateMismatches}
-  同一分固定優先順位: ${normalizedPortfolio.candidateBatches}候補分 / 採用${normalizedPortfolio.accepted} / margin_block${normalizedPortfolio.marginBlocked} / blocker辺${normalizedPortfolio.blockEdges.length}
+  旧portfolio pilot一括再計算: 廃止（正式v2の保存済みactive generationのみ表示）
   旧診断版注意: 上記固定優先順位版は実採用＋margin_blockの局所診断であり、portfolio損益比較には使わない
   全candidate正式v2・engineSequence実受信順: 候補${allCandidateReceiptPortfolio.candidates} / 採用${allCandidateReceiptPortfolio.accepted} / margin_block${allCandidateReceiptPortfolio.marginBlocked} / 仮想決済${allCandidateReceiptPortfolio.closed} / 実現損益${allCandidateReceiptPortfolio.realizedPnl >= 0 ? "+" : ""}${allCandidateReceiptPortfolio.realizedPnl.toLocaleString()}円 / blocker辺${allCandidateReceiptPortfolio.blockEdges.length} / 比較適格=${allCandidateReceiptPortfolio.eligibleForPortfolioPnlComparison}
   全candidate正式v2・同一分exit先行＋固定銘柄優先: 候補${allCandidateMinutePortfolio.candidates} / 採用${allCandidateMinutePortfolio.accepted} / margin_block${allCandidateMinutePortfolio.marginBlocked} / 仮想決済${allCandidateMinutePortfolio.closed} / 実現損益${allCandidateMinutePortfolio.realizedPnl >= 0 ? "+" : ""}${allCandidateMinutePortfolio.realizedPnl.toLocaleString()}円 / blocker辺${allCandidateMinutePortfolio.blockEdges.length} / 比較適格=${allCandidateMinutePortfolio.eligibleForPortfolioPnlComparison}

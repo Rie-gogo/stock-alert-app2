@@ -455,6 +455,9 @@ function closePosition(state: TelCurrentParityState, input: TelParityInput, snap
 export function applyTelCurrentParityTransition(previous: TelCurrentParityState, input: TelParityInput): TelParityTransition {
   const state = structuredClone(previous);
   resetForDate(state, input.candle.tradeDate);
+  if (input.candle.candleTime >= "11:30" && input.candle.candleTime < "12:30") {
+    return finalize(state, input, "no_signal", { action: "none", reason: "lunch_break_ignored_before_state_update" });
+  }
   const snapshot = buildBoardSnapshot(state, input.board);
   state.candles.push({ ...input.candle });
   if (state.candles.length > 420) state.candles.shift();

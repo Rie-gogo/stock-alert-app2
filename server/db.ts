@@ -572,6 +572,11 @@ import {
   rtDivergenceHypotheses,
   rtSignalCandidates,
   rtSignalCandidateTrades,
+  rtCandidateVirtualWorkerLocks,
+  rtCandidateVirtualGaps,
+  rtPortfolioMaterializationProgress,
+  rtDailyAuditMaterializations,
+  rtForwardEvaluationControls,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -618,6 +623,14 @@ import {
   type RtSignalCandidate,
   type InsertRtSignalCandidateTrade,
   type RtSignalCandidateTrade,
+  type InsertRtCandidateVirtualGap,
+  type RtCandidateVirtualGap,
+  type InsertRtPortfolioMaterializationProgress,
+  type RtPortfolioMaterializationProgress,
+  type InsertRtDailyAuditMaterialization,
+  type RtDailyAuditMaterialization,
+  type InsertRtForwardEvaluationControl,
+  type RtForwardEvaluationControl,
 } from "../drizzle/schema";
 
 /**
@@ -1199,6 +1212,37 @@ export async function getRtSourceEventsForDate(tradeDate: string): Promise<RtSou
     .orderBy(rtSourceEvents.id);
 }
 
+export async function getRtSourceEventsForDateAndSymbol(input: {
+  tradeDate: string;
+  symbol: string;
+}): Promise<RtSourceEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSourceEvents).where(and(
+    eq(rtSourceEvents.tradeDate, input.tradeDate),
+    eq(rtSourceEvents.symbol, input.symbol),
+  )).orderBy(rtSourceEvents.id);
+}
+
+export type RtSourceEventStat = {
+  symbol: string;
+  status: RtSourceEvent["status"];
+  eventCount: number;
+};
+
+export async function getRtSourceEventStatsForDate(tradeDate: string): Promise<RtSourceEventStat[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    symbol: rtSourceEvents.symbol,
+    status: rtSourceEvents.status,
+    eventCount: sql<number>`count(*)`,
+  }).from(rtSourceEvents)
+    .where(eq(rtSourceEvents.tradeDate, tradeDate))
+    .groupBy(rtSourceEvents.symbol, rtSourceEvents.status);
+  return rows.map(row => ({ ...row, eventCount: Number(row.eventCount) }));
+}
+
 export async function completeRtSourceEvent(input: {
   sourceEventId: string;
   status: "processed" | "failed" | "payload_mismatch";
@@ -1385,6 +1429,46 @@ export async function getRtForwardShadowEventsForDate(
   return db.select().from(rtForwardShadowEvents)
     .where(eq(rtForwardShadowEvents.tradeDate, tradeDate))
     .orderBy(rtForwardShadowEvents.id);
+}
+
+export async function getRtForwardShadowEventsForDateAndStrategy(input: {
+  tradeDate: string;
+  strategyVersion: string;
+}): Promise<RtForwardShadowEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtForwardShadowEvents).where(and(
+    eq(rtForwardShadowEvents.tradeDate, input.tradeDate),
+    eq(rtForwardShadowEvents.strategyVersion, input.strategyVersion),
+  )).orderBy(rtForwardShadowEvents.id);
+}
+
+export type RtForwardShadowEventStat = {
+  strategyVersion: string;
+  evaluationMode: RtForwardShadowEvent["evaluationMode"];
+  resultType: RtForwardShadowEvent["resultType"];
+  eventCount: number;
+};
+
+/** 16時report用の軽量集約。全shadow event payload/stateをメモリへ読み込まない。 */
+export async function getRtForwardShadowEventStatsForDate(
+  tradeDate: string,
+): Promise<RtForwardShadowEventStat[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    strategyVersion: rtForwardShadowEvents.strategyVersion,
+    evaluationMode: rtForwardShadowEvents.evaluationMode,
+    resultType: rtForwardShadowEvents.resultType,
+    eventCount: sql<number>`count(*)`,
+  }).from(rtForwardShadowEvents)
+    .where(eq(rtForwardShadowEvents.tradeDate, tradeDate))
+    .groupBy(
+      rtForwardShadowEvents.strategyVersion,
+      rtForwardShadowEvents.evaluationMode,
+      rtForwardShadowEvents.resultType,
+    );
+  return rows.map(row => ({ ...row, eventCount: Number(row.eventCount) }));
 }
 
 export async function getRtForwardShadowState(input: {
@@ -1602,7 +1686,43 @@ export async function getRtRealtimeDecisionEventsForDate(tradeDate: string): Pro
     .orderBy(rtRealtimeDecisionEvents.id);
 }
 
-/** candidate台帳・100株virtual更新outboxの未完了先頭行をCASでclaimする。 */
+export async function getRtRealtimeDecisionEventsForDateAndSymbol(input: {
+  tradeDate: string;
+  symbol: string;
+}): Promise<RtRealtimeDecisionEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtRealtimeDecisionEvents).where(and(
+    eq(rtRealtimeDecisionEvents.tradeDate, input.tradeDate),
+    eq(rtRealtimeDecisionEvents.symbol, input.symbol),
+  )).orderBy(rtRealtimeDecisionEvents.id);
+}
+
+export type RtRealtimeDecisionStat = {
+  symbol: string;
+  causalityStatus: RtRealtimeDecisionEvent["causalityStatus"];
+  eventCount: number;
+};
+
+export async function getRtRealtimeDecisionStatsForDate(tradeDate: string): Promise<RtRealtimeDecisionStat[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    symbol: rtRealtimeDecisionEvents.symbol,
+    causalityStatus: rtRealtimeDecisionEvents.causalityStatus,
+    eventCount: sql<number>`count(*)`,
+  }).from(rtRealtimeDecisionEvents)
+    .where(eq(rtRealtimeDecisionEvents.tradeDate, tradeDate))
+    .groupBy(rtRealtimeDecisionEvents.symbol, rtRealtimeDecisionEvents.causalityStatus);
+  return rows.map(row => ({ ...row, eventCount: Number(row.eventCount) }));
+}
+
+export type CandidateVirtualPhase = "candidate" | "virtual";
+export type CandidateVirtualPhaseStatus = "pending" | "processing" | "complete" | "retryable_error" | "terminal_error" | "not_applicable";
+
+const CANDIDATE_VIRTUAL_WORKER_LOCK_NAME = "current-candidate-virtual-worker-v2";
+
+/** candidate台帳・100株virtual更新outboxの未完了先頭行をCASでclaimする。terminal行は後続を塞がない。 */
 export async function claimNextRtCandidateVirtualWork(input: {
   ownerToken: string;
   leaseMs?: number;
@@ -1611,7 +1731,7 @@ export async function claimNextRtCandidateVirtualWork(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const row = (await db.select().from(rtRealtimeDecisionEvents)
-    .where(ne(rtRealtimeDecisionEvents.candidateVirtualStatus, "processed"))
+    .where(inArray(rtRealtimeDecisionEvents.candidateVirtualStatus, ["pending", "processing", "error"]))
     .orderBy(rtRealtimeDecisionEvents.id)
     .limit(1))[0];
   if (!row) return null;
@@ -1619,7 +1739,6 @@ export async function claimNextRtCandidateVirtualWork(input: {
   if (row.candidateVirtualStatus === "processing"
     && row.candidateVirtualLeaseUntil
     && row.candidateVirtualLeaseUntil > now) return null;
-  if (row.candidateVirtualAttemptCount >= (input.maxAttempts ?? 5)) return null;
   const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
   await db.update(rtRealtimeDecisionEvents).set({
     candidateVirtualStatus: "processing",
@@ -1647,15 +1766,228 @@ export async function claimNextRtCandidateVirtualWork(input: {
   return claimed?.candidateVirtualClaimToken === input.ownerToken ? claimed : null;
 }
 
+export async function acquireRtCandidateVirtualWorkerLock(input: {
+  ownerToken: string;
+  leaseMs?: number;
+}): Promise<boolean> {
+  return acquireRtNamedWorkerLock({
+    lockName: CANDIDATE_VIRTUAL_WORKER_LOCK_NAME,
+    ownerToken: input.ownerToken,
+    leaseMs: input.leaseMs,
+  });
+}
+
+export async function acquireRtNamedWorkerLock(input: {
+  lockName: string;
+  ownerToken: string;
+  leaseMs?: number;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtCandidateVirtualWorkerLocks).values({
+    lockName: input.lockName,
+    ownerToken: null,
+    leaseUntil: null,
+  }).onDuplicateKeyUpdate({ set: { lockName: input.lockName } });
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 30_000));
+  await db.update(rtCandidateVirtualWorkerLocks).set({
+    ownerToken: input.ownerToken,
+    leaseUntil,
+  }).where(and(
+    eq(rtCandidateVirtualWorkerLocks.lockName, input.lockName),
+    or(
+      isNull(rtCandidateVirtualWorkerLocks.ownerToken),
+      isNull(rtCandidateVirtualWorkerLocks.leaseUntil),
+      lt(rtCandidateVirtualWorkerLocks.leaseUntil, now),
+      eq(rtCandidateVirtualWorkerLocks.ownerToken, input.ownerToken),
+    ),
+  ));
+  const row = (await db.select().from(rtCandidateVirtualWorkerLocks)
+    .where(eq(rtCandidateVirtualWorkerLocks.lockName, input.lockName)).limit(1))[0];
+  return row?.ownerToken === input.ownerToken;
+}
+
+export async function releaseRtCandidateVirtualWorkerLock(ownerToken: string): Promise<void> {
+  return releaseRtNamedWorkerLock(CANDIDATE_VIRTUAL_WORKER_LOCK_NAME, ownerToken);
+}
+
+export async function releaseRtNamedWorkerLock(lockName: string, ownerToken: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtCandidateVirtualWorkerLocks).set({ ownerToken: null, leaseUntil: null }).where(and(
+    eq(rtCandidateVirtualWorkerLocks.lockName, lockName),
+    eq(rtCandidateVirtualWorkerLocks.ownerToken, ownerToken),
+  ));
+}
+
+export async function markRtCandidateVirtualPhaseProcessing(input: {
+  id: number;
+  ownerToken: string;
+  phase: CandidateVirtualPhase;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const set = input.phase === "candidate"
+    ? {
+        candidatePhaseStatus: "processing" as const,
+        candidatePhaseAttemptCount: sql`${rtRealtimeDecisionEvents.candidatePhaseAttemptCount} + 1`,
+        candidatePhaseLastError: null,
+      }
+    : {
+        virtualPhaseStatus: "processing" as const,
+        virtualPhaseAttemptCount: sql`${rtRealtimeDecisionEvents.virtualPhaseAttemptCount} + 1`,
+        virtualPhaseLastError: null,
+      };
+  await db.update(rtRealtimeDecisionEvents).set(set).where(and(
+    eq(rtRealtimeDecisionEvents.id, input.id),
+    eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
+  ));
+}
+
+export async function markRtCandidateVirtualPhaseComplete(input: {
+  id: number;
+  ownerToken: string;
+  phase: CandidateVirtualPhase;
+  notApplicable?: boolean;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const now = new Date();
+  const status = input.notApplicable ? "not_applicable" as const : "complete" as const;
+  const set = input.phase === "candidate"
+    ? { candidatePhaseStatus: status, candidatePhaseLastError: null, candidatePhaseProcessedAt: now }
+    : { virtualPhaseStatus: status, virtualPhaseLastError: null, virtualPhaseProcessedAt: now };
+  await db.update(rtRealtimeDecisionEvents).set(set).where(and(
+    eq(rtRealtimeDecisionEvents.id, input.id),
+    eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
+  ));
+}
+
+export async function markRtCandidateVirtualPhaseError(input: {
+  row: RtRealtimeDecisionEvent;
+  ownerToken: string;
+  phase: CandidateVirtualPhase;
+  error: string;
+  terminal: boolean;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const phaseStatus = input.terminal ? "terminal_error" as const : "retryable_error" as const;
+  await db.transaction(async tx => {
+    const phaseSet = input.phase === "candidate"
+      ? { candidatePhaseStatus: phaseStatus, candidatePhaseLastError: input.error }
+      : { virtualPhaseStatus: phaseStatus, virtualPhaseLastError: input.error };
+    await tx.update(rtRealtimeDecisionEvents).set(input.terminal ? {
+      ...phaseSet,
+      candidateVirtualLastError: input.error,
+      candidateVirtualTerminalAt: new Date(),
+    } : {
+      ...phaseSet,
+      candidateVirtualStatus: "error",
+      candidateVirtualClaimToken: null,
+      candidateVirtualLeaseUntil: null,
+      candidateVirtualLastError: input.error,
+    }).where(and(
+      eq(rtRealtimeDecisionEvents.id, input.row.id),
+      eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
+    ));
+    if (input.terminal) {
+      const gap: InsertRtCandidateVirtualGap = {
+        decisionEventId: input.row.id,
+        sourceEventId: input.row.sourceEventId,
+        tradeDate: input.row.tradeDate,
+        phase: input.phase,
+        reasonCode: "max_attempts_exhausted",
+        detailJson: {
+          error: input.error,
+          attemptCount: input.row.candidateVirtualAttemptCount,
+          candidatePhaseStatus: input.row.candidatePhaseStatus,
+          virtualPhaseStatus: input.row.virtualPhaseStatus,
+        },
+        resolved: false,
+      };
+      await tx.insert(rtCandidateVirtualGaps).values(gap).onDuplicateKeyUpdate({
+        set: { reasonCode: gap.reasonCode, detailJson: gap.detailJson, resolved: false },
+      });
+    }
+  });
+}
+
+/** 最大試行済みの行をterminal化し、後続を止めない。欠損は別台帳へ必ず残す。 */
+export async function terminalizeExhaustedRtCandidateVirtualWork(input: {
+  maxAttempts?: number;
+  limit?: number;
+} = {}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const maxAttempts = input.maxAttempts ?? 5;
+  const rows = await db.select().from(rtRealtimeDecisionEvents)
+    .where(inArray(rtRealtimeDecisionEvents.candidateVirtualStatus, ["pending", "processing", "error"]))
+    .orderBy(rtRealtimeDecisionEvents.id)
+    .limit(input.limit ?? 100);
+  let terminalized = 0;
+  for (const row of rows) {
+    const phases: CandidateVirtualPhase[] = [];
+    if (!["complete", "not_applicable", "terminal_error"].includes(row.candidatePhaseStatus)
+      && row.candidatePhaseAttemptCount >= maxAttempts) phases.push("candidate");
+    if (!["complete", "not_applicable", "terminal_error"].includes(row.virtualPhaseStatus)
+      && row.virtualPhaseAttemptCount >= maxAttempts) phases.push("virtual");
+    if (phases.length === 0) continue;
+    await db.transaction(async tx => {
+      const candidateStatus = phases.includes("candidate") ? "terminal_error" : row.candidatePhaseStatus;
+      const virtualStatus = phases.includes("virtual") ? "terminal_error" : row.virtualPhaseStatus;
+      const allFinal = ["complete", "not_applicable", "terminal_error"].includes(candidateStatus)
+        && ["complete", "not_applicable", "terminal_error"].includes(virtualStatus);
+      await tx.update(rtRealtimeDecisionEvents).set({
+        candidateVirtualStatus: allFinal ? "terminal" : "pending",
+        candidateVirtualClaimToken: null,
+        candidateVirtualLeaseUntil: null,
+        candidateVirtualTerminalAt: new Date(),
+        candidatePhaseStatus: candidateStatus,
+        virtualPhaseStatus: virtualStatus,
+      }).where(eq(rtRealtimeDecisionEvents.id, row.id));
+      for (const phase of phases) {
+        const gap: InsertRtCandidateVirtualGap = {
+          decisionEventId: row.id,
+          sourceEventId: row.sourceEventId,
+          tradeDate: row.tradeDate,
+          phase,
+          reasonCode: "max_attempts_exhausted",
+          detailJson: {
+            error: row.candidateVirtualLastError,
+            attemptCount: row.candidateVirtualAttemptCount,
+            candidatePhaseStatus: row.candidatePhaseStatus,
+            virtualPhaseStatus: row.virtualPhaseStatus,
+          },
+          resolved: false,
+        };
+        await tx.insert(rtCandidateVirtualGaps).values(gap).onDuplicateKeyUpdate({
+          set: { reasonCode: gap.reasonCode, detailJson: gap.detailJson, resolved: false },
+        });
+      }
+    });
+    terminalized += 1;
+  }
+  return terminalized;
+}
+
 export async function completeRtCandidateVirtualWork(input: { id: number; ownerToken: string }): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const row = (await db.select().from(rtRealtimeDecisionEvents).where(and(
+    eq(rtRealtimeDecisionEvents.id, input.id),
+    eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
+  )).limit(1))[0];
+  if (!row) return;
+  const terminal = row.candidatePhaseStatus === "terminal_error" || row.virtualPhaseStatus === "terminal_error";
   await db.update(rtRealtimeDecisionEvents).set({
-    candidateVirtualStatus: "processed",
+    candidateVirtualStatus: terminal ? "terminal" : "processed",
     candidateVirtualClaimToken: null,
     candidateVirtualLeaseUntil: null,
-    candidateVirtualLastError: null,
-    candidateVirtualProcessedAt: new Date(),
+    candidateVirtualLastError: terminal ? row.candidateVirtualLastError : null,
+    candidateVirtualProcessedAt: terminal ? null : new Date(),
+    candidateVirtualTerminalAt: terminal ? row.candidateVirtualTerminalAt ?? new Date() : null,
   }).where(and(
     eq(rtRealtimeDecisionEvents.id, input.id),
     eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
@@ -1674,6 +2006,14 @@ export async function failRtCandidateVirtualWork(input: { id: number; ownerToken
     eq(rtRealtimeDecisionEvents.id, input.id),
     eq(rtRealtimeDecisionEvents.candidateVirtualClaimToken, input.ownerToken),
   ));
+}
+
+export async function getRtCandidateVirtualGapsForDate(tradeDate: string): Promise<RtCandidateVirtualGap[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtCandidateVirtualGaps)
+    .where(eq(rtCandidateVirtualGaps.tradeDate, tradeDate))
+    .orderBy(rtCandidateVirtualGaps.decisionEventId, rtCandidateVirtualGaps.id);
 }
 
 export async function enqueueRtShadowDispatch(
@@ -1944,6 +2284,18 @@ export async function upsertRtSignalCandidate(
   return row;
 }
 
+export async function getRtSignalCandidateBySourceEventId(input: {
+  candidateVersion: string;
+  sourceEventId: string;
+}): Promise<RtSignalCandidate | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtSignalCandidates).where(and(
+    eq(rtSignalCandidates.candidateVersion, input.candidateVersion),
+    eq(rtSignalCandidates.sourceEventId, input.sourceEventId),
+  )).limit(1))[0] ?? null;
+}
+
 export async function getRtSignalCandidatesForDate(input: {
   candidateVersion: string;
   tradeDate: string;
@@ -2012,4 +2364,142 @@ export async function getOpenRtSignalCandidateTrades(
     eq(rtSignalCandidateTrades.virtualEngineVersion, virtualEngineVersion),
     eq(rtSignalCandidateTrades.completed, false),
   )).orderBy(rtSignalCandidateTrades.id);
+}
+
+export async function getRtForwardEvaluationControl(controlName: string): Promise<RtForwardEvaluationControl | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtForwardEvaluationControls)
+    .where(eq(rtForwardEvaluationControls.controlName, controlName)).limit(1))[0] ?? null;
+}
+
+export async function upsertRtForwardEvaluationControl(
+  data: Omit<InsertRtForwardEvaluationControl, "id" | "createdAt" | "updatedAt">,
+): Promise<RtForwardEvaluationControl> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtForwardEvaluationControls).values(data).onDuplicateKeyUpdate({
+    set: {
+      activated: data.activated,
+      activationCheckpointId: data.activationCheckpointId ?? null,
+      activatedAtUtc: data.activatedAtUtc ?? null,
+      formalStartTradeDate: data.formalStartTradeDate ?? null,
+      excludedTradeDatesJson: data.excludedTradeDatesJson,
+      reason: data.reason,
+    },
+  });
+  const row = await getRtForwardEvaluationControl(data.controlName);
+  if (!row) throw new Error(`Forward evaluation control not found after upsert: ${data.controlName}`);
+  return row;
+}
+
+export async function getRtPortfolioMaterializationProgress(input: {
+  portfolioVersion: string;
+  mode: "actual_receipt" | "minute_normalized";
+  tradeDate: string;
+}): Promise<RtPortfolioMaterializationProgress | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtPortfolioMaterializationProgress).where(and(
+    eq(rtPortfolioMaterializationProgress.portfolioVersion, input.portfolioVersion),
+    eq(rtPortfolioMaterializationProgress.mode, input.mode),
+    eq(rtPortfolioMaterializationProgress.tradeDate, input.tradeDate),
+  )).limit(1))[0] ?? null;
+}
+
+export async function upsertRtPortfolioMaterializationProgress(
+  data: Omit<InsertRtPortfolioMaterializationProgress, "id" | "createdAt" | "updatedAt">,
+): Promise<RtPortfolioMaterializationProgress> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtPortfolioMaterializationProgress).values(data).onDuplicateKeyUpdate({
+    set: {
+      status: data.status,
+      processedThroughEngineSequence: data.processedThroughEngineSequence,
+      sourceDecisionCount: data.sourceDecisionCount,
+      openAllocationsJson: data.openAllocationsJson,
+      marginUsed: data.marginUsed,
+      dirtyFromEngineSequence: data.dirtyFromEngineSequence ?? null,
+      resultJson: data.resultJson,
+      lastError: data.lastError ?? null,
+      generatedAt: data.generatedAt ?? null,
+    },
+  });
+  const row = await getRtPortfolioMaterializationProgress(data);
+  if (!row) throw new Error(`Portfolio materialization progress not found after upsert: ${data.portfolioVersion}:${data.mode}:${data.tradeDate}`);
+  return row;
+}
+
+export async function markRtPortfolioMaterializationsDirtyFrom(input: {
+  tradeDate: string;
+  engineSequence: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db.select().from(rtPortfolioMaterializationProgress)
+    .where(eq(rtPortfolioMaterializationProgress.tradeDate, input.tradeDate));
+  for (const row of rows) {
+    if (row.processedThroughEngineSequence < input.engineSequence) continue;
+    const dirtyFrom = row.dirtyFromEngineSequence === null
+      ? input.engineSequence
+      : Math.min(row.dirtyFromEngineSequence, input.engineSequence);
+    await db.update(rtPortfolioMaterializationProgress).set({
+      status: "processing",
+      dirtyFromEngineSequence: dirtyFrom,
+      generatedAt: null,
+    }).where(eq(rtPortfolioMaterializationProgress.id, row.id));
+  }
+  await db.update(rtDailyAuditMaterializations).set({
+    status: "processing",
+    generatedAt: null,
+  }).where(and(
+    eq(rtDailyAuditMaterializations.component, "portfolio_bundle"),
+    eq(rtDailyAuditMaterializations.tradeDate, input.tradeDate),
+  ));
+}
+
+export async function getRtDailyAuditMaterialization(input: {
+  component: string;
+  version: string;
+  tradeDate: string;
+}): Promise<RtDailyAuditMaterialization | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtDailyAuditMaterializations).where(and(
+    eq(rtDailyAuditMaterializations.component, input.component),
+    eq(rtDailyAuditMaterializations.version, input.version),
+    eq(rtDailyAuditMaterializations.tradeDate, input.tradeDate),
+  )).limit(1))[0] ?? null;
+}
+
+export async function getRtDailyAuditMaterializationsForComponent(input: {
+  component: string;
+  tradeDate: string;
+}): Promise<RtDailyAuditMaterialization[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtDailyAuditMaterializations).where(and(
+    eq(rtDailyAuditMaterializations.component, input.component),
+    eq(rtDailyAuditMaterializations.tradeDate, input.tradeDate),
+  )).orderBy(rtDailyAuditMaterializations.id);
+}
+
+export async function upsertRtDailyAuditMaterialization(
+  data: Omit<InsertRtDailyAuditMaterialization, "id" | "createdAt" | "updatedAt">,
+): Promise<RtDailyAuditMaterialization> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtDailyAuditMaterializations).values(data).onDuplicateKeyUpdate({
+    set: {
+      status: data.status,
+      processedThroughEngineSequence: data.processedThroughEngineSequence,
+      sourceDecisionCount: data.sourceDecisionCount,
+      resultJson: data.resultJson,
+      lastError: data.lastError ?? null,
+      generatedAt: data.generatedAt ?? null,
+    },
+  });
+  const row = await getRtDailyAuditMaterialization(data);
+  if (!row) throw new Error(`Daily audit materialization not found after upsert: ${data.component}:${data.version}:${data.tradeDate}`);
+  return row;
 }

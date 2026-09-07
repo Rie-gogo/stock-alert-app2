@@ -9,6 +9,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { dailySimulationHandler, manualSimulationHandler, kabuPlanReminderHandler, rtDailyReportHandler, serverWarmupHandler, threePeakDailyReportHandler } from "../scheduledHandlers";
+import { candidateVirtualWorkerHandler } from "../candidateVirtualWorkerHandler";
+import { auditMaterializerHandler } from "../auditMaterializerHandler";
 import { restoreBuffersFromDb } from "../realtimeSimEngine";
 import { formatRuntimeIdentityForLog } from "../runtimeIdentity";
 
@@ -48,6 +50,10 @@ async function startServer() {
   app.post("/api/scheduled/kabu-plan-reminder", kabuPlanReminderHandler);
   // リアルタイムシミュレーション 大引け後レポート（毎平日JST 16:00実行）
   app.post("/api/scheduled/rt-daily-report", rtDailyReportHandler);
+  // candidate/virtual監査outbox（2分ごと・bounded batch・保存済みpayloadのみ）
+  app.post("/api/scheduled/candidate-virtual-worker", candidateVirtualWorkerHandler);
+  // 保存済み監査materialization（portfolio/replay/outcomeを1回1componentで増分処理）
+  app.post("/api/scheduled/audit-materializer", auditMaterializerHandler);
   // サーバーウォームアップ（毎平日JST 8:44実行）
   app.post("/api/scheduled/server-warmup", serverWarmupHandler);
   // 3山v2シグナル日次レポート（毎平日JST 16:00実行）

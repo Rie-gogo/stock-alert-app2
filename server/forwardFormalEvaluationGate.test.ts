@@ -21,8 +21,38 @@ describe("P0修正後の正式未見評価Gate", () => {
   it("確認日以後も自動開始せず、別checkpointによる手動有効化を要求する", () => {
     expect(resolveForwardFormalEvaluationGate("2026-09-07")).toMatchObject({
       status: "pending_manual_activation",
-      formalStartDate: "2026-09-08",
+      earliestFormalStartDate: "2026-09-08",
+      formalStartDate: null,
       activated: false,
+      excludedTradeDates: ["2026-09-07"],
+    });
+  });
+
+  it("activatedだけでは開始せず、checkpoint・UTC時刻・固定開始日がすべて必要", () => {
+    const incomplete = resolveForwardFormalEvaluationGate("2026-09-09", {
+      activated: true,
+      activationCheckpointId: null,
+      activatedAtUtc: null,
+      formalStartTradeDate: "2026-09-09",
+      excludedTradeDatesJson: ["2026-09-07"],
+      reason: "incomplete",
+    } as never);
+    expect(incomplete).toMatchObject({ status: "pending_manual_activation", activated: false });
+
+    const active = resolveForwardFormalEvaluationGate("2026-09-10", {
+      activated: true,
+      activationCheckpointId: "manual-checkpoint-id",
+      activatedAtUtc: new Date("2026-09-08T08:00:00Z"),
+      formalStartTradeDate: "2026-09-09",
+      excludedTradeDatesJson: ["2026-09-07"],
+      reason: "human approved after complete validation day",
+    } as never);
+    expect(active).toMatchObject({
+      status: "active",
+      activated: true,
+      formalStartDate: "2026-09-09",
+      activationCheckpointId: "manual-checkpoint-id",
+      excludedTradeDates: ["2026-09-07"],
     });
   });
 });

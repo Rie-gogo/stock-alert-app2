@@ -21,6 +21,35 @@ type SourceRow = {
 const sourceAuditIt = process.env.RUN_TEL_CURRENT_PARITY_SOURCE_AUDIT === "1" ? it : it.skip;
 
 describe("baseline-8035-current-parity-v1 保存KABU全48日監査", () => {
+  it("11:30〜12:29の足をbufferへ追加せず、後場前の件数を維持する", () => {
+    let state = createEmptyTelCurrentParityState();
+    const makeInput = (candleTime: string) => ({
+      sourceEventId: `lunch:${candleTime}`,
+      candle: {
+        symbol: "8035",
+        tradeDate: "2026-09-07",
+        candleTime,
+        open: 100,
+        high: 101,
+        low: 99,
+        close: 100,
+        volume: 1000,
+      },
+      board: null,
+      marginUsedBefore: 0,
+      evaluationMode: "capital_constrained" as const,
+    });
+    state = applyTelCurrentParityTransition(state, makeInput("11:29")).nextState;
+    expect(state.candles).toHaveLength(1);
+    const lunch = applyTelCurrentParityTransition(state, makeInput("11:30"));
+    expect(lunch.decision).toMatchObject({ reason: "lunch_break_ignored_before_state_update" });
+    expect(lunch.nextState.candles).toHaveLength(1);
+    state = applyTelCurrentParityTransition(lunch.nextState, makeInput("12:29")).nextState;
+    expect(state.candles).toHaveLength(1);
+    state = applyTelCurrentParityTransition(state, makeInput("12:30")).nextState;
+    expect(state.candles).toHaveLength(2);
+  });
+
   sourceAuditIt("現行8035の全35取引・経路・現行非因果価格を完全再現する", async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required");
     const connection = await mysql.createConnection(process.env.DATABASE_URL);

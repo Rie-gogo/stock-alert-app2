@@ -1,8 +1,12 @@
 import type { RtRealtimeDecisionEvent } from "../drizzle/schema";
 import {
+  getRtCandidateVirtualGapsForDate,
+  getRtPortfolioMaterializationProgress,
   getRtRealtimeDecisionEventsForDate,
   getRtSignalCandidatesForDate,
   getRtSignalCandidateTradesForDate,
+  upsertRtDailyAuditMaterialization,
+  upsertRtPortfolioMaterializationProgress,
   upsertRtPortfolioAuditEvent,
 } from "./db";
 import { getRuntimeIdentity } from "./runtimeIdentity";
@@ -17,6 +21,8 @@ export const CURRENT_PORTFOLIO_AUDIT_VERSION = "current-10-symbol-891m-receipt-o
 export const NORMALIZED_PORTFOLIO_AUDIT_VERSION = "current-10-symbol-891m-minute-priority-v1";
 export const ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION = "current-10-symbol-891m-all-candidates-receipt-v2";
 export const ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION = "current-10-symbol-891m-all-candidates-minute-v2";
+export const PORTFOLIO_MATERIALIZATION_VERSION = "portfolio-materialization-p0-v1";
+export const PORTFOLIO_BUNDLE_COMPONENT = "portfolio_bundle";
 export const PORTFOLIO_MAX_EXPOSURE = 8_910_000;
 const FIXED_CONTROL_PRIORITY = ["285A", "6146", "6857", "8035", "5803", "6981", "6976", "6526", "3436", "9984"] as const;
 
@@ -630,4 +636,405 @@ export async function buildAllCandidateMinutePortfolioForDate(tradeDate: string)
     priorityRule: FIXED_CONTROL_PRIORITY,
     eligibleForPortfolioPnlComparison: allocations.every(item => hasCompleteVirtualExit(item.trade)),
   };
+}
+
+type MaterializedPortfolioState = {
+  accepted: number;
+  marginBlocked: number;
+  symbolPositionBlocked: number;
+  closed: number;
+  realizedPnl: number;
+  blockEdges: Array<{ blockerSourceEventId: string; blockedSourceEventId: string }>;
+  processedTimelineItems: number;
+  lastProcessedMinute: string | null;
+};
+
+const EMPTY_MATERIALIZED_STATE: MaterializedPortfolioState = {
+  accepted: 0,
+  marginBlocked: 0,
+  symbolPositionBlocked: 0,
+  closed: 0,
+  realizedPnl: 0,
+  blockEdges: [],
+  processedTimelineItems: 0,
+  lastProcessedMinute: null,
+};
+
+function parseMaterializedState(value: unknown): MaterializedPortfolioState {
+  if (!value || typeof value !== "object") return structuredClone(EMPTY_MATERIALIZED_STATE);
+  const raw = value as Partial<MaterializedPortfolioState>;
+  return {
+    accepted: Number(raw.accepted ?? 0),
+    marginBlocked: Number(raw.marginBlocked ?? 0),
+    symbolPositionBlocked: Number(raw.symbolPositionBlocked ?? 0),
+    closed: Number(raw.closed ?? 0),
+    realizedPnl: Number(raw.realizedPnl ?? 0),
+    blockEdges: Array.isArray(raw.blockEdges) ? raw.blockEdges : [],
+    processedTimelineItems: Number(raw.processedTimelineItems ?? 0),
+    lastProcessedMinute: typeof raw.lastProcessedMinute === "string" ? raw.lastProcessedMinute : null,
+  };
+}
+
+function parseOpenCandidateIds(value: unknown): number[] {
+  if (!value || typeof value !== "object") return [];
+  const ids = (value as { candidateIds?: unknown }).candidateIds;
+  return Array.isArray(ids) ? ids.map(Number).filter(Number.isFinite) : [];
+}
+
+function candidateVirtualCoverage(decisions: RtRealtimeDecisionEvent[]) {
+  const incomplete = decisions.filter(event => ["pending", "processing", "error"].includes(event.candidateVirtualStatus));
+  const maxDecisionId = decisions.reduce((max, event) => Math.max(max, event.id), 0);
+  const firstIncompleteId = incomplete.reduce<number | null>((min, event) => min === null ? event.id : Math.min(min, event.id), null);
+  return {
+    sourceDecisionCount: decisions.length,
+    maxDecisionId,
+    safeHighWater: firstIncompleteId === null ? maxDecisionId : Math.max(0, firstIncompleteId - 1),
+    pending: decisions.filter(event => event.candidateVirtualStatus === "pending").length,
+    processing: decisions.filter(event => event.candidateVirtualStatus === "processing").length,
+    retryableErrors: decisions.filter(event => event.candidateVirtualStatus === "error").length,
+    terminal: decisions.filter(event => event.candidateVirtualStatus === "terminal").length,
+  };
+}
+
+function restoreOpenAllocations(
+  ids: number[],
+  allocationById: Map<number, CandidateAllocation>,
+): { open: Map<number, CandidateAllocation>; openBySymbol: Map<string, CandidateAllocation> } {
+  const open = new Map<number, CandidateAllocation>();
+  const openBySymbol = new Map<string, CandidateAllocation>();
+  for (const id of ids) {
+    const allocation = allocationById.get(id);
+    if (!allocation) throw new Error(`portfolio_open_allocation_missing:${id}`);
+    open.set(id, allocation);
+    openBySymbol.set(allocation.candidate.symbol, allocation);
+  }
+  return { open, openBySymbol };
+}
+
+function finalizeEligibility(input: {
+  complete: boolean;
+  allocations: CandidateAllocation[];
+  missingExitSequence?: Set<number>;
+  openSize: number;
+}) {
+  return input.complete
+    && input.openSize === 0
+    && input.allocations.every(item => hasCompleteVirtualExit(item.trade))
+    && (input.missingExitSequence?.size ?? 0) === 0;
+}
+
+/** engineSequence順の正式portfolioをbounded batchで増分materializeする。 */
+export async function materializeAllCandidateReceiptPortfolioBatch(
+  tradeDate: string,
+  options: { maxTimelineItems?: number; finalizeDay?: boolean } = {},
+) {
+  const allocations = await loadAllCandidateInputs(tradeDate);
+  const allocationById = new Map(allocations.map(item => [item.candidate.id, item]));
+  const decisions = await getRtRealtimeDecisionEventsForDate(tradeDate);
+  const gaps = (await getRtCandidateVirtualGapsForDate(tradeDate)).filter(gap => !gap.resolved);
+  const coverage = candidateVirtualCoverage(decisions);
+  const progress = await getRtPortfolioMaterializationProgress({
+    portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+    mode: "actual_receipt",
+    tradeDate,
+  });
+  const rebuildFromStart = progress?.dirtyFromEngineSequence !== null
+    && progress?.dirtyFromEngineSequence !== undefined
+    && progress.dirtyFromEngineSequence <= progress.processedThroughEngineSequence;
+  const cursor = rebuildFromStart ? 0 : progress?.processedThroughEngineSequence ?? 0;
+  if (cursor > coverage.safeHighWater) throw new Error(`portfolio_cursor_ahead_of_safe_high_water:${cursor}:${coverage.safeHighWater}`);
+  const state = rebuildFromStart ? structuredClone(EMPTY_MATERIALIZED_STATE) : parseMaterializedState(progress?.resultJson);
+  const { open, openBySymbol } = restoreOpenAllocations(
+    rebuildFromStart ? [] : parseOpenCandidateIds(progress?.openAllocationsJson),
+    allocationById,
+  );
+  let marginUsed = Array.from(open.values()).reduce((sum, allocation) => sum + allocation.requiredMargin, 0);
+  const sequenceBySource = new Map(decisions.map(event => [event.sourceEventId, event.id]));
+  const allocationsMissingExitSequence = new Set<number>();
+  type TimelineItem = { sequence: number; kind: "entry" | "exit"; allocation: CandidateAllocation };
+  const timeline: TimelineItem[] = [];
+  for (const allocation of allocations) {
+    timeline.push({ sequence: allocation.candidate.engineSequence, kind: "entry", allocation });
+    const exitSource = allocation.trade?.exitSourceEventId;
+    const exitSequence = exitSource ? sequenceBySource.get(exitSource) : null;
+    if (exitSequence !== null && exitSequence !== undefined) timeline.push({ sequence: exitSequence, kind: "exit", allocation });
+    else if (hasCompleteVirtualExit(allocation.trade)) allocationsMissingExitSequence.add(allocation.candidate.id);
+  }
+  timeline.sort((a, b) => a.sequence - b.sequence || (a.kind === "exit" ? -1 : 1));
+  const available = timeline.filter(item => item.sequence > cursor && item.sequence <= coverage.safeHighWater);
+  const limit = Math.max(1, options.maxTimelineItems ?? 250);
+  let batch = available.slice(0, limit);
+  if (batch.length > 0) {
+    const lastSequence = batch[batch.length - 1].sequence;
+    batch = available.filter(item => item.sequence <= lastSequence);
+  }
+  for (const item of batch) {
+    const allocation = item.allocation;
+    if (item.kind === "exit") {
+      if (!open.has(allocation.candidate.id)) continue;
+      const before = marginUsed;
+      marginUsed = Math.max(0, marginUsed - allocation.requiredMargin);
+      open.delete(allocation.candidate.id);
+      if (openBySymbol.get(allocation.candidate.symbol)?.candidate.id === allocation.candidate.id) openBySymbol.delete(allocation.candidate.symbol);
+      state.closed += 1;
+      state.realizedPnl += virtualPnlAtCapital(allocation.candidate, allocation.trade) ?? 0;
+      state.processedTimelineItems += 1;
+      await persistCandidatePortfolioExit({
+        version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+        mode: "actual_receipt",
+        allocation,
+        marginBefore: before,
+        marginAfter: marginUsed,
+        priorityRank: item.sequence,
+        batchKey: `${tradeDate}:${allocation.trade?.exitCandleTime ?? "unknown"}`,
+      });
+      continue;
+    }
+    const symbolBlocker = openBySymbol.get(allocation.candidate.symbol) ?? null;
+    const marginBlocker = Array.from(open.values()).sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+    const blocker = symbolBlocker ?? marginBlocker;
+    allocation.blocker = blocker;
+    const blockedBySymbol = symbolBlocker !== null;
+    const blockedByMargin = !blockedBySymbol && marginUsed + allocation.requiredMargin > PORTFOLIO_MAX_EXPOSURE;
+    const canAllocate = !blockedBySymbol && !blockedByMargin;
+    const before = marginUsed;
+    if (canAllocate) {
+      open.set(allocation.candidate.id, allocation);
+      openBySymbol.set(allocation.candidate.symbol, allocation);
+      marginUsed += allocation.requiredMargin;
+      state.accepted += 1;
+    } else if (blockedBySymbol) {
+      state.symbolPositionBlocked += 1;
+      if (blocker) state.blockEdges.push({ blockerSourceEventId: blocker.candidate.sourceEventId, blockedSourceEventId: allocation.candidate.sourceEventId });
+    } else {
+      state.marginBlocked += 1;
+      if (blocker) state.blockEdges.push({ blockerSourceEventId: blocker.candidate.sourceEventId, blockedSourceEventId: allocation.candidate.sourceEventId });
+    }
+    state.processedTimelineItems += 1;
+    await persistCandidatePortfolioDecision({
+      version: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+      mode: "actual_receipt",
+      allocation,
+      decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
+      marginBefore: before,
+      marginAfter: marginUsed,
+      priorityRank: item.sequence,
+      batchKey: `${tradeDate}:${allocation.candidate.candleTime}`,
+      reason: canAllocate ? "engine_sequence_allocation" : blockedBySymbol ? "same_symbol_position_open" : "891m_limit",
+    });
+  }
+  const remainingAtSafe = available.length > batch.length;
+  const nextCursor = batch.length > 0 ? batch[batch.length - 1].sequence : remainingAtSafe ? cursor : coverage.safeHighWater;
+  const complete = Boolean(options.finalizeDay)
+    && !remainingAtSafe
+    && coverage.pending === 0
+    && coverage.processing === 0
+    && coverage.retryableErrors === 0
+    && coverage.terminal === 0
+    && gaps.length === 0
+    && nextCursor >= coverage.maxDecisionId
+    && open.size === 0
+    && allocations.every(item => hasCompleteVirtualExit(item.trade))
+    && allocationsMissingExitSequence.size === 0;
+  const result = {
+    ...state,
+    portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+    tradeDate,
+    candidates: allocations.length,
+    openAtEnd: open.size,
+    eligibleForPortfolioPnlComparison: finalizeEligibility({ complete, allocations, missingExitSequence: allocationsMissingExitSequence, openSize: open.size }),
+    coverage,
+    unresolvedGaps: gaps.length,
+  };
+  await upsertRtPortfolioMaterializationProgress({
+    portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+    mode: "actual_receipt",
+    tradeDate,
+    status: complete ? "complete" : "processing",
+    processedThroughEngineSequence: nextCursor,
+    sourceDecisionCount: coverage.sourceDecisionCount,
+    openAllocationsJson: { candidateIds: Array.from(open.keys()) },
+    marginUsed,
+    dirtyFromEngineSequence: null,
+    resultJson: result,
+    lastError: null,
+    generatedAt: complete ? new Date() : null,
+  });
+  return { ...result, status: complete ? "complete" as const : "processing" as const, processedThroughEngineSequence: nextCursor };
+}
+
+/** 同一分固定優先順位版を、次分受信＋以前outbox完了の分だけbounded batchで確定する。 */
+export async function materializeAllCandidateMinutePortfolioBatch(
+  tradeDate: string,
+  options: { maxMinutes?: number; finalizeDay?: boolean } = {},
+) {
+  const allocations = await loadAllCandidateInputs(tradeDate);
+  const allocationById = new Map(allocations.map(item => [item.candidate.id, item]));
+  const decisions = await getRtRealtimeDecisionEventsForDate(tradeDate);
+  const gaps = (await getRtCandidateVirtualGapsForDate(tradeDate)).filter(gap => !gap.resolved);
+  const coverage = candidateVirtualCoverage(decisions);
+  const progress = await getRtPortfolioMaterializationProgress({
+    portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+    mode: "minute_normalized",
+    tradeDate,
+  });
+  const rebuildFromStart = progress?.dirtyFromEngineSequence !== null
+    && progress?.dirtyFromEngineSequence !== undefined
+    && progress.dirtyFromEngineSequence <= progress.processedThroughEngineSequence;
+  const state = rebuildFromStart ? structuredClone(EMPTY_MATERIALIZED_STATE) : parseMaterializedState(progress?.resultJson);
+  const { open, openBySymbol } = restoreOpenAllocations(
+    rebuildFromStart ? [] : parseOpenCandidateIds(progress?.openAllocationsJson),
+    allocationById,
+  );
+  let marginUsed = Array.from(open.values()).reduce((sum, allocation) => sum + allocation.requiredMargin, 0);
+  const safeDecisions = decisions.filter(event => event.id <= coverage.safeHighWater);
+  const safeMinutes = Array.from(new Set(safeDecisions.map(event => event.candleTime))).sort();
+  const finalizableMinutes = options.finalizeDay ? safeMinutes : safeMinutes.slice(0, -1);
+  const pendingMinutes = finalizableMinutes.filter(minute => !state.lastProcessedMinute || minute > state.lastProcessedMinute);
+  const batchMinutes = pendingMinutes.slice(0, Math.max(1, options.maxMinutes ?? 30));
+  const groups = new Map<string, { entries: CandidateAllocation[]; exits: CandidateAllocation[] }>();
+  for (const allocation of allocations) {
+    const entryGroup = groups.get(allocation.candidate.candleTime) ?? { entries: [], exits: [] };
+    entryGroup.entries.push(allocation);
+    groups.set(allocation.candidate.candleTime, entryGroup);
+    const exitTime = allocation.trade?.exitCandleTime;
+    if (exitTime && (allocation.trade?.exitTradeDate ?? tradeDate) === tradeDate) {
+      const exitGroup = groups.get(exitTime) ?? { entries: [], exits: [] };
+      exitGroup.exits.push(allocation);
+      groups.set(exitTime, exitGroup);
+    }
+  }
+  for (const candleTime of batchMinutes) {
+    const group = groups.get(candleTime) ?? { entries: [], exits: [] };
+    for (const allocation of group.exits.sort((a, b) => a.candidate.engineSequence - b.candidate.engineSequence)) {
+      if (!open.has(allocation.candidate.id)) continue;
+      const before = marginUsed;
+      marginUsed = Math.max(0, marginUsed - allocation.requiredMargin);
+      open.delete(allocation.candidate.id);
+      if (openBySymbol.get(allocation.candidate.symbol)?.candidate.id === allocation.candidate.id) openBySymbol.delete(allocation.candidate.symbol);
+      state.closed += 1;
+      state.realizedPnl += virtualPnlAtCapital(allocation.candidate, allocation.trade) ?? 0;
+      state.processedTimelineItems += 1;
+      await persistCandidatePortfolioExit({
+        version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+        mode: "minute_normalized",
+        allocation,
+        marginBefore: before,
+        marginAfter: marginUsed,
+        priorityRank: state.processedTimelineItems,
+        batchKey: `${tradeDate}:${candleTime}`,
+      });
+    }
+    const entries = [...group.entries].sort((a, b) => {
+      const aRank = FIXED_CONTROL_PRIORITY.indexOf(a.candidate.symbol as typeof FIXED_CONTROL_PRIORITY[number]);
+      const bRank = FIXED_CONTROL_PRIORITY.indexOf(b.candidate.symbol as typeof FIXED_CONTROL_PRIORITY[number]);
+      return (aRank < 0 ? 999 : aRank) - (bRank < 0 ? 999 : bRank)
+        || a.candidate.engineSequence - b.candidate.engineSequence;
+    });
+    for (const allocation of entries) {
+      const symbolBlocker = openBySymbol.get(allocation.candidate.symbol) ?? null;
+      const marginBlocker = Array.from(open.values()).sort((a, b) => b.requiredMargin - a.requiredMargin)[0] ?? null;
+      const blocker = symbolBlocker ?? marginBlocker;
+      allocation.blocker = blocker;
+      const before = marginUsed;
+      const blockedBySymbol = symbolBlocker !== null;
+      const blockedByMargin = !blockedBySymbol && marginUsed + allocation.requiredMargin > PORTFOLIO_MAX_EXPOSURE;
+      const canAllocate = !blockedBySymbol && !blockedByMargin;
+      if (canAllocate) {
+        open.set(allocation.candidate.id, allocation);
+        openBySymbol.set(allocation.candidate.symbol, allocation);
+        marginUsed += allocation.requiredMargin;
+        state.accepted += 1;
+      } else if (blockedBySymbol) {
+        state.symbolPositionBlocked += 1;
+        if (blocker) state.blockEdges.push({ blockerSourceEventId: blocker.candidate.sourceEventId, blockedSourceEventId: allocation.candidate.sourceEventId });
+      } else {
+        state.marginBlocked += 1;
+        if (blocker) state.blockEdges.push({ blockerSourceEventId: blocker.candidate.sourceEventId, blockedSourceEventId: allocation.candidate.sourceEventId });
+      }
+      state.processedTimelineItems += 1;
+      await persistCandidatePortfolioDecision({
+        version: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+        mode: "minute_normalized",
+        allocation,
+        decision: canAllocate ? "accepted" : blockedBySymbol ? "symbol_position_block" : "margin_block",
+        marginBefore: before,
+        marginAfter: marginUsed,
+        priorityRank: state.processedTimelineItems,
+        batchKey: `${tradeDate}:${candleTime}`,
+        reason: canAllocate ? "exit_first_fixed_symbol_priority" : blockedBySymbol ? "same_symbol_position_open" : "891m_limit",
+      });
+    }
+    state.lastProcessedMinute = candleTime;
+  }
+  const lastProcessedMinute = state.lastProcessedMinute;
+  const nextCursor = lastProcessedMinute
+    ? safeDecisions.filter(event => event.candleTime <= lastProcessedMinute).reduce((max, event) => Math.max(max, event.id), 0)
+    : 0;
+  const latestSafeMinute = safeMinutes.at(-1) ?? null;
+  const remainingMinutes = pendingMinutes.length > batchMinutes.length;
+  const complete = Boolean(options.finalizeDay)
+    && !remainingMinutes
+    && coverage.pending === 0
+    && coverage.processing === 0
+    && coverage.retryableErrors === 0
+    && coverage.terminal === 0
+    && gaps.length === 0
+    && (latestSafeMinute === null || lastProcessedMinute === latestSafeMinute)
+    && open.size === 0
+    && allocations.every(item => hasCompleteVirtualExit(item.trade));
+  const result = {
+    ...state,
+    portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+    tradeDate,
+    candidates: allocations.length,
+    openAtEnd: open.size,
+    priorityRule: FIXED_CONTROL_PRIORITY,
+    eligibleForPortfolioPnlComparison: finalizeEligibility({ complete, allocations, openSize: open.size }),
+    coverage,
+    unresolvedGaps: gaps.length,
+  };
+  await upsertRtPortfolioMaterializationProgress({
+    portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+    mode: "minute_normalized",
+    tradeDate,
+    status: complete ? "complete" : "processing",
+    processedThroughEngineSequence: nextCursor,
+    sourceDecisionCount: coverage.sourceDecisionCount,
+    openAllocationsJson: { candidateIds: Array.from(open.keys()) },
+    marginUsed,
+    dirtyFromEngineSequence: null,
+    resultJson: result,
+    lastError: null,
+    generatedAt: complete ? new Date() : null,
+  });
+  return { ...result, status: complete ? "complete" as const : "processing" as const, processedThroughEngineSequence: nextCursor };
+}
+
+export async function materializePortfolioBundleForDate(
+  tradeDate: string,
+  options: { finalizeDay?: boolean; maxTimelineItems?: number; maxMinutes?: number } = {},
+) {
+  const actualReceipt = await materializeAllCandidateReceiptPortfolioBatch(tradeDate, options);
+  const minuteNormalized = await materializeAllCandidateMinutePortfolioBatch(tradeDate, options);
+  if (actualReceipt.status !== "complete" || minuteNormalized.status !== "complete") {
+    return { status: "processing" as const, actualReceipt, minuteNormalized };
+  }
+  const [actualPilot, normalizedPilot] = await Promise.all([
+    buildActualReceiptPortfolioAuditForDate(tradeDate),
+    buildMinuteNormalizedPortfolioAuditForDate(tradeDate),
+  ]);
+  const result = { actualPilot, normalizedPilot, actualReceipt, minuteNormalized };
+  await upsertRtDailyAuditMaterialization({
+    component: PORTFOLIO_BUNDLE_COMPONENT,
+    version: PORTFOLIO_MATERIALIZATION_VERSION,
+    tradeDate,
+    status: "complete",
+    processedThroughEngineSequence: Math.min(actualReceipt.processedThroughEngineSequence, minuteNormalized.processedThroughEngineSequence),
+    sourceDecisionCount: actualReceipt.coverage.sourceDecisionCount,
+    resultJson: result,
+    lastError: null,
+    generatedAt: new Date(),
+  });
+  return { status: "complete" as const, ...result };
 }

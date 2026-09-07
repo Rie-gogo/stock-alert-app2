@@ -416,11 +416,12 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     // 当日の取引ログを取得
     const trades = await getRtTradesForDate(todayStr);
     const summary = await getRtDailySummary(todayStr);
-    const { getRtForwardShadowEventsForDate } = await import("./db");
-    const forwardShadowEvents = await getRtForwardShadowEventsForDate(todayStr);
+    const { getRtForwardShadowEventStatsForDate } = await import("./db");
+    const forwardShadowEventStats = await getRtForwardShadowEventStatsForDate(todayStr);
+    const forwardShadowEventCount = forwardShadowEventStats.reduce((sum, item) => sum + item.eventCount, 0);
 
     // 取引がない場合はスキップ
-    if (trades.length === 0 && !summary && forwardShadowEvents.length === 0) {
+    if (trades.length === 0 && !summary && forwardShadowEventCount === 0) {
       console.log(`[rt-daily-report] No trades for ${todayStr}, skipping report.`);
       return res.json({ ok: true, skipped: "no-trades", tradeDate: todayStr });
     }
@@ -464,10 +465,10 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       })
       .join("\n");
 
-    // ★CB v2 SHORTシミュレーション実行
-    let cbV2Section = "";
-    let branchSection = "";
-    let score0Section = "";
+    // 旧全日再計算は16時handlerから分離。保存済みイベント・materializationのみを読む。
+    let cbV2Section = "\n【CB v2 SHORTシミュレーション】\n  16時再計算停止（保存済み監査materializationへ移行）\n";
+    let branchSection = "\n【分岐型シミュレーション】\n  16時再計算停止（保存済み監査materializationへ移行）\n";
+    let score0Section = "\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n  16時再計算停止（保存済み監査materializationへ移行）\n";
     let taiyoCandidateBSection = "";
     let socionextConfirmedLongSection = "";
     let sumcoBreakdownShortSection = "";
@@ -477,9 +478,8 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     let kioxiaShortGuardSection = "";
     let forwardShadowSection = "";
     try {
-      const { getRtCandlesAllForDate, getTaiyoCandidateBEventsForDate, getSocionextConfirmedLongEventsForDate, getSumcoBreakdownShortEventsForDate, getSoftbankBreakoutLongEventsForDate, getKioxiaConfirmedMorningLongEventsForDate, getTelOpenDirectionBreakoutEventsForDate, getKioxiaShortGuardEventsForDate } = await import("./db");
+      const { getTaiyoCandidateBEventsForDate, getSocionextConfirmedLongEventsForDate, getSumcoBreakdownShortEventsForDate, getSoftbankBreakoutLongEventsForDate, getKioxiaConfirmedMorningLongEventsForDate, getTelOpenDirectionBreakoutEventsForDate, getKioxiaShortGuardEventsForDate } = await import("./db");
       const { getSignalHistory } = await import("./realtimeSimEngine");
-      const { runCBv2DailySimulation, formatCBv2Report, runBranchDailySimulation, formatBranchReport, runScore0DailySimulation, formatScore0Report } = await import("./cbV2Simulation");
       const { formatTaiyoCandidateBDryRunReport } = await import("./taiyoCandidateBDryRunReport");
       const { formatSocionextConfirmedLongDryRunReport } = await import("./socionextConfirmedLongDryRunReport");
       const { formatSumcoBreakdownShortDryRunReport } = await import("./sumcoBreakdownShortDryRunReport");
@@ -491,7 +491,6 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
 
       forwardShadowSection = await formatForwardShadowDryRunReport(todayStr);
 
-      const allCandles = await getRtCandlesAllForDate(todayStr);
       const currentSignals = getSignalHistory(200);
       const persistedTaiyoCandidateBEvents = await getTaiyoCandidateBEventsForDate(todayStr);
       const persistedSocionextConfirmedLongEvents = await getSocionextConfirmedLongEventsForDate(todayStr);
@@ -500,11 +499,6 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       const persistedKioxiaConfirmedMorningLongEvents = await getKioxiaConfirmedMorningLongEventsForDate(todayStr);
       const persistedTelOpenDirectionBreakoutEvents = await getTelOpenDirectionBreakoutEventsForDate(todayStr);
       const persistedKioxiaShortGuardEvents = await getKioxiaShortGuardEventsForDate(todayStr);
-      // signalHistoryからround_distance_block SHORTを抽出
-      const signalBlocks = currentSignals
-        .filter(s => s.action === "round_distance_block" && s.reason.includes("SHORTブロック"))
-        .map(s => ({ time: s.time, symbol: s.symbol, price: s.price, reason: s.reason }));
-
       taiyoCandidateBSection = formatTaiyoCandidateBDryRunReport(
         trades,
         currentSignals,
@@ -539,32 +533,8 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
         persistedKioxiaShortGuardEvents,
       ).section;
 
-      const cbV2Result = runCBv2DailySimulation(todayStr, allCandles, signalBlocks);
-      cbV2Section = formatCBv2Report(cbV2Result);
-      console.log(`[rt-daily-report] CB v2 simulation: candidates=${cbV2Result.candidates}, entries=${cbV2Result.entries}, pnl=${cbV2Result.totalPnl}`);
-
-      // 分岐型シミュレーション（drop_0.6バイパス + CB v2）
-      const branchResult = runBranchDailySimulation(todayStr, allCandles, signalBlocks);
-      branchSection = formatBranchReport(branchResult);
-      console.log(`[rt-daily-report] Branch simulation: bypass=${branchResult.bypassEntries}, cb=${branchResult.cbEntries}, pnl=${branchResult.totalPnl}`);
-
-      // スコア0+信頼度強シミュレーション
-      const { getScore0BlocksForDate } = await import("./db");
-      const score0Blocks = await getScore0BlocksForDate(todayStr);
-      const score0Result = runScore0DailySimulation(todayStr, allCandles, score0Blocks.map(b => ({
-        symbol: b.symbol,
-        candleTime: b.candleTime,
-        side: b.side as "BUY" | "SHORT",
-        signalReason: b.signalReason,
-        entryPrice: b.entryPrice,
-      })));
-      score0Section = formatScore0Report(score0Result);
-      console.log(`[rt-daily-report] Score0 simulation: candidates=${score0Result.candidates}, entries=${score0Result.entries}, pnl=${score0Result.totalPnl}`);
     } catch (cbErr) {
-      console.error("[rt-daily-report] CB v2 simulation error:", cbErr);
-      cbV2Section = "\n【CB v2 SHORTシミュレーション】\n  エラーが発生しました\n";
-      branchSection = "\n【分岐型シミュレーション】\n  エラーが発生しました\n";
-      score0Section = "\n【スコア0+信頼度強 仮想エントリーシミュレーション】\n  エラーが発生しました\n";
+      console.error("[rt-daily-report] 保存済みDRY_RUN監査の読取エラー:", cbErr);
       taiyoCandidateBSection = "\n【6976候補B30分 DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
       socionextConfirmedLongSection = "\n【6526確認型ブレイクLONG DRY_RUN乖離監視】\n  集計エラーが発生しました\n";
       sumcoBreakdownShortSection = "\n【3436 15本安値更新SHORT DRY_RUN乖離監視】\n  集計エラーが発生しました\n";

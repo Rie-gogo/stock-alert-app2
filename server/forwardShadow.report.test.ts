@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
+  getRtForwardEvaluationControl: vi.fn(async () => null),
+  getRtDailyAuditMaterialization: vi.fn(async () => null),
+  getRtDailyAuditMaterializationsForComponent: vi.fn(async () => []),
   getRtForwardShadowTrades: vi.fn(async () => []),
+  getRtSourceEventStatsForDate: vi.fn(async () => [{ symbol: "8035", status: "processed", eventCount: 1 }]),
+  getRtForwardShadowEventStatsForDate: vi.fn(async () => []),
+  getRtRealtimeDecisionStatsForDate: vi.fn(async () => []),
   getRtSourceEventsForDate: vi.fn(async () => [{
     sourceEventId: "session:1",
     status: "processed",
@@ -23,6 +29,10 @@ vi.mock("./telParityComparison", () => ({
   compareTelCurrentParityForDate: vi.fn(async () => ({ skipped: "before_evaluation_start" })),
 }));
 vi.mock("./portfolioAudit", () => ({
+  ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION: "current-10-symbol-891m-all-candidates-receipt-v2",
+  ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION: "current-10-symbol-891m-all-candidates-minute-v2",
+  PORTFOLIO_BUNDLE_COMPONENT: "portfolio_bundle",
+  PORTFOLIO_MATERIALIZATION_VERSION: "portfolio-materialization-p0-v1",
   buildActualReceiptPortfolioAuditForDate: vi.fn(async () => ({ processed: 0, accepted: 0, marginBlocked: 0, closed: 0 })),
   buildMinuteNormalizedPortfolioAuditForDate: vi.fn(async () => ({ candidateBatches: 0, accepted: 0, marginBlocked: 0, blockEdges: [] })),
   buildAllCandidateReceiptPortfolioForDate: vi.fn(async () => ({ candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: true })),
@@ -129,7 +139,7 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("売買ロジックf6878060一致: OK");
     expect(section).toContain("注文接続: なし");
     expect(section).toContain("当日受信監査: 1件");
-    expect(section).toContain("当日固定版再生: 2判断再生（実時との差=2");
+    expect(section).toContain("当日固定版再生: materializer未完了（実時保存=");
     expect(section).toContain("100株・証拠金なし全発火");
     expect(section).toContain("891万円上限・可変株数（8035単独パイロット");
     expect(section).toContain("891万円上限・可変株数（5803単独パイロット");

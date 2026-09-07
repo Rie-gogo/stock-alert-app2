@@ -4,9 +4,11 @@ import {
   claimOrRetryRtForwardShadowEvent,
   closeRtForwardShadowTrade,
   failRtForwardShadowEvent,
-  getRtForwardShadowEventsForDate,
-  getRtSourceEventsForDate,
-  getRtRealtimeDecisionEventsForDate,
+  getRtForwardShadowEventStatsForDate,
+  getRtDailyAuditMaterialization,
+  getRtDailyAuditMaterializationsForComponent,
+  getRtSourceEventStatsForDate,
+  getRtRealtimeDecisionStatsForDate,
   getRtStrategyVersion,
   getRtForwardShadowState,
   getRtForwardShadowTrades,
@@ -21,7 +23,7 @@ import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
 import { applyForwardRouteParityGate, resolveForwardRouteParityGate } from "./forwardRouteParityGate";
 import {
   P0_FORMAL_EVALUATION_EARLIEST_START_DATE,
-  resolveForwardFormalEvaluationGate,
+  loadForwardFormalEvaluationGate,
 } from "./forwardFormalEvaluationGate";
 import {
   TEL_OPEN_DIRECTION_BREAKOUT_SPEC,
@@ -65,7 +67,6 @@ import {
   processKioxiaAtrForwardShadowSourceEvent,
   replayKioxiaAtrForwardShadowDay,
 } from "./kioxiaAtrForwardShadowEngine";
-import { compareTelCurrentParityForDate } from "./telParityComparison";
 import {
   TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
   TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
@@ -78,13 +79,6 @@ import {
   TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./telExecutableConfirmDepth";
 import { auditTelExecutableConfirmDepthDay } from "./telExecutableConfirmDepthEngine";
-import {
-  buildActualReceiptPortfolioAuditForDate,
-  buildAllCandidateMinutePortfolioForDate,
-  buildAllCandidateReceiptPortfolioForDate,
-  buildMinuteNormalizedPortfolioAuditForDate,
-} from "./portfolioAudit";
-import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
 import {
   SOFTBANK_FORWARD_COLLECTION_START_DATE,
   SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
@@ -832,14 +826,18 @@ export function applyForwardStrategyLifecyclePolicy(
 
 export async function getForwardShadowSummary(asOfDate: string, strategyVersion = FORWARD_STRATEGY_VERSION) {
   const trades = await getRtForwardShadowTrades(strategyVersion);
-  const evaluationStartDate = P0_FORMAL_EVALUATION_EARLIEST_START_DATE;
-  const formalEvaluationGate = resolveForwardFormalEvaluationGate(asOfDate);
+  const formalEvaluationGate = await loadForwardFormalEvaluationGate(asOfDate);
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
-    const modeTrades = trades.filter(trade => trade.evaluationMode === mode
-      && trade.entryTradeDate >= evaluationStartDate);
+    const collectionTrades = trades.filter(trade => trade.evaluationMode === mode
+      && trade.entryTradeDate >= formalEvaluationGate.validationDate);
+    const modeTrades = formalEvaluationGate.status === "active" && formalEvaluationGate.formalStartDate
+      ? collectionTrades.filter(trade => trade.entryTradeDate >= formalEvaluationGate.formalStartDate!
+        && !formalEvaluationGate.excludedTradeDates.includes(trade.entryTradeDate))
+      : [];
+    const collectionMetrics = calculateForwardTradeMetrics(collectionTrades);
     const metrics = calculateForwardTradeMetrics(modeTrades);
-    const decision = formalEvaluationGate.status === "active"
-      ? evaluateForwardDecision(metrics, asOfDate, evaluationStartDate)
+    const decision = formalEvaluationGate.status === "active" && formalEvaluationGate.formalStartDate
+      ? evaluateForwardDecision(metrics, asOfDate, formalEvaluationGate.formalStartDate)
       : { status: "monitoring" as const, reason: "formal_evaluation_gate_pending", days: 0 };
     const routeParityGate = resolveForwardRouteParityGate(strategyVersion);
     const lifecycleDecision = applyForwardStrategyLifecyclePolicy(strategyVersion, decision);
@@ -864,6 +862,7 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
     return {
       mode,
       metrics,
+      collectionMetrics,
       decision: applyForwardRouteParityGate(candidateDecision, routeParityGate),
       routeParityGate,
       formalEvaluationGate,
@@ -973,34 +972,41 @@ function formatNullable(value: number | null, digits = 2): string {
   return value === null ? "∞（損失なし）" : value.toFixed(digits);
 }
 
-export async function formatForwardShadowDryRunReport(asOfDate: string): Promise<string> {
+const REPORT_FORWARD_REPLAY_COMPONENT = "forward_strategy_replay";
+
+async function readForwardReportMaterializations(tradeDate: string) {
+  const [portfolio, telParity, outcomeLabels, divergence, forwardReplays] = await Promise.all([
+    getRtDailyAuditMaterialization({ component: "portfolio_bundle", version: "portfolio-materialization-p0-v1", tradeDate }),
+    getRtDailyAuditMaterialization({ component: "tel_current_parity", version: "baseline-8035-current-parity-materialized-v1", tradeDate }),
+    getRtDailyAuditMaterialization({ component: "outcome_labels", version: "current-outcome-labels-materialized-v1", tradeDate }),
+    getRtDailyAuditMaterialization({ component: "divergence_hypotheses", version: "current-divergence-materialized-v1", tradeDate }),
+    getRtDailyAuditMaterializationsForComponent({ component: REPORT_FORWARD_REPLAY_COMPONENT, tradeDate }),
+  ]);
+  return { portfolio, telParity, outcomeLabels, divergence, forwardReplays };
+}
+
+export async function buildForwardShadowDryRunMaterialization(asOfDate: string): Promise<string> {
   const identity = getRuntimeIdentity();
-  let telParityAudit: Awaited<ReturnType<typeof compareTelCurrentParityForDate>> | { skipped: "error"; error: string };
-  try {
-    telParityAudit = await compareTelCurrentParityForDate(asOfDate);
-  } catch (error) {
-    telParityAudit = { skipped: "error", error: String(error) };
-  }
-  const [sourceEvents, shadowEvents] = await Promise.all([
-    getRtSourceEventsForDate(asOfDate),
-    getRtForwardShadowEventsForDate(asOfDate),
+  const [sourceEventStats, shadowEventStats, realtimeDecisionStats, materializations] = await Promise.all([
+    getRtSourceEventStatsForDate(asOfDate),
+    getRtForwardShadowEventStatsForDate(asOfDate),
+    getRtRealtimeDecisionStatsForDate(asOfDate),
+    readForwardReportMaterializations(asOfDate),
   ]);
-  const [
-    realtimeDecisionEvents,
-    actualPortfolio,
-    normalizedPortfolio,
-    allCandidateReceiptPortfolio,
-    allCandidateMinutePortfolio,
-    outcomeLabels,
-  ] = await Promise.all([
-    getRtRealtimeDecisionEventsForDate(asOfDate),
-    buildActualReceiptPortfolioAuditForDate(asOfDate),
-    buildMinuteNormalizedPortfolioAuditForDate(asOfDate),
-    buildAllCandidateReceiptPortfolioForDate(asOfDate),
-    buildAllCandidateMinutePortfolioForDate(asOfDate),
-    buildOutcomeLabelsForDate(asOfDate),
-  ]);
-  const divergence = await buildDivergenceHypotheses(asOfDate);
+  const telParityAudit = materializations.telParity?.status === "complete"
+    ? materializations.telParity.resultJson as any
+    : { skipped: "materialization_pending", error: materializations.telParity?.lastError ?? "snapshot_not_ready" };
+  const portfolioBundle = materializations.portfolio?.resultJson as any;
+  const actualPortfolio = portfolioBundle?.actualPilot ?? { processed: 0, accepted: 0, marginBlocked: 0, closed: 0, marginStateMismatches: 0 };
+  const normalizedPortfolio = portfolioBundle?.normalizedPilot ?? { candidateBatches: 0, accepted: 0, marginBlocked: 0, blockEdges: [] };
+  const allCandidateReceiptPortfolio = portfolioBundle?.actualReceipt ?? { candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: false };
+  const allCandidateMinutePortfolio = portfolioBundle?.minuteNormalized ?? { candidates: 0, accepted: 0, marginBlocked: 0, closed: 0, realizedPnl: 0, blockEdges: [], eligibleForPortfolioPnlComparison: false };
+  const outcomeLabels = materializations.outcomeLabels?.status === "complete"
+    ? materializations.outcomeLabels.resultJson as any
+    : { labels: 0, completed: 0, blocked: 0 };
+  const divergence = materializations.divergence?.status === "complete"
+    ? materializations.divergence.resultJson as any
+    : { hypotheses: [] };
   const strategyDefinitions = [
     {
       versionId: FORWARD_STRATEGY_VERSION,
@@ -1008,7 +1014,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "8035 始値方向ブレイク・因果的約定パイロット",
       startDate: FORWARD_EVALUATION_START_DATE,
       cutoffDate: FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => replayForwardShadowDay(sourceEvents, shadowEvents),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1018,7 +1023,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "5803 安値反転LONG A＋B（BPR0.70・利益保護0.5→0.3）",
       startDate: FUJIKURA_FORWARD_EVALUATION_START_DATE,
       cutoffDate: FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => replayFujikuraForwardShadowDay(sourceEvents, shadowEvents),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1028,7 +1032,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "285A 確認型前場LONG・MA8失速確認付き利益保護",
       startDate: KIOXIA_FORWARD_EVALUATION_START_DATE,
       cutoffDate: KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => replayKioxiaForwardShadowDay(sourceEvents, shadowEvents),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1038,7 +1041,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "285A 現行5経路・ATR7 0.36%未満の該当経路日次終了",
       startDate: KIOXIA_ATR_FORWARD_EVALUATION_START_DATE,
       cutoffDate: KIOXIA_ATR_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => replayKioxiaAtrForwardShadowDay(sourceEvents, shadowEvents),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1048,7 +1050,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "8035 次イベント・ブレイク継続確認A案",
       startDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
       cutoffDate: TEL_EXECUTABLE_CONFIRM_LEARNING_CUTOFF_DATE,
-      replay: () => auditTelExecutableConfirmDay(sourceEvents, shadowEvents),
       adoptionEligible: false,
       lifecycle: "superseded_stopped_audit_only",
     },
@@ -1058,7 +1059,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "8035 次イベント・side別板depth VWAP継続確認A案 v2",
       startDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
       cutoffDate: TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
-      replay: () => auditTelExecutableConfirmDepthDay(sourceEvents, shadowEvents),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1068,7 +1068,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "9984 前場10本高値更新LONG A・次イベント100株ask depth継続確認",
       startDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditSoftbankForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "depth_confirm"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1078,7 +1077,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "9984 前場10本高値更新LONG B・2R出口＋次足利益保護",
       startDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditSoftbankForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "rr2_protect"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1088,7 +1086,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "6976 候補B・10本高値更新LONG A・同時点BPR1.30＋大口売り壁なし",
       startDate: TAIYO_FORWARD_COLLECTION_START_DATE,
       cutoffDate: TAIYO_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditTaiyoForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "board_demand"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1098,7 +1095,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "6976 候補B・10本高値更新LONG B・2R出口＋次足利益保護",
       startDate: TAIYO_FORWARD_COLLECTION_START_DATE,
       cutoffDate: TAIYO_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditTaiyoForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "rr2_protect"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1108,7 +1104,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "6976 後場反転SHORT A・現行入口＋45分2R出口",
       startDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
       cutoffDate: TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
-      replay: () => auditTaiyoAfternoonForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "rr2_exit"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1118,7 +1113,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "6976 後場反転SHORT B・bid/ask100株depth実行品質",
       startDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
       cutoffDate: TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
-      replay: () => auditTaiyoAfternoonForwardShadowDay(sourceEvents, shadowEvents, realtimeDecisionEvents, "depth_execution"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1128,7 +1122,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "6526 確認型LONG A・初動始値比+0.25%未満で日次終了",
       startDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SOCIONEXT_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditSocionextForwardShadowDay(sourceEvents, shadowEvents, "initial_strength"),
       adoptionEligible: false,
       lifecycle: "active_diagnostic_candidate",
     },
@@ -1138,7 +1131,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "6526 確認型LONG B・確認上昇率+0.075%未満で日次終了",
       startDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SOCIONEXT_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditSocionextForwardShadowDay(sourceEvents, shadowEvents, "confirmation_strength"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1148,7 +1140,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "3436 前場15本安値更新SHORT A・出来高1.10倍＋15分2R",
       startDate: SUMCO_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SUMCO_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditSumcoForwardShadowDay(sourceEvents, shadowEvents, "volume_110"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1158,7 +1149,6 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
       title: "3436 前場15本安値更新SHORT B・現行入口＋15分2R",
       startDate: SUMCO_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SUMCO_FORWARD_LEARNING_CUTOFF_DATE,
-      replay: () => auditSumcoForwardShadowDay(sourceEvents, shadowEvents, "time_15"),
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
@@ -1166,15 +1156,12 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
   const sections: string[] = [];
   for (const definition of strategyDefinitions) {
     const summaries = await getForwardShadowSummary(asOfDate, definition.versionId);
-    const versionEvents = shadowEvents.filter(event => event.strategyVersion === definition.versionId);
-    const replayAudit = definition.replay();
-    let stateContinuityMismatches = 0;
-    for (const mode of FORWARD_EVALUATION_POLICY.evaluationModes) {
-      const modeEvents = versionEvents.filter(event => event.evaluationMode === mode).sort((a, b) => a.id - b.id);
-      for (let index = 1; index < modeEvents.length; index += 1) {
-        if (modeEvents[index].stateHashBefore !== modeEvents[index - 1].stateHashAfter) stateContinuityMismatches += 1;
-      }
-    }
+    const versionEventStats = shadowEventStats.filter(event => event.strategyVersion === definition.versionId);
+    const versionEventCount = versionEventStats.reduce((sum, event) => sum + event.eventCount, 0);
+    const versionErrorCount = versionEventStats
+      .filter(event => event.resultType === "error")
+      .reduce((sum, event) => sum + event.eventCount, 0);
+    const replaySnapshot = materializations.forwardReplays.find(item => item.version === definition.versionId);
     const signalQuality = summaries.find(item => item.mode === "signal_quality");
     if (signalQuality && definition.adoptionEligible) {
       await updateRtStrategyVersionStatus({
@@ -1195,12 +1182,13 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
         : `891万円上限・可変株数（${definition.symbol}単独パイロット。10銘柄統合判定には未使用）`;
       return [
         `  ${label}`,
-        `    前向き完了: ${item.metrics.closedTrades}件（勝${item.metrics.wins}/負${item.metrics.losses}、勝率${item.metrics.winRatePct.toFixed(2)}%）`,
-        `    損益: ${item.metrics.pnl >= 0 ? "+" : ""}${item.metrics.pnl.toLocaleString()}円 / 0.10%不利出口後: ${item.metrics.pnlAfterAdverseExit >= 0 ? "+" : ""}${item.metrics.pnlAfterAdverseExit.toLocaleString()}円`,
+        `    collection観測（正式評価外）: ${item.collectionMetrics.closedTrades}件（勝${item.collectionMetrics.wins}/負${item.collectionMetrics.losses}、勝率${item.collectionMetrics.winRatePct.toFixed(2)}%、損益${item.collectionMetrics.pnl >= 0 ? "+" : ""}${item.collectionMetrics.pnl.toLocaleString()}円）`,
+        `    正式前向き完了: ${item.metrics.closedTrades}件（勝${item.metrics.wins}/負${item.metrics.losses}、勝率${item.metrics.winRatePct.toFixed(2)}%）`,
+        `    正式損益: ${item.metrics.pnl >= 0 ? "+" : ""}${item.metrics.pnl.toLocaleString()}円 / 0.10%不利出口後: ${item.metrics.pnlAfterAdverseExit >= 0 ? "+" : ""}${item.metrics.pnlAfterAdverseExit.toLocaleString()}円`,
         `    PF: ${formatNullable(item.metrics.profitFactor)} / 期待値: ${item.metrics.expectedR.toFixed(3)}R / 実現平均利益÷平均損失: ${formatNullable(item.metrics.realizedPayoffRatio)}`,
         `    最大DD: ${item.metrics.maxDrawdown.toLocaleString()}円 / 最大連敗: ${item.metrics.maxConsecutiveLosses} / 判定: ${item.decision.status} (${item.decision.reason})`,
         `    経路parity Gate: ${item.routeParityGate.status} / 対象=${item.routeParityGate.requiredRoutes.join(",") || "なし"} / 証拠=${item.routeParityGate.evidence.kind}`,
-        `    正式評価Gate: ${item.formalEvaluationGate.status} / 確認日=${item.formalEvaluationGate.validationDate} / 最短開始=${item.formalEvaluationGate.formalStartDate} / 修正前データ除外=${item.formalEvaluationGate.excludesPreFixData}`,
+        `    正式評価Gate: ${item.formalEvaluationGate.status} / 確認日=${item.formalEvaluationGate.validationDate} / 最短開始=${item.formalEvaluationGate.earliestFormalStartDate} / 有効開始=${item.formalEvaluationGate.formalStartDate ?? "未設定"} / 承認checkpoint=${item.formalEvaluationGate.activationCheckpointId ?? "未設定"} / 除外日=${item.formalEvaluationGate.excludedTradeDates.join(",") || "なし"}`,
         item.softbankAdoptionGate.applicable
           ? `    9984追加Gate: 実現平均利益÷平均損失=${formatNullable(item.softbankAdoptionGate.realizedPayoffRatio)}（最低0.80、${item.softbankAdoptionGate.payoffStatus}） / TP到達=${item.softbankAdoptionGate.takeProfitExits}/${item.softbankAdoptionGate.completedTrades}（${item.softbankAdoptionGate.takeProfitReachRatePct === null ? "未算出" : `${item.softbankAdoptionGate.takeProfitReachRatePct.toFixed(2)}%`}） / 891万円比較=${item.softbankAdoptionGate.portfolioGate.status}`
           : "    9984追加Gate: 対象外",
@@ -1227,17 +1215,22 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
 	  正式集計最短開始: ${P0_FORMAL_EVALUATION_EARLIEST_START_DATE}（2026-09-07実受信確認後に手動有効化。修正前データは除外）
 	  採用審査: ${definition.adoptionEligible ? "対象（自動採用・自動置換なし）" : "対象外（旧版停止・監査保持のみ）"}
 	  注文接続: なし（strategyVersion別シャドーテーブルのみ）
-  当日シャドー判断: ${versionEvents.length}件（error=${versionEvents.filter(event => event.resultType === "error").length}, 状態ハッシュ連続不一致=${stateContinuityMismatches}）
-  当日固定版再生: ${replayAudit.replayedEvents}判断再生（実時との差=${replayAudit.mismatches}, 不正payload=${replayAudit.invalidPayloads}）
+	  当日シャドー判断: ${versionEventCount}件（error=${versionErrorCount}。状態連続性は別materializer）
+		  当日固定版再生: ${replaySnapshot?.status === "complete" ? JSON.stringify(replaySnapshot.resultJson) : `materializer未完了（実時保存=${versionEventCount}件）`}
 	${lines.join("\n")}`);
   }
   const activeEntrySymbols = new Set(identity.activeEntrySymbols);
-  const targetSourceEvents = sourceEvents.filter(event => activeEntrySymbols.has(event.symbol));
-  const targetRealtimeDecisionEvents = realtimeDecisionEvents.filter(event => activeEntrySymbols.has(event.symbol));
-  const targetProcessedEvents = targetSourceEvents.filter(event => event.status === "processed").length;
-  const auditJournalGap = Math.max(0, targetProcessedEvents - targetRealtimeDecisionEvents.length);
+  const targetSourceEventStats = sourceEventStats.filter(event => activeEntrySymbols.has(event.symbol));
+  const targetRealtimeDecisionStats = realtimeDecisionStats.filter(event => activeEntrySymbols.has(event.symbol));
+  const sourceEventCount = sourceEventStats.reduce((sum, event) => sum + event.eventCount, 0);
+  const targetProcessedEvents = targetSourceEventStats
+    .filter(event => event.status === "processed")
+    .reduce((sum, event) => sum + event.eventCount, 0);
+  const targetRealtimeDecisionEventCount = targetRealtimeDecisionStats.reduce((sum, event) => sum + event.eventCount, 0);
+  const auditJournalGap = Math.max(0, targetProcessedEvents - targetRealtimeDecisionEventCount);
   return `
 【未見データ前向きシャドー評価】
+  保存済み監査materialization: portfolio=${materializations.portfolio?.status ?? "missing"} / 8035 parity=${materializations.telParity?.status ?? "missing"} / outcome=${materializations.outcomeLabels?.status ?? "missing"} / divergence=${materializations.divergence?.status ?? "missing"}
   build Git SHA: ${identity.buildGitSha ?? "未提供（売買ソース固定hashで照合）"}
   deployment version: ${identity.deploymentVersion ?? "unavailable"}
   deployment revision: ${identity.deploymentRevision ?? "unavailable"}
@@ -1246,7 +1239,7 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
   売買ロジックf6878060一致: ${identity.tradingLogicMatchesBaseline ? "OK" : "NG（計測停止要確認）"}
   対象銘柄: ${identity.activeEntrySymbols.join(",")}
   注文接続: なし（シャドーテーブルのみ）
-  当日受信監査: ${sourceEvents.length}件（processed=${sourceEvents.filter(event => event.status === "processed").length}, failed=${sourceEvents.filter(event => event.status === "failed").length}, processing=${sourceEvents.filter(event => event.status === "processing").length}）
+  当日受信監査: ${sourceEventCount}件（processed=${sourceEventStats.filter(event => event.status === "processed").reduce((sum, event) => sum + event.eventCount, 0)}, failed=${sourceEventStats.filter(event => event.status === "failed").reduce((sum, event) => sum + event.eventCount, 0)}, processing=${sourceEventStats.filter(event => event.status === "processing").reduce((sum, event) => sum + event.eventCount, 0)}）
 【8035 現行完全再現監査】
   戦略版: baseline-8035-current-parity-v1（比較専用・採用審査対象外）
   結果: ${telParityAudit.skipped === false
@@ -1257,8 +1250,8 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
     : "なし"}
   再起動位置変更監査: ${telParityAudit.skipped === false ? (telParityAudit.restartAudit.matched ? "一致" : "不一致") : "未実行"}
 【現行 因果性Gate】
-  現行10銘柄の判断台帳: 期待${targetProcessedEvents}件 / 保存${targetRealtimeDecisionEvents.length}件 / 欠損${auditJournalGap}件
-  因果性: pass=${targetRealtimeDecisionEvents.filter(event => event.causalityStatus === "pass").length} / violation=${targetRealtimeDecisionEvents.filter(event => event.causalityStatus === "violation").length} / unverified=${targetRealtimeDecisionEvents.filter(event => event.causalityStatus === "unverified").length}
+  現行10銘柄の判断台帳: 期待${targetProcessedEvents}件 / 保存${targetRealtimeDecisionEventCount}件 / 欠損${auditJournalGap}件
+  因果性: pass=${targetRealtimeDecisionStats.filter(event => event.causalityStatus === "pass").reduce((sum, event) => sum + event.eventCount, 0)} / violation=${targetRealtimeDecisionStats.filter(event => event.causalityStatus === "violation").reduce((sum, event) => sum + event.eventCount, 0)} / unverified=${targetRealtimeDecisionStats.filter(event => event.causalityStatus === "unverified").reduce((sum, event) => sum + event.eventCount, 0)}
   価格名称: signal_reference / market_observed / executable_price_proxy / simulated_bar_fill（実約定価格はDRY_RUNのため取得なし）
 【10銘柄・891万円 portfolio監査】
   実受信・実状態更新順: ${actualPortfolio.processed}判断 / 採用${actualPortfolio.accepted} / margin_block${actualPortfolio.marginBlocked} / 決済${actualPortfolio.closed} / 証拠金状態不一致${actualPortfolio.marginStateMismatches}
@@ -1273,4 +1266,9 @@ export async function formatForwardShadowDryRunReport(asOfDate: string): Promise
   MFE・MAE・1/3/5分後は診断専用。改善条件にはobservedAt <= decisionAtの特徴量だけ使用可
 ${sections.join("\n")}
 `;
+}
+
+/** 互換名。内部では保存済みmaterializationのみを読み、重い再計算は行わない。 */
+export async function formatForwardShadowDryRunReport(asOfDate: string): Promise<string> {
+  return buildForwardShadowDryRunMaterialization(asOfDate);
 }

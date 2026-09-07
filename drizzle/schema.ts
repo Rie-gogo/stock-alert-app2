@@ -999,13 +999,23 @@ export const rtRealtimeDecisionEvents = mysqlTable("rt_realtime_decision_events"
   causalityStatus: mysqlEnum("rt_realtime_causality_status", ["pass", "violation", "unverified", "not_applicable"]).notNull().default("unverified"),
   causalityReason: text("causality_reason"),
   resultJson: json("result_json").notNull(),
-  candidateVirtualStatus: mysqlEnum("rt_candidate_virtual_status", ["pending", "processing", "processed", "error"]).notNull().default("processed"),
+  candidateVirtualStatus: mysqlEnum("rt_candidate_virtual_status", ["pending", "processing", "processed", "error", "terminal"]).notNull().default("processed"),
   candidateVirtualInputJson: json("candidate_virtual_input_json"),
+  candidateDescriptorJson: json("candidate_descriptor_json"),
+  candidatePhaseStatus: mysqlEnum("candidate_phase_status", ["pending", "processing", "complete", "retryable_error", "terminal_error", "not_applicable"]).notNull().default("pending"),
+  candidatePhaseAttemptCount: int("candidate_phase_attempt_count").notNull().default(0),
+  candidatePhaseLastError: text("candidate_phase_last_error"),
+  candidatePhaseProcessedAt: timestamp("candidate_phase_processed_at"),
+  virtualPhaseStatus: mysqlEnum("virtual_phase_status", ["pending", "processing", "complete", "retryable_error", "terminal_error", "not_applicable"]).notNull().default("pending"),
+  virtualPhaseAttemptCount: int("virtual_phase_attempt_count").notNull().default(0),
+  virtualPhaseLastError: text("virtual_phase_last_error"),
+  virtualPhaseProcessedAt: timestamp("virtual_phase_processed_at"),
   candidateVirtualClaimToken: varchar("candidate_virtual_claim_token", { length: 64 }),
   candidateVirtualLeaseUntil: timestamp("candidate_virtual_lease_until"),
   candidateVirtualAttemptCount: int("candidate_virtual_attempt_count").notNull().default(0),
   candidateVirtualLastError: text("candidate_virtual_last_error"),
   candidateVirtualProcessedAt: timestamp("candidate_virtual_processed_at"),
+  candidateVirtualTerminalAt: timestamp("candidate_virtual_terminal_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, table => ({
   sourceIdentity: uniqueIndex("rt_realtime_decision_source_identity").on(table.sourceEventId),
@@ -1213,3 +1223,100 @@ export const rtSignalCandidateTrades = mysqlTable("rt_signal_candidate_trades", 
 
 export type RtSignalCandidateTrade = typeof rtSignalCandidateTrades.$inferSelect;
 export type InsertRtSignalCandidateTrade = typeof rtSignalCandidateTrades.$inferInsert;
+
+/** candidate/virtual outbox workerをプロセス間で1本に制限する短時間リース。 */
+export const rtCandidateVirtualWorkerLocks = mysqlTable("rt_candidate_virtual_worker_locks", {
+  id: int("id").autoincrement().primaryKey(),
+  lockName: varchar("lock_name", { length: 64 }).notNull(),
+  ownerToken: varchar("owner_token", { length: 64 }),
+  leaseUntil: timestamp("lease_until"),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  lockIdentity: uniqueIndex("rt_candidate_virtual_worker_lock_identity").on(table.lockName),
+}));
+
+export type RtCandidateVirtualWorkerLock = typeof rtCandidateVirtualWorkerLocks.$inferSelect;
+export type InsertRtCandidateVirtualWorkerLock = typeof rtCandidateVirtualWorkerLocks.$inferInsert;
+
+/** terminal化したcandidate/virtual phaseを削除せず、欠損範囲と正式評価除外理由として保存する。 */
+export const rtCandidateVirtualGaps = mysqlTable("rt_candidate_virtual_gaps", {
+  id: int("id").autoincrement().primaryKey(),
+  decisionEventId: int("decision_event_id").notNull(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  phase: mysqlEnum("candidate_virtual_gap_phase", ["candidate", "virtual"]).notNull(),
+  reasonCode: varchar("reason_code", { length: 96 }).notNull(),
+  detailJson: json("detail_json").notNull(),
+  resolved: boolean("resolved").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  gapIdentity: uniqueIndex("rt_candidate_virtual_gap_identity").on(table.decisionEventId, table.phase),
+}));
+
+export type RtCandidateVirtualGap = typeof rtCandidateVirtualGaps.$inferSelect;
+export type InsertRtCandidateVirtualGap = typeof rtCandidateVirtualGaps.$inferInsert;
+
+/** 891万円portfolioをbounded batchで再開するためのmode別高水位点と状態。 */
+export const rtPortfolioMaterializationProgress = mysqlTable("rt_portfolio_materialization_progress", {
+  id: int("id").autoincrement().primaryKey(),
+  portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
+  mode: mysqlEnum("portfolio_materialization_mode", ["actual_receipt", "minute_normalized"]).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  status: mysqlEnum("portfolio_materialization_status", ["pending", "processing", "complete", "error", "incomplete_source"]).notNull().default("pending"),
+  processedThroughEngineSequence: int("processed_through_engine_sequence").notNull().default(0),
+  sourceDecisionCount: int("source_decision_count").notNull().default(0),
+  openAllocationsJson: json("open_allocations_json").notNull(),
+  marginUsed: bigint("margin_used", { mode: "number" }).notNull().default(0),
+  dirtyFromEngineSequence: int("dirty_from_engine_sequence"),
+  resultJson: json("result_json").notNull(),
+  lastError: text("last_error"),
+  generatedAt: timestamp("generated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  progressIdentity: uniqueIndex("rt_portfolio_materialization_progress_identity").on(table.portfolioVersion, table.mode, table.tradeDate),
+}));
+
+export type RtPortfolioMaterializationProgress = typeof rtPortfolioMaterializationProgress.$inferSelect;
+export type InsertRtPortfolioMaterializationProgress = typeof rtPortfolioMaterializationProgress.$inferInsert;
+
+/** replay/outcome等の重い日次監査をレポートから分離する保存済みsnapshot。 */
+export const rtDailyAuditMaterializations = mysqlTable("rt_daily_audit_materializations", {
+  id: int("id").autoincrement().primaryKey(),
+  component: varchar("component", { length: 64 }).notNull(),
+  version: varchar("version", { length: 64 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  status: mysqlEnum("daily_audit_materialization_status", ["pending", "processing", "complete", "error", "incomplete_source"]).notNull().default("pending"),
+  processedThroughEngineSequence: int("processed_through_engine_sequence").notNull().default(0),
+  sourceDecisionCount: int("source_decision_count").notNull().default(0),
+  resultJson: json("result_json").notNull(),
+  lastError: text("last_error"),
+  generatedAt: timestamp("generated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  materializationIdentity: uniqueIndex("rt_daily_audit_materialization_identity").on(table.component, table.version, table.tradeDate),
+}));
+
+export type RtDailyAuditMaterialization = typeof rtDailyAuditMaterializations.$inferSelect;
+export type InsertRtDailyAuditMaterialization = typeof rtDailyAuditMaterializations.$inferInsert;
+
+/** 正式評価は人がcheckpointを承認した後の完全営業日からだけ有効化する。 */
+export const rtForwardEvaluationControls = mysqlTable("rt_forward_evaluation_controls", {
+  id: int("id").autoincrement().primaryKey(),
+  controlName: varchar("control_name", { length: 64 }).notNull(),
+  activated: boolean("activated").notNull().default(false),
+  activationCheckpointId: varchar("activation_checkpoint_id", { length: 64 }),
+  activatedAtUtc: timestamp("activated_at_utc"),
+  formalStartTradeDate: varchar("formal_start_trade_date", { length: 10 }),
+  excludedTradeDatesJson: json("excluded_trade_dates_json").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  controlIdentity: uniqueIndex("rt_forward_evaluation_control_identity").on(table.controlName),
+}));
+
+export type RtForwardEvaluationControl = typeof rtForwardEvaluationControls.$inferSelect;
+export type InsertRtForwardEvaluationControl = typeof rtForwardEvaluationControls.$inferInsert;

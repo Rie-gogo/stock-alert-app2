@@ -2033,3 +2033,46 @@
 - [x] 前向き同時点boardで本番乖離を測る「次イベントask側100株depth入口＋0.10%追随上限、bid側100株depth出口＋exit intent再試行」を設計する
 - [x] 2案を原因、入口、出口、取引頻度、TP/SL、SHORT排他、因果性、実行価格感度で比較し、第二案の出口を第一案と同じ0.4%/0.8%/15分へ固定する
 - [x] 第一を現行入口維持＋短期2R出口、第二を次イベントdepth実行品質確認とし、symbol=6981 route parity、4週10件・891万円Gate、選定用52日除外を報告書へ整理する
+
+## JST当日 現行DRY_RUN・未見前向き評価・P0途中経過報告（2026-09-07）
+- [x] 公開API`trading.getRuntimeIdentity`と`trading.getForwardShadowSummary`をJST当日asOfDateで取得する
+- [x] 本番DBで当日現行取引・銘柄別損益・accepted/margin_block候補・100株仮想trade・coverage・891万円portfolio2方式を確認する
+- [x] engineSequence queueの件数/gap/pending/error、親source event失敗・lease、candidate/virtual outbox pending/errorを確認する
+- [x] 実時対固定版再生の最初の不一致、因果性違反、各strategyVersionのrouteParityGate/formalEvaluationGateと未見指標を整理する
+- [x] 正式評価を自動開始せず、未受信・0件・開始前を明記し、方針と要対応3件以内を日本語で報告する
+
+## 2026-09-07 実受信で判明した正式評価開始前P0
+- [ ] `candidate_side_missing` error 1件とcandidate/virtual outbox pending 4,820件の原因・poison row後続停止・安全な再試行を調査し、`actual_receipt` portfolio 0件も同時に切り分ける
+- [ ] 公開forward summary全32行0件と本番DBのcollection-day shadow trade 16行の矛盾を、formal集計とcollection observationを混同せず修正する
+- [ ] replay mismatch 187件（最初は8035 10:37 routeId）とcausality violation 10件・unverified 4件を分類し、対象日の正式成績除外とroute parity再検証を行う
+
+## 他AI「2026-09-07 P0修正提案」精査（2026-09-07）
+- [x] outbox先頭errorによる後続停止、最大試行時のclaim挙動、drain中断をコードと本番DB順序で照合する
+- [x] `candidate_side_missing`のside推定経路と、構造化side・route・reason・shares・margin提案の妥当性を確認する
+- [x] 仮想trade未決済2件とoutbox停止の因果、復旧時の冪等性・監査欠落・日次除外条件を確認する
+- [x] 因果性14件の意味、実行可能価格契約、現行固定版と別シャドーの分離方針を確認する
+- [x] replay 187件のrouteId起点仮説、公開summary 0件のformal日付filter、actual_receipt 0件の生成契約を確認する
+- [x] 提案を採用・修正して採用・保留へ分類し、正式評価開始条件を3件以内の優先順位で報告する（精査中はコード・Gate・売買ロジックを変更しない）
+
+## 他AI「P0修正方針・再提案」精査（2026-09-07）
+- [x] 10:35 poison row復旧とphase分離の実装順が、保存済みpayload・冪等性・engineSequence順を壊さないか確認する
+- [x] routeId 1件とsymbolCandleCount 186件の修正順、昼休み足の現行受付契約を再確認する
+- [x] 16時portfolio増分化の高水位点・日付境界・再起動・レポート読取専用化に不足がないか確認する
+- [x] `activated=true`とimmutableな`activationEffectiveAt`、incomplete/mismatch日除外の正式評価境界を確認する
+- [x] 6項目の優先順位を依存関係に沿って再構成し、正式評価開始条件の最終版を報告する（コード・Gate・スケジュールは変更しない）
+
+## P0監査基盤復旧・増分化実装（2026-09-07承認）
+- [x] 現行売買ロジック・既存A/B・DRY_RUN必須・LIVE未承認・通常`rt_trades`/注文経路非接続を固定したまま実装範囲を確定する
+- [x] candidate/virtual outboxへcandidate phase・virtual phase・terminal/gap・lease/attempt/error状態を追加する
+- [x] 新規判断payloadへ構造化`candidateSide`・`candidateRouteId`・数量・必要証拠金を固定し、既存9/7 payloadには`rawSignal.type`限定fallbackを適用する
+- [x] 既存DBを候補・仮想trade実在と照合し、phase初期値を決定論的に移行する
+- [x] リアルタイム受信内のoutbox drainを除去し、件数・時間上限と単一leaseを持つ独立復旧workerへ移す
+- [x] terminal行を単純skipせず、欠損phase・対象日不適格・後続処理可否を永続化する
+- [x] 8035 exit routeIdを保有positionから引き継ぎ、parity側で11:30～12:29をstate更新前に除外する
+- [x] 正式評価へ承認checkpoint・承認UTC時刻・次の完全営業日・除外日を永続化し、collection表示と分離する
+- [x] actual_receipt/minute_normalized別に高水位点・元件数・open allocation・証拠金・dirty範囲・complete状態を保存する
+- [x] portfolio・replay・outcome・旧simulationの重い日次処理を分離し、16時レポートを完成済み集計の読取専用へ変更する
+- [x] 一時失敗・最大試行・部分成功・重複実行・遅延candidate・昼休み足・OOM回避のVitest回帰/障害注入テストを追加する
+- [x] schema migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
+- [ ] 公開後に独立workerを登録し、9/7の保存payloadをbounded batchで復旧してpending/processing/retryable error 0、未決済0、coverage 100%、重複0を確認する
+- [ ] route parity・portfolio両方式の内部整合・16時完了を再監査し、正式評価Gateは別承認まで無効のまま維持する

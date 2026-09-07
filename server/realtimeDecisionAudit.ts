@@ -1,13 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { RtSourceEvent } from "../drizzle/schema";
 import {
+  acquireRtCandidateVirtualWorkerLock,
   acquireRtCurrentEngineLock,
   claimNextRtCandidateVirtualWork,
   completeRtCandidateVirtualWork,
-  failRtCandidateVirtualWork,
+  getRtSignalCandidateBySourceEventId,
   getLatestRtTradeAt,
   insertRtRealtimeDecisionEvent,
+  markRtCandidateVirtualPhaseComplete,
+  markRtCandidateVirtualPhaseError,
+  markRtCandidateVirtualPhaseProcessing,
+  markRtPortfolioMaterializationsDirtyFrom,
+  releaseRtCandidateVirtualWorkerLock,
   releaseRtCurrentEngineLock,
+  terminalizeExhaustedRtCandidateVirtualWork,
   upsertRtSignalCandidate,
 } from "./db";
 import type { KabuOrderBook } from "./kabuStation";
@@ -28,7 +35,7 @@ import {
   type CandidateSide,
 } from "./currentSignalCandidateRegistry";
 import { processSignalQualityVirtualTradesForEvent } from "./signalCandidateVirtualEngine";
-import type { RtSignalCandidate } from "../drizzle/schema";
+import type { RtRealtimeDecisionEvent, RtSignalCandidate } from "../drizzle/schema";
 import {
   deriveCurrentBoardExitSignal,
   deriveCurrentRawSignalForEvent,
@@ -62,6 +69,18 @@ type CandidateVirtualWorkPayload = {
   rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
   boardSignal: ReturnType<typeof deriveCurrentBoardExitSignal>;
   marketContextError: string | null;
+  candidateDescriptor: CandidateDescriptor | null;
+  candidateDescriptorError: string | null;
+};
+
+type CandidateDescriptor = {
+  side: CandidateSide;
+  routeId: string;
+  signalReason: string;
+  capitalShares: number;
+  requiredMargin: number;
+  realtimeDecision: "accepted" | "margin_block";
+  routeSpec: ReturnType<typeof resolveCurrentRouteSpec>;
 };
 
 export type AuditedCurrentEngineResult = {
@@ -239,52 +258,46 @@ function currentMarginUsed(): number {
 }
 
 function inferCandidateSide(input: {
-  reason: string;
   latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
   decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
+  rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
 }): CandidateSide | null {
   if (input.latestTrade?.side === "long" || input.latestTrade?.side === "short") return input.latestTrade.side;
-  if (/LONG/i.test(input.reason)) return "long";
-  if (/SHORT/i.test(input.reason)) return "short";
   if (input.decisionSignal?.action === "buy") return "long";
   if (input.decisionSignal?.action === "short") return "short";
+  if (input.rawSignal?.type === "buy") return "long";
+  if (input.rawSignal?.type === "sell") return "short";
   return null;
 }
 
-async function saveStructuredCandidate(input: {
-  sourceEvent: Pick<RtSourceEvent, "id" | "sourceEventId" | "relayReceivedAtMs">;
+function buildCandidateDescriptor(input: {
   candle: RtCandle1Min;
-  inputHash: string;
-  auditId: number;
   auditReason: string | null;
   candidateReason: string | null;
   resultType: AuditedCurrentEngineResult["audit"]["resultType"];
   decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
   latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
-  marginUsedBefore: number;
-  decisionCompletedAtMs: number;
-}): Promise<RtSignalCandidate | null> {
+  rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
+}): CandidateDescriptor | null {
   const isAccepted = input.resultType === "entry"
     && (input.latestTrade?.action === "buy" || input.latestTrade?.action === "short");
   const isMarginBlock = input.resultType === "rejected"
     && /証拠金(?:ブロック|使用率制限)|margin_block/i.test(input.candidateReason ?? input.auditReason ?? "");
   if (!isAccepted && !isMarginBlock) return null;
-
-  const rawReason = isMarginBlock
+  const signalReason = isMarginBlock
     ? parseMarginCandidateReason(input.candidateReason)
     : input.latestTrade?.reason ?? input.auditReason;
-  if (!rawReason) throw new Error(`candidate_reason_missing:${input.sourceEvent.sourceEventId}`);
+  if (!signalReason) throw new Error(`candidate_reason_missing:${input.candle.symbol}:${input.candle.tradeDate}:${input.candle.candleTime}`);
   const side = inferCandidateSide({
-    reason: rawReason,
     latestTrade: input.latestTrade,
     decisionSignal: input.decisionSignal,
+    rawSignal: input.rawSignal,
   });
-  if (!side) throw new Error(`candidate_side_missing:${input.sourceEvent.sourceEventId}:${rawReason}`);
-
-  const route = resolveCurrentRouteSpec({
+  if (!side) throw new Error(`candidate_side_missing:${input.candle.symbol}:${input.candle.tradeDate}:${input.candle.candleTime}`);
+  const routeSpec = resolveCurrentRouteSpec({
     symbol: input.candle.symbol,
     side,
-    reason: rawReason,
+    reason: signalReason,
     entryCandleTime: input.candle.candleTime,
   });
   const price = input.candle.close;
@@ -295,8 +308,31 @@ async function saveStructuredCandidate(input: {
   const requiredMargin = isAccepted && input.latestTrade?.amount
     ? Math.round(input.latestTrade.amount)
     : parseRequiredMarginFromReason(input.candidateReason) ?? Math.round(price * capitalShares);
+  return {
+    side,
+    routeId: routeSpec.routeId,
+    signalReason,
+    capitalShares,
+    requiredMargin,
+    realtimeDecision: isAccepted ? "accepted" : "margin_block",
+    routeSpec,
+  };
+}
 
-  return await upsertRtSignalCandidate({
+async function saveStructuredCandidate(input: {
+  sourceEvent: Pick<RtSourceEvent, "id" | "sourceEventId" | "relayReceivedAtMs">;
+  candle: RtCandle1Min;
+  inputHash: string;
+  auditId: number;
+  descriptor: CandidateDescriptor | null;
+  marginUsedBefore: number;
+  decisionCompletedAtMs: number;
+}): Promise<RtSignalCandidate | null> {
+  const descriptor = input.descriptor;
+  if (!descriptor) return null;
+  const price = input.candle.close;
+
+  const candidate = await upsertRtSignalCandidate({
     candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
     sourceEventId: input.sourceEvent.sourceEventId,
     sourceEventDbId: input.sourceEvent.id,
@@ -304,90 +340,196 @@ async function saveStructuredCandidate(input: {
     tradeDate: input.candle.tradeDate,
     candleTime: input.candle.candleTime,
     symbol: input.candle.symbol,
-    routeId: route.routeId,
-    side,
-    signalReason: rawReason,
+    routeId: descriptor.routeId,
+    side: descriptor.side,
+    signalReason: descriptor.signalReason,
     theoreticalEntryPrice: String(price),
     signalQualityShares: 100,
-    capitalShares,
-    requiredMargin,
+    capitalShares: descriptor.capitalShares,
+    requiredMargin: descriptor.requiredMargin,
     marginUsedBefore: input.marginUsedBefore,
     marginLimit: 8_910_000,
-    realtimeDecision: isAccepted ? "accepted" : "margin_block",
-    slPct: String(route.slPct),
-    tpPct: String(route.tpPct),
-    maxHoldingMinutes: route.maxHoldingMinutes,
-    sessionExitTime: route.sessionExitTime,
-    profitProtectionJson: route.profitProtection,
+    realtimeDecision: descriptor.realtimeDecision,
+    slPct: String(descriptor.routeSpec.slPct),
+    tpPct: String(descriptor.routeSpec.tpPct),
+    maxHoldingMinutes: descriptor.routeSpec.maxHoldingMinutes,
+    sessionExitTime: descriptor.routeSpec.sessionExitTime,
+    profitProtectionJson: descriptor.routeSpec.profitProtection,
     entryObservedAtMs: input.sourceEvent.relayReceivedAtMs,
     decisionAtMs: input.decisionCompletedAtMs,
     inputJson: {
       auditVersion: CURRENT_REALTIME_AUDIT_VERSION,
       realtimeDecisionId: input.auditId,
       inputHash: input.inputHash,
-      acceptedByCurrentRealtime: isAccepted,
-      marginBlockedByCurrentRealtime: isMarginBlock,
-      requiredMarginSource: isAccepted ? "rt_trade_amount" : "margin_block_reason_or_reconstructed",
-      eligibleNominalRiskReward: route.eligibleNominalRiskReward,
-      routeSpec: route,
+      acceptedByCurrentRealtime: descriptor.realtimeDecision === "accepted",
+      marginBlockedByCurrentRealtime: descriptor.realtimeDecision === "margin_block",
+      requiredMarginSource: descriptor.realtimeDecision === "accepted" ? "rt_trade_amount" : "margin_block_reason_or_reconstructed",
+      eligibleNominalRiskReward: descriptor.routeSpec.eligibleNominalRiskReward,
+      routeSpec: descriptor.routeSpec,
     },
   });
+  await markRtPortfolioMaterializationsDirtyFrom({
+    tradeDate: input.candle.tradeDate,
+    engineSequence: input.auditId,
+  });
+  return candidate;
 }
 
 function candidateVirtualErrorMessage(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-async function processCandidateVirtualWork(row: {
-  id: number;
-  candidateVirtualInputJson: unknown;
-}): Promise<void> {
-  const payload = row.candidateVirtualInputJson as CandidateVirtualWorkPayload | null;
-  if (!payload) throw new Error(`candidate_virtual_payload_missing:${row.id}`);
-  const structuredCandidate = await saveStructuredCandidate({
-    sourceEvent: payload.sourceEvent,
+function descriptorForPayload(payload: CandidateVirtualWorkPayload): CandidateDescriptor | null {
+  if (payload.candidateDescriptor !== undefined) return payload.candidateDescriptor;
+  return buildCandidateDescriptor({
     candle: payload.candle,
-    inputHash: payload.inputHash,
-    auditId: row.id,
     auditReason: payload.auditReason,
     candidateReason: payload.candidateReason,
     resultType: payload.resultType,
     decisionSignal: payload.decisionSignal ?? undefined,
     latestTrade: payload.latestTrade,
-    marginUsedBefore: payload.marginUsedBefore,
-    decisionCompletedAtMs: payload.decisionCompletedAtMs,
-  });
-  await processSignalQualityVirtualTradesForEvent({
-    sourceEventId: payload.sourceEvent.sourceEventId,
-    candle: payload.candle,
-    candidate: structuredCandidate,
     rawSignal: payload.rawSignal,
-    boardSignal: payload.boardSignal,
   });
 }
 
-export async function drainCurrentCandidateVirtualQueue(): Promise<{
-  processedEngineSequences: number[];
-  stoppedReason: "empty_or_claimed" | "max_batch";
-}> {
-  const processedEngineSequences: number[] = [];
-  for (let index = 0; index < 100; index += 1) {
-    const ownerToken = sha256Stable({
-      scope: "current-candidate-virtual-outbox-v1",
-      nonce: randomUUID(),
+async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerToken: string, maxAttempts: number): Promise<"processed" | "retryable_error" | "terminal"> {
+  const payload = row.candidateVirtualInputJson as CandidateVirtualWorkPayload | null;
+  if (!payload) {
+    const error = `candidate_virtual_payload_missing:${row.id}`;
+    await markRtCandidateVirtualPhaseError({ row, ownerToken, phase: "candidate", error, terminal: true });
+    await markRtCandidateVirtualPhaseError({ row, ownerToken, phase: "virtual", error, terminal: true });
+    await completeRtCandidateVirtualWork({ id: row.id, ownerToken });
+    return "terminal";
+  }
+
+  let descriptor: CandidateDescriptor | null = null;
+  let descriptorTerminal = false;
+  try {
+    descriptor = (row.candidateDescriptorJson as CandidateDescriptor | null | undefined)
+      ?? descriptorForPayload(payload);
+  } catch (error) {
+    descriptorTerminal = row.candidatePhaseAttemptCount + 1 >= maxAttempts;
+    await markRtCandidateVirtualPhaseError({
+      row,
+      ownerToken,
+      phase: "candidate",
+      error: candidateVirtualErrorMessage(error),
+      terminal: descriptorTerminal,
     });
-    const row = await claimNextRtCandidateVirtualWork({ ownerToken, leaseMs: 30_000, maxAttempts: 5 });
-    if (!row) return { processedEngineSequences, stoppedReason: "empty_or_claimed" };
+    if (!descriptorTerminal) return "retryable_error";
+  }
+  let structuredCandidate: RtSignalCandidate | null = null;
+  let terminalOutcome = descriptorTerminal || row.candidatePhaseStatus === "terminal_error" || row.virtualPhaseStatus === "terminal_error";
+  const candidateDone = descriptorTerminal || ["complete", "not_applicable", "terminal_error"].includes(row.candidatePhaseStatus);
+
+  if (!candidateDone) {
+    await markRtCandidateVirtualPhaseProcessing({ id: row.id, ownerToken, phase: "candidate" });
     try {
-      await processCandidateVirtualWork(row);
-      await completeRtCandidateVirtualWork({ id: row.id, ownerToken });
-      processedEngineSequences.push(row.id);
+      structuredCandidate = await saveStructuredCandidate({
+        sourceEvent: payload.sourceEvent,
+        candle: payload.candle,
+        inputHash: payload.inputHash,
+        auditId: row.id,
+        descriptor,
+        marginUsedBefore: payload.marginUsedBefore,
+        decisionCompletedAtMs: payload.decisionCompletedAtMs,
+      });
+      await markRtCandidateVirtualPhaseComplete({
+        id: row.id,
+        ownerToken,
+        phase: "candidate",
+        notApplicable: descriptor === null,
+      });
     } catch (error) {
-      await failRtCandidateVirtualWork({ id: row.id, ownerToken, error: candidateVirtualErrorMessage(error) });
-      throw error;
+      const terminal = row.candidatePhaseAttemptCount + 1 >= maxAttempts;
+      await markRtCandidateVirtualPhaseError({
+        row,
+        ownerToken,
+        phase: "candidate",
+        error: candidateVirtualErrorMessage(error),
+        terminal,
+      });
+      if (!terminal) return "retryable_error";
+      terminalOutcome = true;
+    }
+  } else if (row.candidatePhaseStatus === "complete" && descriptor) {
+    structuredCandidate = await getRtSignalCandidateBySourceEventId({
+      candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+      sourceEventId: payload.sourceEvent.sourceEventId,
+    });
+    if (!structuredCandidate) {
+      const error = `candidate_phase_complete_without_candidate:${row.id}`;
+      await markRtCandidateVirtualPhaseError({ row, ownerToken, phase: "candidate", error, terminal: true });
+      terminalOutcome = true;
     }
   }
-  return { processedEngineSequences, stoppedReason: "max_batch" };
+
+  const virtualDone = ["complete", "not_applicable", "terminal_error"].includes(row.virtualPhaseStatus);
+  if (!virtualDone) {
+    await markRtCandidateVirtualPhaseProcessing({ id: row.id, ownerToken, phase: "virtual" });
+    try {
+      await processSignalQualityVirtualTradesForEvent({
+        sourceEventId: payload.sourceEvent.sourceEventId,
+        candle: payload.candle,
+        candidate: structuredCandidate,
+        rawSignal: payload.rawSignal,
+        boardSignal: payload.boardSignal,
+      });
+      await markRtCandidateVirtualPhaseComplete({ id: row.id, ownerToken, phase: "virtual" });
+    } catch (error) {
+      const terminal = row.virtualPhaseAttemptCount + 1 >= maxAttempts;
+      await markRtCandidateVirtualPhaseError({
+        row,
+        ownerToken,
+        phase: "virtual",
+        error: candidateVirtualErrorMessage(error),
+        terminal,
+      });
+      if (!terminal) return "retryable_error";
+      terminalOutcome = true;
+    }
+  }
+
+  await completeRtCandidateVirtualWork({ id: row.id, ownerToken });
+  return terminalOutcome ? "terminal" : "processed";
+}
+
+export async function drainCurrentCandidateVirtualQueue(options: {
+  maxRows?: number;
+  maxDurationMs?: number;
+  maxAttempts?: number;
+} = {}): Promise<{
+  processedEngineSequences: number[];
+  terminalizedRows: number;
+  stoppedReason: "empty_or_claimed" | "worker_busy" | "retryable_error" | "max_batch" | "max_duration";
+}> {
+  const maxRows = options.maxRows ?? 100;
+  const maxDurationMs = options.maxDurationMs ?? 20_000;
+  const maxAttempts = options.maxAttempts ?? 5;
+  const startedAt = Date.now();
+  const processedEngineSequences: number[] = [];
+  const ownerToken = sha256Stable({ scope: "current-candidate-virtual-worker-v2", nonce: randomUUID() });
+  if (!await acquireRtCandidateVirtualWorkerLock({ ownerToken, leaseMs: maxDurationMs + 10_000 })) {
+    return { processedEngineSequences, terminalizedRows: 0, stoppedReason: "worker_busy" };
+  }
+  try {
+    const terminalizedRows = await terminalizeExhaustedRtCandidateVirtualWork({ maxAttempts, limit: maxRows });
+    for (let index = 0; index < maxRows; index += 1) {
+      if (Date.now() - startedAt >= maxDurationMs) {
+        return { processedEngineSequences, terminalizedRows, stoppedReason: "max_duration" };
+      }
+      const row = await claimNextRtCandidateVirtualWork({ ownerToken, leaseMs: maxDurationMs + 10_000, maxAttempts });
+      if (!row) return { processedEngineSequences, terminalizedRows, stoppedReason: "empty_or_claimed" };
+      const outcome = await processCandidateVirtualWork(row, ownerToken, maxAttempts);
+      if (outcome === "retryable_error") {
+        return { processedEngineSequences, terminalizedRows, stoppedReason: "retryable_error" };
+      }
+      processedEngineSequences.push(row.id);
+    }
+    return { processedEngineSequences, terminalizedRows, stoppedReason: "max_batch" };
+  } finally {
+    await releaseRtCandidateVirtualWorkerLock(ownerToken);
+  }
 }
 
 function parseBoardObservedAtMs(tradeDate: string, value: string | null | undefined): number | null {
@@ -444,7 +586,10 @@ export async function processCurrentEngineAudited(input: {
       ? decisionSignal?.reason ?? result.reason ?? latestTrade?.reason ?? null
       : latestTrade?.reason ?? result.reason ?? decisionSignal?.reason ?? null;
     const resultType = classifyResult(result, Boolean(positionAfter), auditReason);
-    const routeId = resolveRealtimeRouteId(candidateReason ?? auditReason);
+    const positionBefore = stateBefore.positions.find(position => position.symbol === input.candle.symbol);
+    const routeId = resultType === "exit"
+      ? resolveRealtimeRouteId(positionBefore?.entryReason ?? candidateReason ?? auditReason)
+      : resolveRealtimeRouteId(candidateReason ?? auditReason);
     const causality = evaluateCausality({ result, latestTrade, board: input.board });
     const boardObservedAtMs = parseBoardObservedAtMs(input.candle.tradeDate, input.board?.currentPriceTime);
     const availabilityTimeline = {
@@ -474,6 +619,21 @@ export async function processCurrentEngineAudited(input: {
       console.error("[RealtimeAudit] raw signal再計算に失敗。outboxへunavailableとして固定:", error);
     }
     const boardSignal = deriveCurrentBoardExitSignal(input.candle.symbol, input.board);
+    let candidateDescriptor: CandidateDescriptor | null = null;
+    let candidateDescriptorError: string | null = null;
+    try {
+      candidateDescriptor = buildCandidateDescriptor({
+        candle: input.candle,
+        auditReason,
+        candidateReason,
+        resultType,
+        decisionSignal,
+        latestTrade,
+        rawSignal,
+      });
+    } catch (error) {
+      candidateDescriptorError = candidateVirtualErrorMessage(error);
+    }
     const candidateVirtualInput: CandidateVirtualWorkPayload = {
       sourceEvent: {
         id: input.sourceEvent.id,
@@ -492,6 +652,8 @@ export async function processCurrentEngineAudited(input: {
       rawSignal,
       boardSignal,
       marketContextError,
+      candidateDescriptor,
+      candidateDescriptorError,
     };
     try {
       const saved = await insertRtRealtimeDecisionEvent({
@@ -546,17 +708,22 @@ export async function processCurrentEngineAudited(input: {
         },
         candidateVirtualStatus: "pending",
         candidateVirtualInputJson: candidateVirtualInput,
+        candidateDescriptorJson: candidateDescriptor,
+        candidatePhaseStatus: "pending",
+        candidatePhaseAttemptCount: 0,
+        candidatePhaseLastError: candidateDescriptorError,
+        candidatePhaseProcessedAt: null,
+        virtualPhaseStatus: "pending",
+        virtualPhaseAttemptCount: 0,
+        virtualPhaseLastError: null,
+        virtualPhaseProcessedAt: null,
         candidateVirtualClaimToken: null,
         candidateVirtualLeaseUntil: null,
         candidateVirtualAttemptCount: 0,
         candidateVirtualLastError: null,
         candidateVirtualProcessedAt: null,
+        candidateVirtualTerminalAt: null,
       });
-      try {
-        await drainCurrentCandidateVirtualQueue();
-      } catch (candidateVirtualError) {
-        console.error("[RealtimeAudit] 現行判断は完了。candidate/virtual outboxは次回再試行:", candidateVirtualError);
-      }
       return {
         result,
         audit: {

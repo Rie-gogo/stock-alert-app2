@@ -2106,5 +2106,5 @@
 - [x] 既存9月7日v2データをgeneration 1へ非破壊backfillし、公開/正式集計をactive generation限定にする
 - [x] descriptor failure・late no-signal・complete後遅延・accepted→blocked再構築・同期drain禁止・script停止・phase gap詳細のVitestを追加する
 - [x] migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
-- [ ] checkpoint公開後に9月7日を新generationで再materializeし、worker・DB・公開API・formal Gateを再監査する
+- [x] checkpoint公開後に9月7日を新generationで再materializeし、worker・DB・公開API・formal Gateを再監査する
 - [x] portfolio bundle確定時に残る旧全日`actualPilot`/`normalizedPilot` builderを除去し、増分generation結果だけでbundleを確定する

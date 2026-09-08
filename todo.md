@@ -2147,3 +2147,4 @@
 - [ ] finality→portfolio両方式→replay→route parity→因果性除外表示の順に再materializeする
 - [ ] 短縮read-only日次報告を再送し、HTTP 200・通知成功・reportSent=true・OOMなしを確認する
 - [ ] 正式評価Gateは別承認まで無効、2026-09-08は正式評価から除外したまま最終報告する
+- [x] 10:51判断のside/rawSignal欠損時も、保存済み`route_id=high_fade_break_short`だけから固定SHORT route specを復元し、日本語理由解析なしで隔離replayできるよう修正する

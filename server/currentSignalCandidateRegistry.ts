@@ -51,17 +51,17 @@ const EXTERNAL_AUDIT_ROUTE_MAP: Record<string, { symbol: string; side: Candidate
 export function resolveCurrentRouteSpecFromAuditRoute(input: {
   externalRouteId: string;
   symbol: string;
-  side: CandidateSide;
+  side?: CandidateSide | null;
   entryCandleTime: string;
 }): CurrentRouteSpec | null {
   const mapped = EXTERNAL_AUDIT_ROUTE_MAP[input.externalRouteId];
-  if (!mapped || mapped.symbol !== input.symbol || mapped.side !== input.side) return null;
+  if (!mapped || mapped.symbol !== input.symbol || (input.side && mapped.side !== input.side)) return null;
   const config = getSymbolConfig(input.symbol);
-  const slPct = finite(config.highFadeBreakShortSlPct) ?? finite(config.sl?.[input.side]) ?? 0;
-  const tpPct = finite(config.highFadeBreakShortTpPct) ?? finite(config.tp?.[input.side]) ?? 0;
+  const slPct = finite(config.highFadeBreakShortSlPct) ?? finite(config.sl?.[mapped.side]) ?? 0;
+  const tpPct = finite(config.highFadeBreakShortTpPct) ?? finite(config.tp?.[mapped.side]) ?? 0;
   return {
     routeId: mapped.internalRouteId,
-    side: input.side,
+    side: mapped.side,
     slPct,
     tpPct,
     maxHoldingMinutes: null,

@@ -32,7 +32,9 @@ function row(input: {
       candle: { symbol: "5803", tradeDate: "2026-09-08", candleTime: input.time, open: input.close ?? 13_000, high: (input.close ?? 13_000) + 5, low: (input.close ?? 13_000) - 5, close: input.close ?? 13_000, volume: 1000 },
       inputHash: `hash:${input.id}`,
       auditReason: null,
-      candidateReason: input.descriptorStatus === "error" ? "margin_block 候補5200000円" : null,
+      candidateReason: input.descriptorStatus === "error"
+        ? "証拠金使用率制限: 現在8641600円 + 候補2665000円 > 上限8910000円 (高値失速ブレイクSHORT: 1本確認、始値比+3.09%、5本安値更新、MA傾き-0.105%)"
+        : null,
       resultType: input.resultType ?? "no_signal",
       latestTrade: null,
       marginUsedBefore: 8_000_000,
@@ -51,7 +53,7 @@ describe("5803 candidate/virtual隔離修復", () => {
 
   it("保存済みexternal routeIdだけでSHORTを復元し、二回replayが完全一致する", () => {
     const events = [
-      row({ id: 10, time: "10:51", descriptorStatus: "error", resultType: "rejected", rawSignal: { type: "sell", reason: "高値失速ブレイクSHORTの保存済み理由" } }),
+      row({ id: 10, time: "10:51", descriptorStatus: "error", resultType: "rejected", rawSignal: null }),
       row({ id: 11, time: "10:52", descriptorStatus: "not_candidate", close: 12_995 }),
       row({ id: 12, time: "11:27", descriptorStatus: "not_candidate", close: 12_980 }),
     ];
@@ -65,7 +67,7 @@ describe("5803 candidate/virtual隔離修復", () => {
 
   it("未知routeIdやside不一致を理由文字列から推測せず拒否する", () => {
     const event = row({ id: 20, time: "10:51", descriptorStatus: "error", resultType: "rejected", rawSignal: { type: "buy", reason: "高値失速ブレイクSHORT" } });
-    expect(() => replayFujikuraCandidateVirtualRepairForTest([event])).toThrow(/repair_descriptor_not_recoverable/);
+    expect(() => replayFujikuraCandidateVirtualRepairForTest([event])).toThrow(/repair_route_mapping_missing/);
   });
 
   it("本番切替はDB transaction境界だけを使用し、rollbackエラーを成功扱いしない", async () => {

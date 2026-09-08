@@ -121,17 +121,18 @@ function descriptorForRepair(row: RtRealtimeDecisionEvent, payload: CandidateWor
   if (row.candidateDescriptorStatus === "complete" && persisted) return persisted;
   if (row.candidateDescriptorStatus === "not_candidate") return null;
   const externalRouteId = row.routeId;
-  const side = payload.rawSignal?.type === "sell" ? "short" : payload.rawSignal?.type === "buy" ? "long" : null;
-  if (row.candidateDescriptorStatus !== "error" || externalRouteId !== EXTERNAL_ROUTE_ID || side !== "short") {
+  const observedSide = payload.rawSignal?.type === "sell" ? "short" : payload.rawSignal?.type === "buy" ? "long" : null;
+  if (row.candidateDescriptorStatus !== "error" || externalRouteId !== EXTERNAL_ROUTE_ID) {
     throw new Error(`repair_descriptor_not_recoverable:${row.id}:${externalRouteId ?? "null"}`);
   }
   const routeSpec = resolveCurrentRouteSpecFromAuditRoute({
     externalRouteId,
     symbol: row.symbol,
-    side,
+    side: observedSide,
     entryCandleTime: row.candleTime,
   });
   if (!routeSpec) throw new Error(`repair_route_mapping_missing:${row.id}:${externalRouteId}`);
+  const side = routeSpec.side;
   const signalReason = parseMarginCandidateReason(payload.candidateReason) ?? payload.rawSignal?.reason ?? null;
   if (!signalReason) throw new Error(`repair_signal_reason_missing:${row.id}`);
   const price = Number(payload.candle.close);

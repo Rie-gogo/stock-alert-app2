@@ -4,6 +4,7 @@
  * ★ 実際のJ-Quantsデータを使用（前営業日分を取得）
  */
 import type { Request, Response } from "express";
+import { randomUUID } from "node:crypto";
 import { sdk } from "./_core/sdk";
 import {
   getAlgorithmConfig,
@@ -374,9 +375,11 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     const {
       getRtTradesForDate,
       getRtDailySummary,
-      markRtDailySummaryReportSent,
       getRtOpenPositionsFromDb,
       getRtCandles,
+      claimRtEodExecution,
+      completeRtEodExecution,
+      failRtEodExecution,
     } = await import("./db");
 
     const {
@@ -384,33 +387,48 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       getOpenPositions,
     } = await import("./realtimeSimEngine");
 
-    // 残存ポジションを強制決済
-    // まずメモリ上のポジションを確認。メモリが空の場合（サーバー再起動等）はDBから復元する。
-    let openPositions = getOpenPositions();
-    if (openPositions.length === 0) {
-      // DBから未決済ポジションを復元
-      const dbOpenTrades = await getRtOpenPositionsFromDb(todayStr);
-      if (dbOpenTrades.length > 0) {
-        console.log(`[rt-daily-report] Memory was empty. Restoring ${dbOpenTrades.length} open positions from DB...`);
-        // realtimeSimEngineの openPositions Mapに復元する
-        const { restoreOpenPositions } = await import("./realtimeSimEngine");
-        restoreOpenPositions(dbOpenTrades);
-        openPositions = getOpenPositions();
-      }
+    const eodOwnerToken = `rt-eod:${todayStr}:${randomUUID()}`;
+    const eodClaim = await claimRtEodExecution({ tradeDate: todayStr, ownerToken: eodOwnerToken });
+    if (eodClaim.outcome === "busy") {
+      console.log(`[rt-daily-report] EOD execution already in progress for ${todayStr}, skipping this run.`);
+      return res.json({ ok: true, skipped: "eod-busy", tradeDate: todayStr });
     }
+    if (eodClaim.outcome === "claimed") {
+      try {
+        // 残存ポジションを強制決済。メモリが空ならDB未決済だけを復元するため、期限切れlease回収後も重複決済しない。
+        let openPositions = getOpenPositions();
+        if (openPositions.length === 0) {
+          const dbOpenTrades = await getRtOpenPositionsFromDb(todayStr);
+          if (dbOpenTrades.length > 0) {
+            console.log(`[rt-daily-report] Memory was empty. Restoring ${dbOpenTrades.length} open positions from DB...`);
+            const { restoreOpenPositions } = await import("./realtimeSimEngine");
+            restoreOpenPositions(dbOpenTrades);
+            openPositions = getOpenPositions();
+          }
+        }
 
-    if (openPositions.length > 0) {
-      console.log(`[rt-daily-report] Force closing ${openPositions.length} open positions...`);
-      const closingPrices = new Map<string, number>();
-      for (const pos of openPositions) {
-        // 当日の最後の1分足の終値を引け値として使用する
-        const candles = await getRtCandles(pos.symbol, todayStr);
-        const lastCandle = candles[candles.length - 1];
-        const closePrice = lastCandle ? Number(lastCandle.close) : pos.entryPrice;
-        closingPrices.set(pos.symbol, closePrice);
-        console.log(`[rt-daily-report] ${pos.symbol}: last candle close = ${closePrice}円 (entry: ${pos.entryPrice}円)`);
+        if (openPositions.length > 0) {
+          console.log(`[rt-daily-report] Force closing ${openPositions.length} open positions...`);
+          const closingPrices = new Map<string, number>();
+          for (const pos of openPositions) {
+            const candles = await getRtCandles(pos.symbol, todayStr);
+            const lastCandle = candles[candles.length - 1];
+            const closePrice = lastCandle ? Number(lastCandle.close) : pos.entryPrice;
+            closingPrices.set(pos.symbol, closePrice);
+            console.log(`[rt-daily-report] ${pos.symbol}: last candle close = ${closePrice}円 (entry: ${pos.entryPrice}円)`);
+          }
+          await forceCloseAllPositions(todayStr, closingPrices);
+        }
+        const eodCompleted = await completeRtEodExecution({ tradeDate: todayStr, ownerToken: eodOwnerToken });
+        if (!eodCompleted) throw new Error("eod_execution_completion_not_recorded");
+      } catch (error) {
+        await failRtEodExecution({
+          tradeDate: todayStr,
+          ownerToken: eodOwnerToken,
+          error: String(error),
+        });
+        throw error;
       }
-      await forceCloseAllPositions(todayStr, closingPrices);
     }
 
     // 当日の取引ログを取得
@@ -574,28 +592,31 @@ ${score0Section}
 このメールはStock Alert Appのリアルタイムシミュレーション機能から自動送信されています。
 `;
 
-    // notifyOwner で通知（Outlookメール代替）。通知上限を超えない要約だけを送る。
-    const { compactDailyReportNotification } = await import("./rtDailyReportNotification");
-    const compactedBody = compactDailyReportNotification(body);
-    const notificationSent = await notifyOwner({
+    // 通常報告とread-only再送は同じDB delivery claimを共有し、同時実行でも1回だけ送信する。
+    const { deliverRtDailyReportNotification } = await import("./rtDailyReportNotification");
+    const delivery = await deliverRtDailyReportNotification({
+      tradeDate: todayStr,
       title: subject,
-      content: compactedBody,
+      content: body,
     });
-    if (notificationSent !== true) throw new Error("owner_notification_failed");
-
-    // レポート送信済みフラグを立てる
-    await markRtDailySummaryReportSent(todayStr);
+    if (delivery.notificationSent !== true) {
+      console.log(`[rt-daily-report] Delivery skipped for ${todayStr}: ${delivery.skipped}`);
+      return res.json({
+        ok: true,
+        totalPnl,
+        tradesCount: closedTrades.length,
+        winRate,
+        ...delivery,
+      });
+    }
 
     console.log(`[rt-daily-report] Report sent for ${todayStr}: totalPnl=${totalPnl}, trades=${closedTrades.length}`);
     return res.json({
       ok: true,
-      tradeDate: todayStr,
       totalPnl,
       tradesCount: closedTrades.length,
       winRate,
-      bodyLength: compactedBody.length,
-      notificationSent: true,
-      reportSent: true,
+      ...delivery,
     });
 
   } catch (error) {

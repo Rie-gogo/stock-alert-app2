@@ -1,9 +1,22 @@
-import { getRtDailySummary, getRtTradesForDate, markRtDailySummaryReportSent } from "./db";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  claimRtReportDelivery,
+  completeRtReportDelivery,
+  failRtReportDeliveryBeforeSend,
+  getRtDailySummary,
+  getRtTradesForDate,
+  markRtReportDeliveryUnknown,
+  startRtReportDeliverySend,
+} from "./db";
 import { formatForwardShadowDryRunReport } from "./forwardShadow";
 import { notifyOwner } from "./_core/notification";
 import { getRuntimeIdentity } from "./runtimeIdentity";
 
 export const RT_DAILY_REPORT_NOTIFICATION_LIMIT = 17_500;
+
+function hashNotificationPayload(title: string, content: string): string {
+  return createHash("sha256").update(JSON.stringify({ title, content })).digest("hex");
+}
 
 export function compactDailyReportNotification(body: string, limit = RT_DAILY_REPORT_NOTIFICATION_LIMIT): string {
   if (body.length <= limit) return body;
@@ -26,16 +39,78 @@ export function compactDailyReportNotification(body: string, limit = RT_DAILY_RE
   return compacted.slice(0, Math.max(0, limit - marker.length)) + marker;
 }
 
-export async function sendReadOnlyRtDailyReportForDate(tradeDate: string) {
-  const summary = await getRtDailySummary(tradeDate);
-  if (summary?.reportSent === true) {
+export async function deliverRtDailyReportNotification(input: {
+  tradeDate: string;
+  title: string;
+  content: string;
+  ownerToken?: string;
+}) {
+  const content = compactDailyReportNotification(input.content);
+  const payloadHash = hashNotificationPayload(input.title, content);
+  const ownerToken = input.ownerToken ?? `rt-report:${input.tradeDate}:${randomUUID()}`;
+  const claim = await claimRtReportDelivery({
+    tradeDate: input.tradeDate,
+    ownerToken,
+    payloadHash,
+  });
+  if (claim.outcome !== "claimed") {
     return {
-      tradeDate,
-      skipped: "already_sent" as const,
+      tradeDate: input.tradeDate,
+      skipped: claim.outcome,
       notificationSent: false,
-      reportSent: true,
+      reportSent: claim.outcome === "already_sent",
+      deliveryStatus: claim.row.status,
+      payloadHash,
+      bodyLength: content.length,
     };
   }
+
+  const started = await startRtReportDeliverySend({
+    tradeDate: input.tradeDate,
+    ownerToken,
+    payloadHash,
+  });
+  if (!started) {
+    await failRtReportDeliveryBeforeSend({
+      tradeDate: input.tradeDate,
+      ownerToken,
+      error: "delivery_claim_lost_before_send",
+    });
+    throw new Error("delivery_claim_lost_before_send");
+  }
+
+  try {
+    const notificationSent = await notifyOwner({ title: input.title, content });
+    if (notificationSent !== true) throw new Error("owner_notification_failed");
+    const completed = await completeRtReportDelivery({
+      tradeDate: input.tradeDate,
+      ownerToken,
+    });
+    if (!completed) throw new Error("delivery_sent_but_completion_not_recorded");
+    return {
+      tradeDate: input.tradeDate,
+      notificationSent: true,
+      reportSent: true,
+      deliveryStatus: "sent" as const,
+      payloadHash,
+      bodyLength: content.length,
+    };
+  } catch (error) {
+    try {
+      await markRtReportDeliveryUnknown({
+        tradeDate: input.tradeDate,
+        ownerToken,
+        error: `send_outcome_unconfirmed:${String(error)}`,
+      });
+    } catch (markError) {
+      console.error("[rt-daily-report] failed to persist unknown delivery state", markError);
+    }
+    throw error;
+  }
+}
+
+export async function sendReadOnlyRtDailyReportForDate(tradeDate: string) {
+  const summary = await getRtDailySummary(tradeDate);
   const [trades, forwardSection] = await Promise.all([
     getRtTradesForDate(tradeDate),
     formatForwardShadowDryRunReport(tradeDate),
@@ -71,8 +146,6 @@ ${forwardSection}
 
 この通知は保存済みデータだけを読む過去日再送です。売買処理・強制決済・正式評価有効化は実行しません。
 `);
-  const notificationSent = await notifyOwner({ title: subject, content: body });
-  if (notificationSent !== true) throw new Error("owner_notification_failed");
-  await markRtDailySummaryReportSent(tradeDate);
-  return { tradeDate, subject, bodyLength: body.length, notificationSent: true, reportSent: true, tradesCount: closedTrades.length, totalPnl };
+  const delivery = await deliverRtDailyReportNotification({ tradeDate, title: subject, content: body });
+  return { ...delivery, subject, tradesCount: closedTrades.length, totalPnl };
 }

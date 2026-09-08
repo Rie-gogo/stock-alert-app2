@@ -1,5 +1,4 @@
 CREATE TABLE `rt_candidate_virtual_repair_archive` (
-CREATE TABLE `rt_candidate_virtual_repair_archive` (
 		`id` int AUTO_INCREMENT NOT NULL,
 		`run_id` varchar(64) NOT NULL,
 		`candidate_virtual_repair_archive_entity` enum('candidate','virtual_trade','decision_event','gap') NOT NULL,

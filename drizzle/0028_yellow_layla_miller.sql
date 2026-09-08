@@ -1,0 +1,2 @@
+ALTER TABLE `rt_report_delivery_controls` MODIFY COLUMN `rt_report_delivery_status` enum('pending','claimed','sending','sent','failed','unknown') NOT NULL DEFAULT 'pending';--> statement-breakpoint
+ALTER TABLE `rt_report_delivery_controls` ADD `send_started_at` timestamp;

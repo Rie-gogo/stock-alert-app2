@@ -578,6 +578,8 @@ import {
   rtAuditTradeDateFinality,
   rtDailyAuditMaterializations,
   rtForwardEvaluationControls,
+  rtReportDeliveryControls,
+  rtEodExecutionControls,
   type InsertRtCandle,
   type InsertRtTrade,
   type RtTrade,
@@ -634,6 +636,8 @@ import {
   type RtDailyAuditMaterialization,
   type InsertRtForwardEvaluationControl,
   type RtForwardEvaluationControl,
+  type RtReportDeliveryControl,
+  type RtEodExecutionControl,
 } from "../drizzle/schema";
 
 /**
@@ -783,6 +787,301 @@ export async function markRtDailySummaryReportSent(tradeDate: string): Promise<v
     .update(rtDailySummaries)
     .set({ reportSent: true, reportSentAt: new Date() })
     .where(eq(rtDailySummaries.tradeDate, tradeDate));
+}
+
+export const RT_DAILY_REPORT_KIND = "rt-daily-report";
+export const RT_DAILY_EOD_EXECUTION_KIND = "rt-daily-force-close";
+
+export type RtReportDeliveryClaimResult =
+  | { outcome: "claimed"; row: RtReportDeliveryControl }
+  | { outcome: "already_sent"; row: RtReportDeliveryControl }
+  | { outcome: "busy"; row: RtReportDeliveryControl }
+  | { outcome: "unknown"; row: RtReportDeliveryControl };
+
+export async function getRtReportDeliveryControl(input: {
+  tradeDate: string;
+  reportKind?: string;
+}): Promise<RtReportDeliveryControl | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return (await db.select().from(rtReportDeliveryControls).where(and(
+    eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+    eq(rtReportDeliveryControls.reportKind, input.reportKind ?? RT_DAILY_REPORT_KIND),
+  )).limit(1))[0] ?? null;
+}
+
+/**
+ * 通知送信前の準備だけをclaimする。sending中にlease切れした行は自動再送せずunknownへ隔離する。
+ */
+export async function claimRtReportDelivery(input: {
+  tradeDate: string;
+  reportKind?: string;
+  ownerToken: string;
+  payloadHash: string;
+  leaseMs?: number;
+}): Promise<RtReportDeliveryClaimResult> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const reportKind = input.reportKind ?? RT_DAILY_REPORT_KIND;
+  const legacySummary = (await db.select({
+    reportSent: rtDailySummaries.reportSent,
+    reportSentAt: rtDailySummaries.reportSentAt,
+  }).from(rtDailySummaries).where(eq(rtDailySummaries.tradeDate, input.tradeDate)).limit(1))[0];
+  await db.insert(rtReportDeliveryControls).values({
+    tradeDate: input.tradeDate,
+    reportKind,
+    status: legacySummary?.reportSent ? "sent" : "pending",
+    sentAt: legacySummary?.reportSentAt ?? null,
+  }).onDuplicateKeyUpdate({ set: { reportKind } });
+
+  const now = new Date();
+  await db.update(rtReportDeliveryControls).set({
+    status: "unknown",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastError: "send_started_but_completion_unconfirmed_after_lease_expiry",
+  }).where(and(
+    eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+    eq(rtReportDeliveryControls.reportKind, reportKind),
+    eq(rtReportDeliveryControls.status, "sending"),
+    or(isNull(rtReportDeliveryControls.leaseExpiresAt), lt(rtReportDeliveryControls.leaseExpiresAt, now)),
+  ));
+
+  const leaseExpiresAt = new Date(now.getTime() + (input.leaseMs ?? 120_000));
+  await db.update(rtReportDeliveryControls).set({
+    status: "claimed",
+    leaseOwner: input.ownerToken,
+    leaseExpiresAt,
+    attemptCount: sql`${rtReportDeliveryControls.attemptCount} + 1`,
+    lastError: null,
+    payloadHash: input.payloadHash,
+    sendStartedAt: null,
+  }).where(and(
+    eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+    eq(rtReportDeliveryControls.reportKind, reportKind),
+    or(
+      eq(rtReportDeliveryControls.status, "pending"),
+      eq(rtReportDeliveryControls.status, "failed"),
+      and(
+        eq(rtReportDeliveryControls.status, "claimed"),
+        or(isNull(rtReportDeliveryControls.leaseExpiresAt), lt(rtReportDeliveryControls.leaseExpiresAt, now)),
+      ),
+    ),
+  ));
+
+  const row = await getRtReportDeliveryControl({ tradeDate: input.tradeDate, reportKind });
+  if (!row) throw new Error("report_delivery_control_missing_after_claim");
+  if (row.status === "sent") return { outcome: "already_sent", row };
+  if (row.status === "unknown") return { outcome: "unknown", row };
+  if (row.status === "claimed" && row.leaseOwner === input.ownerToken) return { outcome: "claimed", row };
+  return { outcome: "busy", row };
+}
+
+/** 送信直前にclaimed→sendingへ遷移する。以後は自動再claimしない。 */
+export async function startRtReportDeliverySend(input: {
+  tradeDate: string;
+  reportKind?: string;
+  ownerToken: string;
+  payloadHash: string;
+  leaseMs?: number;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const reportKind = input.reportKind ?? RT_DAILY_REPORT_KIND;
+  const now = new Date();
+  await db.update(rtReportDeliveryControls).set({
+    status: "sending",
+    payloadHash: input.payloadHash,
+    sendStartedAt: now,
+    leaseExpiresAt: new Date(now.getTime() + (input.leaseMs ?? 120_000)),
+  }).where(and(
+    eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+    eq(rtReportDeliveryControls.reportKind, reportKind),
+    eq(rtReportDeliveryControls.status, "claimed"),
+    eq(rtReportDeliveryControls.leaseOwner, input.ownerToken),
+    or(isNull(rtReportDeliveryControls.leaseExpiresAt), gte(rtReportDeliveryControls.leaseExpiresAt, now)),
+  ));
+  const row = await getRtReportDeliveryControl({ tradeDate: input.tradeDate, reportKind });
+  return row?.status === "sending" && row.leaseOwner === input.ownerToken;
+}
+
+/** 通知API成功後にdeliveryとlegacy reportSentを同一transactionで確定する。 */
+export async function completeRtReportDelivery(input: {
+  tradeDate: string;
+  reportKind?: string;
+  ownerToken: string;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const reportKind = input.reportKind ?? RT_DAILY_REPORT_KIND;
+  const now = new Date();
+  return db.transaction(async tx => {
+    await tx.update(rtReportDeliveryControls).set({
+      status: "sent",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      lastError: null,
+      sentAt: now,
+    }).where(and(
+      eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+      eq(rtReportDeliveryControls.reportKind, reportKind),
+      eq(rtReportDeliveryControls.status, "sending"),
+      eq(rtReportDeliveryControls.leaseOwner, input.ownerToken),
+    ));
+    const row = (await tx.select().from(rtReportDeliveryControls).where(and(
+      eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+      eq(rtReportDeliveryControls.reportKind, reportKind),
+    )).limit(1))[0];
+    if (row?.status !== "sent") return false;
+    await tx.update(rtDailySummaries).set({ reportSent: true, reportSentAt: now }).where(
+      eq(rtDailySummaries.tradeDate, input.tradeDate),
+    );
+    return true;
+  });
+}
+
+export async function failRtReportDeliveryBeforeSend(input: {
+  tradeDate: string;
+  reportKind?: string;
+  ownerToken: string;
+  error: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtReportDeliveryControls).set({
+    status: "failed",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastError: input.error,
+  }).where(and(
+    eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+    eq(rtReportDeliveryControls.reportKind, input.reportKind ?? RT_DAILY_REPORT_KIND),
+    eq(rtReportDeliveryControls.status, "claimed"),
+    eq(rtReportDeliveryControls.leaseOwner, input.ownerToken),
+  ));
+}
+
+export async function markRtReportDeliveryUnknown(input: {
+  tradeDate: string;
+  reportKind?: string;
+  ownerToken: string;
+  error: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtReportDeliveryControls).set({
+    status: "unknown",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastError: input.error,
+  }).where(and(
+    eq(rtReportDeliveryControls.tradeDate, input.tradeDate),
+    eq(rtReportDeliveryControls.reportKind, input.reportKind ?? RT_DAILY_REPORT_KIND),
+    eq(rtReportDeliveryControls.status, "sending"),
+    eq(rtReportDeliveryControls.leaseOwner, input.ownerToken),
+  ));
+}
+
+export type RtEodExecutionClaimResult =
+  | { outcome: "claimed"; row: RtEodExecutionControl }
+  | { outcome: "already_complete"; row: RtEodExecutionControl }
+  | { outcome: "busy"; row: RtEodExecutionControl };
+
+export async function getRtEodExecutionControl(input: {
+  tradeDate: string;
+  executionKind?: string;
+}): Promise<RtEodExecutionControl | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return (await db.select().from(rtEodExecutionControls).where(and(
+    eq(rtEodExecutionControls.tradeDate, input.tradeDate),
+    eq(rtEodExecutionControls.executionKind, input.executionKind ?? RT_DAILY_EOD_EXECUTION_KIND),
+  )).limit(1))[0] ?? null;
+}
+
+export async function claimRtEodExecution(input: {
+  tradeDate: string;
+  executionKind?: string;
+  ownerToken: string;
+  leaseMs?: number;
+}): Promise<RtEodExecutionClaimResult> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const executionKind = input.executionKind ?? RT_DAILY_EOD_EXECUTION_KIND;
+  await db.insert(rtEodExecutionControls).values({
+    tradeDate: input.tradeDate,
+    executionKind,
+    status: "pending",
+  }).onDuplicateKeyUpdate({ set: { executionKind } });
+  const now = new Date();
+  await db.update(rtEodExecutionControls).set({
+    status: "processing",
+    leaseOwner: input.ownerToken,
+    leaseExpiresAt: new Date(now.getTime() + (input.leaseMs ?? 120_000)),
+    attemptCount: sql`${rtEodExecutionControls.attemptCount} + 1`,
+    lastError: null,
+  }).where(and(
+    eq(rtEodExecutionControls.tradeDate, input.tradeDate),
+    eq(rtEodExecutionControls.executionKind, executionKind),
+    or(
+      eq(rtEodExecutionControls.status, "pending"),
+      eq(rtEodExecutionControls.status, "failed"),
+      and(
+        eq(rtEodExecutionControls.status, "processing"),
+        or(isNull(rtEodExecutionControls.leaseExpiresAt), lt(rtEodExecutionControls.leaseExpiresAt, now)),
+      ),
+    ),
+  ));
+  const row = await getRtEodExecutionControl({ tradeDate: input.tradeDate, executionKind });
+  if (!row) throw new Error("eod_execution_control_missing_after_claim");
+  if (row.status === "complete") return { outcome: "already_complete", row };
+  if (row.status === "processing" && row.leaseOwner === input.ownerToken) return { outcome: "claimed", row };
+  return { outcome: "busy", row };
+}
+
+export async function completeRtEodExecution(input: {
+  tradeDate: string;
+  executionKind?: string;
+  ownerToken: string;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const executionKind = input.executionKind ?? RT_DAILY_EOD_EXECUTION_KIND;
+  const now = new Date();
+  await db.update(rtEodExecutionControls).set({
+    status: "complete",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastError: null,
+    completedAt: now,
+  }).where(and(
+    eq(rtEodExecutionControls.tradeDate, input.tradeDate),
+    eq(rtEodExecutionControls.executionKind, executionKind),
+    eq(rtEodExecutionControls.status, "processing"),
+    eq(rtEodExecutionControls.leaseOwner, input.ownerToken),
+  ));
+  return (await getRtEodExecutionControl({ tradeDate: input.tradeDate, executionKind }))?.status === "complete";
+}
+
+export async function failRtEodExecution(input: {
+  tradeDate: string;
+  executionKind?: string;
+  ownerToken: string;
+  error: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(rtEodExecutionControls).set({
+    status: "failed",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastError: input.error,
+  }).where(and(
+    eq(rtEodExecutionControls.tradeDate, input.tradeDate),
+    eq(rtEodExecutionControls.executionKind, input.executionKind ?? RT_DAILY_EOD_EXECUTION_KIND),
+    eq(rtEodExecutionControls.status, "processing"),
+    eq(rtEodExecutionControls.leaseOwner, input.ownerToken),
+  ));
 }
 
 /**

@@ -190,6 +190,20 @@
       "when": 1788868667066,
       "tag": "0026_panoramic_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "5",
+      "when": 1788876996406,
+      "tag": "0027_fair_beyonder",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1788877167981,
+      "tag": "0028_yellow_layla_miller",
+      "breakpoints": true
     }
   ]
 }

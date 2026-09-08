@@ -2149,3 +2149,20 @@
 - [x] 正式評価Gateは別承認まで無効、2026-09-08は正式評価から除外したまま最終報告する
 - [x] 10:51判断のside/rawSignal欠損時も、保存済み`route_id=high_fade_break_short`だけから固定SHORT route specを復元し、日本語理由解析なしで隔離replayできるよう修正する
 - [x] read-only再送は送信前に`reportSent`を再確認し、既送信なら通知せず`already_sent`で終了してHeartbeat二重発火を冪等化する
+
+## 0026 migration・通知同時実行競合の再精査（2026-09-08）
+- [x] `drizzle/0026_panoramic_doomsday.sql`先頭の重複CREATE有無を最新checkpointで確認し、空DBへ適用可能かSQL構文・依存順を検証する
+- [x] 本番DBの0026対象表・列と`exit_reason_code`／`exit_reason_detail` backfill状態を読取専用で確認する
+- [x] 通常16時報告とread-only再送が同時開始した場合の`reportSent`競合をコード・既存テストで再現し、原子的claimまたは通知outboxが必要か判定する
+- [x] A/B再生の独立性、実DB成功経路テスト、本番限定事実を区別し、追加修正の優先順位と正式評価への影響を報告する（精査中はmigration再実行・通知・Gate・売買条件を変更しない）
+
+## 0026 migration・通知原子的claim修正（2026-09-08承認）
+- [x] `drizzle/0026_panoramic_doomsday.sql`先頭の重複CREATEを除去し、DDL・一意制約・backfill内容を変更せず再構築可能にする
+- [x] 空のMySQL／TiDB互換DBへ0026を実適用し、repair 3表・exit reason 2列・一意制約・backfillを確認する統合テストを追加する
+- [x] 日付・報告種別一意の通知delivery controlを追加し、`pending/claimed/sending/sent/failed/unknown`、lease owner/期限、attempt、last errorを永続化する
+- [x] DB CASで通知を原子的claimし、通知成功時だけ`sent`と`reportSent=true`を確定する。送信前失敗は再試行可能、送信開始後の不明結果は`unknown`へ隔離して自動再送しない
+- [x] 通常16時報告とread-only再送を同じ通知一意キーへ接続し、競合側は`busy`／`already_sent`／`unknown`で通知しない
+- [x] 通常16時handlerのposition復元・強制決済を通知claimとは別のonce-only leaseで保護し、read-only再送からは引き続き完全分離する
+- [x] `Promise.all`同時実行、通知失敗、lease期限切れ、通常16時対read-only競合で`notifyOwner`が1回だけになる回帰テストを追加する
+- [ ] migration、対象/全体テスト、型検査、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認して本番反映する
+- [ ] 本番でdelivery control・worker・formal Gateを再監査し、正式評価は別承認まで未開始のまま報告する

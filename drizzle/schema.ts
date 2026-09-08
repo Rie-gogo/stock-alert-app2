@@ -379,6 +379,53 @@ export type RtDailySummary = typeof rtDailySummaries.$inferSelect;
 export type InsertRtDailySummary = typeof rtDailySummaries.$inferInsert;
 
 /**
+ * 日次レポート通知の一回限りdelivery control。
+ * 通常16時報告とread-only再送は、同じtradeDate/reportKindを原子的にclaimする。
+ */
+export const rtReportDeliveryControls = mysqlTable("rt_report_delivery_controls", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  reportKind: varchar("report_kind", { length: 64 }).notNull(),
+  status: mysqlEnum("rt_report_delivery_status", ["pending", "claimed", "sending", "sent", "failed", "unknown"]).notNull().default("pending"),
+  leaseOwner: varchar("lease_owner", { length: 128 }),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  attemptCount: int("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  payloadHash: varchar("payload_hash", { length: 64 }),
+  sendStartedAt: timestamp("send_started_at"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  deliveryIdentity: uniqueIndex("rt_report_delivery_identity").on(table.tradeDate, table.reportKind),
+}));
+
+export type RtReportDeliveryControl = typeof rtReportDeliveryControls.$inferSelect;
+export type InsertRtReportDeliveryControl = typeof rtReportDeliveryControls.$inferInsert;
+
+/**
+ * 通常16時handlerのEOD position復元・強制決済を通知deliveryとは別に保護する。
+ */
+export const rtEodExecutionControls = mysqlTable("rt_eod_execution_controls", {
+  id: int("id").autoincrement().primaryKey(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  executionKind: varchar("execution_kind", { length: 64 }).notNull(),
+  status: mysqlEnum("rt_eod_execution_status", ["pending", "processing", "complete", "failed"]).notNull().default("pending"),
+  leaseOwner: varchar("lease_owner", { length: 128 }),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  attemptCount: int("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  executionIdentity: uniqueIndex("rt_eod_execution_identity").on(table.tradeDate, table.executionKind),
+}));
+
+export type RtEodExecutionControl = typeof rtEodExecutionControls.$inferSelect;
+export type InsertRtEodExecutionControl = typeof rtEodExecutionControls.$inferInsert;
+
+/**
  * 自動売買: 発注指示テーブル
  * クラウド（orderBridge）がrt_tradesの新規エントリー/決済を検知して生成し、
  * ローカルPC（kabu_order_executor.py）がポーリングして実行する。

@@ -2136,15 +2136,16 @@
 - [x] 仮想trade出口理由を短い`exit_reason_code`と詳細TEXTへ分離し、既存`exit_reason`読取との後方互換を維持する
 - [x] 5803修復用staging・変更前archive・run metadata・原子的切替SQLを追加する
 - [x] 保存済みexternal routeId `high_fade_break_short`を内部`highFadeBreakShort`へ固定mappingする
-- [ ] 2026-09-08の5803 source/decisionをengineSequence順に隔離再生し、2回の件数・損益・hash完全一致を必須にする
-- [ ] 既存14件へ合わせず、候補・accepted/margin block・virtual trade・最初の決済・損益を再計算する
-- [ ] 検証済みstagingだけを単一トランザクションで切り替え、成功後だけterminal/gapをresolvedにする
+- [x] 2026-09-08の5803 source/decisionをengineSequence順に隔離再生し、2回の件数・損益・hash完全一致を必須にする
+- [x] 既存14件へ合わせず、候補・accepted/margin block・virtual trade・最初の決済・損益を再計算する
+- [x] 検証済みstagingだけを単一トランザクションで切り替え、成功後だけterminal/gapをresolvedにする
 - [x] 16時通知本文を18,000文字以内へ短縮し、`notifyOwner()===true`の場合だけ`reportSent=true`にする
 - [x] 強制決済を通らない過去日read-only報告再送endpointを追加する
 - [x] 長文reason・二重replay・hash一致・原子的rollback・通知false・read-only再送のVitestを追加する
 - [x] migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
-- [ ] checkpoint公開後に5803を隔離二重再生・原子的切替し、terminal/gap 0へ復旧する
-- [ ] finality→portfolio両方式→replay→route parity→因果性除外表示の順に再materializeする
-- [ ] 短縮read-only日次報告を再送し、HTTP 200・通知成功・reportSent=true・OOMなしを確認する
-- [ ] 正式評価Gateは別承認まで無効、2026-09-08は正式評価から除外したまま最終報告する
+- [x] checkpoint公開後に5803を隔離二重再生・原子的切替し、terminal/gap 0へ復旧する
+- [x] finality→portfolio両方式→replay→route parity→因果性除外表示の順に再materializeする
+- [x] 短縮read-only日次報告を再送し、HTTP 200・通知成功・reportSent=true・OOMなしを確認する
+- [x] 正式評価Gateは別承認まで無効、2026-09-08は正式評価から除外したまま最終報告する
 - [x] 10:51判断のside/rawSignal欠損時も、保存済み`route_id=high_fade_break_short`だけから固定SHORT route specを復元し、日本語理由解析なしで隔離replayできるよう修正する
+- [x] read-only再送は送信前に`reportSent`を再確認し、既送信なら通知せず`already_sent`で終了してHeartbeat二重発火を冪等化する

@@ -27,9 +27,17 @@ export function compactDailyReportNotification(body: string, limit = RT_DAILY_RE
 }
 
 export async function sendReadOnlyRtDailyReportForDate(tradeDate: string) {
-  const [trades, summary, forwardSection] = await Promise.all([
+  const summary = await getRtDailySummary(tradeDate);
+  if (summary?.reportSent === true) {
+    return {
+      tradeDate,
+      skipped: "already_sent" as const,
+      notificationSent: false,
+      reportSent: true,
+    };
+  }
+  const [trades, forwardSection] = await Promise.all([
     getRtTradesForDate(tradeDate),
-    getRtDailySummary(tradeDate),
     formatForwardShadowDryRunReport(tradeDate),
   ]);
   const identity = getRuntimeIdentity();

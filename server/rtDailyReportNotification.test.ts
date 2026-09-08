@@ -34,4 +34,18 @@ describe("16時通知短縮・read-only再送", () => {
     await expect(sendReadOnlyRtDailyReportForDate("2026-09-08")).rejects.toThrow("owner_notification_failed");
     expect(dbMock.markRtDailySummaryReportSent).not.toHaveBeenCalled();
   });
+
+  it("reportSent済みなら再通知せずalready_sentで終了する", async () => {
+    dbMock.getRtDailySummary.mockResolvedValueOnce({ reportSent: true });
+    const result = await sendReadOnlyRtDailyReportForDate("2026-09-08");
+    expect(result).toEqual({
+      tradeDate: "2026-09-08",
+      skipped: "already_sent",
+      notificationSent: false,
+      reportSent: true,
+    });
+    expect(notificationMock).not.toHaveBeenCalled();
+    expect(dbMock.markRtDailySummaryReportSent).not.toHaveBeenCalled();
+    expect(dbMock.getRtTradesForDate).not.toHaveBeenCalled();
+  });
 });

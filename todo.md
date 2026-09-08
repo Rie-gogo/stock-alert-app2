@@ -2164,5 +2164,5 @@
 - [x] 通常16時報告とread-only再送を同じ通知一意キーへ接続し、競合側は`busy`／`already_sent`／`unknown`で通知しない
 - [x] 通常16時handlerのposition復元・強制決済を通知claimとは別のonce-only leaseで保護し、read-only再送からは引き続き完全分離する
 - [x] `Promise.all`同時実行、通知失敗、lease期限切れ、通常16時対read-only競合で`notifyOwner`が1回だけになる回帰テストを追加する
-- [ ] migration、対象/全体テスト、型検査、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認して本番反映する
-- [ ] 本番でdelivery control・worker・formal Gateを再監査し、正式評価は別承認まで未開始のまま報告する
+- [x] migration、対象/全体テスト、型検査、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認して本番反映する
+- [x] 本番でdelivery control・worker・formal Gateを再監査し、正式評価は別承認まで未開始のまま報告する

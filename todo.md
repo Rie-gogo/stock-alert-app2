@@ -2166,3 +2166,11 @@
 - [x] `Promise.all`同時実行、通知失敗、lease期限切れ、通常16時対read-only競合で`notifyOwner`が1回だけになる回帰テストを追加する
 - [x] migration、対象/全体テスト、型検査、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認して本番反映する
 - [x] 本番でdelivery control・worker・formal Gateを再監査し、正式評価は別承認まで未開始のまま報告する
+
+## 全シグナル監査台帳API・認証付き`/realtime`指示精査（2026-09-09）
+- [x] 添付`Pasted_content_14.txt`のAPI・行項目・summary・UI・認証・受入条件・テスト・変更禁止範囲を最新`0a7852fe`へ照合する
+- [x] candidate・virtual・decision event・phase gap・portfolio active generationの結合キーと1候補1行の一意性を確認する
+- [x] 2026-09-08本番DBを読取専用で再集計し、修復後正本が15候補・accepted 6・margin block 9・8勝6敗1分・-110,370円・未解決gap 0であることを確認する
+- [x] portfolio実受信順と同一分固定優先順を別結果として扱い、realtime blockerと混同しない修正版仕様を確定する
+- [x] protected API・実在日付検証・未認証query停止・HTML table・null状態・追加テスト・売買非変更条件を整理する
+- [x] 精査報告書を作成し、コード・DB・売買条件・正式Gate・通知・注文経路は変更しない

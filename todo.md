@@ -2108,3 +2108,42 @@
 - [x] migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
 - [x] checkpoint公開後に9月7日を新generationで再materializeし、worker・DB・公開API・formal Gateを再監査する
 - [x] portfolio bundle確定時に残る旧全日`actualPilot`/`normalizedPilot` builderを除去し、増分generation結果だけでbundleを確定する
+
+## JST当日DRY_RUN・未見前向き評価・P0監査報告（2026-09-08）
+- [x] 公開runtime identityとforward summaryをJST 2026-09-08で取得する
+- [x] 現行DRY_RUN決済・勝敗・損益・銘柄別損益を本番DBで読取専用集計する
+- [x] 16 strategyVersion×2 modeのcollection/formal指標、route parity、formal Gateを一覧化する
+- [x] candidate/margin block、100株virtual coverage、891万円portfolio両方式を確認する
+- [x] replay最初の不一致、因果性違反、engineSequence queue、parent source、candidate/virtual outboxを確認する
+- [x] worker・日次finality・16時report状態を確認し、要対応3件以内の日本語報告を作成する（コード・条件・Gate・実注文は変更しない）
+
+## 他AI「2026-09-08エラー対応3項目」精査
+- [x] 最新のpending・terminal・unresolved gapとcandidate worker進捗を再確認する
+- [x] candidate 1件・virtual 4件を保存payloadから非破壊復旧できるか、欠落情報と重複防止を確認する
+- [x] 16時通知20,000文字超過の修正方針とread-only snapshot再実行条件を確認する
+- [x] portfolio両方式→replay→因果性→route parityの再集計順と合格条件を確認する
+- [x] 提案を採用・修正採用・保留へ分類し、正式評価Gateを未承認のまま報告する（精査中はコード・条件・Gateを変更しない）
+
+## 他AI「5803隔離再構築の追加条件」精査（2026-09-08）
+- [x] `exit_reason` 64文字制限がvirtual terminal 4件の保存失敗原因か再現・確定する
+- [x] `exit_reason_code`と詳細TEXT分離案の後方互換性・migration範囲を確認する
+- [x] candidate/virtualにgenerationがない現状で、安全な隔離再生・原子的切替方式を比較する
+- [x] 10:51候補復元後の候補総数・accepted/margin block・virtual損益を既存値へ固定せず再計算する条件を確認する
+- [x] `high_fade_break_short`と内部routeIdを保存route/config hashから固定復元できるか確認する
+- [x] read-only短縮報告再送を含む12段階手順を採用・修正採用・保留へ分類する（精査中はDB更新・コード・Gate・売買条件を変更しない）
+
+## 5803隔離修復・短縮read-only報告実装（2026-09-08承認）
+- [x] 仮想trade出口理由を短い`exit_reason_code`と詳細TEXTへ分離し、既存`exit_reason`読取との後方互換を維持する
+- [x] 5803修復用staging・変更前archive・run metadata・原子的切替SQLを追加する
+- [x] 保存済みexternal routeId `high_fade_break_short`を内部`highFadeBreakShort`へ固定mappingする
+- [ ] 2026-09-08の5803 source/decisionをengineSequence順に隔離再生し、2回の件数・損益・hash完全一致を必須にする
+- [ ] 既存14件へ合わせず、候補・accepted/margin block・virtual trade・最初の決済・損益を再計算する
+- [ ] 検証済みstagingだけを単一トランザクションで切り替え、成功後だけterminal/gapをresolvedにする
+- [x] 16時通知本文を18,000文字以内へ短縮し、`notifyOwner()===true`の場合だけ`reportSent=true`にする
+- [x] 強制決済を通らない過去日read-only報告再送endpointを追加する
+- [x] 長文reason・二重replay・hash一致・原子的rollback・通知false・read-only再送のVitestを追加する
+- [x] migration、型検査、対象/全体テスト、build、固定売買hash、DRY_RUN/LIVE、注文非接続を確認する
+- [ ] checkpoint公開後に5803を隔離二重再生・原子的切替し、terminal/gap 0へ復旧する
+- [ ] finality→portfolio両方式→replay→route parity→因果性除外表示の順に再materializeする
+- [ ] 短縮read-only日次報告を再送し、HTTP 200・通知成功・reportSent=true・OOMなしを確認する
+- [ ] 正式評価Gateは別承認まで無効、2026-09-08は正式評価から除外したまま最終報告する

@@ -183,6 +183,13 @@
       "when": 1788820446973,
       "tag": "0025_true_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1788868667066,
+      "tag": "0026_panoramic_doomsday",
+      "breakpoints": true
     }
   ]
 }

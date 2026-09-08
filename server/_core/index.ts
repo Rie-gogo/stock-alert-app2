@@ -8,7 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { dailySimulationHandler, manualSimulationHandler, kabuPlanReminderHandler, rtDailyReportHandler, serverWarmupHandler, threePeakDailyReportHandler } from "../scheduledHandlers";
+import { dailySimulationHandler, manualSimulationHandler, kabuPlanReminderHandler, rtDailyReportHandler, rtDailyReportReadOnlyResendHandler, serverWarmupHandler, threePeakDailyReportHandler } from "../scheduledHandlers";
 import { candidateVirtualWorkerHandler } from "../candidateVirtualWorkerHandler";
 import { auditMaterializerHandler } from "../auditMaterializerHandler";
 import { restoreBuffersFromDb } from "../realtimeSimEngine";
@@ -50,6 +50,8 @@ async function startServer() {
   app.post("/api/scheduled/kabu-plan-reminder", kabuPlanReminderHandler);
   // リアルタイムシミュレーション 大引け後レポート（毎平日JST 16:00実行）
   app.post("/api/scheduled/rt-daily-report", rtDailyReportHandler);
+  // 過去日の日次報告を保存済みsnapshotだけで再送（強制決済・売買処理なし）
+  app.post("/api/scheduled/rt-daily-report-readonly-resend", rtDailyReportReadOnlyResendHandler);
   // candidate/virtual監査outbox（2分ごと・bounded batch・保存済みpayloadのみ）
   app.post("/api/scheduled/candidate-virtual-worker", candidateVirtualWorkerHandler);
   // 保存済み監査materialization（portfolio/replay/outcomeを1回1componentで増分処理）

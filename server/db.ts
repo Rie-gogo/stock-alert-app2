@@ -2393,6 +2393,8 @@ export async function upsertRtSignalCandidateTrade(
       exitCandleTime: data.exitCandleTime ?? null,
       exitPrice: data.exitPrice ?? null,
       exitReason: data.exitReason ?? null,
+      exitReasonCode: data.exitReasonCode ?? null,
+      exitReasonDetail: data.exitReasonDetail ?? null,
       pnl: data.pnl ?? null,
       realizedR: data.realizedR ?? null,
       mfePct: data.mfePct ?? null,

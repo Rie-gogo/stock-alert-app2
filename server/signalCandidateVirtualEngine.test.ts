@@ -13,7 +13,7 @@ const dbMock = vi.hoisted(() => ({
 }));
 vi.mock("./db", () => dbMock);
 
-import { processSignalQualityVirtualTradesForEvent } from "./signalCandidateVirtualEngine";
+import { processSignalQualityVirtualTradesForEvent, splitVirtualExitReason } from "./signalCandidateVirtualEngine";
 
 const candle = (time: string, open: number, high: number, low: number, close: number) => ({
   symbol: "8035", tradeDate: "2026-09-07", candleTime: time, open, high, low, close, volume: 1_000,
@@ -23,6 +23,14 @@ describe("全candidate 100株signal_quality仮想取引", () => {
   beforeEach(() => {
     memory.trades.length = 0;
     vi.clearAllMocks();
+  });
+
+  it("64文字を超える反転理由を固定コードと詳細へ分離する", () => {
+    const detail = "非常に長い日本語のシグナル理由".repeat(8);
+    const split = splitVirtualExitReason(`signal_reversal:${detail}`);
+    expect(split.reasonCode).toBe("signal_reversal");
+    expect(split.reasonCode!.length).toBeLessThanOrEqual(64);
+    expect(split.reasonDetail).toBe(detail);
   });
 
   it("margin_block候補も100株で開き、同一足SL/TP接触はSLを優先する", async () => {
@@ -89,7 +97,9 @@ describe("全candidate 100株signal_quality仮想取引", () => {
     expect(memory.trades[0]).toMatchObject({
       completed: true,
       exitPrice: "100.2",
-      exitReason: "signal_reversal:匿名反転",
+      exitReason: "signal_reversal",
+      exitReasonCode: "signal_reversal",
+      exitReasonDetail: "匿名反転",
       pnl: 20,
     });
   });
@@ -125,7 +135,9 @@ describe("全candidate 100株signal_quality仮想取引", () => {
     expect(memory.trades[0]).toMatchObject({
       completed: true,
       exitPrice: "99.9",
-      exitReason: "board_early_exit:buy_pressure",
+      exitReason: "board_early_exit",
+      exitReasonCode: "board_early_exit",
+      exitReasonDetail: "buy_pressure",
       pnl: 10,
     });
     expect(memory.trades[0].stateJson.lastMarketContext).toEqual({

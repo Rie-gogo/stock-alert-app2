@@ -41,6 +41,39 @@ function routeIdFromReason(symbol: string, side: CandidateSide, reason: string):
   return `${symbol}:${side}:unclassified`;
 }
 
+const EXTERNAL_AUDIT_ROUTE_MAP: Record<string, { symbol: string; side: CandidateSide; internalRouteId: string }> = {
+  high_fade_break_short: { symbol: "5803", side: "short", internalRouteId: "highFadeBreakShort" },
+};
+
+/**
+ * 修復・監査専用の固定mapping。日本語理由や正規表現からrouteを再推測しない。
+ */
+export function resolveCurrentRouteSpecFromAuditRoute(input: {
+  externalRouteId: string;
+  symbol: string;
+  side: CandidateSide;
+  entryCandleTime: string;
+}): CurrentRouteSpec | null {
+  const mapped = EXTERNAL_AUDIT_ROUTE_MAP[input.externalRouteId];
+  if (!mapped || mapped.symbol !== input.symbol || mapped.side !== input.side) return null;
+  const config = getSymbolConfig(input.symbol);
+  const slPct = finite(config.highFadeBreakShortSlPct) ?? finite(config.sl?.[input.side]) ?? 0;
+  const tpPct = finite(config.highFadeBreakShortTpPct) ?? finite(config.tp?.[input.side]) ?? 0;
+  return {
+    routeId: mapped.internalRouteId,
+    side: input.side,
+    slPct,
+    tpPct,
+    maxHoldingMinutes: null,
+    timeExitPriceMode: null,
+    sessionExitTime: input.entryCandleTime < "11:30" ? "11:27" : null,
+    usesSignalReversalExit: true,
+    usesBoardEarlyExit: true,
+    profitProtection: null,
+    eligibleNominalRiskReward: slPct > 0 && tpPct >= slPct * 2,
+  };
+}
+
 export function resolveCurrentRouteSpec(input: {
   symbol: string;
   side: CandidateSide;

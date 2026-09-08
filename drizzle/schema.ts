@@ -1209,6 +1209,8 @@ export const rtSignalCandidateTrades = mysqlTable("rt_signal_candidate_trades", 
   exitCandleTime: varchar("exit_candle_time", { length: 5 }),
   exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
   exitReason: varchar("exit_reason", { length: 64 }),
+  exitReasonCode: varchar("exit_reason_code", { length: 64 }),
+  exitReasonDetail: text("exit_reason_detail"),
   pnl: bigint("pnl", { mode: "number" }),
   realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
   mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
@@ -1258,6 +1260,77 @@ export const rtCandidateVirtualGaps = mysqlTable("rt_candidate_virtual_gaps", {
 
 export type RtCandidateVirtualGap = typeof rtCandidateVirtualGaps.$inferSelect;
 export type InsertRtCandidateVirtualGap = typeof rtCandidateVirtualGaps.$inferInsert;
+
+/** candidate/virtualの一回限り修復を二重再生・検証・原子的切替するrun台帳。 */
+export const rtCandidateVirtualRepairRuns = mysqlTable("rt_candidate_virtual_repair_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: varchar("run_id", { length: 64 }).notNull(),
+  repairVersion: varchar("repair_version", { length: 64 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  symbol: varchar("symbol", { length: 10 }).notNull(),
+  status: mysqlEnum("candidate_virtual_repair_status", ["draft", "replayed", "verified", "applied", "failed"]).notNull().default("draft"),
+  inputHash: varchar("input_hash", { length: 64 }),
+  replayHashA: varchar("replay_hash_a", { length: 64 }),
+  replayHashB: varchar("replay_hash_b", { length: 64 }),
+  candidateCount: int("candidate_count").notNull().default(0),
+  acceptedCount: int("accepted_count").notNull().default(0),
+  marginBlockCount: int("margin_block_count").notNull().default(0),
+  virtualTradeCount: int("virtual_trade_count").notNull().default(0),
+  completedTradeCount: int("completed_trade_count").notNull().default(0),
+  totalPnl: bigint("total_pnl", { mode: "number" }).notNull().default(0),
+  firstExitCandleTime: varchar("first_exit_candle_time", { length: 5 }),
+  detailJson: json("detail_json").notNull(),
+  appliedAt: timestamp("applied_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  runIdentity: uniqueIndex("rt_candidate_virtual_repair_run_identity").on(table.runId),
+}));
+
+export type RtCandidateVirtualRepairRun = typeof rtCandidateVirtualRepairRuns.$inferSelect;
+export type InsertRtCandidateVirtualRepairRun = typeof rtCandidateVirtualRepairRuns.$inferInsert;
+
+/** replay A/Bを本番candidate/virtual表から隔離して保存する一時成果物。 */
+export const rtCandidateVirtualRepairStage = mysqlTable("rt_candidate_virtual_repair_stage", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: varchar("run_id", { length: 64 }).notNull(),
+  replayPass: mysqlEnum("candidate_virtual_repair_pass", ["A", "B"]).notNull(),
+  entityType: mysqlEnum("candidate_virtual_repair_entity", ["candidate", "virtual_trade"]).notNull(),
+  entityKey: varchar("entity_key", { length: 160 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  payloadJson: json("payload_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  stageIdentity: uniqueIndex("rt_candidate_virtual_repair_stage_identity").on(
+    table.runId,
+    table.replayPass,
+    table.entityType,
+    table.entityKey,
+  ),
+}));
+
+export type RtCandidateVirtualRepairStage = typeof rtCandidateVirtualRepairStage.$inferSelect;
+export type InsertRtCandidateVirtualRepairStage = typeof rtCandidateVirtualRepairStage.$inferInsert;
+
+/** 原子的切替前の本番行を復元可能なJSONとして保存する変更前archive。 */
+export const rtCandidateVirtualRepairArchive = mysqlTable("rt_candidate_virtual_repair_archive", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: varchar("run_id", { length: 64 }).notNull(),
+  entityType: mysqlEnum("candidate_virtual_repair_archive_entity", ["candidate", "virtual_trade", "decision_event", "gap"]).notNull(),
+  entityKey: varchar("entity_key", { length: 160 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  payloadJson: json("payload_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  archiveIdentity: uniqueIndex("rt_candidate_virtual_repair_archive_identity").on(
+    table.runId,
+    table.entityType,
+    table.entityKey,
+  ),
+}));
+
+export type RtCandidateVirtualRepairArchive = typeof rtCandidateVirtualRepairArchive.$inferSelect;
+export type InsertRtCandidateVirtualRepairArchive = typeof rtCandidateVirtualRepairArchive.$inferInsert;
 
 /** 891万円portfolioをbounded batchで再開するためのmode別高水位点と状態。 */
 export const rtPortfolioMaterializationProgress = mysqlTable("rt_portfolio_materialization_progress", {

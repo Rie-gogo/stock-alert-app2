@@ -9,7 +9,7 @@ import type { CurrentBoardExitSignal, CurrentRawSignal } from "./currentVirtualM
 
 const CURRENT_BOARD_EARLY_EXIT_MIN_PROFIT_PCT = 0.05;
 
-type VirtualState = {
+export type VirtualState = {
   armedAt: string | null;
   mfePct: number;
   maePct: number;
@@ -26,7 +26,7 @@ function parseState(trade: RtSignalCandidateTrade): VirtualState {
   };
 }
 
-function timeToMinutes(value: string): number {
+export function timeToMinutes(value: string): number {
   const [hour, minute] = value.split(":").map(Number);
   return hour * 60 + minute;
 }
@@ -35,21 +35,40 @@ function pricePnl(side: "long" | "short", entry: number, exit: number, shares: n
   return Math.round((side === "long" ? exit - entry : entry - exit) * shares);
 }
 
-function favorablePct(side: "long" | "short", entry: number, high: number, low: number): number {
+export function favorablePct(side: "long" | "short", entry: number, high: number, low: number): number {
   return side === "long" ? ((high - entry) / entry) * 100 : ((entry - low) / entry) * 100;
 }
 
-function adversePct(side: "long" | "short", entry: number, high: number, low: number): number {
+export function adversePct(side: "long" | "short", entry: number, high: number, low: number): number {
   return side === "long" ? ((entry - low) / entry) * 100 : ((high - entry) / entry) * 100;
 }
 
-function evaluateExit(input: {
+type VirtualExit = {
+  exitPrice: number;
+  reasonCode: string;
+  reasonDetail: string | null;
+};
+
+export function splitVirtualExitReason(input: string | null | undefined): {
+  reasonCode: string | null;
+  reasonDetail: string | null;
+} {
+  if (!input) return { reasonCode: null, reasonDetail: null };
+  const separator = input.indexOf(":");
+  if (separator < 0) return { reasonCode: input.slice(0, 64), reasonDetail: null };
+  return {
+    reasonCode: input.slice(0, separator).slice(0, 64),
+    reasonDetail: input.slice(separator + 1) || null,
+  };
+}
+
+export function evaluateSignalQualityExit(input: {
   trade: RtSignalCandidateTrade;
   candle: RtCandle1Min;
   state: VirtualState;
   rawSignal: CurrentRawSignal;
   boardSignal: CurrentBoardExitSignal;
-}): { exitPrice: number; exitReason: string } | null {
+}): VirtualExit | null {
   const { trade, candle, state, rawSignal, boardSignal } = input;
   const entry = Number(trade.entryPrice);
   const slPct = Number(trade.slPct);
@@ -57,19 +76,19 @@ function evaluateExit(input: {
   const side = trade.side;
 
   if (candle.tradeDate !== trade.tradeDate) {
-    return { exitPrice: candle.open, exitReason: "next_session_first_open_exit" };
+    return { exitPrice: candle.open, reasonCode: "next_session_first_open_exit", reasonDetail: null };
   }
 
   if (side === "long") {
     const sl = entry * (1 - slPct / 100);
-    if (candle.low <= sl) return { exitPrice: Math.min(candle.open, sl), exitReason: "stop_loss" };
+    if (candle.low <= sl) return { exitPrice: Math.min(candle.open, sl), reasonCode: "stop_loss", reasonDetail: null };
     const tp = entry * (1 + tpPct / 100);
-    if (candle.high >= tp) return { exitPrice: Math.max(candle.open, tp), exitReason: "take_profit" };
+    if (candle.high >= tp) return { exitPrice: Math.max(candle.open, tp), reasonCode: "take_profit", reasonDetail: null };
   } else {
     const sl = entry * (1 + slPct / 100);
-    if (candle.high >= sl) return { exitPrice: Math.max(candle.open, sl), exitReason: "stop_loss" };
+    if (candle.high >= sl) return { exitPrice: Math.max(candle.open, sl), reasonCode: "stop_loss", reasonDetail: null };
     const tp = entry * (1 - tpPct / 100);
-    if (candle.low <= tp) return { exitPrice: Math.min(candle.open, tp), exitReason: "take_profit" };
+    if (candle.low <= tp) return { exitPrice: Math.min(candle.open, tp), reasonCode: "take_profit", reasonDetail: null };
   }
 
   const routeSpec = (trade.stateJson as any)?.routeSpec as {
@@ -84,16 +103,16 @@ function evaluateExit(input: {
   if (side === "short" && protection) {
     const floor = entry * (1 - protection.floorPct / 100);
     if (state.armedAt && state.armedAt !== candle.candleTime && candle.high >= floor) {
-      return { exitPrice: Math.max(candle.open, floor), exitReason: "profit_protection" };
+      return { exitPrice: Math.max(candle.open, floor), reasonCode: "profit_protection", reasonDetail: null };
     }
   }
 
   if (routeSpec?.usesSignalReversalExit && rawSignal) {
     if (side === "long" && rawSignal.type === "sell") {
-      return { exitPrice: candle.close, exitReason: `signal_reversal:${rawSignal.reason}` };
+      return { exitPrice: candle.close, reasonCode: "signal_reversal", reasonDetail: rawSignal.reason };
     }
     if (side === "short" && rawSignal.type === "buy") {
-      return { exitPrice: candle.close, exitReason: `signal_reversal:${rawSignal.reason}` };
+      return { exitPrice: candle.close, reasonCode: "signal_reversal", reasonDetail: rawSignal.reason };
     }
   }
 
@@ -105,22 +124,22 @@ function evaluateExit(input: {
       ? boardSignal === "sell_pressure" || boardSignal === "large_sell_wall"
       : boardSignal === "buy_pressure" || boardSignal === "large_buy_wall";
     if (pnlPct >= CURRENT_BOARD_EARLY_EXIT_MIN_PROFIT_PCT && oppositeBoard) {
-      return { exitPrice: candle.close, exitReason: `board_early_exit:${boardSignal}` };
+      return { exitPrice: candle.close, reasonCode: "board_early_exit", reasonDetail: boardSignal };
     }
   }
 
   if (routeSpec?.sessionExitTime && candle.candleTime >= routeSpec.sessionExitTime) {
-    return { exitPrice: candle.close, exitReason: "session_exit_close_proxy" };
+    return { exitPrice: candle.close, reasonCode: "session_exit_close_proxy", reasonDetail: null };
   }
 
   const maxHoldingMinutes = routeSpec?.maxHoldingMinutes;
   if (maxHoldingMinutes !== null && maxHoldingMinutes !== undefined) {
     const elapsed = timeToMinutes(candle.candleTime) - timeToMinutes(trade.entryCandleTime);
     if (routeSpec?.timeExitPriceMode === "next_bar_open" && elapsed > maxHoldingMinutes) {
-      return { exitPrice: candle.open, exitReason: "max_holding_next_bar_open" };
+      return { exitPrice: candle.open, reasonCode: "max_holding_next_bar_open", reasonDetail: null };
     }
     if (routeSpec?.timeExitPriceMode === "boundary_close" && elapsed >= maxHoldingMinutes) {
-      return { exitPrice: candle.close, exitReason: "max_holding_boundary_close" };
+      return { exitPrice: candle.close, reasonCode: "max_holding_boundary_close", reasonDetail: null };
     }
   }
   return null;
@@ -153,7 +172,7 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
     }
     const rawSignal = input.rawSignal ?? null;
     const boardSignal = input.boardSignal ?? "neutral";
-    const exit = evaluateExit({ trade, candle: input.candle, state, rawSignal, boardSignal });
+    const exit = evaluateSignalQualityExit({ trade, candle: input.candle, state, rawSignal, boardSignal });
     await upsertRtSignalCandidateTrade({
       virtualEngineVersion: trade.virtualEngineVersion,
       candidateId: trade.candidateId,
@@ -181,7 +200,9 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
       exitTradeDate: exit ? input.candle.tradeDate : trade.exitTradeDate,
       exitCandleTime: exit ? input.candle.candleTime : trade.exitCandleTime,
       exitPrice: exit ? String(exit.exitPrice) : trade.exitPrice,
-      exitReason: exit ? exit.exitReason : trade.exitReason,
+      exitReason: exit ? exit.reasonCode : trade.exitReason,
+      exitReasonCode: exit ? exit.reasonCode : trade.exitReasonCode ?? splitVirtualExitReason(trade.exitReason).reasonCode,
+      exitReasonDetail: exit ? exit.reasonDetail : trade.exitReasonDetail ?? splitVirtualExitReason(trade.exitReason).reasonDetail,
       pnl: exit ? pricePnl(trade.side, entry, exit.exitPrice, trade.shares) : trade.pnl,
       realizedR: exit
         ? String((pricePnl(trade.side, entry, exit.exitPrice, trade.shares) / (entry * trade.shares)) * 100 / Number(trade.slPct))
@@ -217,6 +238,8 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
       exitCandleTime: null,
       exitPrice: null,
       exitReason: null,
+      exitReasonCode: null,
+      exitReasonDetail: null,
       pnl: null,
       realizedR: null,
       mfePct: "0",

@@ -574,11 +574,14 @@ ${score0Section}
 このメールはStock Alert Appのリアルタイムシミュレーション機能から自動送信されています。
 `;
 
-    // notifyOwner で通知（Outlookメール代替）
-    await notifyOwner({
+    // notifyOwner で通知（Outlookメール代替）。通知上限を超えない要約だけを送る。
+    const { compactDailyReportNotification } = await import("./rtDailyReportNotification");
+    const compactedBody = compactDailyReportNotification(body);
+    const notificationSent = await notifyOwner({
       title: subject,
-      content: body,
+      content: compactedBody,
     });
+    if (notificationSent !== true) throw new Error("owner_notification_failed");
 
     // レポート送信済みフラグを立てる
     await markRtDailySummaryReportSent(todayStr);
@@ -590,6 +593,9 @@ ${score0Section}
       totalPnl,
       tradesCount: closedTrades.length,
       winRate,
+      bodyLength: compactedBody.length,
+      notificationSent: true,
+      reportSent: true,
     });
 
   } catch (error) {
@@ -607,6 +613,32 @@ ${score0Section}
 // サーバーウォームアップ（毎平日 JST 8:44 = UTC 23:44 前日）
 // Manusサンドボックスのスリープを防ぎ、取引時間前にサーバーを起動状態にする
 // ============================================================
+/**
+ * 過去日を保存済みsnapshotだけから再送するcron専用経路。
+ * 強制決済・ポジション復元・売買engine処理は一切呼ばない。
+ */
+export async function rtDailyReportReadOnlyResendHandler(req: Request, res: Response) {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    if (!user.isCron) return res.status(403).json({ error: "cron-only endpoint" });
+    const tradeDate = typeof req.query.tradeDate === "string" ? req.query.tradeDate : null;
+    if (!tradeDate || !/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) {
+      return res.status(400).json({ error: "tradeDate YYYY-MM-DD is required" });
+    }
+    const { sendReadOnlyRtDailyReportForDate } = await import("./rtDailyReportNotification");
+    const result = await sendReadOnlyRtDailyReportForDate(tradeDate);
+    return res.json({ ok: true, readOnly: true, ...result });
+  } catch (error) {
+    console.error("[rt-daily-report-readonly-resend] Handler error:", error);
+    return res.status(500).json({
+      error: String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      context: { url: req.url, taskUid: "rt-daily-report-readonly-resend" },
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
 export async function serverWarmupHandler(req: Request, res: Response) {
   try {
     const user = await sdk.authenticateRequest(req);

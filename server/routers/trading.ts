@@ -27,10 +27,39 @@ import { generateDailySimReport } from "../simulation";
 import { generateRealDailyReport } from "../realSimulation";
 import { recommendForNextDay, type SymbolHistoryInput } from "../portfolio";
 import { getRuntimeIdentity } from "../runtimeIdentity";
+import {
+  getRtSignalCandidateLedger,
+  isValidRtSignalCandidateLedgerDate,
+  RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN,
+} from "../signalCandidateLedger";
+
+const rtSignalCandidateLedgerInput = z.object({
+  tradeDate: z.string()
+    .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN, "日付はYYYY-MM-DD形式で指定してください")
+    .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください"),
+});
 
 export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
+
+  /**
+   * 現行候補・100株仮想取引・phase/gap・891万円portfolioを1候補1行で返す読取専用台帳。
+   * ロジック条件と証拠金情報を含むため、未認証アクセスは許可しない。
+   */
+  getRtSignalCandidateLedger: protectedProcedure
+    .input(rtSignalCandidateLedgerInput)
+    .query(async ({ input }) => {
+      try {
+        return await getRtSignalCandidateLedger(input.tradeDate);
+      } catch {
+        console.error("[RtSignalCandidateLedger] read failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "全シグナル監査台帳を取得できませんでした",
+        });
+      }
+    }),
 
   /** strategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure

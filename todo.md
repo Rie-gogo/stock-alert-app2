@@ -2174,3 +2174,16 @@
 - [x] portfolio実受信順と同一分固定優先順を別結果として扱い、realtime blockerと混同しない修正版仕様を確定する
 - [x] protected API・実在日付検証・未認証query停止・HTML table・null状態・追加テスト・売買非変更条件を整理する
 - [x] 精査報告書を作成し、コード・DB・売買条件・正式Gate・通知・注文経路は変更しない
+
+## 全シグナル監査台帳API・認証付き`/realtime`実装（2026-09-09承認）
+- [x] 固定candidate／virtual version、decision event、phase gap、portfolio両方式active generationを一括結合する読取専用DB helperを追加する
+- [x] candidate／virtual別phase、pending／retryable／terminal、未生成理由、realtime block理由、portfolio両方式を推測なしで型付けする
+- [x] `trading.getRtSignalCandidateLedger`を`protectedProcedure`で追加し、JST `YYYY-MM-DD`の形式・実在日付を検証する
+- [x] rowsからsummaryを算出し、件数・勝敗・損益・coverageの不一致を正常結果として返さない整合性検査を追加する
+- [x] `/realtime`へ未認証query禁止・ログイン案内・認証後だけ表示する「全シグナル（証拠金ブロック含む）」HTML tableを追加する
+- [x] 日付切替、手動/自動更新、loading/error/empty、accepted/margin block、LONG/SHORT、勝敗、監査状態、2方式portfolioを表示する
+- [x] API結合・version分離・未生成null・terminal gap・active generation・実在日付・未認証拒否・summary整合・HTML表のVitestを追加する
+- [x] 2026-09-08の15候補・accepted 6・margin block 9・仮想15・8勝6敗1分・-110,370円・未解決gap 0を読取専用で再確認する
+- [x] 型検査、対象/全体テスト、本番build、画面アクセシビリティ、モバイル表示を検証する
+- [x] `realtimeSimEngine.ts`・売買条件・証拠金配分・DRY_RUN/LIVE・OrderBridge/Executor・正式Gate・通知/スケジュールの差分0を確認する
+- [x] todo完了化、チェックポイント保存、自動公開後の認証済み`/realtime`とprotected APIを検証して報告する

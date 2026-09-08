@@ -2721,6 +2721,98 @@ export async function getRtSignalCandidateTradesForDate(input: {
   )).orderBy(rtSignalCandidateTrades.id);
 }
 
+/**
+ * 全シグナル監査台帳向けの読取専用bundle。
+ * candidate/virtual/phase/gapと891万円portfolioのactive generationだけを、
+ * 1回のtransaction snapshot内でまとめて取得する。
+ */
+export async function getRtSignalCandidateLedgerBundle(input: {
+  candidateVersion: string;
+  virtualEngineVersion: string;
+  tradeDate: string;
+  actualReceiptPortfolioVersion: string;
+  minuteNormalizedPortfolioVersion: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return db.transaction(async tx => {
+    const [candidates, virtualTrades, gaps, portfolioProgress] = await Promise.all([
+      tx.select().from(rtSignalCandidates).where(and(
+        eq(rtSignalCandidates.candidateVersion, input.candidateVersion),
+        eq(rtSignalCandidates.tradeDate, input.tradeDate),
+      )).orderBy(rtSignalCandidates.engineSequence, rtSignalCandidates.id),
+      tx.select().from(rtSignalCandidateTrades).where(and(
+        eq(rtSignalCandidateTrades.virtualEngineVersion, input.virtualEngineVersion),
+        eq(rtSignalCandidateTrades.tradeDate, input.tradeDate),
+      )).orderBy(rtSignalCandidateTrades.id),
+      tx.select().from(rtCandidateVirtualGaps)
+        .where(eq(rtCandidateVirtualGaps.tradeDate, input.tradeDate))
+        .orderBy(rtCandidateVirtualGaps.decisionEventId, rtCandidateVirtualGaps.id),
+      tx.select().from(rtPortfolioMaterializationProgress).where(and(
+        eq(rtPortfolioMaterializationProgress.tradeDate, input.tradeDate),
+        inArray(rtPortfolioMaterializationProgress.portfolioVersion, [
+          input.actualReceiptPortfolioVersion,
+          input.minuteNormalizedPortfolioVersion,
+        ]),
+      )),
+    ]);
+
+    const relevantSourceIds = Array.from(new Set([
+      ...candidates.map(candidate => candidate.sourceEventId),
+      ...gaps.map(gap => gap.sourceEventId),
+    ]));
+    const decisionEvents = relevantSourceIds.length === 0
+      ? []
+      : await tx.select().from(rtRealtimeDecisionEvents).where(and(
+          eq(rtRealtimeDecisionEvents.tradeDate, input.tradeDate),
+          inArray(rtRealtimeDecisionEvents.sourceEventId, relevantSourceIds),
+        )).orderBy(rtRealtimeDecisionEvents.id);
+
+    const actualProgress = portfolioProgress.find(row =>
+      row.portfolioVersion === input.actualReceiptPortfolioVersion
+      && row.mode === "actual_receipt"
+    ) ?? null;
+    const minuteProgress = portfolioProgress.find(row =>
+      row.portfolioVersion === input.minuteNormalizedPortfolioVersion
+      && row.mode === "minute_normalized"
+    ) ?? null;
+
+    const loadActivePortfolioEvents = async (
+      progress: RtPortfolioMaterializationProgress | null,
+      portfolioVersion: string,
+      mode: RtPortfolioAuditEvent["mode"],
+    ): Promise<RtPortfolioAuditEvent[]> => {
+      if (progress?.activeGeneration === null || progress?.activeGeneration === undefined || relevantSourceIds.length === 0) {
+        return [];
+      }
+      return tx.select().from(rtPortfolioAuditEvents).where(and(
+        eq(rtPortfolioAuditEvents.portfolioVersion, portfolioVersion),
+        eq(rtPortfolioAuditEvents.mode, mode),
+        eq(rtPortfolioAuditEvents.tradeDate, input.tradeDate),
+        eq(rtPortfolioAuditEvents.generation, progress.activeGeneration),
+        inArray(rtPortfolioAuditEvents.sourceEventId, relevantSourceIds),
+      )).orderBy(rtPortfolioAuditEvents.id);
+    };
+
+    const [actualReceiptPortfolioEvents, minuteNormalizedPortfolioEvents] = await Promise.all([
+      loadActivePortfolioEvents(actualProgress, input.actualReceiptPortfolioVersion, "actual_receipt"),
+      loadActivePortfolioEvents(minuteProgress, input.minuteNormalizedPortfolioVersion, "minute_normalized"),
+    ]);
+
+    return {
+      candidates,
+      virtualTrades,
+      decisionEvents,
+      gaps,
+      actualReceiptProgress: actualProgress,
+      minuteNormalizedProgress: minuteProgress,
+      actualReceiptPortfolioEvents,
+      minuteNormalizedPortfolioEvents,
+    };
+  });
+}
+
 export async function getOpenRtSignalCandidateTrades(
   virtualEngineVersion: string,
 ): Promise<RtSignalCandidateTrade[]> {

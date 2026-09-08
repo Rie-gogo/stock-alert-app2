@@ -32,6 +32,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import SignalCandidateLedgerSection from "@/components/SignalCandidateLedgerSection";
 import {
   Table,
   TableBody,
@@ -116,6 +117,7 @@ export default function RealtimeTradingLog() {
       utils.trading.getRtOpenPositions.invalidate(),
       utils.trading.getRtTrades.invalidate({ tradeDate: selectedDate }),
       utils.trading.getRtDailySummaries.invalidate(),
+      utils.trading.getRtSignalCandidateLedger.invalidate({ tradeDate: selectedDate }),
     ]);
     setLastRefreshed(new Date());
   }, [utils, selectedDate]);
@@ -472,6 +474,9 @@ export default function RealtimeTradingLog() {
             )}
           </CardContent>
         </Card>
+
+        {/* ===== 全シグナル監査台帳（認証後のみ） ===== */}
+        <SignalCandidateLedgerSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
 
         {/* ===== 当日集計（取引がある場合） ===== */}
         {closedTrades.length > 0 && (

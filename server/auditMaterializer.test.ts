@@ -27,6 +27,9 @@ const portfolioMock = vi.hoisted(() => ({
 const parityMock = vi.hoisted(() => ({
   compareTelCurrentParityForDate: vi.fn(async () => ({ skipped: false, processed: 10, matched: 10, mismatched: 0 })),
 }));
+const candidateOutcomeParityMock = vi.hoisted(() => ({
+  compareCurrentCandidateOutcomesForDate: vi.fn(async () => ({ matched: 8, mismatched: 2, incomplete: 0 })),
+}));
 const outcomeMock = vi.hoisted(() => ({
   buildOutcomeLabelsForDate: vi.fn(async () => ({ labels: 1, completed: 1, blocked: 0 })),
   buildDivergenceHypotheses: vi.fn(async () => ({ hypotheses: [] })),
@@ -44,6 +47,11 @@ vi.mock("./portfolioAudit", () => ({
   materializePortfolioBundleForDate: portfolioMock.materializePortfolioBundleForDate,
 }));
 vi.mock("./telParityComparison", () => parityMock);
+vi.mock("./currentCandidateOutcomeParity", () => ({
+  CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT: "current_candidate_outcome_parity",
+  CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION: "current-vs-signal-quality-outcome-v1",
+  compareCurrentCandidateOutcomesForDate: candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate,
+}));
 vi.mock("./outcomeDivergenceAudit", () => outcomeMock);
 vi.mock("./forwardReplayMaterializer", () => forwardReplayMock);
 
@@ -56,6 +64,10 @@ import {
   TEL_PARITY_MATERIALIZATION_VERSION,
   materializeNextAuditComponentForDate,
 } from "./auditMaterializer";
+import {
+  CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+  CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
+} from "./currentCandidateOutcomeParity";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -77,7 +89,22 @@ describe("P0 audit materializer", () => {
     });
     expect(result).toMatchObject({ status: "processing", component: "portfolio_bundle" });
     expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
+    expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
+  });
+
+  it("TEL parity後はcurrent対virtualの結果差監査だけをmaterializeする", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
+      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
+      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
+      return null;
+    });
+    const result = await materializeNextAuditComponentForDate("2026-09-07", {
+      now: new Date("2026-09-08T00:00:00Z"),
+    });
+    expect(result).toMatchObject({ status: "processing", component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT });
+    expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).toHaveBeenCalledWith("2026-09-07");
+    expect(forwardReplayMock.materializeNextForwardReplayForDate).not.toHaveBeenCalled();
   });
 
   it("完成済みportfolioを再計算せず、欠けているparity一つだけをmaterializeする", async () => {
@@ -98,6 +125,7 @@ describe("P0 audit materializer", () => {
     dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
       if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
       if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
+      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
       return null;
     });
     forwardReplayMock.materializeNextForwardReplayForDate.mockResolvedValue({
@@ -118,6 +146,7 @@ describe("P0 audit materializer", () => {
     dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
       if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
       if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
+      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
       if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
       if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
       return null;
@@ -128,6 +157,7 @@ describe("P0 audit materializer", () => {
     expect(result).toMatchObject({ status: "complete", component: "all" });
     expect(portfolioMock.materializePortfolioBundleForDate).not.toHaveBeenCalled();
     expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
+    expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildDivergenceHypotheses).not.toHaveBeenCalled();
   });

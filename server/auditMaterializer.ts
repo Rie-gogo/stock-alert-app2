@@ -19,6 +19,11 @@ import {
   materializePortfolioBundleForDate,
 } from "./portfolioAudit";
 import { compareTelCurrentParityForDate } from "./telParityComparison";
+import {
+  CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+  CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
+  compareCurrentCandidateOutcomesForDate,
+} from "./currentCandidateOutcomeParity";
 import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
 import { materializeNextForwardReplayForDate } from "./forwardReplayMaterializer";
 import { sha256Stable } from "./runtimeIdentity";
@@ -203,6 +208,25 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: TEL_PARITY_MATERIALIZATION_COMPONENT, result };
   }
 
+  const candidateOutcomeParity = await getRtDailyAuditMaterialization({
+    component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+    version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
+    tradeDate,
+  });
+  if (candidateOutcomeParity?.status !== "complete"
+    || candidateOutcomeParity.sourceDecisionCount !== sourceDecisionCount) {
+    const result = await compareCurrentCandidateOutcomesForDate(tradeDate);
+    await persistComponent({
+      component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+      version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
+      tradeDate,
+      result,
+      processedThroughEngineSequence: processedThrough,
+      sourceDecisionCount,
+    });
+    return { status: "processing" as const, component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, result };
+  }
+
   const forwardReplay = await materializeNextForwardReplayForDate({
     tradeDate,
     processedThroughEngineSequence: processedThrough,
@@ -275,9 +299,10 @@ export async function materializeNextAuditComponentForDate(
 }
 
 export async function readAuditMaterializationsForReport(tradeDate: string) {
-  const [portfolio, telParity, outcomeLabels, divergence, finality, watermark] = await Promise.all([
+  const [portfolio, telParity, candidateOutcomeParity, outcomeLabels, divergence, finality, watermark] = await Promise.all([
     getRtDailyAuditMaterialization({ component: PORTFOLIO_BUNDLE_COMPONENT, version: PORTFOLIO_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: TEL_PARITY_MATERIALIZATION_COMPONENT, version: TEL_PARITY_MATERIALIZATION_VERSION, tradeDate }),
+    getRtDailyAuditMaterialization({ component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, version: OUTCOME_LABELS_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DIVERGENCE_MATERIALIZATION_COMPONENT, version: DIVERGENCE_MATERIALIZATION_VERSION, tradeDate }),
     getRtAuditTradeDateFinality(tradeDate),
@@ -286,13 +311,14 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
   const valid = finality?.status === "closed"
     && finality.watermarkHash === watermarkHash(watermark)
     && watermarkReady(watermark);
-  if (valid) return { portfolio, telParity, outcomeLabels, divergence, finality };
+  if (valid) return { portfolio, telParity, candidateOutcomeParity, outcomeLabels, divergence, finality };
   const invalidate = <T extends { status: string; lastError?: string | null } | null>(row: T): T => row
     ? { ...row, status: "processing", lastError: "audit_watermark_not_closed_or_changed" } as T
     : row;
   return {
     portfolio: invalidate(portfolio),
     telParity: invalidate(telParity),
+    candidateOutcomeParity: invalidate(candidateOutcomeParity),
     outcomeLabels: invalidate(outcomeLabels),
     divergence: invalidate(divergence),
     finality,

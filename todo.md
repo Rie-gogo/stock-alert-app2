@@ -2200,3 +2200,15 @@
 - [x] 891万円portfolio両方式、実時対固定版replay、因果性、routeParityGate、formalEvaluationGateを確認する
 - [x] 各strategyVersionのsignal_quality／capital_constrained指標と判定を、開始前・未受信・0件・不一致を分けて集計する
 - [x] 現行・正式未見・収集／修復データを混ぜず、日本語途中経過と優先対応3件以内を報告する
+
+## 本番OAuthログイン障害の診断・修正（2026-09-09）
+- [x] 最新origin/main同期後の`client/src/const.ts`・`server/_core/oauth.ts`・`server/_core/sdk.ts`・Cookie・proxy・DB upsert実装を監査する
+- [x] 本番ログからOAuth callbackの実際の失敗段階を、code／state全文／token／Cookie／秘密値を出さずに特定する
+- [x] `VITE_OAUTH_PORTAL_URL`・`VITE_APP_ID`・`OAUTH_SERVER_URL`・session secret・`DATABASE_URL`の存在・形式・相互整合だけを確認する
+- [x] ログインURLに`appId`・`redirectUri`・`state`・`type`・`responseType=code`が正しく生成されることを固定する
+- [x] callbackをcode交換／user info／openId／DB upsert／session作成／Cookie設定・redirectの段階別に安全診断できる最小修正を行う
+- [x] HTTPS/proxy環境のSecure・HttpOnly・SameSite・Pathと、無効／再利用済みcodeの秘密非露出エラーをテストする
+- [x] `auth.me`と`trading.getRtSignalCandidateLedger`が認証後だけ成功し、未認証はUNAUTHORIZEDを維持する回帰を追加する
+- [x] OAuth対象テスト、型検査、本番build、既存全テスト、固定売買hash、変更禁止対象差分0を確認する
+- [ ] チェックポイント保存・自動公開後、手動URL修正なしの本番OAuth開始とユーザー操作による新規ログイン完了を確認する
+- [ ] 原因、変更、環境整合、テスト、本番ログイン、protected API、checkpoint、安全不変を報告する

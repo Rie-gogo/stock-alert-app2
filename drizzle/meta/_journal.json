@@ -204,6 +204,13 @@
       "when": 1788877167981,
       "tag": "0028_yellow_layla_miller",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1788957674935,
+      "tag": "0029_restore_users_table",
+      "breakpoints": true
     }
   ]
 }

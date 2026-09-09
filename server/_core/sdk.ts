@@ -1,5 +1,6 @@
 import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
+import { decodeOAuthState } from "@shared/const";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
@@ -28,7 +29,15 @@ const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
 
-class OAuthService {
+export function getOAuthRedirectUriFromState(state: string): string {
+  const { redirectUri } = decodeOAuthState(state);
+  if (!redirectUri) {
+    throw new Error("invalid_oauth_state");
+  }
+  return redirectUri;
+}
+
+export class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
     console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
     if (!ENV.oAuthServerUrl) {
@@ -36,11 +45,6 @@ class OAuthService {
         "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
       );
     }
-  }
-
-  private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
   }
 
   async getTokenByCode(
@@ -51,7 +55,7 @@ class OAuthService {
       clientId: ENV.appId,
       grantType: "authorization_code",
       code,
-      redirectUri: this.decodeState(state),
+      redirectUri: getOAuthRedirectUriFromState(state),
     };
 
     const { data } = await this.client.post<ExchangeTokenResponse>(
@@ -292,7 +296,23 @@ class SDKServer {
         });
         user = await db.getUserByOpenId(userInfo.openId);
       } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
+        const candidate = error as {
+          name?: unknown;
+          code?: unknown;
+          response?: { status?: unknown };
+        } | null;
+        console.error("[Auth] Failed to sync user from OAuth", {
+          errorType:
+            typeof candidate?.name === "string"
+              ? candidate.name
+              : "UnknownError",
+          errorCode:
+            typeof candidate?.code === "string" ? candidate.code : undefined,
+          httpStatus:
+            typeof candidate?.response?.status === "number"
+              ? candidate.response.status
+              : undefined,
+        });
         throw ForbiddenError("Failed to sync user info");
       }
     }

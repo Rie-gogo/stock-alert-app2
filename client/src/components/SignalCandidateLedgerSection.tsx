@@ -1,6 +1,6 @@
 import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
+import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -235,7 +235,7 @@ export default function SignalCandidateLedgerSection({
           <Button
             type="button"
             className="gap-2 active:scale-[0.97]"
-            onClick={() => { window.location.href = getLoginUrl(); }}
+            onClick={startLogin}
           >
             <LogIn className="w-4 h-4" /> ログインして監査台帳を表示
           </Button>

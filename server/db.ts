@@ -89,7 +89,13 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       set: updateSet,
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    const candidate = error as { name?: unknown; code?: unknown } | null;
+    console.error("[Database] Failed to upsert user", {
+      errorType:
+        typeof candidate?.name === "string" ? candidate.name : "UnknownError",
+      errorCode:
+        typeof candidate?.code === "string" ? candidate.code : undefined,
+    });
     throw error;
   }
 }

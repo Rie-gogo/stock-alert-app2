@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useAuth } from '@/_core/hooks/useAuth';
-import { getLoginUrl } from '@/const';
+import { startLogin } from '@/const';
 import {
   Wallet,
   TrendingUp,
@@ -148,13 +148,14 @@ export default function PaperTradePanel({
         <br />
         ログインすると取引履歴があなたのアカウントに保存されます。
       </p>
-      <a
-        href={getLoginUrl()}
+      <button
+        type="button"
+        onClick={startLogin}
         className="inline-flex items-center space-x-1.5 px-4 py-1.5 rounded text-xs font-bold bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors"
       >
         <LogIn className="w-3.5 h-3.5" />
         <span>ログイン</span>
-      </a>
+      </button>
     </div>
   );
 

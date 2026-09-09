@@ -2210,5 +2210,5 @@
 - [x] HTTPS/proxy環境のSecure・HttpOnly・SameSite・Pathと、無効／再利用済みcodeの秘密非露出エラーをテストする
 - [x] `auth.me`と`trading.getRtSignalCandidateLedger`が認証後だけ成功し、未認証はUNAUTHORIZEDを維持する回帰を追加する
 - [x] OAuth対象テスト、型検査、本番build、既存全テスト、固定売買hash、変更禁止対象差分0を確認する
-- [ ] チェックポイント保存・自動公開後、手動URL修正なしの本番OAuth開始とユーザー操作による新規ログイン完了を確認する
-- [ ] 原因、変更、環境整合、テスト、本番ログイン、protected API、checkpoint、安全不変を報告する
+- [x] チェックポイント保存・自動公開後、手動URL修正なしの本番OAuth開始とユーザー操作による新規ログイン完了を確認する
+- [x] 原因、変更、環境整合、テスト、本番ログイン、protected API、checkpoint、安全不変を報告する

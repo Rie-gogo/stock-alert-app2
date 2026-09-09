@@ -2193,3 +2193,10 @@
 - [x] routeIdを現行ロジック名へ対応付け、件数・勝敗・勝率・100株仮想損益・証拠金ブロック件数を集計する
 - [x] forward shadowのstrategyVersion・取引・成績を同期間で抽出し、各現行ロジックのシャドー案有無と案数を確認する
 - [x] 勝率の高い順の一覧と、母数・正式評価外・保存データ不足などの注意点を日本語で報告する
+
+## 2026-09-09 現行DRY_RUN・未見前向き評価・P0監査 途中経過
+- [x] 公開APIの`getRuntimeIdentity`と当日`getForwardShadowSummary`を取得し、時点・version・hash・LIVE/formal状態を確認する
+- [x] 本番DBを読取専用で照合し、現行取引、candidate／virtual、queue／gap、親source event、outbox状態を確認する
+- [x] 891万円portfolio両方式、実時対固定版replay、因果性、routeParityGate、formalEvaluationGateを確認する
+- [x] 各strategyVersionのsignal_quality／capital_constrained指標と判定を、開始前・未受信・0件・不一致を分けて集計する
+- [x] 現行・正式未見・収集／修復データを混ぜず、日本語途中経過と優先対応3件以内を報告する

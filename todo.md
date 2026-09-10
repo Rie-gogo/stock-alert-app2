@@ -2221,10 +2221,12 @@
 - [x] 現行・正式未見・収集／修復データを混ぜず、日本語途中経過と優先対応3件以内を報告する
 
 ## 統合版 bdb48344 の同期・公開・本番確認（2026-09-10）
-- [ ] GitHub `main`の指定commit `bdb48344f313f9b91754ebdf85d82bf1e920a3c1`をManusへ同期する
-- [ ] ポジションA／Bの統合差分、候補A/B version v2、6146 SHORT停止・LONG継続、migration有無を確認する
-- [ ] `realtimeSimEngine.ts`以外も含む変更禁止対象、DRY_RUN必須、LIVE未承認、Executor／OrderBridge／実注文非接続、formal Gate未承認を監査する
-- [ ] 対象テスト、型検査、全回帰、本番build、固定sourceTreeHashとbaselineStrategyGitShaを確認する
+- [x] GitHub `main`の指定commit `bdb48344f313f9b91754ebdf85d82bf1e920a3c1`をManusへ同期する
+- [x] 6146 SHORT停止後の13保存日再生で残った旧期待値（9件）を、実測LONG限定7件・6勝1敗・+477,601円へ修正する
+- [x] Linux本番prebuildでもWindows生成時と同じ固定`sourceTreeHash=de9d06e6…`を再現できる改行正規化をbuild identity生成へ追加する
+- [x] ポジションA／Bの統合差分、候補A/B version v2、6146 SHORT停止・LONG継続、migration有無を確認する
+- [x] `realtimeSimEngine.ts`以外も含む変更禁止対象、DRY_RUN必須、LIVE未承認、Executor／OrderBridge／実注文非接続、formal Gate未承認を監査する
+- [x] 対象テスト、型検査、全回帰、本番build、固定sourceTreeHashとbaselineStrategyGitShaを確認する
 - [ ] 検証済みcheckpointを保存し、既存`stockalert-ulxu9jpf.manus.space`へ自動公開する
 - [ ] 公開後の`getRuntimeIdentity`／`getForwardShadowSummary`、本番DB、ログを読取確認する
 - [ ] 翌営業日の実イベント受入を本日の公開完了と分離し、公開反映・API・DB・ログ・安全不変だけを報告する

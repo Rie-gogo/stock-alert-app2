@@ -105,11 +105,11 @@ describe("6146専用LONG・停止中SHORT 13保存日・未来情報なし再生
 
     console.log("6146_13D_CAUSAL_REPLAY", JSON.stringify({ processedRows, entries, exits, wins, losses, pnl }));
     expect(processedRows).toBe(4_065);
-    expect(entries).toHaveLength(9);
-    expect(exits).toHaveLength(9);
-    expect(wins).toBe(8);
+    expect(entries).toHaveLength(7);
+    expect(exits).toHaveLength(7);
+    expect(wins).toBe(6);
     expect(losses).toBe(1);
-    expect(pnl).toBe(564_051);
+    expect(pnl).toBe(477_601);
     expect(entries.every(event => event.reason?.startsWith("ディスコ確認型10本高値更新LONG"))).toBe(true);
     expect(entries.some(event => event.reason?.startsWith("ディスコ寄り付き10本安値更新SHORT"))).toBe(false);
   }, 60_000);

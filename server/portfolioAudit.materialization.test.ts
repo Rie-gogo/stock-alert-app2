@@ -37,7 +37,7 @@ function decision(id: number, candleTime: string, status = "processed") {
 function candidate(id: number, engineSequence: number, candleTime: string, symbol = "8035") {
   return {
     id,
-    candidateVersion: "current-10-symbol-candidates-v1",
+    candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused",
     sourceEventId: `source:${engineSequence}`,
     engineSequence,
     tradeDate: "2026-09-07",

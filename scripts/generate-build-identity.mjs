@@ -14,6 +14,8 @@ const files = [
   "server/kioxiaConfirmedMorningLong.ts",
   "server/telOpenDirectionBreakout.ts",
   "server/taiyoCandidateB.ts",
+  "server/discoOpeningShortForwardShadow.ts",
+  "server/discoOpeningShortForwardShadowEngine.ts",
 ];
 
 function sha256(value) {

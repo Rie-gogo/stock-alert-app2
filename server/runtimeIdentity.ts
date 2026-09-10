@@ -5,7 +5,7 @@ import { ACTIVE_ENTRY_SYMBOLS, TARGET_STOCKS } from "../shared/stocks";
 import { GENERATED_BUILD_IDENTITY } from "./generatedBuildIdentity";
 
 export const BASELINE_STRATEGY_GIT_SHA = "f6878060c61ef5c2b8e3267b52756d019bb8bfe7";
-export const BASELINE_TRADING_SOURCE_TREE_HASH = "42006f0ef757255a1b1eda86fa7c37dd28a4b42f7d23503867b9fefdf24dfeda";
+export const BASELINE_TRADING_SOURCE_TREE_HASH = "dd4f75555f20e6c04ef23721ef57db335396b57d178a20bb2b1a578a7c34ca32";
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const KIOXIA_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-confirmed-long-momentum-protect-v1";
@@ -24,6 +24,9 @@ export const SUMCO_VOLUME_110_VERSION = "candidate-3436-volume110-time15-v1";
 export const SUMCO_TIME_15_VERSION = "candidate-3436-current-entry-time15-v1";
 export const TAIYO_AFTERNOON_RR2_VERSION = "candidate-6976-afternoon-short-rr2-45-v1";
 export const TAIYO_AFTERNOON_DEPTH_VERSION = "candidate-6976-afternoon-short-depth-v1";
+export const DISCO_SHORT_BASELINE_VERSION = "baseline-6146-opening-short-paused-v1";
+export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-executable-a-v1";
+export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -41,6 +44,9 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   SUMCO_TIME_15_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_VERSION,
+  DISCO_SHORT_RETEST_B_VERSION,
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

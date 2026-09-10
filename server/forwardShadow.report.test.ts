@@ -51,6 +51,9 @@ vi.mock("./telExecutableConfirmDepthEngine", () => ({
 
 import { formatForwardShadowDryRunReport, getForwardShadowSummary } from "./forwardShadow";
 import {
+  DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_VERSION,
+  DISCO_SHORT_RETEST_B_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
@@ -100,6 +103,13 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("3436 前場15本安値更新SHORT A・出来高1.10倍＋15分2R");
     expect(section).toContain(`戦略版: ${SUMCO_TIME_15_VERSION}`);
     expect(section).toContain("3436 前場15本安値更新SHORT B・現行入口＋15分2R");
+    expect(section).toContain(`戦略版: ${DISCO_SHORT_BASELINE_VERSION}`);
+    expect(section).toContain("6146 寄り付き10本安値更新SHORT・一時停止後の現行シャドー基準");
+    expect(section).toContain(`戦略版: ${DISCO_SHORT_EXECUTABLE_A_VERSION}`);
+    expect(section).toContain("6146 SHORT A・次イベント100株bid depth継続確認");
+    expect(section).toContain(`戦略版: ${DISCO_SHORT_RETEST_B_VERSION}`);
+    expect(section).toContain("6146 SHORT B・安値割れ後の失敗リテスト＋再安値更新");
+    expect(section).toContain("対象外（停止した現行経路の比較基準として収集継続）");
     expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");
     expect(section).toContain("6976追加Gate: 案=board_demand");
     expect(section).toContain("板需給案は追加0.80基準なし");
@@ -136,7 +146,7 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("経路parity Gate: passed");
     expect(section).toContain("経路parity Gate: required");
     expect(section).toContain("正式評価Gate: pending_validation_day");
-    expect(section).toContain("売買ロジックf6878060一致: OK");
+    expect(section).toContain("固定売買ロジックhash一致: OK");
     expect(section).toContain("注文接続: なし");
     expect(section).toContain("当日受信監査: 1件");
     expect(section).toContain("当日固定版再生: materializer未完了（実時保存=");
@@ -147,6 +157,10 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("一次判定まで: あと14日");
     expect(section).toContain("20件到達時も継続判定のみ: あと20件");
     expect(section).toContain("4週間10件条件: あと28日・あと10件");
+    expect(dbMock.updateRtStrategyVersionStatus).not.toHaveBeenCalledWith(expect.objectContaining({
+      versionId: DISCO_SHORT_BASELINE_VERSION,
+      status: "stopped",
+    }));
   });
 
   it("285Aは学習終了日の2026-09-03を正式評価へ数えず、翌営業日から0日目として扱う", async () => {

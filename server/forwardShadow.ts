@@ -33,6 +33,9 @@ import {
 } from "./telOpenDirectionBreakout";
 import {
   BASELINE_STRATEGY_GIT_SHA,
+  DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_VERSION,
+  DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_EVALUATION_POLICY,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -99,6 +102,10 @@ import {
   SUMCO_FORWARD_LEARNING_CUTOFF_DATE,
 } from "./sumcoForwardShadow";
 import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
+import {
+  DISCO_SHORT_COLLECTION_START_DATE,
+  DISCO_SHORT_LEARNING_CUTOFF_DATE,
+} from "./discoOpeningShortForwardShadow";
 import {
   TAIYO_AFTERNOON_COLLECTION_START_DATE,
   TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
@@ -692,6 +699,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const { processSumcoForwardShadowSourceEvent } = await import("./sumcoForwardShadowEngine");
     return processSumcoForwardShadowSourceEvent(input);
   }
+  if (input.candle.symbol === "6146") {
+    const { processDiscoOpeningShortForwardShadowSourceEvent } = await import("./discoOpeningShortForwardShadowEngine");
+    return processDiscoOpeningShortForwardShadowSourceEvent(input);
+  }
   if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_shadow_symbol" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) {
     console.error("[ForwardShadow] f6878060売買ロジック固定ハッシュ不一致のため計測停止");
@@ -1150,6 +1161,34 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
+    {
+      versionId: DISCO_SHORT_BASELINE_VERSION,
+      symbol: "6146",
+      title: "6146 寄り付き10本安値更新SHORT・一時停止後の現行シャドー基準",
+      startDate: DISCO_SHORT_COLLECTION_START_DATE,
+      cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
+      adoptionEligible: false,
+      lifecycle: "active_paused_route_comparison_baseline",
+      keepCollectingWhenIneligible: true,
+    },
+    {
+      versionId: DISCO_SHORT_EXECUTABLE_A_VERSION,
+      symbol: "6146",
+      title: "6146 SHORT A・次イベント100株bid depth継続確認",
+      startDate: DISCO_SHORT_COLLECTION_START_DATE,
+      cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
+    {
+      versionId: DISCO_SHORT_RETEST_B_VERSION,
+      symbol: "6146",
+      title: "6146 SHORT B・安値割れ後の失敗リテスト＋再安値更新",
+      startDate: DISCO_SHORT_COLLECTION_START_DATE,
+      cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
   ] as const;
   const sections: string[] = [];
   for (const definition of strategyDefinitions) {
@@ -1167,7 +1206,8 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
         status: signalQuality.decision.status,
         statusReason: signalQuality.decision.reason,
       });
-    } else if (!definition.adoptionEligible) {
+    } else if (!definition.adoptionEligible
+      && !("keepCollectingWhenIneligible" in definition && definition.keepCollectingWhenIneligible)) {
       await updateRtStrategyVersionStatus({
         versionId: definition.versionId,
         status: "stopped",
@@ -1211,7 +1251,11 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
 	  戦略版: ${definition.versionId}
 	  候補収集開始: ${definition.startDate}（学習終了: ${definition.cutoffDate}）
 	  正式集計最短開始: ${P0_FORMAL_EVALUATION_EARLIEST_START_DATE}（2026-09-07実受信確認後に手動有効化。修正前データは除外）
-	  採用審査: ${definition.adoptionEligible ? "対象（自動採用・自動置換なし）" : "対象外（旧版停止・監査保持のみ）"}
+	  採用審査: ${definition.adoptionEligible
+    ? "対象（自動採用・自動置換なし）"
+    : "keepCollectingWhenIneligible" in definition && definition.keepCollectingWhenIneligible
+      ? "対象外（停止した現行経路の比較基準として収集継続）"
+      : "対象外（旧版停止・監査保持のみ）"}
 	  注文接続: なし（strategyVersion別シャドーテーブルのみ）
 	  当日シャドー判断: ${versionEventCount}件（error=${versionErrorCount}。状態連続性は別materializer）
 		  当日固定版再生: ${replaySnapshot?.status === "complete" ? JSON.stringify(replaySnapshot.resultJson) : `materializer未完了（実時保存=${versionEventCount}件）`}
@@ -1234,7 +1278,7 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
   deployment revision: ${identity.deploymentRevision ?? "unavailable"}
   売買ロジック基準SHA: ${identity.baselineStrategyGitSha}
   設定ハッシュ: ${identity.configHash}
-  売買ロジックf6878060一致: ${identity.tradingLogicMatchesBaseline ? "OK" : "NG（計測停止要確認）"}
+  固定売買ロジックhash一致: ${identity.tradingLogicMatchesBaseline ? "OK" : "NG（計測停止要確認）"}
   対象銘柄: ${identity.activeEntrySymbols.join(",")}
   注文接続: なし（シャドーテーブルのみ）
   当日受信監査: ${sourceEventCount}件（processed=${sourceEventStats.filter(event => event.status === "processed").reduce((sum, event) => sum + event.eventCount, 0)}, failed=${sourceEventStats.filter(event => event.status === "failed").reduce((sum, event) => sum + event.eventCount, 0)}, processing=${sourceEventStats.filter(event => event.status === "processing").reduce((sum, event) => sum + event.eventCount, 0)}）

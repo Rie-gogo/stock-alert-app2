@@ -52,8 +52,8 @@ describe("10銘柄共有portfolio監査", () => {
 
   it("全candidateを仮想exitまで追跡し、実受信順891万円portfolioの損益とblocker辺を計算する", async () => {
     const candidates = [
-      { id: 1, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "c1", engineSequence: 1, tradeDate: "2026-09-07", candleTime: "10:00", symbol: "285A", routeId: "r1", side: "long", theoreticalEntryPrice: "60000", capitalShares: 100, requiredMargin: 6_500_000, realtimeDecision: "accepted" },
-      { id: 2, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "c2", engineSequence: 2, tradeDate: "2026-09-07", candleTime: "10:00", symbol: "8035", routeId: "r2", side: "long", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "margin_block" },
+      { id: 1, candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused", sourceEventId: "c1", engineSequence: 1, tradeDate: "2026-09-07", candleTime: "10:00", symbol: "285A", routeId: "r1", side: "long", theoreticalEntryPrice: "60000", capitalShares: 100, requiredMargin: 6_500_000, realtimeDecision: "accepted" },
+      { id: 2, candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused", sourceEventId: "c2", engineSequence: 2, tradeDate: "2026-09-07", candleTime: "10:00", symbol: "8035", routeId: "r2", side: "long", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "margin_block" },
     ];
     dbMock.getRtSignalCandidatesForDate.mockResolvedValue(candidates);
     dbMock.getRtSignalCandidateTradesForDate.mockResolvedValue([
@@ -79,7 +79,7 @@ describe("10銘柄共有portfolio監査", () => {
 
   it("仮想exit未完了ならportfolio損益比較を不適格にする", async () => {
     dbMock.getRtSignalCandidatesForDate.mockResolvedValue([
-      { id: 3, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "c3", engineSequence: 3, tradeDate: "2026-09-07", candleTime: "10:20", symbol: "5803", routeId: "r3", side: "short", theoreticalEntryPrice: "10000", capitalShares: 100, requiredMargin: 1_000_000, realtimeDecision: "margin_block" },
+      { id: 3, candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused", sourceEventId: "c3", engineSequence: 3, tradeDate: "2026-09-07", candleTime: "10:20", symbol: "5803", routeId: "r3", side: "short", theoreticalEntryPrice: "10000", capitalShares: 100, requiredMargin: 1_000_000, realtimeDecision: "margin_block" },
     ]);
     dbMock.getRtSignalCandidateTradesForDate.mockResolvedValue([
       { candidateId: 3, tradeDate: "2026-09-07", symbol: "5803", routeId: "r3", side: "short", shares: 100, completed: false, pnl: null, exitSourceEventId: null, exitTradeDate: null, exitCandleTime: null, exitPrice: null },
@@ -97,8 +97,8 @@ describe("10銘柄共有portfolio監査", () => {
 
   it("実受信順・同一分固定順とも同一銘柄1ポジションを専用区分で強制する", async () => {
     dbMock.getRtSignalCandidatesForDate.mockResolvedValue([
-      { id: 11, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "same-1", engineSequence: 11, tradeDate: "2026-09-08", candleTime: "10:00", symbol: "8035", routeId: "r1", side: "long", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "accepted" },
-      { id: 12, candidateVersion: "current-10-symbol-candidates-v1", sourceEventId: "same-2", engineSequence: 12, tradeDate: "2026-09-08", candleTime: "10:05", symbol: "8035", routeId: "r2", side: "short", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "margin_block" },
+      { id: 11, candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused", sourceEventId: "same-1", engineSequence: 11, tradeDate: "2026-09-08", candleTime: "10:00", symbol: "8035", routeId: "r1", side: "long", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "accepted" },
+      { id: 12, candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused", sourceEventId: "same-2", engineSequence: 12, tradeDate: "2026-09-08", candleTime: "10:05", symbol: "8035", routeId: "r2", side: "short", theoreticalEntryPrice: "40000", capitalShares: 100, requiredMargin: 4_000_000, realtimeDecision: "margin_block" },
     ]);
     dbMock.getRtSignalCandidateTradesForDate.mockResolvedValue([
       { candidateId: 11, tradeDate: "2026-09-08", symbol: "8035", routeId: "r1", side: "long", shares: 100, completed: true, pnl: 1000, exitSourceEventId: "same-x1", exitTradeDate: "2026-09-08", exitCandleTime: "10:10", exitPrice: "41000" },

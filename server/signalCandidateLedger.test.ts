@@ -35,7 +35,7 @@ function candidate(input: {
 }): RtSignalCandidate {
   return {
     id: input.id,
-    candidateVersion: "current-10-symbol-candidates-v1",
+    candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused",
     sourceEventId: input.sourceEventId,
     sourceEventDbId: input.id,
     engineSequence: input.engineSequence,
@@ -132,7 +132,7 @@ function virtualTrade(input: {
 }): RtSignalCandidateTrade {
   return {
     id: input.id,
-    virtualEngineVersion: "current-10-symbol-signal-quality-v1",
+    virtualEngineVersion: "current-10-symbol-signal-quality-v2-disco-short-paused",
     candidateId: input.candidateId,
     entrySourceEventId: `source:${input.candidateId}`,
     tradeDate: "2026-09-08",

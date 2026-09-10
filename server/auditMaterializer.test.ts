@@ -35,7 +35,7 @@ const outcomeMock = vi.hoisted(() => ({
   buildDivergenceHypotheses: vi.fn(async () => ({ hypotheses: [] })),
 }));
 const forwardReplayMock = vi.hoisted(() => ({
-  materializeNextForwardReplayForDate: vi.fn(async () => ({ status: "complete" as const, completedVersions: 16 })),
+  materializeNextForwardReplayForDate: vi.fn(async () => ({ status: "complete" as const, completedVersions: 19 })),
 }));
 
 vi.mock("./db", () => dbMock);
@@ -80,7 +80,7 @@ describe("P0 audit materializer", () => {
     dbMock.getRtAuditTradeDateFinality.mockResolvedValue(null);
     dbMock.acquireRtNamedWorkerLock.mockResolvedValue(true);
     portfolioMock.materializePortfolioBundleForDate.mockResolvedValue({ status: "processing" });
-    forwardReplayMock.materializeNextForwardReplayForDate.mockResolvedValue({ status: "complete", completedVersions: 16 });
+    forwardReplayMock.materializeNextForwardReplayForDate.mockResolvedValue({ status: "complete", completedVersions: 19 });
   });
 
   it("portfolio batchが未完了なら同じ実行でparity/outcomeへ進まない", async () => {
@@ -132,7 +132,7 @@ describe("P0 audit materializer", () => {
       status: "processing",
       version: "candidate-version",
       completedVersions: 1,
-      totalVersions: 16,
+      totalVersions: 19,
       result: {},
     });
     const result = await materializeNextAuditComponentForDate("2026-09-07", {

@@ -8,7 +8,7 @@ import { compareCurrentCandidateOutcomes } from "./currentCandidateOutcomeParity
 
 function candidate(input: Partial<RtSignalCandidate> & Pick<RtSignalCandidate, "id" | "engineSequence" | "sourceEventId" | "symbol" | "routeId">) {
   return {
-    candidateVersion: "current-10-symbol-candidates-v1",
+    candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused",
     tradeDate: "2026-09-08",
     candleTime: "10:00",
     side: "long",
@@ -19,7 +19,7 @@ function candidate(input: Partial<RtSignalCandidate> & Pick<RtSignalCandidate, "
 
 function virtualTrade(input: Partial<RtSignalCandidateTrade> & Pick<RtSignalCandidateTrade, "id" | "candidateId" | "symbol" | "routeId">) {
   return {
-    virtualEngineVersion: "current-10-symbol-signal-quality-v1",
+    virtualEngineVersion: "current-10-symbol-signal-quality-v2-disco-short-paused",
     tradeDate: "2026-09-08",
     side: "long",
     shares: 100,

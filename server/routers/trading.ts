@@ -67,6 +67,9 @@ export const tradingRouter = router({
     .query(async ({ input }) => {
       const { getForwardShadowSummary } = await import("../forwardShadow");
       const {
+        DISCO_SHORT_BASELINE_VERSION,
+        DISCO_SHORT_EXECUTABLE_A_VERSION,
+        DISCO_SHORT_RETEST_B_VERSION,
         FORWARD_STRATEGY_VERSION,
         FUJIKURA_FORWARD_STRATEGY_VERSION,
         KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
@@ -102,6 +105,10 @@ export const tradingRouter = router({
         SUMCO_FORWARD_COLLECTION_START_DATE,
         SUMCO_FORWARD_FORMAL_START_DATE,
       } = await import("../sumcoForwardShadow");
+      const {
+        DISCO_SHORT_COLLECTION_START_DATE,
+        DISCO_SHORT_FORMAL_START_DATE,
+      } = await import("../discoOpeningShortForwardShadow");
       const {
         TEL_AUDIT_EVALUATION_START_DATE,
         TEL_CAUSALITY_AUDIT_VERSION,
@@ -284,6 +291,33 @@ export const tradingRouter = router({
             eligibleForAdoption: true,
             collectionStartDate: SUMCO_FORWARD_COLLECTION_START_DATE,
             evaluationStartDate: SUMCO_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: DISCO_SHORT_BASELINE_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_BASELINE_VERSION),
+            purpose: "paused_current_route_comparison_only" as const,
+            eligibleForAdoption: false,
+            collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
+            evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_EXECUTABLE_A_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
+            evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: DISCO_SHORT_RETEST_B_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_RETEST_B_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
+            evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
           },
         ],
         auditStrategies: [

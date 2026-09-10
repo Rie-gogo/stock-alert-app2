@@ -100,7 +100,8 @@ function assertRepairScope(tradeDate: string, symbol: string): void {
     throw new Error(`repair_scope_rejected:${tradeDate}:${symbol}`);
   }
   const identity = getRuntimeIdentity();
-  if (!identity.tradingLogicMatchesBaseline || identity.sourceTreeHash !== EXPECTED_CURRENT_SOURCE_HASH) {
+  // この修復処理は9/8当時の固定版専用。将来のbuild hashへ追随させず、異なる版では安全に拒否する。
+  if (!identity.tradingLogicMatchesBaseline || String(identity.sourceTreeHash) !== EXPECTED_CURRENT_SOURCE_HASH) {
     throw new Error(`repair_runtime_identity_mismatch:${identity.sourceTreeHash}`);
   }
   if (!identity.dryRunRequired || identity.liveOrderApproved) {

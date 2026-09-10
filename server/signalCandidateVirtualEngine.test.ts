@@ -36,7 +36,7 @@ describe("全candidate 100株signal_quality仮想取引", () => {
   it("margin_block候補も100株で開き、同一足SL/TP接触はSLを優先する", async () => {
     const candidate = {
       id: 1,
-      candidateVersion: "current-10-symbol-candidates-v1",
+      candidateVersion: "current-10-symbol-candidates-v2-disco-short-paused",
       sourceEventId: "entry:1",
       engineSequence: 1,
       tradeDate: "2026-09-07",

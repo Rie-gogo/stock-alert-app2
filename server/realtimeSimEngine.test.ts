@@ -2814,8 +2814,8 @@ describe("個別最適化完了銘柄の専用エントリー経路限定", () =
   });
 });
 
-describe("ディスコ(6146) 専用LONG・SHORT", () => {
-  it("6146専用条件とSL/TPを設定し、時間上限を追加しない", async () => {
+describe("ディスコ(6146) 専用LONG・停止中SHORT", () => {
+  it("6146専用LONGを維持し、SHORT本採用だけを停止する", async () => {
     const { getSymbolConfig } = await import("./realtimeSimEngine");
     const config = getSymbolConfig("6146");
     expect(config.enableDiscoConfirmedBreakLong).toBe(true);
@@ -2826,7 +2826,7 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     expect(config.discoConfirmedBreakLongMinVolumeRatio).toBe(1.2);
     expect(config.discoConfirmedBreakLongSlPct).toBe(0.5);
     expect(config.discoConfirmedBreakLongTpPct).toBe(1.8);
-    expect(config.enableDiscoOpeningBreakShort).toBe(true);
+    expect(config.enableDiscoOpeningBreakShort).toBe(false);
     expect(config.discoOpeningBreakShortStartTime).toBe("09:30");
     expect(config.discoOpeningBreakShortEndTime).toBe("10:45");
     expect(config.discoOpeningBreakShortMaxOpenGainPct).toBe(-1.0);
@@ -3037,7 +3037,7 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
     expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
   });
 
-  it("寄り付き前場に始値比-1%以上・10本安値更新・MA8非上昇・出来高増でSHORTを発火する", async () => {
+  it("旧SHORT条件が成立しても本採用経路では発火しない", async () => {
     const symbol = "6146";
     const tradeDate = "2026-10-21";
     await warmup(symbol, tradeDate, 60000, 20);
@@ -3053,15 +3053,12 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
       volume: 10000,
     }));
 
-    expect(result.action).toBe("entry");
+    expect(result.action).toBe("none");
     const position = getOpenPositions().find(item => item.symbol === symbol);
-    expect(position?.side).toBe("short");
-    expect(position?.entryReason).toContain("ディスコ寄り付き10本安値更新SHORT");
-    expect(position?.slPctOverride).toBe(0.5);
-    expect(position?.tpPctOverride).toBe(2.0);
+    expect(position).toBeUndefined();
   });
 
-  it("LONG決済後は同日のSHORTを再評価するが、LONGは1日1回に制限する", async () => {
+  it("LONG決済後も停止中SHORTへ入らず、LONGは1日1回に制限する", async () => {
     const symbol = "6146";
     const tradeDate = "2026-10-22";
     await warmup(symbol, tradeDate, 60000, 20);
@@ -3082,17 +3079,11 @@ describe("ディスコ(6146) 専用LONG・SHORT", () => {
       symbol, tradeDate, candleTime: "09:47",
       open: 59400, high: 59420, low: 58880, close: 58900, volume: 12000,
     }));
-    expect(oppositeShort.action).toBe("entry");
-    expect(getOpenPositions().find(item => item.symbol === symbol)?.side).toBe("short");
-
-    const shortExit = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:48",
-      open: 58900, high: 58920, low: 57500, close: 57600, volume: 10000,
-    }));
-    expect(shortExit.action).toBe("take_profit");
+    expect(oppositeShort.action).toBe("none");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
 
     const secondLong = await processCandle(makeCandle({
-      symbol, tradeDate, candleTime: "09:49",
+      symbol, tradeDate, candleTime: "09:48",
       open: 61000, high: 62000, low: 60980, close: 61900, volume: 15000,
     }));
     expect(secondLong.action).toBe("none");

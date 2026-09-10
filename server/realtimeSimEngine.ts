@@ -640,7 +640,9 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     discoConfirmedBreakLongMinVolumeRatio: 1.2,
     discoConfirmedBreakLongSlPct: 0.5,
     discoConfirmedBreakLongTpPct: 1.8,
-    enableDiscoOpeningBreakShort: true,
+    // ポジションB: 本採用SHORTは一時停止。現行相当・A・Bは注文非接続の前向きシャドーで並行記録する。
+    // LONG経路、他銘柄、データ受信には影響させない。
+    enableDiscoOpeningBreakShort: false,
     discoOpeningBreakShortStartTime: "09:30",
     discoOpeningBreakShortEndTime: "10:45",
     discoOpeningBreakShortMaxOpenGainPct: -1.0,
@@ -652,7 +654,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     discoOpeningBreakShortProfitProtectionTriggerPct: 0.8,
     discoOpeningBreakShortProfitProtectionFloorPct: 0.7,
     exclusiveEntryRoutes: true,
-    notes: "ディスコ: 確認型10本高値更新LONG（09:45〜11:10、VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）＋寄り付き10本安値更新SHORT（09:30〜10:45・始値比-1.0%以下・MA8傾き<=0%・出来高0.8倍以上、SL0.5%/TP2.0%）。寄り付きSHORTは+0.8%到達後、次足以降+0.7%へ戻れば利益保護決済。各方向1日1回、同時保有なし、決済後は反対方向を再評価可能。時間上限なし。",
+    notes: "ディスコ: 確認型10本高値更新LONG（09:45〜11:10、VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）は継続。寄り付き10本安値更新SHORTの本採用経路は2026-09-11から一時停止し、停止前の現行相当・次イベント100株bid depth確認A・失敗リテスト後再安値更新Bを注文非接続シャドーで並行記録する。SHORT比較3案の出口はSL0.5%/TP2.0%、+0.8%到達後の次足以降+0.7%利益保護、反転・板早期決済、11:27前場決済。",
   },
   "6594": { sl: { long: 0.5, short: 0.5 } },
   "8316": { sl: { long: 0.5, short: 0.5 } },

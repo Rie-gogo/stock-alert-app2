@@ -6,6 +6,9 @@ import {
   upsertRtDailyAuditMaterialization,
 } from "./db";
 import {
+  DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_VERSION,
+  DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
@@ -34,6 +37,7 @@ import { auditTaiyoForwardShadowDay } from "./taiyoForwardShadowEngine";
 import { auditTaiyoAfternoonForwardShadowDay } from "./taiyoAfternoonForwardShadowEngine";
 import { auditSocionextForwardShadowDay } from "./socionextForwardShadowEngine";
 import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
+import { auditDiscoOpeningShortForwardShadowDay } from "./discoOpeningShortForwardShadowEngine";
 
 export const FORWARD_REPLAY_MATERIALIZATION_COMPONENT = "forward_strategy_replay";
 
@@ -60,6 +64,9 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "confirmation_strength") },
   { version: SUMCO_VOLUME_110_VERSION, symbol: "3436", run: (source, shadow) => auditSumcoForwardShadowDay(source, shadow, "volume_110") },
   { version: SUMCO_TIME_15_VERSION, symbol: "3436", run: (source, shadow) => auditSumcoForwardShadowDay(source, shadow, "time_15") },
+  { version: DISCO_SHORT_BASELINE_VERSION, symbol: "6146", run: (source, shadow, realtime) => auditDiscoOpeningShortForwardShadowDay(source, shadow, realtime, "paused_baseline") },
+  { version: DISCO_SHORT_EXECUTABLE_A_VERSION, symbol: "6146", run: (source, shadow, realtime) => auditDiscoOpeningShortForwardShadowDay(source, shadow, realtime, "executable_a") },
+  { version: DISCO_SHORT_RETEST_B_VERSION, symbol: "6146", run: (source, shadow, realtime) => auditDiscoOpeningShortForwardShadowDay(source, shadow, realtime, "retest_b") },
 ];
 
 export async function materializeNextForwardReplayForDate(input: {

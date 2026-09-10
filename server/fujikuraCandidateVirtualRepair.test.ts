@@ -2,6 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({ getDb: vi.fn(), getRtRealtimeDecisionEventsForDateAndSymbol: vi.fn() }));
 vi.mock("./db", () => dbMock);
+vi.mock("./runtimeIdentity", async importOriginal => {
+  const actual = await importOriginal<typeof import("./runtimeIdentity")>();
+  return {
+    ...actual,
+    // 9/8修復処理は、その当時の固定source hashでだけ再現性を確認する。
+    getRuntimeIdentity: vi.fn(() => ({
+      ...actual.getRuntimeIdentity(),
+      tradingLogicMatchesBaseline: true,
+      sourceTreeHash: "42006f0ef757255a1b1eda86fa7c37dd28a4b42f7d23503867b9fefdf24dfeda",
+    })),
+  };
+});
 
 import { getRuntimeIdentity, sha256Stable } from "./runtimeIdentity";
 import { applyFujikuraCandidateVirtualRepair, hashFujikuraRepairReplayForTest, replayFujikuraCandidateVirtualRepairForTest } from "./fujikuraCandidateVirtualRepair";

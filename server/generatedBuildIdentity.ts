@@ -1,17 +1,19 @@
 // 自動生成ファイル。scripts/generate-build-identity.mjs以外で編集しない。
 export const GENERATED_BUILD_IDENTITY = {
   "gitSha": "unavailable",
-  "sourceTreeHash": "42006f0ef757255a1b1eda86fa7c37dd28a4b42f7d23503867b9fefdf24dfeda",
-  "generatedAt": "2026-09-09T12:56:02.550Z",
+  "sourceTreeHash": "dd4f75555f20e6c04ef23721ef57db335396b57d178a20bb2b1a578a7c34ca32",
+  "generatedAt": "2026-09-10T12:47:48.193Z",
   "fileHashes": {
-    "shared/stocks.ts": "3d30672d1be9662760181962a2bb6d66b8a77e7a0d8964829eaf48ecb32b0bdf",
-    "server/realtimeSimEngine.ts": "bdb6b3f41f20d354fe119e47a68f8b66b8166541dcd3c9322f0b3a7b71122c19",
-    "server/orderBridge.ts": "17f85b9a3af3f20697ae61e086e792b3857e62b3fa0f87884341c0ef955cb06e",
-    "server/socionextConfirmedLong.ts": "52727263bbf05efd591a1f2507b2f64476d151381ee4dfff08036f58f628e613",
-    "server/sumcoBreakdownShort.ts": "f744c0060d10bd3d82de0fe0addba6405ce7dca24399e50167197cd917ca7c0d",
-    "server/softbankBreakoutLong.ts": "b80cabede2e058f9bc19502871e09429316196e1ce4e0a5be51b4c614586854a",
-    "server/kioxiaConfirmedMorningLong.ts": "bf52abe75aede5f5c66511666eb1cd9272902eba4073fa246720cf9b0146d29e",
-    "server/telOpenDirectionBreakout.ts": "a3158c52be0ac082bc8070daa08add6566988e6828633d87963955063aa85451",
-    "server/taiyoCandidateB.ts": "4ad48ef6765ae0e67fa00fdf8e188c9cbcf4a61e7b70a3863dc1047732885fce"
+    "shared/stocks.ts": "b849001124cc7df3ce8f58f7af7ea39a274672129df7f4a6c4088ef10d2a7401",
+    "server/realtimeSimEngine.ts": "3e95bf04f43da41157c616be4c4b318ec6f5a835c18f2e47c3d7dcd2ff4b4efa",
+    "server/orderBridge.ts": "8806dfb8b47f19a796482b3b58880b20532663c940f0ba50d6e1aaa752d967a4",
+    "server/socionextConfirmedLong.ts": "684c01b1a873692042b4a0c131f3e2b2151be6475c360c366d85b8511161dc08",
+    "server/sumcoBreakdownShort.ts": "717bc43c216c5f19b9143f4cf6b67770b0b0fa53cfb89e07706ec1b21b31510e",
+    "server/softbankBreakoutLong.ts": "d7667ee53157155962c00fde7689b27ab472a5a27f23b1508e41a497d26bf49d",
+    "server/kioxiaConfirmedMorningLong.ts": "da92a58ac79b7d03f3bb61fde383644bfddd1ab7c4569362bfc3e4be939ca4d1",
+    "server/telOpenDirectionBreakout.ts": "c92c052cfabc9a90b9afad611bfb9b12aa8348f45dd50a2b7c9a824c8035e7da",
+    "server/taiyoCandidateB.ts": "d7c780b0b8f751e3ddabf902595be56956cd29e08e2e1891a5e87b9871c6a79b",
+    "server/discoOpeningShortForwardShadow.ts": "cd15cd24cb7b82e219a90f0178d3adb138a6454cf4d85cbee4366d8d18b58cab",
+    "server/discoOpeningShortForwardShadowEngine.ts": "debf7a91672a021da6f662755d714dc5a55e85c0abf06422e5440918dbfe6f16"
   }
 } as const;

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   BASELINE_STRATEGY_GIT_SHA,
+  DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_VERSION,
+  DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_EVALUATION_POLICY,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
@@ -16,7 +19,7 @@ import {
 } from "./runtimeIdentity";
 
 describe("本番稼働版自己証明", () => {
-  it("f6878060売買ロジック、10銘柄、DRY_RUN限定を自己表示する", () => {
+  it("固定売買ロジック、10銘柄、DRY_RUN限定を自己表示する", () => {
     const identity = getRuntimeIdentity();
     expect(identity.baselineStrategyGitSha).toBe(BASELINE_STRATEGY_GIT_SHA);
     expect(identity.tradingLogicMatchesBaseline).toBe(true);
@@ -57,6 +60,9 @@ describe("本番稼働版自己証明", () => {
       SUMCO_TIME_15_VERSION,
       TAIYO_AFTERNOON_RR2_VERSION,
       TAIYO_AFTERNOON_DEPTH_VERSION,
+      DISCO_SHORT_BASELINE_VERSION,
+      DISCO_SHORT_EXECUTABLE_A_VERSION,
+      DISCO_SHORT_RETEST_B_VERSION,
     ]));
     expect(versions.some(version => version.length > 64)).toBe(true);
     expect(versions.every(version => version.length <= 128)).toBe(true);

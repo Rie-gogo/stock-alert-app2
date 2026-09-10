@@ -56,8 +56,8 @@ vi.mock("../shared/stocks", () => ({
 import { getRtCandles } from "./db";
 import { processCandle } from "./realtimeSimEngine";
 
-describe("6146専用LONG・SHORT 13保存日・未来情報なし再生", () => {
-  it("保存済みKABU 1分足と同時点板だけを時刻順に処理し、専用2方式だけを発火する", async () => {
+describe("6146専用LONG・停止中SHORT 13保存日・未来情報なし再生", () => {
+  it("保存済みKABU 1分足と同時点板だけを時刻順に処理し、LONGだけを発火する", async () => {
     const dates = [
       "2026-08-07",
       "2026-08-10",
@@ -105,12 +105,12 @@ describe("6146専用LONG・SHORT 13保存日・未来情報なし再生", () => 
 
     console.log("6146_13D_CAUSAL_REPLAY", JSON.stringify({ processedRows, entries, exits, wins, losses, pnl }));
     expect(processedRows).toBe(4_065);
-    expect(entries).toHaveLength(14);
-    expect(exits).toHaveLength(14);
-    expect(wins).toBe(11);
-    expect(losses).toBe(3);
-    // LONG 09:45〜11:10、SHORT 0.8%到達後0.7%利益保護を含む固定値。
-    expect(pnl).toBe(709_680);
-    expect(entries.every(event => event.reason?.startsWith("ディスコ確認型10本高値更新LONG") || event.reason?.startsWith("ディスコ寄り付き10本安値更新SHORT"))).toBe(true);
+    expect(entries).toHaveLength(9);
+    expect(exits).toHaveLength(9);
+    expect(wins).toBe(8);
+    expect(losses).toBe(1);
+    expect(pnl).toBe(564_051);
+    expect(entries.every(event => event.reason?.startsWith("ディスコ確認型10本高値更新LONG"))).toBe(true);
+    expect(entries.some(event => event.reason?.startsWith("ディスコ寄り付き10本安値更新SHORT"))).toBe(false);
   }, 60_000);
 });

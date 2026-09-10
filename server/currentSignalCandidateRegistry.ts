@@ -4,8 +4,9 @@ import {
   resolveSpecializedFiredStateKeys,
 } from "./realtimeSimEngine";
 
-export const CURRENT_SIGNAL_CANDIDATE_VERSION = "current-10-symbol-candidates-v1";
-export const CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION = "current-10-symbol-signal-quality-v1";
+// 6146寄り付きSHORTの本採用停止を、停止前の候補・仮想損益と混在させない。
+export const CURRENT_SIGNAL_CANDIDATE_VERSION = "current-10-symbol-candidates-v2-disco-short-paused";
+export const CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION = "current-10-symbol-signal-quality-v2-disco-short-paused";
 
 export type CandidateSide = "long" | "short";
 

@@ -2212,3 +2212,10 @@
 - [x] OAuth対象テスト、型検査、本番build、既存全テスト、固定売買hash、変更禁止対象差分0を確認する
 - [x] チェックポイント保存・自動公開後、手動URL修正なしの本番OAuth開始とユーザー操作による新規ログイン完了を確認する
 - [x] 原因、変更、環境整合、テスト、本番ログイン、protected API、checkpoint、安全不変を報告する
+
+## 2026-09-10 現行DRY_RUN・未見前向き評価・P0監査 途中経過
+- [x] 公開APIの`getRuntimeIdentity`と当日`getForwardShadowSummary`を取得し、JST時点・version・hash・LIVE/formal状態を確認する
+- [x] 本番DBを読取専用で照合し、現行取引、candidate／virtual、queue／gap、親source event、outbox状態を確認する
+- [x] 891万円portfolio両方式、実時対固定版replay、因果性、routeParityGate、formalEvaluationGateを確認する
+- [x] 各strategyVersionのsignal_quality／capital_constrained指標と判定を、開始前・未受信・0件・不一致を分けて集計する
+- [x] 現行・正式未見・収集／修復データを混ぜず、日本語途中経過と優先対応3件以内を報告する

@@ -25,8 +25,8 @@ export const SUMCO_TIME_15_VERSION = "candidate-3436-current-entry-time15-v1";
 export const TAIYO_AFTERNOON_RR2_VERSION = "candidate-6976-afternoon-short-rr2-45-v1";
 export const TAIYO_AFTERNOON_DEPTH_VERSION = "candidate-6976-afternoon-short-depth-v1";
 export const DISCO_SHORT_BASELINE_VERSION = "baseline-6146-opening-short-paused-v1";
-export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-executable-a-v1";
-export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v1";
+export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-executable-a-v2";
+export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v2";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,

@@ -106,9 +106,9 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain(`戦略版: ${DISCO_SHORT_BASELINE_VERSION}`);
     expect(section).toContain("6146 寄り付き10本安値更新SHORT・一時停止後の現行シャドー基準");
     expect(section).toContain(`戦略版: ${DISCO_SHORT_EXECUTABLE_A_VERSION}`);
-    expect(section).toContain("6146 SHORT A・次イベント100株bid depth継続確認");
+    expect(section).toContain("6146 SHORT A・次イベント評価株数bid depth継続確認");
     expect(section).toContain(`戦略版: ${DISCO_SHORT_RETEST_B_VERSION}`);
-    expect(section).toContain("6146 SHORT B・安値割れ後の失敗リテスト＋再安値更新");
+    expect(section).toContain("6146 SHORT B・失敗リテスト＋再安値更新後の次イベントdepth確認");
     expect(section).toContain("対象外（停止した現行経路の比較基準として収集継続）");
     expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");
     expect(section).toContain("6976追加Gate: 案=board_demand");

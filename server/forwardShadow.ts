@@ -1174,7 +1174,7 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
     {
       versionId: DISCO_SHORT_EXECUTABLE_A_VERSION,
       symbol: "6146",
-      title: "6146 SHORT A・次イベント100株bid depth継続確認",
+      title: "6146 SHORT A・次イベント評価株数bid depth継続確認",
       startDate: DISCO_SHORT_COLLECTION_START_DATE,
       cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
       adoptionEligible: true,
@@ -1183,7 +1183,7 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
     {
       versionId: DISCO_SHORT_RETEST_B_VERSION,
       symbol: "6146",
-      title: "6146 SHORT B・安値割れ後の失敗リテスト＋再安値更新",
+      title: "6146 SHORT B・失敗リテスト＋再安値更新後の次イベントdepth確認",
       startDate: DISCO_SHORT_COLLECTION_START_DATE,
       cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
       adoptionEligible: true,

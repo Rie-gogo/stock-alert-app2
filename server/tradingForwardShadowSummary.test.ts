@@ -8,6 +8,10 @@ const auditDbMock = vi.hoisted(() => ({
   getRtRealtimeDecisionEventsForDate: vi.fn(async () => []),
   getRtReplayComparisonsForDate: vi.fn(async () => []),
   getRtPortfolioAuditEventsForDate: vi.fn(async () => []),
+  getRtDailyAuditMaterialization: vi.fn(async () => ({
+    status: "complete",
+    resultJson: { scenarios: { paused_current: { actualReceipt: { complete: true } } } },
+  })),
   getRtOutcomeLabelsForDate: vi.fn(async () => []),
   getRtDivergenceHypotheses: vi.fn(async () => []),
 }));
@@ -161,6 +165,9 @@ describe("trading.getForwardShadowSummary", () => {
       officialReplayOrder: "rt_realtime_decision_events.id_engine_sequence",
       brokerExecutionPrice: "unavailable_in_dry_run",
       automaticAdoption: false,
+    });
+    expect(result.audit.discoShortPortfolioComparison).toMatchObject({
+      scenarios: { paused_current: { actualReceipt: { complete: true } } },
     });
     expect(summaryMock).toHaveBeenCalledTimes(19);
     expect(summaryMock).toHaveBeenNthCalledWith(3, "2026-09-04", KIOXIA_FORWARD_STRATEGY_VERSION);

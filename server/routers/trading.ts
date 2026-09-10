@@ -124,6 +124,7 @@ export const tradingRouter = router({
       } = await import("../telExecutableConfirmDepth");
       const {
         getRtDivergenceHypotheses,
+        getRtDailyAuditMaterialization,
         getRtOutcomeLabelsForDate,
         getRtPortfolioAuditEventsForDate,
         getRtRealtimeDecisionEventsForDate,
@@ -135,6 +136,10 @@ export const tradingRouter = router({
         CURRENT_PORTFOLIO_AUDIT_VERSION,
         NORMALIZED_PORTFOLIO_AUDIT_VERSION,
       } = await import("../portfolioAudit");
+      const {
+        DISCO_SHORT_PORTFOLIO_COMPONENT,
+        DISCO_SHORT_PORTFOLIO_VERSION,
+      } = await import("../discoOpeningShortPortfolioComparison");
       const [
         currentDecisions,
         replayComparisons,
@@ -142,6 +147,7 @@ export const tradingRouter = router({
         minuteNormalizedPortfolio,
         allCandidateReceiptPortfolio,
         allCandidateMinutePortfolio,
+        discoShortPortfolioComparison,
         outcomeLabels,
         divergenceHypotheses,
       ] = await Promise.all([
@@ -151,6 +157,11 @@ export const tradingRouter = router({
         getRtPortfolioAuditEventsForDate({ portfolioVersion: NORMALIZED_PORTFOLIO_AUDIT_VERSION, tradeDate: input.asOfDate, mode: "minute_normalized" }),
         getRtPortfolioAuditEventsForDate({ portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION, tradeDate: input.asOfDate, mode: "actual_receipt" }),
         getRtPortfolioAuditEventsForDate({ portfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION, tradeDate: input.asOfDate, mode: "minute_normalized" }),
+        getRtDailyAuditMaterialization({
+          component: DISCO_SHORT_PORTFOLIO_COMPONENT,
+          version: DISCO_SHORT_PORTFOLIO_VERSION,
+          tradeDate: input.asOfDate,
+        }),
         getRtOutcomeLabelsForDate({ baselineVersion: "current-realtime-outcome-label-v1", tradeDate: input.asOfDate }),
         getRtDivergenceHypotheses(input.asOfDate),
       ]);
@@ -352,6 +363,12 @@ export const tradingRouter = router({
           minuteNormalizedPortfolio: summarizePortfolio(minuteNormalizedPortfolio),
           allCandidateReceiptPortfolio: summarizePortfolio(allCandidateReceiptPortfolio),
           allCandidateMinutePortfolio: summarizePortfolio(allCandidateMinutePortfolio),
+          discoShortPortfolioComparison: discoShortPortfolioComparison?.status === "complete"
+            ? discoShortPortfolioComparison.resultJson
+            : {
+                status: discoShortPortfolioComparison?.status ?? "not_materialized",
+                reason: discoShortPortfolioComparison?.lastError ?? null,
+              },
           outcomeLabels: {
             events: outcomeLabels.length,
             completed: outcomeLabels.filter(event => event.completed).length,

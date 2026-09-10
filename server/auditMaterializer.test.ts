@@ -37,6 +37,9 @@ const outcomeMock = vi.hoisted(() => ({
 const forwardReplayMock = vi.hoisted(() => ({
   materializeNextForwardReplayForDate: vi.fn(async () => ({ status: "complete" as const, completedVersions: 19 })),
 }));
+const discoPortfolioMock = vi.hoisted(() => ({
+  buildDiscoShortPortfolioComparisonForDate: vi.fn(async () => ({ scenarios: {} })),
+}));
 
 vi.mock("./db", () => dbMock);
 vi.mock("./portfolioAudit", () => ({
@@ -54,6 +57,11 @@ vi.mock("./currentCandidateOutcomeParity", () => ({
 }));
 vi.mock("./outcomeDivergenceAudit", () => outcomeMock);
 vi.mock("./forwardReplayMaterializer", () => forwardReplayMock);
+vi.mock("./discoOpeningShortPortfolioComparison", () => ({
+  DISCO_SHORT_PORTFOLIO_COMPONENT: "disco_short_portfolio_comparison",
+  DISCO_SHORT_PORTFOLIO_VERSION: "position-b-10-symbol-891m-v1",
+  buildDiscoShortPortfolioComparisonForDate: discoPortfolioMock.buildDiscoShortPortfolioComparisonForDate,
+}));
 
 import {
   DIVERGENCE_MATERIALIZATION_COMPONENT,
@@ -68,6 +76,10 @@ import {
   CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
   CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
 } from "./currentCandidateOutcomeParity";
+import {
+  DISCO_SHORT_PORTFOLIO_COMPONENT,
+  DISCO_SHORT_PORTFOLIO_VERSION,
+} from "./discoOpeningShortPortfolioComparison";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -142,11 +154,27 @@ describe("P0 audit materializer", () => {
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
   });
 
+  it("forward replay完了後は6146の10銘柄統合比較だけをmaterializeする", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
+      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
+      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
+      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
+      return null;
+    });
+    const result = await materializeNextAuditComponentForDate("2026-09-07", {
+      now: new Date("2026-09-08T00:00:00Z"),
+    });
+    expect(result).toMatchObject({ status: "processing", component: DISCO_SHORT_PORTFOLIO_COMPONENT });
+    expect(discoPortfolioMock.buildDiscoShortPortfolioComparisonForDate).toHaveBeenCalledWith("2026-09-07");
+    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
+  });
+
   it("全component完成後は重いbuilderを一切呼ばずcompleteを返す", async () => {
     dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
       if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
       if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
       if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
+      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
       if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
       if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
       return null;

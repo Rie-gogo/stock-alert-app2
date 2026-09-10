@@ -67,6 +67,26 @@ function triggerSource(): ForwardSourceEventInput {
   });
 }
 
+function validAudit(): NonNullable<ForwardSourceEventInput["currentAudit"]> {
+  return {
+    engineSequence: 31,
+    resultType: "none",
+    routeId: null,
+    marginUsedBefore: 0,
+    marginUsedAfter: 0,
+    stateHashBefore: "before",
+    stateHashAfter: "after",
+    causalityStatus: "pass",
+    causalityReason: "available_before_decision",
+    boardObservedAtMs: 900,
+    relayAssembledAtMs: 1_000,
+    relaySentAtMs: 1_100,
+    cloudReceivedAtMs: 2_000,
+    decisionStartedAtMs: 2_050,
+    decisionCompletedAtMs: 2_100,
+  };
+}
+
 function runWarmup(
   variant: "paused_baseline" | "executable_a" | "retest_b",
   transition: typeof applyDiscoPausedBaselineTransition,
@@ -155,7 +175,39 @@ describe("6146停止中SHORT・現行/A/B前向きシャドー", () => {
     );
     expect(accepted.resultType).toBe("entry");
     expect(accepted.openedPosition?.entryPrice).toBeCloseTo(58_946, 6);
-    expect(accepted.openedPosition?.executionProxyKind).toBe("bid_depth_vwap_100");
+    expect(accepted.openedPosition?.executionProxyKind).toBe("bid_depth_vwap");
+  });
+
+  it("A案の資金制約版は予定株数すべてのdepth VWAPと同じ株数で損益を計算する", () => {
+    const pending = applyDiscoExecutableATransition(
+      runWarmup("executable_a", applyDiscoExecutableATransition),
+      triggerSource(),
+      "capital_constrained",
+    );
+    if (pending.nextState.pending?.kind !== "executable") throw new Error("expected executable pending");
+    pending.nextState.pending.theoreticalSignalPrice = 10_000;
+    pending.nextState.pending.breakoutLevel = 10_010;
+    const accepted = applyDiscoExecutableATransition(
+      pending.nextState,
+      source({
+        id: "capital-depth",
+        time: "09:31",
+        open: 10_000,
+        high: 10_005,
+        low: 9_990,
+        close: 9_995,
+        board: {
+          bids: [{ price: 9_998, qty: 100 }, { price: 9_996, qty: 200 }],
+          asks: [{ price: 10_000, qty: 300 }],
+        },
+        currentAudit: validAudit(),
+      }),
+      "capital_constrained",
+    );
+    expect(accepted.resultType).toBe("entry");
+    expect(accepted.openedPosition).toMatchObject({ shares: 200, executionProxyKind: "bid_depth_vwap" });
+    expect(accepted.openedPosition?.entryPrice).toBeCloseTo(9_997, 6);
+    expect(accepted.actions[0]).toMatchObject({ executionDepthShares: 200 });
   });
 
   it("A案は古い板を拒否して日次枠を消費しない", () => {
@@ -225,7 +277,7 @@ describe("6146停止中SHORT・現行/A/B前向きシャドー", () => {
     expect(retested.resultType).toBe("pending");
     expect(retested.actions[0]?.type).toBe("failed_retest_confirmed");
 
-    const entered = applyDiscoRetestBTransition(
+    const rebreakConfirmed = applyDiscoRetestBTransition(
       retested.nextState,
       source({
         id: "rebreak",
@@ -237,13 +289,38 @@ describe("6146停止中SHORT・現行/A/B前向きシャドー", () => {
       }),
       "signal_quality",
     );
+    expect(rebreakConfirmed.resultType).toBe("pending");
+    expect(rebreakConfirmed.openedPosition).toBeNull();
+    expect(rebreakConfirmed.actions[0]).toMatchObject({
+      type: "rebreak_execution_pending",
+      rebreakSourceEventId: "rebreak",
+      rebreakClose: 58_800,
+    });
+
+    const entered = applyDiscoRetestBTransition(
+      rebreakConfirmed.nextState,
+      source({
+        id: "rebreak-execution",
+        time: "09:33",
+        open: 58_790,
+        high: 58_810,
+        low: 58_740,
+        close: 58_760,
+        board: {
+          bids: [{ price: 58_780, qty: 60 }, { price: 58_770, qty: 100 }],
+          asks: [{ price: 58_800, qty: 100 }],
+        },
+        currentAudit: validAudit(),
+      }),
+      "signal_quality",
+    );
     expect(entered.resultType).toBe("entry");
     expect(entered.openedPosition).toMatchObject({
       signalSourceEventId: "trigger",
-      entrySourceEventId: "rebreak",
-      entryPrice: 58_800,
-      executionProxyKind: "rebreak_candle_close",
+      entrySourceEventId: "rebreak-execution",
+      executionProxyKind: "bid_depth_vwap",
     });
+    expect(entered.openedPosition?.entryPrice).toBeCloseTo(58_776, 6);
   });
 
   it("3案はすべて注文非接続で、採用候補A/BはTPがSLの2倍以上", () => {

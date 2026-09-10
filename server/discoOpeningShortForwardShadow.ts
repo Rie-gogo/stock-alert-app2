@@ -75,8 +75,8 @@ export const DISCO_SHORT_EXECUTABLE_SPEC = Object.freeze({
   entry: Object.freeze({
     ...COMMON_ENTRY,
     timing: "next_6146_source_event_after_signal",
-    price: "bid_depth_vwap_100",
-    executionDepthShares: 100,
+    price: "bid_depth_vwap_for_evaluation_shares",
+    executionDepthShares: "signal_quality_100_or_capital_constrained_planned_shares",
     maximumAdverseEntryPct: 0.10,
     maximumClockSafeBoardAgeMs: 5_000,
     requireExecutablePriceBelowOriginalBreakoutLevel: true,
@@ -103,7 +103,12 @@ export const DISCO_SHORT_RETEST_SPEC = Object.freeze({
     retestMustCloseBelowBrokenLevel: true,
     rebreakWindowMinutes: 5,
     rebreak: "bearish_close_below_trigger_and_retest_lows",
-    price: "completed_rebreak_candle_close",
+    executionTiming: "next_6146_source_event_after_rebreak_confirmation",
+    price: "bid_depth_vwap_for_evaluation_shares",
+    executionDepthShares: "signal_quality_100_or_capital_constrained_planned_shares",
+    maximumAdverseEntryPct: 0.10,
+    maximumClockSafeBoardAgeMs: 5_000,
+    requireExecutablePriceBelowRebreakLevel: true,
     rejectionConsumesDailySlot: false,
     rejectedCandidateSearch: "discard_structure_and_continue_next_candle",
   }),
@@ -146,7 +151,7 @@ type PendingExecutable = {
 
 type PendingRetest = {
   kind: "retest";
-  phase: "awaiting_retest" | "awaiting_rebreak";
+  phase: "awaiting_retest" | "awaiting_rebreak" | "awaiting_execution";
   signalSourceEventId: string;
   signalTime: string;
   theoreticalSignalPrice: number;
@@ -156,6 +161,10 @@ type PendingRetest = {
   retestSourceEventId: string | null;
   retestTime: string | null;
   retestLow: number | null;
+  rebreakSourceEventId: string | null;
+  rebreakTime: string | null;
+  rebreakClose: number | null;
+  rebreakLevel: number | null;
 };
 
 export type DiscoShortPending = PendingExecutable | PendingRetest;
@@ -171,7 +180,7 @@ export type DiscoShortPosition = {
   shares: number;
   slPct: number;
   tpPct: number;
-  executionProxyKind: "signal_candle_close" | "bid_depth_vwap_100" | "rebreak_candle_close";
+  executionProxyKind: "signal_candle_close" | "bid_depth_vwap";
   breakoutLevel: number;
   profitProtectionArmedAtSourceEventId: string | null;
 };
@@ -259,6 +268,67 @@ function sharesForMode(mode: ForwardEvaluationMode, price: number): number {
   if (mode === "signal_quality") return 100;
   const rawShares = Math.floor((3_000_000 * 0.9) / price);
   return Math.max(100, Math.floor(rawShares / 100) * 100);
+}
+
+function evaluateShortExecution(input: {
+  source: ForwardSourceEventInput;
+  mode: ForwardEvaluationMode;
+  theoreticalPrice: number;
+  breakoutLevel: number;
+  maximumAdverseEntryPct: number;
+}) {
+  // まず最良気配に相当する100株VWAPだけを読み、評価方式の予定株数を決める。
+  // その後、必ずその予定株数すべてを消費したdepth VWAPで約定可否と損益を評価する。
+  const sizingDepth = calculateDepthVwap({ board: input.source.board, side: "short", shares: 100 });
+  const shares = sizingDepth ? sharesForMode(input.mode, sizingDepth.price) : null;
+  const depth = shares === null
+    ? null
+    : calculateDepthVwap({ board: input.source.board, side: "short", shares });
+  const executablePrice = depth?.price ?? null;
+  const clockAge = calculateClockSafeBoardAge(input.source.currentAudit);
+  const boardObservedAtMs = input.source.currentAudit?.boardObservedAtMs ?? null;
+  const relayAssembledAtMs = input.source.currentAudit?.relayAssembledAtMs ?? null;
+  const boardSourceCausal = boardObservedAtMs !== null
+    && relayAssembledAtMs !== null
+    && boardObservedAtMs <= relayAssembledAtMs;
+  const adverseEntryPct = executablePrice === null
+    ? null
+    : (input.theoreticalPrice - executablePrice) / input.theoreticalPrice * 100;
+  const breakoutMaintained = executablePrice !== null && executablePrice < input.breakoutLevel;
+  const adverseAllowed = adverseEntryPct !== null
+    && adverseEntryPct <= input.maximumAdverseEntryPct;
+  const accepted = clockAge.timestampsAvailable
+    && clockAge.causal
+    && clockAge.fresh
+    && boardSourceCausal
+    && shares !== null
+    && executablePrice !== null
+    && breakoutMaintained
+    && adverseAllowed;
+  const rejectionReason = accepted
+    ? null
+    : !clockAge.timestampsAvailable
+      ? "board_observed_or_decision_time_unavailable"
+      : !clockAge.causal || !boardSourceCausal
+        ? "board_source_not_causal"
+        : !clockAge.fresh
+          ? "board_snapshot_stale_over_5000ms"
+          : executablePrice === null || shares === null
+            ? "insufficient_bid_depth_for_evaluation_shares"
+            : !breakoutMaintained
+              ? "breakout_not_maintained_at_next_event"
+              : "adverse_entry_gap_over_010pct";
+  return {
+    accepted,
+    rejectionReason,
+    shares,
+    depth,
+    executablePrice,
+    clockAge,
+    boardSourceCausal,
+    adverseEntryPct,
+    breakoutMaintained,
+  };
 }
 
 function appendCandle(state: DiscoShortState, input: ForwardSourceEventInput) {
@@ -423,6 +493,7 @@ function createPosition(input: {
   signalTime: string;
   theoreticalSignalPrice: number;
   entryPrice: number;
+  shares: number;
   breakoutLevel: number;
   executionProxyKind: DiscoShortPosition["executionProxyKind"];
 }): DiscoShortPosition {
@@ -434,7 +505,7 @@ function createPosition(input: {
     entryTime: input.source.candle.candleTime,
     theoreticalSignalPrice: input.theoreticalSignalPrice,
     entryPrice: input.entryPrice,
-    shares: sharesForMode(input.mode, input.entryPrice),
+    shares: input.shares,
     slPct: COMMON_EXIT.slPct,
     tpPct: COMMON_EXIT.tpPct,
     executionProxyKind: input.executionProxyKind,
@@ -502,41 +573,24 @@ export function applyDiscoShortTransition(
     const pending = state.pending;
     state.pending = null;
     skipSignalDetection = true;
-    const depth = calculateDepthVwap({
-      board: input.board,
-      side: "short",
-      shares: DISCO_SHORT_EXECUTABLE_SPEC.entry.executionDepthShares,
+    const execution = evaluateShortExecution({
+      source: input,
+      mode,
+      theoreticalPrice: pending.theoreticalSignalPrice,
+      breakoutLevel: pending.breakoutLevel,
+      maximumAdverseEntryPct: DISCO_SHORT_EXECUTABLE_SPEC.entry.maximumAdverseEntryPct,
     });
-    const executablePrice = depth?.price ?? null;
-    const clockAge = calculateClockSafeBoardAge(input.currentAudit);
-    const boardObservedAtMs = input.currentAudit?.boardObservedAtMs ?? null;
-    const relayAssembledAtMs = input.currentAudit?.relayAssembledAtMs ?? null;
-    const boardSourceCausal = boardObservedAtMs !== null
-      && relayAssembledAtMs !== null
-      && boardObservedAtMs <= relayAssembledAtMs;
-    const adverseEntryPct = executablePrice === null
-      ? null
-      : (pending.theoreticalSignalPrice - executablePrice) / pending.theoreticalSignalPrice * 100;
-    const breakoutMaintained = executablePrice !== null && executablePrice < pending.breakoutLevel;
-    const adverseAllowed = adverseEntryPct !== null
-      && adverseEntryPct <= DISCO_SHORT_EXECUTABLE_SPEC.entry.maximumAdverseEntryPct;
-    const accepted = clockAge.timestampsAvailable
-      && clockAge.causal
-      && clockAge.fresh
-      && boardSourceCausal
-      && executablePrice !== null
-      && breakoutMaintained
-      && adverseAllowed;
-    if (accepted) {
+    if (execution.accepted) {
       state.position = createPosition({
         source: input,
         mode,
         signalSourceEventId: pending.signalSourceEventId,
         signalTime: pending.signalTime,
         theoreticalSignalPrice: pending.theoreticalSignalPrice,
-        entryPrice: executablePrice,
+        entryPrice: execution.executablePrice!,
+        shares: execution.shares!,
         breakoutLevel: pending.breakoutLevel,
-        executionProxyKind: "bid_depth_vwap_100",
+        executionProxyKind: "bid_depth_vwap",
       });
       openedPosition = { ...state.position };
       state.dailySlotConsumed = true;
@@ -544,38 +598,30 @@ export function applyDiscoShortTransition(
       actions.push({
         type: "entry",
         variant,
-        executablePrice,
+        executablePrice: execution.executablePrice,
         theoreticalSignalPrice: pending.theoreticalSignalPrice,
         breakoutLevel: pending.breakoutLevel,
-        adverseEntryPct,
-        boardAgeMs: clockAge.boardAgeMs,
-        boardSourceCausal,
-        depth,
+        adverseEntryPct: execution.adverseEntryPct,
+        boardAgeMs: execution.clockAge.boardAgeMs,
+        boardSourceCausal: execution.boardSourceCausal,
+        executionDepthShares: execution.shares,
+        depth: execution.depth,
       });
     } else {
       resultType = "rejected";
       actions.push({
         type: "entry_rejected",
         variant,
-        reason: !clockAge.timestampsAvailable || boardObservedAtMs === null
-          ? "board_observed_or_decision_time_unavailable"
-          : !clockAge.causal || !boardSourceCausal
-            ? "same_clock_interval_negative"
-            : !clockAge.fresh
-              ? "board_snapshot_stale_over_5000ms"
-              : executablePrice === null
-                ? "insufficient_bid_depth_for_100_shares"
-                : !breakoutMaintained
-                  ? "breakout_not_maintained_at_next_event"
-                  : "adverse_entry_gap_over_010pct",
+        reason: execution.rejectionReason,
         originalSignalSourceEventId: pending.signalSourceEventId,
-        executablePrice,
+        executablePrice: execution.executablePrice,
         theoreticalSignalPrice: pending.theoreticalSignalPrice,
         breakoutLevel: pending.breakoutLevel,
-        adverseEntryPct,
-        boardAgeMs: clockAge.boardAgeMs,
-        boardSourceCausal,
-        depth,
+        adverseEntryPct: execution.adverseEntryPct,
+        boardAgeMs: execution.clockAge.boardAgeMs,
+        boardSourceCausal: execution.boardSourceCausal,
+        executionDepthShares: execution.shares,
+        depth: execution.depth,
         dailySlotConsumed: false,
       });
     }
@@ -617,7 +663,7 @@ export function applyDiscoShortTransition(
         resultType = "pending";
         skipSignalDetection = true;
       }
-    } else {
+    } else if (pending.phase === "awaiting_rebreak") {
       const elapsed = minutesBetween(pending.retestTime!, input.candle.candleTime);
       const reclaimed = input.candle.close >= pending.breakoutLevel;
       const timedOut = elapsed > DISCO_SHORT_RETEST_SPEC.entry.rebreakWindowMinutes;
@@ -628,27 +674,21 @@ export function applyDiscoShortTransition(
         const atrEligible = metrics?.atrPct === null || metrics?.atrPct === undefined
           || metrics.atrPct >= COMMON_ENTRY.minAtrPct;
         if (atrEligible) {
-          state.position = createPosition({
-            source: input,
-            mode,
-            signalSourceEventId: pending.signalSourceEventId,
-            signalTime: pending.signalTime,
-            theoreticalSignalPrice: pending.theoreticalSignalPrice,
-            entryPrice: input.candle.close,
-            breakoutLevel: pending.breakoutLevel,
-            executionProxyKind: "rebreak_candle_close",
-          });
-          openedPosition = { ...state.position };
-          state.pending = null;
-          state.dailySlotConsumed = true;
-          resultType = "entry";
+          pending.phase = "awaiting_execution";
+          pending.rebreakSourceEventId = input.sourceEventId;
+          pending.rebreakTime = input.candle.candleTime;
+          pending.rebreakClose = input.candle.close;
+          pending.rebreakLevel = rebreakLevel;
+          resultType = "pending";
+          skipSignalDetection = true;
           actions.push({
-            type: "entry",
+            type: "rebreak_execution_pending",
             variant,
             originalSignalSourceEventId: pending.signalSourceEventId,
             retestSourceEventId: pending.retestSourceEventId,
+            rebreakSourceEventId: input.sourceEventId,
             rebreakLevel,
-            entryPrice: input.candle.close,
+            rebreakClose: input.candle.close,
             atrPct: metrics?.atrPct ?? null,
           });
         } else {
@@ -668,6 +708,67 @@ export function applyDiscoShortTransition(
       } else {
         resultType = "pending";
         skipSignalDetection = true;
+      }
+    } else {
+      const execution = evaluateShortExecution({
+        source: input,
+        mode,
+        theoreticalPrice: pending.rebreakClose!,
+        breakoutLevel: pending.rebreakLevel!,
+        maximumAdverseEntryPct: DISCO_SHORT_RETEST_SPEC.entry.maximumAdverseEntryPct,
+      });
+      state.pending = null;
+      skipSignalDetection = true;
+      if (execution.accepted) {
+        state.position = createPosition({
+          source: input,
+          mode,
+          signalSourceEventId: pending.signalSourceEventId,
+          signalTime: pending.rebreakTime!,
+          theoreticalSignalPrice: pending.rebreakClose!,
+          entryPrice: execution.executablePrice!,
+          shares: execution.shares!,
+          breakoutLevel: pending.rebreakLevel!,
+          executionProxyKind: "bid_depth_vwap",
+        });
+        openedPosition = { ...state.position };
+        state.dailySlotConsumed = true;
+        resultType = "entry";
+        actions.push({
+          type: "entry",
+          variant,
+          originalSignalSourceEventId: pending.signalSourceEventId,
+          retestSourceEventId: pending.retestSourceEventId,
+          rebreakSourceEventId: pending.rebreakSourceEventId,
+          executionSourceEventId: input.sourceEventId,
+          rebreakLevel: pending.rebreakLevel,
+          theoreticalRebreakPrice: pending.rebreakClose,
+          executablePrice: execution.executablePrice,
+          adverseEntryPct: execution.adverseEntryPct,
+          boardAgeMs: execution.clockAge.boardAgeMs,
+          boardSourceCausal: execution.boardSourceCausal,
+          executionDepthShares: execution.shares,
+          depth: execution.depth,
+        });
+      } else {
+        resultType = "rejected";
+        actions.push({
+          type: "entry_rejected",
+          variant,
+          reason: execution.rejectionReason,
+          originalSignalSourceEventId: pending.signalSourceEventId,
+          rebreakSourceEventId: pending.rebreakSourceEventId,
+          executionSourceEventId: input.sourceEventId,
+          rebreakLevel: pending.rebreakLevel,
+          theoreticalRebreakPrice: pending.rebreakClose,
+          executablePrice: execution.executablePrice,
+          adverseEntryPct: execution.adverseEntryPct,
+          boardAgeMs: execution.clockAge.boardAgeMs,
+          boardSourceCausal: execution.boardSourceCausal,
+          executionDepthShares: execution.shares,
+          depth: execution.depth,
+          dailySlotConsumed: false,
+        });
       }
     }
   }
@@ -696,6 +797,7 @@ export function applyDiscoShortTransition(
           signalTime: input.candle.candleTime,
           theoreticalSignalPrice: input.candle.close,
           entryPrice: input.candle.close,
+          shares: sharesForMode(mode, input.candle.close),
           breakoutLevel: metrics.breakoutLevel,
           executionProxyKind: "signal_candle_close",
         });
@@ -727,6 +829,10 @@ export function applyDiscoShortTransition(
           retestSourceEventId: null,
           retestTime: null,
           retestLow: null,
+          rebreakSourceEventId: null,
+          rebreakTime: null,
+          rebreakClose: null,
+          rebreakLevel: null,
         };
         resultType = "pending";
         actions.push({ type: "failed_retest_pending", variant, metrics, triggerLow: input.candle.low });

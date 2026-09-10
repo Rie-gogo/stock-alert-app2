@@ -24,7 +24,7 @@ export const ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION = "current-10-symbol-891m-al
 export const PORTFOLIO_MATERIALIZATION_VERSION = "portfolio-materialization-p0-v1";
 export const PORTFOLIO_BUNDLE_COMPONENT = "portfolio_bundle";
 export const PORTFOLIO_MAX_EXPOSURE = 8_910_000;
-const FIXED_CONTROL_PRIORITY = ["285A", "6146", "6857", "8035", "5803", "6981", "6976", "6526", "3436", "9984"] as const;
+export const FIXED_CONTROL_PRIORITY = ["285A", "6146", "6857", "8035", "5803", "6981", "6976", "6526", "3436", "9984"] as const;
 
 type AuditResultJson = {
   result?: { action?: string };

@@ -654,7 +654,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     discoOpeningBreakShortProfitProtectionTriggerPct: 0.8,
     discoOpeningBreakShortProfitProtectionFloorPct: 0.7,
     exclusiveEntryRoutes: true,
-    notes: "ディスコ: 確認型10本高値更新LONG（09:45〜11:10、VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）は継続。寄り付き10本安値更新SHORTの本採用経路は2026-09-11から一時停止し、停止前の現行相当・次イベント100株bid depth確認A・失敗リテスト後再安値更新Bを注文非接続シャドーで並行記録する。SHORT比較3案の出口はSL0.5%/TP2.0%、+0.8%到達後の次足以降+0.7%利益保護、反転・板早期決済、11:27前場決済。",
+    notes: "ディスコ: 確認型10本高値更新LONG（09:45〜11:10、VWAP上・MA8傾き>=0.02%・出来高1.2倍以上、SL0.5%/TP1.8%）は継続。寄り付き10本安値更新SHORTの本採用経路は2026-09-11から一時停止し、停止前の現行相当・次イベント評価株数bid depth確認A・失敗リテスト後再安値更新を確認した次イベントの評価株数bid depthで入るBを注文非接続シャドーで並行記録する。SHORT比較3案の出口はSL0.5%/TP2.0%、+0.8%到達後の次足以降+0.7%利益保護、反転・板早期決済、11:27前場決済。",
   },
   "6594": { sl: { long: 0.5, short: 0.5 } },
   "8316": { sl: { long: 0.5, short: 0.5 } },

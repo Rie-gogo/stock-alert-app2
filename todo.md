@@ -2227,6 +2227,6 @@
 - [x] ポジションA／Bの統合差分、候補A/B version v2、6146 SHORT停止・LONG継続、migration有無を確認する
 - [x] `realtimeSimEngine.ts`以外も含む変更禁止対象、DRY_RUN必須、LIVE未承認、Executor／OrderBridge／実注文非接続、formal Gate未承認を監査する
 - [x] 対象テスト、型検査、全回帰、本番build、固定sourceTreeHashとbaselineStrategyGitShaを確認する
-- [ ] 検証済みcheckpointを保存し、既存`stockalert-ulxu9jpf.manus.space`へ自動公開する
-- [ ] 公開後の`getRuntimeIdentity`／`getForwardShadowSummary`、本番DB、ログを読取確認する
-- [ ] 翌営業日の実イベント受入を本日の公開完了と分離し、公開反映・API・DB・ログ・安全不変だけを報告する
+- [x] 検証済みcheckpointを保存し、既存`stockalert-ulxu9jpf.manus.space`へ自動公開する
+- [x] 公開後の`getRuntimeIdentity`／`getForwardShadowSummary`、本番DB、ログを読取確認する
+- [x] 翌営業日の実イベント受入を本日の公開完了と分離し、公開反映・API・DB・ログ・安全不変だけを報告する

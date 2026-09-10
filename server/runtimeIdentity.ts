@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import { ACTIVE_ENTRY_SYMBOLS, TARGET_STOCKS } from "../shared/stocks";
 import { GENERATED_BUILD_IDENTITY } from "./generatedBuildIdentity";
 
-export const BASELINE_STRATEGY_GIT_SHA = "95699d500f04b5121f40ef8a5710637bd68ead5a";
-export const BASELINE_TRADING_SOURCE_TREE_HASH = "dd4f75555f20e6c04ef23721ef57db335396b57d178a20bb2b1a578a7c34ca32";
+export const BASELINE_STRATEGY_GIT_SHA = "7291737d6ee3fdd798a6b090d2a3d3bda3e96bcc";
+export const BASELINE_TRADING_SOURCE_TREE_HASH = "de9d06e6bf9199a16c91a5593ff7bbb37f3776171c0f9f9eb7b9249de826afea";
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const KIOXIA_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-confirmed-long-momentum-protect-v1";

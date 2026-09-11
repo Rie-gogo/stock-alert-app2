@@ -20,6 +20,8 @@ import {
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
@@ -35,6 +37,7 @@ import { auditTelExecutableConfirmDepthDay } from "./telExecutableConfirmDepthEn
 import { auditSoftbankForwardShadowDay } from "./softbankForwardShadowEngine";
 import { auditTaiyoForwardShadowDay } from "./taiyoForwardShadowEngine";
 import { auditTaiyoAfternoonForwardShadowDay } from "./taiyoAfternoonForwardShadowEngine";
+import { auditTaiyoAfternoonLongForwardShadowDay } from "./taiyoAfternoonLongForwardShadowEngine";
 import { auditSocionextForwardShadowDay } from "./socionextForwardShadowEngine";
 import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
 import { auditDiscoOpeningShortForwardShadowDay } from "./discoOpeningShortForwardShadowEngine";
@@ -60,6 +63,8 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: TAIYO_RR2_PROTECT_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoForwardShadowDay(source, shadow, realtime, "rr2_protect") },
   { version: TAIYO_AFTERNOON_RR2_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonForwardShadowDay(source, shadow, realtime, "rr2_exit") },
   { version: TAIYO_AFTERNOON_DEPTH_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonForwardShadowDay(source, shadow, realtime, "depth_execution") },
+  { version: TAIYO_AFTERNOON_LONG_RR2_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonLongForwardShadowDay(source, shadow, realtime, "rr2_10") },
+  { version: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonLongForwardShadowDay(source, shadow, realtime, "recovery_winrate") },
   { version: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "initial_strength") },
   { version: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "confirmation_strength") },
   { version: SUMCO_VOLUME_110_VERSION, symbol: "3436", run: (source, shadow) => auditSumcoForwardShadowDay(source, shadow, "volume_110") },

@@ -40,6 +40,8 @@ import {
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
@@ -69,6 +71,8 @@ describe("trading.getForwardShadowSummary", () => {
       { strategyVersion: TAIYO_RR2_PROTECT_VERSION, symbol: "6976" },
       { strategyVersion: TAIYO_AFTERNOON_RR2_VERSION, symbol: "6976" },
       { strategyVersion: TAIYO_AFTERNOON_DEPTH_VERSION, symbol: "6976" },
+      { strategyVersion: TAIYO_AFTERNOON_LONG_RR2_VERSION, symbol: "6976" },
+      { strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976" },
       { strategyVersion: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526" },
       { strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526" },
       { strategyVersion: SUMCO_VOLUME_110_VERSION, symbol: "3436" },
@@ -118,18 +122,18 @@ describe("trading.getForwardShadowSummary", () => {
     expect(result.strategies[12]).toMatchObject({
       eligibleForAdoption: false,
       purpose: "diagnostic_candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
+      collectionStartDate: "2026-09-14",
+      evaluationStartDate: "2026-09-14",
     });
     expect(result.strategies[13]).toMatchObject({
       eligibleForAdoption: true,
       purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
+      collectionStartDate: "2026-09-14",
+      evaluationStartDate: "2026-09-14",
     });
     expect(result.strategies[14]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
+      eligibleForAdoption: false,
+      purpose: "diagnostic_candidate",
       collectionStartDate: "2026-09-07",
       evaluationStartDate: "2026-09-08",
     });
@@ -140,18 +144,30 @@ describe("trading.getForwardShadowSummary", () => {
       evaluationStartDate: "2026-09-08",
     });
     expect(result.strategies[16]).toMatchObject({
+      eligibleForAdoption: true,
+      purpose: "candidate",
+      collectionStartDate: "2026-09-07",
+      evaluationStartDate: "2026-09-08",
+    });
+    expect(result.strategies[17]).toMatchObject({
+      eligibleForAdoption: true,
+      purpose: "candidate",
+      collectionStartDate: "2026-09-07",
+      evaluationStartDate: "2026-09-08",
+    });
+    expect(result.strategies[18]).toMatchObject({
       eligibleForAdoption: false,
       purpose: "paused_current_route_comparison_only",
       collectionStartDate: "2026-09-11",
       evaluationStartDate: "2026-09-11",
     });
-    expect(result.strategies[17]).toMatchObject({
+    expect(result.strategies[19]).toMatchObject({
       eligibleForAdoption: true,
       purpose: "candidate",
       collectionStartDate: "2026-09-11",
       evaluationStartDate: "2026-09-11",
     });
-    expect(result.strategies[18]).toMatchObject({
+    expect(result.strategies[20]).toMatchObject({
       eligibleForAdoption: true,
       purpose: "candidate",
       collectionStartDate: "2026-09-11",
@@ -169,7 +185,7 @@ describe("trading.getForwardShadowSummary", () => {
     expect(result.audit.discoShortPortfolioComparison).toMatchObject({
       scenarios: { paused_current: { actualReceipt: { complete: true } } },
     });
-    expect(summaryMock).toHaveBeenCalledTimes(19);
+    expect(summaryMock).toHaveBeenCalledTimes(21);
     expect(summaryMock).toHaveBeenNthCalledWith(3, "2026-09-04", KIOXIA_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(4, "2026-09-04", KIOXIA_ATR_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(5, "2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
@@ -180,12 +196,14 @@ describe("trading.getForwardShadowSummary", () => {
     expect(summaryMock).toHaveBeenNthCalledWith(10, "2026-09-04", TAIYO_RR2_PROTECT_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(11, "2026-09-04", TAIYO_AFTERNOON_RR2_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(12, "2026-09-04", TAIYO_AFTERNOON_DEPTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(13, "2026-09-04", SOCIONEXT_INITIAL_STRENGTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(14, "2026-09-04", SOCIONEXT_CONFIRM_STRENGTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(15, "2026-09-04", SUMCO_VOLUME_110_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(16, "2026-09-04", SUMCO_TIME_15_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(17, "2026-09-04", DISCO_SHORT_BASELINE_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(18, "2026-09-04", DISCO_SHORT_EXECUTABLE_A_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(19, "2026-09-04", DISCO_SHORT_RETEST_B_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(13, "2026-09-04", TAIYO_AFTERNOON_LONG_RR2_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(14, "2026-09-04", TAIYO_AFTERNOON_LONG_WINRATE_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(15, "2026-09-04", SOCIONEXT_INITIAL_STRENGTH_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(16, "2026-09-04", SOCIONEXT_CONFIRM_STRENGTH_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(17, "2026-09-04", SUMCO_VOLUME_110_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(18, "2026-09-04", SUMCO_TIME_15_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(19, "2026-09-04", DISCO_SHORT_BASELINE_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(20, "2026-09-04", DISCO_SHORT_EXECUTABLE_A_VERSION);
+    expect(summaryMock).toHaveBeenNthCalledWith(21, "2026-09-04", DISCO_SHORT_RETEST_B_VERSION);
   });
 });

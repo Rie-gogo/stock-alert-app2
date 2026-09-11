@@ -5,6 +5,7 @@ import { TAIYO_BOARD_DEMAND_SPEC, TAIYO_RR2_PROTECT_SPEC } from "./taiyoForwardS
 import { SOCIONEXT_CONFIRM_STRENGTH_SPEC, SOCIONEXT_INITIAL_STRENGTH_SPEC } from "./socionextForwardShadow";
 import { SUMCO_TIME_15_SPEC, SUMCO_VOLUME_110_SPEC } from "./sumcoForwardShadow";
 import { TAIYO_AFTERNOON_DEPTH_SPEC, TAIYO_AFTERNOON_RR2_SPEC } from "./taiyoAfternoonForwardShadow";
+import { TAIYO_AFTERNOON_LONG_RR2_SPEC, TAIYO_AFTERNOON_LONG_WINRATE_SPEC } from "./taiyoAfternoonLongForwardShadow";
 import {
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
@@ -13,6 +14,8 @@ import {
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
@@ -50,6 +53,21 @@ describe("前向きcandidate登録Gate", () => {
       versionId: TAIYO_AFTERNOON_DEPTH_VERSION,
       configJson: TAIYO_AFTERNOON_DEPTH_SPEC,
     })).toEqual([{ path: "config.exit", slPct: 0.8, tpPct: 1.6 }]);
+  });
+
+  it("6976後場LONG Aは2Rを通過し、Bだけは明示された自動採用禁止例外を通過する", () => {
+    expect(assertForwardCandidateRiskReward({
+      versionId: TAIYO_AFTERNOON_LONG_RR2_VERSION,
+      configJson: TAIYO_AFTERNOON_LONG_RR2_SPEC,
+    })).toEqual([{ path: "config.exit", slPct: 0.8, tpPct: 1.6 }]);
+    expect(assertForwardCandidateRiskReward({
+      versionId: TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
+      configJson: TAIYO_AFTERNOON_LONG_WINRATE_SPEC,
+    })).toEqual([{ path: "config.exit", slPct: 1.2, tpPct: 0.3 }]);
+    expect(() => assertForwardCandidateRiskReward({
+      versionId: "candidate-copy-of-exception",
+      configJson: TAIYO_AFTERNOON_LONG_WINRATE_SPEC,
+    })).toThrow("candidate_risk_reward_below_2x:candidate-copy-of-exception");
   });
 
   it("6526 A/Bは実装specの全SL/TP組で2R登録Gateを通過する", () => {

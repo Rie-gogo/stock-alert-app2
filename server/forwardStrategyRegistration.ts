@@ -4,6 +4,18 @@ interface RiskPair {
   tpPct: number;
 }
 
+const TAIYO_AFTERNOON_LONG_WINRATE_VERSION = "candidate-6976-afternoon-long-recovery-winrate-v1";
+const TAIYO_WINRATE_EXCEPTION = "user_approved_forward_shadow_tp_below_2r_2026-09-12";
+
+function permitsExplicitRiskRewardException(input: { versionId: string; configJson: unknown }): boolean {
+  if (input.versionId !== TAIYO_AFTERNOON_LONG_WINRATE_VERSION
+    || !input.configJson || typeof input.configJson !== "object") return false;
+  const policy = (input.configJson as Record<string, unknown>).riskRewardPolicy;
+  return Boolean(policy && typeof policy === "object"
+    && (policy as Record<string, unknown>).exception === TAIYO_WINRATE_EXCEPTION
+    && (policy as Record<string, unknown>).automaticAdoption === false);
+}
+
 function finite(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -36,7 +48,7 @@ export function assertForwardCandidateRiskReward(input: {
     throw new Error(`candidate_risk_reward_missing:${input.versionId}`);
   }
   const invalid = pairs.filter(pair => pair.tpPct + 1e-12 < pair.slPct * 2);
-  if (invalid.length > 0) {
+  if (invalid.length > 0 && !permitsExplicitRiskRewardException(input)) {
     throw new Error(`candidate_risk_reward_below_2x:${input.versionId}:${invalid.map(pair => `${pair.path}=${pair.tpPct}/${pair.slPct}`).join(",")}`);
   }
   return pairs;

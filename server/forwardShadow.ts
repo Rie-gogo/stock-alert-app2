@@ -48,6 +48,8 @@ import {
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
@@ -112,6 +114,10 @@ import {
 } from "./taiyoAfternoonForwardShadow";
 import { auditTaiyoAfternoonForwardShadowDay } from "./taiyoAfternoonForwardShadowEngine";
 import {
+  TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
+  TAIYO_AFTERNOON_LONG_LEARNING_CUTOFF_DATE,
+} from "./taiyoAfternoonLongForwardShadow";
+import {
   applySoftbankAdoptionGate,
   resolveSoftbankAdoptionGate,
 } from "./softbankForwardAdoptionGate";
@@ -131,6 +137,10 @@ import {
   applyTaiyoAfternoonAdoptionGate,
   resolveTaiyoAfternoonAdoptionGate,
 } from "./taiyoAfternoonForwardAdoptionGate";
+import {
+  applyTaiyoAfternoonLongAdoptionGate,
+  resolveTaiyoAfternoonLongAdoptionGate,
+} from "./taiyoAfternoonLongForwardAdoptionGate";
 
 export const FORWARD_LEARNING_CUTOFF_DATE = "2026-09-02";
 export const FORWARD_EVALUATION_START_DATE = "2026-09-03";
@@ -676,6 +686,7 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   if (input.candle.symbol === "6976") {
     const { processTaiyoForwardShadowSourceEvent } = await import("./taiyoForwardShadowEngine");
     const { processTaiyoAfternoonForwardShadowSourceEvent } = await import("./taiyoAfternoonForwardShadowEngine");
+    const { processTaiyoAfternoonLongForwardShadowSourceEvent } = await import("./taiyoAfternoonLongForwardShadowEngine");
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     try {
@@ -687,6 +698,11 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
       evaluations.push(await processTaiyoAfternoonForwardShadowSourceEvent(input));
     } catch (error) {
       errors.push(`afternoon_short:${String(error)}`);
+    }
+    try {
+      evaluations.push(await processTaiyoAfternoonLongForwardShadowSourceEvent(input));
+    } catch (error) {
+      errors.push(`afternoon_long:${String(error)}`);
     }
     if (errors.length > 0) throw new Error(`taiyo_forward_shadow_partial_failure:${errors.join(" | ")}`);
     return { skipped: false as const, symbol: "6976", evaluations };
@@ -832,6 +848,13 @@ export function applyForwardStrategyLifecyclePolicy(
       reason: "superseded_by_depth_v2_audit_only",
     };
   }
+  if (strategyVersion === TAIYO_AFTERNOON_LONG_RR2_VERSION) {
+    return {
+      ...decision,
+      status: "interim_continue" as const,
+      reason: "diagnostic_only_historical_execution_sensitivity",
+    };
+  }
   return decision;
 }
 
@@ -865,11 +888,13 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
     const socionextAdoptionGate = resolveSocionextAdoptionGate(strategyVersion);
     const sumcoAdoptionGate = resolveSumcoAdoptionGate(strategyVersion);
     const taiyoAfternoonAdoptionGate = resolveTaiyoAfternoonAdoptionGate(strategyVersion);
+    const taiyoAfternoonLongAdoptionGate = resolveTaiyoAfternoonLongAdoptionGate(strategyVersion);
     const softbankDecision = applySoftbankAdoptionGate(lifecycleDecision, softbankAdoptionGate);
     const taiyoDecision = applyTaiyoAdoptionGate(softbankDecision, taiyoAdoptionGate);
     const socionextDecision = applySocionextAdoptionGate(taiyoDecision, socionextAdoptionGate);
     const sumcoDecision = applySumcoAdoptionGate(socionextDecision, sumcoAdoptionGate);
-    const candidateDecision = applyTaiyoAfternoonAdoptionGate(sumcoDecision, taiyoAfternoonAdoptionGate);
+    const taiyoAfternoonDecision = applyTaiyoAfternoonAdoptionGate(sumcoDecision, taiyoAfternoonAdoptionGate);
+    const candidateDecision = applyTaiyoAfternoonLongAdoptionGate(taiyoAfternoonDecision, taiyoAfternoonLongAdoptionGate);
     return {
       mode,
       metrics,
@@ -882,6 +907,7 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       socionextAdoptionGate,
       sumcoAdoptionGate,
       taiyoAfternoonAdoptionGate,
+      taiyoAfternoonLongAdoptionGate,
       pilotOnly: mode === "capital_constrained",
     };
   });
@@ -1126,6 +1152,25 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       lifecycle: "active_candidate",
     },
     {
+      versionId: TAIYO_AFTERNOON_LONG_RR2_VERSION,
+      symbol: "6976",
+      title: "6976 後場反転LONG A・前場2%以上下落＋確認型10分2R",
+      startDate: TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
+      cutoffDate: TAIYO_AFTERNOON_LONG_LEARNING_CUTOFF_DATE,
+      adoptionEligible: false,
+      lifecycle: "active_diagnostic_candidate",
+      keepCollectingWhenIneligible: true,
+    },
+    {
+      versionId: TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
+      symbol: "6976",
+      title: "6976 後場反転LONG B・安値1.5%回復確認＋30分勝率型",
+      startDate: TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
+      cutoffDate: TAIYO_AFTERNOON_LONG_LEARNING_CUTOFF_DATE,
+      adoptionEligible: true,
+      lifecycle: "active_candidate_with_explicit_tp_below_2r_exception",
+    },
+    {
       versionId: SOCIONEXT_INITIAL_STRENGTH_VERSION,
       symbol: "6526",
       title: "6526 確認型LONG A・初動始値比+0.25%未満で日次終了",
@@ -1242,6 +1287,9 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
         item.taiyoAfternoonAdoptionGate.applicable
           ? `    6976後場SHORT追加Gate: 案=${item.taiyoAfternoonAdoptionGate.strategyVariant} / 選定用51保存日取引=${item.taiyoAfternoonAdoptionGate.historicalSelection.selectionTradeCount} / 選定用勝率=${item.taiyoAfternoonAdoptionGate.historicalSelection.selectionWinRatePct === null ? "算定不能" : `${item.taiyoAfternoonAdoptionGate.historicalSelection.selectionWinRatePct.toFixed(2)}%`} / depth再生日=${item.taiyoAfternoonAdoptionGate.historicalSelection.depthReplayDays} / 正式成績利用不可=${!item.taiyoAfternoonAdoptionGate.historicalSelection.formalPerformanceUsable} / 891万円比較=${item.taiyoAfternoonAdoptionGate.portfolioGate.status}`
           : "    6976後場SHORT追加Gate: 対象外",
+        item.taiyoAfternoonLongAdoptionGate.applicable
+          ? `    6976後場LONG追加Gate: 案=${item.taiyoAfternoonLongAdoptionGate.strategyVariant} / 選定用取引=${item.taiyoAfternoonLongAdoptionGate.historicalSelection.savedTradeCount} / 選定用勝率=${item.taiyoAfternoonLongAdoptionGate.historicalSelection.savedWinRatePct?.toFixed(2)}% / 直近10=${item.taiyoAfternoonLongAdoptionGate.historicalSelection.recentTenWins}/${item.taiyoAfternoonLongAdoptionGate.historicalSelection.recentTenTrades} / 直近5=${item.taiyoAfternoonLongAdoptionGate.historicalSelection.recentFiveWins}/${item.taiyoAfternoonLongAdoptionGate.historicalSelection.recentFiveTrades} / 約定悪化=${item.taiyoAfternoonLongAdoptionGate.historicalSelection.adverseExecutionStatus} / 891万円比較=${item.taiyoAfternoonLongAdoptionGate.portfolioGate.status}`
+          : "    6976後場LONG追加Gate: 対象外",
         `    一次判定まで: あと${Math.max(0, FORWARD_EVALUATION_POLICY.interimCalendarDays - item.decision.days)}日 / 20件到達時も継続判定のみ: あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForEarlyDecision - item.metrics.closedTrades)}件`,
         `    4週間10件条件: あと${Math.max(0, FORWARD_EVALUATION_POLICY.calendarDaysForTimeDecision - item.decision.days)}日・あと${Math.max(0, FORWARD_EVALUATION_POLICY.minimumSignalsForTimeDecision - item.metrics.closedTrades)}件`,
       ].join("\n");
@@ -1254,7 +1302,9 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
 	  採用審査: ${definition.adoptionEligible
     ? "対象（自動採用・自動置換なし）"
     : "keepCollectingWhenIneligible" in definition && definition.keepCollectingWhenIneligible
-      ? "対象外（停止した現行経路の比較基準として収集継続）"
+      ? definition.lifecycle === "active_diagnostic_candidate"
+        ? "対象外（診断専用として収集継続）"
+        : "対象外（停止した現行経路の比較基準として収集継続）"
       : "対象外（旧版停止・監査保持のみ）"}
 	  注文接続: なし（strategyVersion別シャドーテーブルのみ）
 	  当日シャドー判断: ${versionEventCount}件（error=${versionErrorCount}。状態連続性は別materializer）

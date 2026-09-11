@@ -49,6 +49,8 @@ import {
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
@@ -421,6 +423,48 @@ describe("8035未見データ前向きシャドー統合", () => {
       expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
       expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
     }
+  });
+
+  it("6976後場LONG source eventを現行・既存SHORTから独立したA/B各2評価状態へ配信する", async () => {
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo-long:open",
+      candle: { symbol: "6976", tradeDate: "2026-09-14", candleTime: "09:00", open: 100, high: 100, low: 99.8, close: 100, volume: 100 },
+      board: null,
+    });
+    for (let index = 0; index < 20; index += 1) {
+      const hour = index < 10 ? "11" : "12";
+      const minute = index < 10 ? 40 + index : 40 + index - 10;
+      await processForwardShadowSourceEvent({
+        sourceEventId: `taiyo-long:seed:${index}`,
+        candle: {
+          symbol: "6976", tradeDate: "2026-09-14", candleTime: `${hour}:${minute}`,
+          open: 96, high: 96.2, low: index === 0 ? 95 : 95.8, close: 96, volume: 100,
+        },
+        board: null,
+      });
+    }
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo-long:trigger",
+      candle: { symbol: "6976", tradeDate: "2026-09-14", candleTime: "13:00", open: 96, high: 97.1, low: 95.9, close: 97, volume: 200 },
+      board: null,
+    });
+    await processForwardShadowSourceEvent({
+      sourceEventId: "taiyo-long:confirm",
+      candle: { symbol: "6976", tradeDate: "2026-09-14", candleTime: "13:01", open: 97, high: 97.3, low: 96.9, close: 97.2, volume: 100 },
+      board: null,
+    });
+
+    for (const version of [TAIYO_AFTERNOON_LONG_RR2_VERSION, TAIYO_AFTERNOON_LONG_WINRATE_VERSION]) {
+      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
+      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    }
+    expect(memory.trades.filter(item => item.strategyVersion === TAIYO_AFTERNOON_LONG_RR2_VERSION)[0]).toMatchObject({
+      side: "long", slPct: "0.8", tpPct: "1.6",
+    });
+    expect(memory.trades.filter(item => item.strategyVersion === TAIYO_AFTERNOON_LONG_WINRATE_VERSION)[0]).toMatchObject({
+      side: "long", slPct: "1.2", tpPct: "0.3",
+    });
   });
 
   it("3436前場SHORT source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {

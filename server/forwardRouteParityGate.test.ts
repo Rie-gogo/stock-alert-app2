@@ -14,6 +14,8 @@ import {
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
+  TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
@@ -47,6 +49,16 @@ describe("候補経路別parity Gate", () => {
       expect(resolveForwardRouteParityGate(version)).toMatchObject({
         status: "required",
         requiredRoutes: ["taiyoAfternoonReversalShort"],
+        evidence: { kind: "missing_route_parity" },
+      });
+    }
+  });
+
+  it("6976後場LONG A/Bは現行taiyoAfternoonReversalLong経路のparity証拠を必須にする", () => {
+    for (const version of [TAIYO_AFTERNOON_LONG_RR2_VERSION, TAIYO_AFTERNOON_LONG_WINRATE_VERSION]) {
+      expect(resolveForwardRouteParityGate(version)).toMatchObject({
+        status: "required",
+        requiredRoutes: ["taiyoAfternoonReversalLong"],
         evidence: { kind: "missing_route_parity" },
       });
     }

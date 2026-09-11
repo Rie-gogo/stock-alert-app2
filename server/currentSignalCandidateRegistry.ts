@@ -46,6 +46,52 @@ const EXTERNAL_AUDIT_ROUTE_MAP: Record<string, { symbol: string; side: Candidate
   high_fade_break_short: { symbol: "5803", side: "short", internalRouteId: "highFadeBreakShort" },
 };
 
+const EXTERNAL_AUDIT_ROUTE_SIDE_MAP: Record<string, CandidateSide> = {
+  "8035:8035_open_direction_breakout_long": "long",
+  "8035:8035_open_direction_breakout_short": "short",
+  "8035:trend_long": "long",
+  "8035:trend_short": "short",
+  "8035:high_fade_break_short": "short",
+  "285A:285A_confirmed_morning_long": "long",
+  "285A:reversal_long": "long",
+  "285A:reversal_short": "short",
+  "285A:trend_long": "long",
+  "285A:trend_short": "short",
+  "285A:safe_cb_short": "short",
+  "5803:low_reversal_break_long": "long",
+  "5803:high_fade_break_short": "short",
+  "5803:afternoon_low_break_short": "short",
+  "6981:low_reversal_break_long": "long",
+  "6981:opening_break_short": "short",
+  "6976:reversal_long": "long",
+  "6976:reversal_short": "short",
+  "6976:taiyo_candidate_b_long": "long",
+  "6976:taiyo_candidate_b_short": "short",
+  "6976:taiyo_morning_initial_short": "short",
+  "6857:advantest_high_fade_short": "short",
+  "6857:advantest_confirmed_long": "long",
+  "6146:disco_confirmed_long": "long",
+  "6146:disco_opening_short": "short",
+  "6146:confirmed_break_long": "long",
+  "6146:opening_break_short": "short",
+  "6526:socionext_confirmed_long": "long",
+  "6526:confirmed_break_long": "long",
+  "3436:sumco_15bar_breakdown_short": "short",
+  "9984:ten_bar_breakout_long": "long",
+};
+
+/**
+ * 監査routeは判断時に固定済みなので、後段workerは日本語理由を再解釈せずsideを復元する。
+ * symbolとの組み合わせも固定し、別銘柄の同名routeを誤用しない。
+ */
+export function resolveCandidateSideFromAuditRoute(input: {
+  externalRouteId: string | null | undefined;
+  symbol: string;
+}): CandidateSide | null {
+  if (!input.externalRouteId) return null;
+  return EXTERNAL_AUDIT_ROUTE_SIDE_MAP[`${input.symbol}:${input.externalRouteId}`] ?? null;
+}
+
 /**
  * 修復・監査専用の固定mapping。日本語理由や正規表現からrouteを再推測しない。
  */

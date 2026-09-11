@@ -3,7 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   shouldEnableSignalCandidateLedgerQuery,
+  SignalCandidateLedgerGapAlert,
   SignalCandidateLedgerTable,
+  type SignalCandidateLedgerOrphanGap,
   type SignalCandidateLedgerRow,
 } from "./SignalCandidateLedgerSection";
 
@@ -108,5 +110,35 @@ describe("SignalCandidateLedgerTable", () => {
     );
     expect(html).not.toContain("<script>alert");
     expect(html).toContain("&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;");
+  });
+
+  it("candidateが0件でも未解決gapの銘柄・時刻・phase・保存エラーを表示できる", () => {
+    const gap: SignalCandidateLedgerOrphanGap = {
+      gapId: 7,
+      decisionEventId: 77,
+      sourceEventId: "source:gap",
+      symbol: "285A",
+      symbolName: "キオクシアホールディングス",
+      candleTime: "10:35",
+      resultType: "rejected",
+      routeId: "safe_cb_short",
+      side: "short",
+      signalReason: "大台割れSHORT",
+      phase: "candidate",
+      reasonCode: "max_attempts_exhausted",
+      error: "Error: candidate_side_missing:285A:2026-09-11:10:35",
+      attemptCount: 5,
+      phaseLastError: "Error: candidate_side_missing:285A:2026-09-11:10:35",
+      candidatePhaseAttemptCount: 5,
+      virtualPhaseAttemptCount: 1,
+      statusBefore: { candidate: "retryable_error", virtual: "complete" },
+      statusAfter: { candidate: "terminal_error", virtual: "complete" },
+    };
+    const html = renderToStaticMarkup(<SignalCandidateLedgerGapAlert gaps={[gap]} />);
+    expect(html).toContain('aria-label="未解決gap詳細"');
+    expect(html).toContain("285A キオクシアホールディングス");
+    expect(html).toContain("10:35");
+    expect(html).toContain("candidate");
+    expect(html).toContain("candidate_side_missing");
   });
 });

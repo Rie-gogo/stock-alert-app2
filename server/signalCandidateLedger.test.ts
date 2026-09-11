@@ -296,7 +296,10 @@ describe("全シグナル監査台帳", () => {
   it("terminal gapとcandidate行へ結合できないgapを隠さない", () => {
     const bundle = emptyBundle();
     bundle.candidates = [candidate({ id: 1, sourceEventId: "source:1", engineSequence: 1, decision: "accepted" })];
-    bundle.decisionEvents = [decisionEvent({ id: 1, sourceEventId: "source:1", virtualStatus: "terminal_error" })];
+    bundle.decisionEvents = [
+      decisionEvent({ id: 1, sourceEventId: "source:1", virtualStatus: "terminal_error" }),
+      decisionEvent({ id: 2, sourceEventId: "orphan:2", candidateStatus: "terminal_error" }),
+    ];
     bundle.gaps = [
       {
         id: 1,
@@ -317,7 +320,15 @@ describe("全シグナル監査台帳", () => {
         tradeDate: "2026-09-08",
         phase: "candidate",
         reasonCode: "candidate_terminal",
-        detailJson: {},
+        detailJson: {
+          error: "Error: candidate_side_missing:285A:2026-09-08:10:35",
+          attemptCount: 5,
+          phaseLastError: "Error: candidate_side_missing:285A:2026-09-08:10:35",
+          candidatePhaseAttemptCount: 5,
+          virtualPhaseAttemptCount: 1,
+          statusBefore: { candidate: "retryable_error", virtual: "complete" },
+          statusAfter: { candidate: "terminal_error", virtual: "complete" },
+        },
         resolved: false,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -332,7 +343,25 @@ describe("全シグナル監査台帳", () => {
     expect(result.summary.unresolvedGapCount).toBe(2);
     expect(result.summary.orphanGapCount).toBe(1);
     expect(result.summary.coverageComplete).toBe(false);
-    expect(result.orphanGaps).toEqual([{ sourceEventId: "orphan:2", phase: "candidate", reasonCode: "candidate_terminal" }]);
+    expect(result.orphanGaps).toEqual([expect.objectContaining({
+      gapId: 2,
+      decisionEventId: 2,
+      sourceEventId: "orphan:2",
+      symbol: "5803",
+      symbolName: "フジクラ",
+      candleTime: "09:45",
+      resultType: "entry",
+      routeId: "lowReversalBreakLong",
+      side: "long",
+      phase: "candidate",
+      reasonCode: "candidate_terminal",
+      error: "Error: candidate_side_missing:285A:2026-09-08:10:35",
+      attemptCount: 5,
+      candidatePhaseAttemptCount: 5,
+      virtualPhaseAttemptCount: 1,
+      statusBefore: { candidate: "retryable_error", virtual: "complete" },
+      statusAfter: { candidate: "terminal_error", virtual: "complete" },
+    })]);
   });
 
   it("0円の決済だけをdrawとして数え、未生成nullと区別する", () => {

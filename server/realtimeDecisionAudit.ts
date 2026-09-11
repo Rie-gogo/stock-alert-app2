@@ -31,6 +31,7 @@ import {
   CURRENT_SIGNAL_CANDIDATE_VERSION,
   parseMarginCandidateReason,
   parseRequiredMarginFromReason,
+  resolveCandidateSideFromAuditRoute,
   resolveCurrentRouteSpec,
   type CandidateSide,
 } from "./currentSignalCandidateRegistry";
@@ -69,6 +70,9 @@ type CandidateVirtualWorkPayload = {
   rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
   boardSignal: ReturnType<typeof deriveCurrentBoardExitSignal>;
   marketContextError: string | null;
+  auditRouteId?: string | null;
+  candidateSide?: CandidateSide | null;
+  candidateSignalReason?: string | null;
   candidateDescriptorStatus?: "not_candidate" | "complete" | "error";
   candidateDescriptor: CandidateDescriptor | null;
   candidateDescriptorError: string | null;
@@ -187,6 +191,14 @@ export function resolveRealtimeRouteId(reason: string | null | undefined): strin
     [/東京エレクトロン(?:始値方向付き)?短期ブレイク.*LONG/i, "8035_open_direction_breakout_long"],
     [/東京エレクトロン(?:始値方向付き)?短期ブレイク.*SHORT/i, "8035_open_direction_breakout_short"],
     [/キオクシア確認型前場LONG/i, "285A_confirmed_morning_long"],
+    [/太陽誘電候補B.*LONG/i, "taiyo_candidate_b_long"],
+    [/太陽誘電候補B.*SHORT/i, "taiyo_candidate_b_short"],
+    [/太陽誘電朝初動SHORT/i, "taiyo_morning_initial_short"],
+    [/アドバンテスト高値失速SHORT/i, "advantest_high_fade_short"],
+    [/アドバンテスト確認型LONG/i, "advantest_confirmed_long"],
+    [/ディスコ確認型10本高値更新LONG/i, "disco_confirmed_long"],
+    [/ディスコ寄り付き10本安値更新SHORT/i, "disco_opening_short"],
+    [/ソシオネクスト確認型10本高値更新LONG/i, "socionext_confirmed_long"],
     [/反転LONG/i, "reversal_long"],
     [/反転SHORT/i, "reversal_short"],
     [/順張りLONG/i, "trend_long"],
@@ -262,13 +274,42 @@ function inferCandidateSide(input: {
   latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
   decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
   rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
+  auditRouteId?: string | null;
+  symbol: string;
 }): CandidateSide | null {
   if (input.latestTrade?.side === "long" || input.latestTrade?.side === "short") return input.latestTrade.side;
   if (input.decisionSignal?.action === "buy") return "long";
   if (input.decisionSignal?.action === "short") return "short";
   if (input.rawSignal?.type === "buy") return "long";
   if (input.rawSignal?.type === "sell") return "short";
-  return null;
+  return resolveCandidateSideFromAuditRoute({
+    externalRouteId: input.auditRouteId,
+    symbol: input.symbol,
+  });
+}
+
+function candidateSignalReason(input: {
+  candidateReason: string | null;
+  auditReason: string | null;
+  latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
+  decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
+  rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
+}): string | null {
+  const values = [
+    parseMarginCandidateReason(input.candidateReason),
+    input.latestTrade?.reason,
+    parseMarginCandidateReason(input.decisionSignal?.reason),
+    input.decisionSignal?.action === "buy" || input.decisionSignal?.action === "short"
+      ? input.decisionSignal.reason
+      : null,
+    input.rawSignal?.reason,
+    parseMarginCandidateReason(input.auditReason),
+    input.candidateReason,
+    input.auditReason,
+  ];
+  return values.find(value => typeof value === "string"
+    && value.trim().length > 0
+    && !/^(?:margin_block|証拠金(?:ブロック|使用率制限))$/i.test(value.trim()))?.trim() ?? null;
 }
 
 function buildCandidateDescriptor(input: {
@@ -279,20 +320,22 @@ function buildCandidateDescriptor(input: {
   decisionSignal: ReturnType<typeof getSignalHistory>[number] | undefined;
   latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
   rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
+  auditRouteId?: string | null;
+  candidateSide?: CandidateSide | null;
+  candidateSignalReason?: string | null;
 }): CandidateDescriptor | null {
-  const isAccepted = input.resultType === "entry"
-    && (input.latestTrade?.action === "buy" || input.latestTrade?.action === "short");
+  const isAccepted = input.resultType === "entry";
   const isMarginBlock = input.resultType === "rejected"
     && /証拠金(?:ブロック|使用率制限)|margin_block/i.test(input.candidateReason ?? input.auditReason ?? "");
   if (!isAccepted && !isMarginBlock) return null;
-  const signalReason = isMarginBlock
-    ? parseMarginCandidateReason(input.candidateReason)
-    : input.latestTrade?.reason ?? input.auditReason;
+  const signalReason = input.candidateSignalReason ?? candidateSignalReason(input);
   if (!signalReason) throw new Error(`candidate_reason_missing:${input.candle.symbol}:${input.candle.tradeDate}:${input.candle.candleTime}`);
-  const side = inferCandidateSide({
+  const side = input.candidateSide ?? inferCandidateSide({
     latestTrade: input.latestTrade,
     decisionSignal: input.decisionSignal,
     rawSignal: input.rawSignal,
+    auditRouteId: input.auditRouteId,
+    symbol: input.candle.symbol,
   });
   if (!side) throw new Error(`candidate_side_missing:${input.candle.symbol}:${input.candle.tradeDate}:${input.candle.candleTime}`);
   const routeSpec = resolveCurrentRouteSpec({
@@ -384,10 +427,15 @@ function descriptorForPayload(
   payload: CandidateVirtualWorkPayload,
   persistedStatus?: RtRealtimeDecisionEvent["candidateDescriptorStatus"],
   persistedDescriptor?: CandidateDescriptor | null,
+  persistedRouteId?: string | null,
+  persistedSide?: CandidateSide | null,
 ): CandidateDescriptor | null {
   const status = persistedStatus ?? payload.candidateDescriptorStatus;
-  if (status === "error" || payload.candidateDescriptorError) {
-    throw new Error(payload.candidateDescriptorError ?? "candidate_descriptor_error_without_detail");
+  const descriptorError = payload.candidateDescriptorError;
+  const recoverableDescriptorError = typeof descriptorError === "string"
+    && /candidate_(?:side|reason)_missing/.test(descriptorError);
+  if ((status === "error" || descriptorError) && !recoverableDescriptorError) {
+    throw new Error(descriptorError ?? "candidate_descriptor_error_without_detail");
   }
   if (status === "complete") {
     const descriptor = persistedDescriptor ?? payload.candidateDescriptor;
@@ -395,8 +443,10 @@ function descriptorForPayload(
     return descriptor;
   }
   if (status === "not_candidate") return null;
-  if (payload.candidateDescriptor !== undefined) return payload.candidateDescriptor;
-  return buildCandidateDescriptor({
+  if (payload.candidateDescriptor !== undefined && status !== "error" && !descriptorError) {
+    return payload.candidateDescriptor;
+  }
+  const rebuilt = buildCandidateDescriptor({
     candle: payload.candle,
     auditReason: payload.auditReason,
     candidateReason: payload.candidateReason,
@@ -404,7 +454,17 @@ function descriptorForPayload(
     decisionSignal: payload.decisionSignal ?? undefined,
     latestTrade: payload.latestTrade,
     rawSignal: payload.rawSignal,
+    auditRouteId: payload.auditRouteId ?? persistedRouteId,
+    candidateSide: payload.candidateSide ?? persistedSide ?? resolveCandidateSideFromAuditRoute({
+      externalRouteId: payload.auditRouteId ?? persistedRouteId,
+      symbol: payload.candle.symbol,
+    }),
+    candidateSignalReason: payload.candidateSignalReason,
   });
+  if ((status === "error" || descriptorError) && rebuilt === null) {
+    throw new Error(descriptorError ?? "candidate_descriptor_recovery_not_applicable");
+  }
+  return rebuilt;
 }
 
 async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerToken: string, maxAttempts: number): Promise<"processed" | "retryable_error" | "terminal"> {
@@ -432,6 +492,8 @@ async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerTo
         payload,
         row.candidateDescriptorStatus,
         row.candidateDescriptorJson as CandidateDescriptor | null,
+        row.routeId,
+        row.side,
       );
       structuredCandidate = await saveStructuredCandidate({
         sourceEvent: payload.sourceEvent,
@@ -466,6 +528,8 @@ async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerTo
         payload,
         row.candidateDescriptorStatus,
         row.candidateDescriptorJson as CandidateDescriptor | null,
+        row.routeId,
+        row.side,
       );
       if (descriptor) {
         structuredCandidate = await getRtSignalCandidateBySourceEventId({
@@ -643,6 +707,20 @@ export async function processCurrentEngineAudited(input: {
     const boardSignal = deriveCurrentBoardExitSignal(input.candle.symbol, input.board);
     let candidateDescriptor: CandidateDescriptor | null = null;
     let candidateDescriptorError: string | null = null;
+    const inferredCandidateSide = inferCandidateSide({
+      latestTrade,
+      decisionSignal,
+      rawSignal,
+      auditRouteId: routeId,
+      symbol: input.candle.symbol,
+    });
+    const inferredCandidateSignalReason = candidateSignalReason({
+      candidateReason,
+      auditReason,
+      latestTrade,
+      decisionSignal,
+      rawSignal,
+    });
     try {
       candidateDescriptor = buildCandidateDescriptor({
         candle: input.candle,
@@ -652,6 +730,9 @@ export async function processCurrentEngineAudited(input: {
         decisionSignal,
         latestTrade,
         rawSignal,
+        auditRouteId: routeId,
+        candidateSide: inferredCandidateSide,
+        candidateSignalReason: inferredCandidateSignalReason,
       });
     } catch (error) {
       candidateDescriptorError = candidateVirtualErrorMessage(error);
@@ -679,6 +760,9 @@ export async function processCurrentEngineAudited(input: {
       rawSignal,
       boardSignal,
       marketContextError,
+      auditRouteId: routeId,
+      candidateSide: inferredCandidateSide,
+      candidateSignalReason: inferredCandidateSignalReason,
       candidateDescriptorStatus,
       candidateDescriptor,
       candidateDescriptorError,
@@ -696,7 +780,9 @@ export async function processCurrentEngineAudited(input: {
         decisionCompletedAtMs,
         resultType,
         routeId,
-        side: latestTrade?.side ?? positionAfter?.side ?? null,
+        side: candidateDescriptor || candidateDescriptorError
+          ? inferredCandidateSide ?? latestTrade?.side ?? positionAfter?.side ?? null
+          : latestTrade?.side ?? positionAfter?.side ?? null,
         reason: auditReason,
         inputHash: input.inputHash,
         stateBeforeJson: stateBefore,

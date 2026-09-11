@@ -87,6 +87,17 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function nullableText(value: unknown, maxLength = 1_000): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  return value.slice(0, maxLength);
+}
+
 function phaseMissingReason(
   phase: "candidate" | "virtual",
   event: RtRealtimeDecisionEvent | null,
@@ -288,11 +299,43 @@ export function buildRtSignalCandidateLedger(input: {
   const unresolvedGapCount = bundle.gaps.filter(gap => !gap.resolved).length;
   const orphanGaps = bundle.gaps
     .filter(gap => !gap.resolved && !candidateSources.has(gap.sourceEventId))
-    .map(gap => ({
-      sourceEventId: gap.sourceEventId,
-      phase: gap.phase,
-      reasonCode: gap.reasonCode,
-    }));
+    .map(gap => {
+      const decisionEvent = decisionBySource.get(gap.sourceEventId) ?? null;
+      const detail = objectValue(gap.detailJson);
+      const statusBefore = objectValue(detail.statusBefore);
+      const statusAfter = objectValue(detail.statusAfter);
+      return {
+        gapId: gap.id,
+        decisionEventId: gap.decisionEventId,
+        sourceEventId: gap.sourceEventId,
+        symbol: decisionEvent?.symbol ?? null,
+        symbolName: decisionEvent ? getStockName(decisionEvent.symbol) : null,
+        candleTime: decisionEvent?.candleTime ?? null,
+        resultType: decisionEvent?.resultType ?? null,
+        routeId: decisionEvent?.routeId ?? null,
+        side: decisionEvent?.side ?? null,
+        signalReason: nullableText(decisionEvent?.reason, 500),
+        phase: gap.phase,
+        reasonCode: gap.reasonCode,
+        error: nullableText(detail.error),
+        attemptCount: nullableNumber(detail.attemptCount),
+        phaseLastError: nullableText(detail.phaseLastError),
+        candidatePhaseAttemptCount: nullableNumber(detail.candidatePhaseAttemptCount)
+          ?? decisionEvent?.candidatePhaseAttemptCount
+          ?? null,
+        virtualPhaseAttemptCount: nullableNumber(detail.virtualPhaseAttemptCount)
+          ?? decisionEvent?.virtualPhaseAttemptCount
+          ?? null,
+        statusBefore: {
+          candidate: nullableText(statusBefore.candidate, 64),
+          virtual: nullableText(statusBefore.virtual, 64),
+        },
+        statusAfter: {
+          candidate: nullableText(statusAfter.candidate, 64),
+          virtual: nullableText(statusAfter.virtual, 64),
+        },
+      };
+    });
   const identity = getRuntimeIdentity();
   const countByOverallStatus = (status: LedgerOverallStatus) => rows.filter(row => row.audit.overallStatus === status).length;
   const completedDenominator = wins + losses + draws;

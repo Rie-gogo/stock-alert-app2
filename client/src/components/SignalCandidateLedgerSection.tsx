@@ -28,6 +28,7 @@ import {
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 export type SignalCandidateLedgerData = RouterOutputs["trading"]["getRtSignalCandidateLedger"];
 export type SignalCandidateLedgerRow = SignalCandidateLedgerData["rows"][number];
+export type SignalCandidateLedgerOrphanGap = SignalCandidateLedgerData["orphanGaps"][number];
 
 export function shouldEnableSignalCandidateLedgerQuery(input: {
   authLoading: boolean;
@@ -66,6 +67,49 @@ function portfolioDecisionLabel(decision: SignalCandidateLedgerRow["portfolioAud
   if (decision === "missing") return "欠損";
   if (decision === "closed") return "決済";
   return "未生成";
+}
+
+export function SignalCandidateLedgerGapAlert({ gaps }: { gaps: SignalCandidateLedgerOrphanGap[] }) {
+  if (gaps.length === 0) return null;
+  return (
+    <div className="m-4 rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-200" role="alert">
+      <div className="font-medium">
+        candidate行へ結合できない未解決gapが{gaps.length}件あります。coverageは未完了です。
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-left text-[11px]" aria-label="未解決gap詳細">
+          <thead className="text-red-100/80">
+            <tr>
+              <th className="border-b border-red-500/20 px-2 py-1">時刻</th>
+              <th className="border-b border-red-500/20 px-2 py-1">銘柄</th>
+              <th className="border-b border-red-500/20 px-2 py-1">段階</th>
+              <th className="border-b border-red-500/20 px-2 py-1">試行</th>
+              <th className="border-b border-red-500/20 px-2 py-1">route / side</th>
+              <th className="border-b border-red-500/20 px-2 py-1">保存されたエラー</th>
+            </tr>
+          </thead>
+          <tbody>
+            {gaps.map(gap => (
+              <tr key={`${gap.gapId}:${gap.phase}`}>
+                <td className="border-b border-red-500/10 px-2 py-2 font-mono">{gap.candleTime ?? "不明"}</td>
+                <td className="border-b border-red-500/10 px-2 py-2">
+                  {gap.symbol ? `${gap.symbol} ${gap.symbolName ?? ""}`.trim() : "不明"}
+                </td>
+                <td className="border-b border-red-500/10 px-2 py-2">{gap.phase}</td>
+                <td className="border-b border-red-500/10 px-2 py-2">{gap.attemptCount ?? "不明"}</td>
+                <td className="border-b border-red-500/10 px-2 py-2 font-mono">
+                  {gap.routeId ?? "route不明"} / {gap.side ?? "side不明"}
+                </td>
+                <td className="max-w-[520px] whitespace-normal break-all border-b border-red-500/10 px-2 py-2 font-mono">
+                  {gap.error ?? gap.phaseLastError ?? gap.reasonCode}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function decisionClass(decision: SignalCandidateLedgerRow["realtimeDecision"]): string {
@@ -275,10 +319,15 @@ export default function SignalCandidateLedgerSection({
             <div className="flex items-center gap-2 font-medium"><AlertCircle className="w-4 h-4" />監査台帳を取得できませんでした</div>
             <p className="mt-1 text-xs text-red-200/80">{ledgerQuery.error.message}</p>
           </div>
-        ) : !data || data.rows.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            この日のcandidate記録はありません。0件と未生成は区別して表示しています。
-          </div>
+        ) : !data ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">監査台帳は未生成です。</div>
+        ) : data.rows.length === 0 ? (
+          <>
+            <SignalCandidateLedgerGapAlert gaps={data.orphanGaps} />
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              この日のcandidate記録はありません。0件と未生成は区別して表示しています。
+            </div>
+          </>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 border-y border-border bg-muted/10 p-4 sm:grid-cols-3 xl:grid-cols-6">
@@ -289,11 +338,7 @@ export default function SignalCandidateLedgerSection({
               <div><div className="text-[11px] text-muted-foreground">100株仮想損益</div><div className={`text-xl font-semibold ${(summary?.signalQualityPnl ?? 0) >= 0 ? "text-emerald-300" : "text-red-300"}`}>{(summary?.signalQualityPnl ?? 0) >= 0 ? "+" : ""}{(summary?.signalQualityPnl ?? 0).toLocaleString()}円</div></div>
               <div><div className="text-[11px] text-muted-foreground">pending / retry / terminal</div><div className="text-xl font-semibold">{summary?.pendingCount ?? 0} / {summary?.retryableErrorCount ?? 0} / {summary?.terminalCount ?? 0}</div></div>
             </div>
-            {data.orphanGaps.length > 0 && (
-              <div className="m-4 rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-200" role="alert">
-                candidate行へ結合できない未解決gapが{data.orphanGaps.length}件あります。coverageは未完了です。
-              </div>
-            )}
+            <SignalCandidateLedgerGapAlert gaps={data.orphanGaps} />
             <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
               <ShieldCheck className="w-4 h-4 text-emerald-300" />
               表は実HTMLで表示され、横方向へスクロールできます。固定source hash: <span className="font-mono">{summary?.fixedSourceHash.slice(0, 12)}…</span>

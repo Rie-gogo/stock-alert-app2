@@ -80,7 +80,24 @@ vi.mock("./realtimeSimEngine", () => engineMock);
 vi.mock("./signalCandidateVirtualEngine", () => ({ processSignalQualityVirtualTradesForEvent: virtualMock }));
 vi.mock("./currentVirtualMarketContext", () => marketContextMock);
 
-import { drainCurrentCandidateVirtualQueue, processCurrentEngineAudited } from "./realtimeDecisionAudit";
+import {
+  drainCurrentCandidateVirtualQueue,
+  processCurrentEngineAudited,
+  resolveRealtimeRouteId,
+} from "./realtimeDecisionAudit";
+
+describe("監査route固定化", () => {
+  it.each([
+    ["太陽誘電候補B 10本高値更新LONG", "taiyo_candidate_b_long"],
+    ["太陽誘電候補B 10本安値更新SHORT", "taiyo_candidate_b_short"],
+    ["アドバンテスト高値失速SHORT", "advantest_high_fade_short"],
+    ["ディスコ確認型10本高値更新LONG", "disco_confirmed_long"],
+    ["ディスコ寄り付き10本安値更新SHORT", "disco_opening_short"],
+    ["ソシオネクスト確認型10本高値更新LONG", "socionext_confirmed_long"],
+  ])("%s を %s へ固定する", (reason, expected) => {
+    expect(resolveRealtimeRouteId(reason)).toBe(expected);
+  });
+});
 
 describe("現行実時判断監査", () => {
   beforeEach(() => {
@@ -131,6 +148,12 @@ describe("現行実時判断監査", () => {
       }),
       candidateDescriptorJson: expect.objectContaining({ side: "long", routeId: "telShortBreak" }),
       candidateDescriptorStatus: "complete",
+      side: "long",
+      candidateVirtualInputJson: expect.objectContaining({
+        auditRouteId: "8035_open_direction_breakout_long",
+        candidateSide: "long",
+        candidateSignalReason: "東京エレクトロン始値方向付き短期ブレイクLONG",
+      }),
       candidatePhaseStatus: "pending",
       virtualPhaseStatus: "pending",
     }));
@@ -208,6 +231,58 @@ describe("現行実時判断監査", () => {
       boardSignal: "sell_pressure",
       candidate: expect.objectContaining({ realtimeDecision: "margin_block", side: "short" }),
     }));
+  });
+
+  it("旧payloadでside保存に失敗していても固定audit routeからcandidateを復旧する", async () => {
+    outboxHarness.memory.row = {
+      id: 79,
+      sourceEventId: "legacy-route:79",
+      sourceEventDbId: 79,
+      tradeDate: "2026-09-07",
+      symbol: "8035",
+      candleTime: "10:00",
+      routeId: "8035_open_direction_breakout_short",
+      side: null,
+      resultType: "rejected",
+      candidateVirtualStatus: "error",
+      candidateVirtualAttemptCount: 4,
+      candidatePhaseStatus: "retryable_error",
+      candidatePhaseAttemptCount: 4,
+      virtualPhaseStatus: "pending",
+      virtualPhaseAttemptCount: 0,
+      candidateDescriptorJson: null,
+      candidateDescriptorStatus: "error",
+      candidateVirtualInputJson: {
+        sourceEvent: { id: 79, sourceEventId: "legacy-route:79", relayReceivedAtMs: 1_000 },
+        candle: { symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:00", open: 99, high: 101, low: 98, close: 100, volume: 100 },
+        inputHash: "legacy-route-hash",
+        auditReason: "margin_block",
+        candidateReason: "証拠金使用率制限: 現在6000000円 + 候補4000000円 > 上限8910000円 (東京エレクトロン短期ブレイクSHORT)",
+        resultType: "rejected",
+        decisionSignal: null,
+        latestTrade: null,
+        marginUsedBefore: 6_000_000,
+        decisionCompletedAtMs: 2_000,
+        rawSignal: null,
+        boardSignal: "neutral",
+        marketContextError: null,
+        candidateDescriptorStatus: "error",
+        candidateDescriptor: null,
+        candidateDescriptorError: "Error: candidate_side_missing:8035:2026-09-07:10:00",
+      },
+    };
+
+    const result = await drainCurrentCandidateVirtualQueue();
+
+    expect(result.processedEngineSequences).toEqual([79]);
+    expect(dbMock.upsertRtSignalCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      sourceEventId: "legacy-route:79",
+      symbol: "8035",
+      routeId: "telShortBreak",
+      side: "short",
+      realtimeDecision: "margin_block",
+    }));
+    expect(dbMock.markRtCandidateVirtualPhaseError).not.toHaveBeenCalled();
   });
 
   it("candidate保存失敗を監査outboxへ残し、次回drainで現行判断を再実行せず回復する", async () => {

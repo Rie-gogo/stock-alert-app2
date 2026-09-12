@@ -2239,5 +2239,5 @@
 - [x] 既存6976 LONG/SHORT、他銘柄、通常`rt_trades`、OrderBridge、Executor、実注文instruction、通知・schedule・証拠金・TP/SLへ非干渉であることを固定する
 - [x] A/Bロジック、dispatcher、strategy登録、risk-reward例外、replay、route parity、summary、runtime identityの回帰テストを実行する
 - [x] 全体テスト、型検査、本番build、固定source hash、変更禁止対象、migration不要を確認する
-- [ ] checkpoint保存・自動公開後、runtime／forward summary／本番DB／production logsを確認し、正式Gate未承認を維持する
-- [ ] 実装・テスト・公開結果と未実施の翌営業日受入を日本語で報告する
+- [x] checkpoint保存・自動公開後、runtime／forward summary／本番DB／production logsを確認し、正式Gate未承認を維持する
+- [x] 実装・テスト・公開結果と未実施の翌営業日受入を日本語で報告する

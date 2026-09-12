@@ -2230,3 +2230,14 @@
 - [x] 検証済みcheckpointを保存し、既存`stockalert-ulxu9jpf.manus.space`へ自動公開する
 - [x] 公開後の`getRuntimeIdentity`／`getForwardShadowSummary`、本番DB、ログを読取確認する
 - [x] 翌営業日の実イベント受入を本日の公開完了と分離し、公開反映・API・DB・ログ・安全不変だけを報告する
+
+## 6976 後場反転LONG 独立シャドーA/B実装（2026-09-12）
+- [x] 指定commit `d6c1a0397bfef1e31a3acce0c60837816312df49`が現行HEAD `f06aa626`の直系子で、PDF仕様・変更範囲と一致することを確認する
+- [x] A=`candidate-6976-afternoon-long-rr2-10-v1`、B=`candidate-6976-afternoon-long-recovery-winrate-v1`を独立state/event/trade・2評価modeで実装する
+- [x] Aを診断専用・自動採用不可、Bを明示的2R例外付き手動審査候補としてroute parity／891万円portfolio／formal Gateへ統合する
+- [x] 2026-09-14 collection開始前は0件を正常とし、翌営業日の実イベント受入を本日の公開完了と分離する
+- [x] 既存6976 LONG/SHORT、他銘柄、通常`rt_trades`、OrderBridge、Executor、実注文instruction、通知・schedule・証拠金・TP/SLへ非干渉であることを固定する
+- [x] A/Bロジック、dispatcher、strategy登録、risk-reward例外、replay、route parity、summary、runtime identityの回帰テストを実行する
+- [x] 全体テスト、型検査、本番build、固定source hash、変更禁止対象、migration不要を確認する
+- [ ] checkpoint保存・自動公開後、runtime／forward summary／本番DB／production logsを確認し、正式Gate未承認を維持する
+- [ ] 実装・テスト・公開結果と未実施の翌営業日受入を日本語で報告する

@@ -1214,7 +1214,7 @@ export const rtSignalCandidates = mysqlTable("rt_signal_candidates", {
   requiredMargin: bigint("required_margin", { mode: "number" }).notNull(),
   marginUsedBefore: bigint("margin_used_before", { mode: "number" }).notNull(),
   marginLimit: bigint("margin_limit", { mode: "number" }).notNull(),
-  realtimeDecision: mysqlEnum("rt_signal_candidate_decision", ["accepted", "margin_block"]).notNull(),
+  realtimeDecision: mysqlEnum("rt_signal_candidate_decision", ["accepted", "margin_block", "shadow_only"]).notNull(),
   slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
   tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
   maxHoldingMinutes: int("max_holding_minutes"),

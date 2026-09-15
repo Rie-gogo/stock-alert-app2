@@ -113,9 +113,15 @@ export function SignalCandidateLedgerGapAlert({ gaps }: { gaps: SignalCandidateL
 }
 
 function decisionClass(decision: SignalCandidateLedgerRow["realtimeDecision"]): string {
-  return decision === "accepted"
-    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-    : "bg-amber-500/15 text-amber-300 border-amber-500/40";
+  if (decision === "accepted") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
+  if (decision === "shadow_only") return "bg-sky-500/15 text-sky-300 border-sky-500/40";
+  return "bg-amber-500/15 text-amber-300 border-amber-500/40";
+}
+
+function decisionLabel(decision: SignalCandidateLedgerRow["realtimeDecision"]): string {
+  if (decision === "accepted") return "現行採用";
+  if (decision === "shadow_only") return "停止現行・シャドー";
+  return "証拠金ブロック";
 }
 
 function outcomeClass(outcome: SignalCandidateLedgerRow["virtualTrade"]["outcome"]): string {
@@ -176,8 +182,8 @@ export function SignalCandidateLedgerTable({ rows }: { rows: SignalCandidateLedg
               </Badge>
             </TableCell>
             <TableCell className="whitespace-normal">
-              <Badge variant="outline" className={decisionClass(row.realtimeDecision)}>
-                {row.realtimeDecision}
+              <Badge variant="outline" data-decision={row.realtimeDecision} className={decisionClass(row.realtimeDecision)}>
+                {decisionLabel(row.realtimeDecision)}
               </Badge>
               {row.blockReasonLabel && <div className="mt-1 text-[11px] text-amber-200">{row.blockReasonLabel}</div>}
               {row.blockerAvailability === "not_recorded" && (
@@ -332,7 +338,7 @@ export default function SignalCandidateLedgerSection({
           <>
             <div className="grid grid-cols-2 gap-3 border-y border-border bg-muted/10 p-4 sm:grid-cols-3 xl:grid-cols-6">
               <div><div className="text-[11px] text-muted-foreground">候補</div><div className="text-xl font-semibold">{summary?.candidateCount ?? 0}件</div></div>
-              <div><div className="text-[11px] text-muted-foreground">accepted / block</div><div className="text-xl font-semibold"><span className="text-emerald-300">{summary?.acceptedCount ?? 0}</span> / <span className="text-amber-300">{summary?.marginBlockedCount ?? 0}</span></div></div>
+              <div><div className="text-[11px] text-muted-foreground">現行 / 証拠金 / 停止シャドー</div><div className="text-xl font-semibold"><span className="text-emerald-300">{summary?.acceptedCount ?? 0}</span> / <span className="text-amber-300">{summary?.marginBlockedCount ?? 0}</span> / <span className="text-sky-300">{summary?.shadowOnlyCount ?? 0}</span></div></div>
               <div><div className="text-[11px] text-muted-foreground">仮想決済</div><div className="text-xl font-semibold">{summary?.virtualCompletedCount ?? 0} / {summary?.virtualCreatedCount ?? 0}</div></div>
               <div><div className="text-[11px] text-muted-foreground">勝 / 負 / 分</div><div className="text-xl font-semibold">{summary?.wins ?? 0} / {summary?.losses ?? 0} / {summary?.draws ?? 0}</div></div>
               <div><div className="text-[11px] text-muted-foreground">100株仮想損益</div><div className={`text-xl font-semibold ${(summary?.signalQualityPnl ?? 0) >= 0 ? "text-emerald-300" : "text-red-300"}`}>{(summary?.signalQualityPnl ?? 0) >= 0 ? "+" : ""}{(summary?.signalQualityPnl ?? 0).toLocaleString()}円</div></div>

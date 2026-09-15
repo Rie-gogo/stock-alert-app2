@@ -185,6 +185,10 @@ describe("trading.getForwardShadowSummary", () => {
     expect(result.audit.discoShortPortfolioComparison).toMatchObject({
       scenarios: { paused_current: { actualReceipt: { complete: true } } },
     });
+    expect(result.pausedCurrentRoutes).toHaveLength(11);
+    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain(
+      "6146:寄り付き10本安値更新SHORT",
+    );
     expect(summaryMock).toHaveBeenCalledTimes(21);
     expect(summaryMock).toHaveBeenNthCalledWith(3, "2026-09-04", KIOXIA_FORWARD_STRATEGY_VERSION);
     expect(summaryMock).toHaveBeenNthCalledWith(4, "2026-09-04", KIOXIA_ATR_FORWARD_STRATEGY_VERSION);

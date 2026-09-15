@@ -1,0 +1,1 @@
+ALTER TABLE `rt_signal_candidates` MODIFY COLUMN `rt_signal_candidate_decision` enum('accepted','margin_block','shadow_only') NOT NULL;

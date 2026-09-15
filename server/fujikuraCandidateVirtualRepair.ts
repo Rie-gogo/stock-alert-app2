@@ -19,11 +19,11 @@ import {
 } from "../drizzle/schema";
 import { getDb, getRtRealtimeDecisionEventsForDateAndSymbol } from "./db";
 import {
-  CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
   parseMarginCandidateReason,
   parseRequiredMarginFromReason,
   resolveCurrentRouteSpecFromAuditRoute,
+  resolveCurrentSignalCandidateVersion,
   type CurrentRouteSpec,
 } from "./currentSignalCandidateRegistry";
 import {
@@ -154,7 +154,7 @@ function descriptorForRepair(row: RtRealtimeDecisionEvent, payload: CandidateWor
 
 function candidateFromDescriptor(row: RtRealtimeDecisionEvent, payload: CandidateWorkPayload, descriptor: CandidateDescriptor): CandidatePayload {
   return {
-    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    candidateVersion: resolveCurrentSignalCandidateVersion(row.tradeDate),
     sourceEventId: row.sourceEventId,
     sourceEventDbId: row.sourceEventDbId,
     engineSequence: row.id,
@@ -434,8 +434,9 @@ export async function applyFujikuraCandidateVirtualRepair(runId: string) {
     const currentRun = (await tx.select().from(rtCandidateVirtualRepairRuns).where(eq(rtCandidateVirtualRepairRuns.runId, runId)).limit(1))[0];
     if (currentRun?.status === "applied") return;
     if (currentRun?.status !== "verified") throw new Error(`repair_run_changed:${runId}`);
+    const candidateVersion = resolveCurrentSignalCandidateVersion(run.tradeDate);
     const existingCandidates = await tx.select().from(rtSignalCandidates).where(and(
-      eq(rtSignalCandidates.candidateVersion, CURRENT_SIGNAL_CANDIDATE_VERSION),
+      eq(rtSignalCandidates.candidateVersion, candidateVersion),
       eq(rtSignalCandidates.tradeDate, run.tradeDate),
       eq(rtSignalCandidates.symbol, run.symbol),
     ));
@@ -462,7 +463,7 @@ export async function applyFujikuraCandidateVirtualRepair(runId: string) {
 
     if (existingCandidateIds.length > 0) await tx.delete(rtSignalCandidateTrades).where(inArray(rtSignalCandidateTrades.candidateId, existingCandidateIds));
     await tx.delete(rtSignalCandidates).where(and(
-      eq(rtSignalCandidates.candidateVersion, CURRENT_SIGNAL_CANDIDATE_VERSION),
+      eq(rtSignalCandidates.candidateVersion, candidateVersion),
       eq(rtSignalCandidates.tradeDate, run.tradeDate),
       eq(rtSignalCandidates.symbol, run.symbol),
     ));

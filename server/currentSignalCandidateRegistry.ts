@@ -3,10 +3,21 @@ import {
   resolveRestoredRiskOverrides,
   resolveSpecializedFiredStateKeys,
 } from "./realtimeSimEngine";
+import {
+  PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION,
+  PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE,
+} from "./pausedCurrentRouteShadow";
 
 // 6146寄り付きSHORTの本採用停止を、停止前の候補・仮想損益と混在させない。
-export const CURRENT_SIGNAL_CANDIDATE_VERSION = "current-10-symbol-candidates-v2-disco-short-paused";
+export const LEGACY_SIGNAL_CANDIDATE_VERSION = "current-10-symbol-candidates-v2-disco-short-paused";
+export const CURRENT_SIGNAL_CANDIDATE_VERSION = PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION;
 export const CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION = "current-10-symbol-signal-quality-v2-disco-short-paused";
+
+export function resolveCurrentSignalCandidateVersion(tradeDate: string): string {
+  return tradeDate >= PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE
+    ? CURRENT_SIGNAL_CANDIDATE_VERSION
+    : LEGACY_SIGNAL_CANDIDATE_VERSION;
+}
 
 export type CandidateSide = "long" | "short";
 

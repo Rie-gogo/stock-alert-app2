@@ -23,6 +23,7 @@ vi.mock("./db", () => ({
   upsertSocionextConfirmedLongEvent: vi.fn().mockResolvedValue(undefined),
   upsertSumcoBreakdownShortEvent: vi.fn().mockResolvedValue(undefined),
   upsertSoftbankBreakoutLongEvent: vi.fn().mockResolvedValue(undefined),
+  upsertTelOpenDirectionBreakoutEvent: vi.fn().mockResolvedValue(undefined),
   upsertKioxiaShortGuardEvent: vi.fn().mockResolvedValue(undefined),
   getKioxiaShortGuardEventsForDate: vi.fn().mockResolvedValue([]),
 }));
@@ -1914,7 +1915,7 @@ describe("キオクシア(285A) 反転LONG", () => {
     expect(config.disableTelShortBreakBoardEarlyExit).toBe(true);
   });
 
-  it("東京エレクトロン短期ブレイクLONGは10:00に始値比+0.25%以上・終値5本高値更新・MA8上向き・出来高1.0倍以上で発火する", async () => {
+  it("東京エレクトロン短期ブレイクLONGは適格候補を本取引にせずshadow_onlyへ移す", async () => {
     const symbol = "8035";
     const tradeDate = "2027-02-01";
     await warmup(symbol, tradeDate, 70000, 100);
@@ -1924,11 +1925,12 @@ describe("キオクシア(285A) 反転LONG", () => {
       open: 70100, high: 70230, low: 70095, close: 70220, volume: 5000,
     }));
 
-    expect(result.action).toBe("entry");
+    expect(result.action).toBe("none");
+    expect(result.reason).toContain("shadow_route_pause:8035_open_direction_breakout_long");
     const position = getOpenPositions().find(item => item.symbol === symbol);
-    expect(position?.entryReason).toContain("東京エレクトロン短期ブレイクLONG");
-    expect(position?.slPctOverride).toBe(0.6);
-    expect(position?.tpPctOverride).toBe(1.2);
+    expect(position).toBeUndefined();
+    expect(getSignalHistory().find(item => item.symbol === symbol && item.action === "shadow_only")?.reason)
+      .toContain("東京エレクトロン短期ブレイクLONG");
   });
 
   it("東京エレクトロン短期ブレイクは板読み早期利確を使わない", () => {
@@ -1969,20 +1971,53 @@ describe("キオクシア(285A) 反転LONG", () => {
 
   it("証拠金不足で見送った候補をmargin_blockとして当日シグナル履歴へ残す", async () => {
     const tradeDate = "2027-02-03";
-    await warmup("8035", tradeDate, 70000, 100);
+    await warmup("6857", tradeDate, 10000, 100);
     restoreOpenPositions([{
       symbol: "285A", side: "long", price: 88000, shares: 100, tradeTime: "09:40", reason: "テスト",
     }]);
     const { enterPosition } = await import("./realtimeSimEngine");
     const result = await enterPosition("long", makeCandle({
-      symbol: "8035", tradeDate, candleTime: "10:00",
-      open: 70000, high: 70020, low: 69980, close: 70000, volume: 6000,
-    }), tradeDate, "10:00", "東京エレクトロン短期ブレイクLONG: テスト", null, { slPct: 0.6, tpPct: 1.2 });
+      symbol: "6857", tradeDate, candleTime: "10:00",
+      open: 10000, high: 10020, low: 9980, close: 10000, volume: 6000,
+    }), tradeDate, "10:00", "アドバンテスト確認型LONG: テスト", null, { slPct: 0.5, tpPct: 1.5 });
 
     expect(result.action).toBe("none");
-    const blocked = getSignalHistory().find(item => item.symbol === "8035" && item.action === "margin_block");
+    const blocked = getSignalHistory().find(item => item.symbol === "6857" && item.action === "margin_block");
     expect(blocked?.reason).toContain("証拠金使用率制限");
     expect(blocked?.shares).toBe(0);
+  });
+
+  it("停止対象の現行経路は本取引にせずshadow_onlyとして残す", async () => {
+    const tradeDate = "2027-02-04";
+    restoreOpenPositions([]);
+    await processCandle(makeCandle({
+      symbol: "285A", tradeDate, candleTime: "09:30",
+      open: 50000, high: 50030, low: 49970, close: 50000, volume: 6000,
+    }));
+    const { insertRtTrade } = await import("./db");
+    vi.mocked(insertRtTrade).mockClear();
+    const { enterPosition } = await import("./realtimeSimEngine");
+
+    const result = await enterPosition("short", makeCandle({
+      symbol: "285A", tradeDate, candleTime: "10:00",
+      open: 50000, high: 50010, low: 49880, close: 49900, volume: 9000,
+    }), tradeDate, "10:00", "順張りSHORT: テスト候補", null, { slPct: 0.8, tpPct: 1.6 });
+
+    expect(result).toMatchObject({ action: "none" });
+    expect(result.reason).toContain("shadow_route_pause:trend_short");
+    expect(getOpenPositions().find(position => position.symbol === "285A")).toBeUndefined();
+    expect(vi.mocked(insertRtTrade)).not.toHaveBeenCalled();
+    expect(getSignalHistory().find(item => item.symbol === "285A" && item.action === "shadow_only")).toMatchObject({
+      shares: 0,
+      reason: expect.stringContaining("順張りSHORT: テスト候補"),
+    });
+
+    const repeated = await enterPosition("short", makeCandle({
+      symbol: "285A", tradeDate, candleTime: "10:01",
+      open: 49900, high: 49910, low: 49780, close: 49800, volume: 9000,
+    }), tradeDate, "10:01", "順張りSHORT: 再検出候補", null, { slPct: 0.8, tpPct: 1.6 });
+    expect(repeated).toMatchObject({ action: "none", reason: "shadow_route_repeat:trend_short" });
+    expect(getSignalHistory().filter(item => item.symbol === "285A" && item.action === "shadow_only")).toHaveLength(1);
   });
 
   it("東京エレクトロンは22本の確定足経過後、TP・SL未到達なら次足始値で決済する", async () => {
@@ -2446,12 +2481,12 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
     expect(entry?.reason).toContain("安値反転ブレイクLONG");
   });
 
-  it("寄り付きブレイクSHORTは1本確認後に発火し、ショック足では停止する", async () => {
+  it("寄り付きブレイクSHORTは1本確認後にshadow_onlyへ移し、ショック足では候補にもならない", async () => {
     const symbol = "6981";
     const normalDate = "2026-09-21";
     await setNeutralBoard(0.5);
     await warmup(symbol, normalDate, 8100);
-    let normalEntry = null as Awaited<ReturnType<typeof processCandle>> | null;
+    let normalShadow = null as Awaited<ReturnType<typeof processCandle>> | null;
     for (let i = 0; i < 20; i++) {
       const price = 8100 - (i + 1) * 38;
       const minute = 40 + i;
@@ -2460,9 +2495,11 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
         open: price + 8, high: price + 12, low: price - 5, close: price, volume: 8000,
       }));
       if (minute < 55) expect(result.action).not.toBe("entry");
-      if (result.action === "entry") { normalEntry = result; break; }
+      if (result.reason?.startsWith("shadow_route_pause:")) { normalShadow = result; break; }
     }
-    expect(normalEntry?.reason).toContain("寄り付きブレイクSHORT");
+    expect(normalShadow).toMatchObject({ action: "none" });
+    expect(normalShadow?.reason).toContain("寄り付きブレイクSHORT");
+    expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
 
     const shockDate = "2026-09-22";
     await setNeutralBoard(0.5);
@@ -2517,7 +2554,7 @@ describe("太陽誘電(6976) 候補B30分・後場反転SHORT", () => {
     expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
   });
 
-  it("旧後場反転LONG条件を満たしても通常DRY_RUNでは発火しない", async () => {
+  it("旧後場反転LONGは通常DRY_RUNへ発注せず独立shadow_onlyで継続する", async () => {
     const symbol = "6976";
     const tradeDate = "2026-09-26";
     await warmup(symbol, tradeDate, 3000);
@@ -2539,6 +2576,9 @@ describe("太陽誘電(6976) 候補B30分・後場反転SHORT", () => {
     }
     expect(entry).toBeNull();
     expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
+    expect(getSignalHistory().find(item => item.symbol === symbol && item.action === "shadow_only")).toMatchObject({
+      reason: expect.stringContaining("太陽誘電後場反転LONG"),
+    });
   });
 
   it("後場反転SHORTは前場+3%後の安値更新を陰線1本確認して発火する", async () => {

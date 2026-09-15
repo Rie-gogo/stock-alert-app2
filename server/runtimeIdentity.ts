@@ -5,7 +5,9 @@ import { ACTIVE_ENTRY_SYMBOLS, TARGET_STOCKS } from "../shared/stocks";
 import { GENERATED_BUILD_IDENTITY } from "./generatedBuildIdentity";
 
 export const BASELINE_STRATEGY_GIT_SHA = "7291737d6ee3fdd798a6b090d2a3d3bda3e96bcc";
-export const BASELINE_TRADING_SOURCE_TREE_HASH = "de9d06e6bf9199a16c91a5593ff7bbb37f3776171c0f9f9eb7b9249de826afea";
+/** Plan Dの11経路停止を含む固定版。旧基準hashは監査履歴として保持する。 */
+export const PRE_PLAN_D_TRADING_SOURCE_TREE_HASH = "de9d06e6bf9199a16c91a5593ff7bbb37f3776171c0f9f9eb7b9249de826afea";
+export const BASELINE_TRADING_SOURCE_TREE_HASH = "a7843f9529e92f41abc0c34c8203d69747ab064c6d75feadcfe5fb9be239dce8";
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const KIOXIA_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-confirmed-long-momentum-protect-v1";
@@ -127,7 +129,7 @@ export function getRuntimeIdentity() {
     gitShaVerification: exactBuildGitSha ? "available" as const : "platform_not_exposed_source_hash_used" as const,
     deploymentVersion,
     deploymentRevision,
-    runtimeBuildIdentifier: exactBuildGitSha ?? deploymentRevision ?? deploymentVersion ?? "unavailable",
+    runtimeBuildIdentifier: exactBuildGitSha ?? deploymentRevision ?? deploymentVersion ?? GENERATED_BUILD_IDENTITY.sourceTreeHash,
     baselineStrategyGitSha: BASELINE_STRATEGY_GIT_SHA,
     baselineTradingSourceTreeHash: BASELINE_TRADING_SOURCE_TREE_HASH,
     tradingLogicMatchesBaseline: GENERATED_BUILD_IDENTITY.sourceTreeHash === BASELINE_TRADING_SOURCE_TREE_HASH,

@@ -2678,6 +2678,20 @@ export async function getRtSignalCandidatesForDate(input: {
   )).orderBy(rtSignalCandidates.engineSequence, rtSignalCandidates.id);
 }
 
+export async function getRtSignalCandidatesForDateRange(input: {
+  candidateVersion: string;
+  fromDate: string;
+  toDate: string;
+}): Promise<RtSignalCandidate[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSignalCandidates).where(and(
+    eq(rtSignalCandidates.candidateVersion, input.candidateVersion),
+    gte(rtSignalCandidates.tradeDate, input.fromDate),
+    lte(rtSignalCandidates.tradeDate, input.toDate),
+  )).orderBy(rtSignalCandidates.tradeDate, rtSignalCandidates.engineSequence, rtSignalCandidates.id);
+}
+
 export async function getRtSignalCandidateById(candidateId: number): Promise<RtSignalCandidate | null> {
   const db = await getDb();
   if (!db) return null;
@@ -2725,6 +2739,20 @@ export async function getRtSignalCandidateTradesForDate(input: {
     eq(rtSignalCandidateTrades.virtualEngineVersion, input.virtualEngineVersion),
     eq(rtSignalCandidateTrades.tradeDate, input.tradeDate),
   )).orderBy(rtSignalCandidateTrades.id);
+}
+
+export async function getRtSignalCandidateTradesForDateRange(input: {
+  virtualEngineVersion: string;
+  fromDate: string;
+  toDate: string;
+}): Promise<RtSignalCandidateTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtSignalCandidateTrades).where(and(
+    eq(rtSignalCandidateTrades.virtualEngineVersion, input.virtualEngineVersion),
+    gte(rtSignalCandidateTrades.tradeDate, input.fromDate),
+    lte(rtSignalCandidateTrades.tradeDate, input.toDate),
+  )).orderBy(rtSignalCandidateTrades.tradeDate, rtSignalCandidateTrades.id);
 }
 
 /**

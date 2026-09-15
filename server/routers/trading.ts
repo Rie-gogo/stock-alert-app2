@@ -61,11 +61,30 @@ export const tradingRouter = router({
       }
     }),
 
+  /** プランDで停止した現行11経路の累計100株仮想損益。読取専用・認証必須。 */
+  getPausedCurrentRouteShadowSummary: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getAllPausedCurrentRouteShadowSummary } = await import("../pausedCurrentRouteShadowSummary");
+        return await getAllPausedCurrentRouteShadowSummary(input.asOfDate);
+      } catch {
+        console.error("[PausedCurrentRouteShadowSummary] read failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "停止現行経路のシャドー成績を取得できませんでした",
+        });
+      }
+    }),
+
   /** strategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
       const { getForwardShadowSummary } = await import("../forwardShadow");
+      const { getAllPausedCurrentRouteShadowSummary } = await import("../pausedCurrentRouteShadowSummary");
       const {
         DISCO_SHORT_BASELINE_VERSION,
         DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -156,6 +175,7 @@ export const tradingRouter = router({
         discoShortPortfolioComparison,
         outcomeLabels,
         divergenceHypotheses,
+        pausedCurrentRoutes,
       ] = await Promise.all([
         getRtRealtimeDecisionEventsForDate(input.asOfDate),
         getRtReplayComparisonsForDate({ tradeDate: input.asOfDate, baselineVersion: TEL_CURRENT_PARITY_VERSION }),
@@ -170,6 +190,7 @@ export const tradingRouter = router({
         }),
         getRtOutcomeLabelsForDate({ baselineVersion: "current-realtime-outcome-label-v1", tradeDate: input.asOfDate }),
         getRtDivergenceHypotheses(input.asOfDate),
+        getAllPausedCurrentRouteShadowSummary(input.asOfDate),
       ]);
       const countBy = (values: Array<string | null | undefined>) => Object.fromEntries(
         Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
@@ -181,8 +202,7 @@ export const tradingRouter = router({
         blockEdges: events.filter(event => event.decision === "margin_block" && event.blockerSourceEventId).length,
         maxMarginUsed: events.reduce((max, event) => Math.max(max, event.marginUsedAfter ?? 0), 0),
       });
-      return {
-        strategies: [
+      const strategies = [
           {
             strategyVersion: FORWARD_STRATEGY_VERSION,
             symbol: "8035",
@@ -354,7 +374,9 @@ export const tradingRouter = router({
             collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
             evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
           },
-        ],
+        ];
+      return {
+        strategies,
         auditStrategies: [
           {
             strategyVersion: TEL_CURRENT_PARITY_VERSION,
@@ -371,6 +393,7 @@ export const tradingRouter = router({
             evaluationStartDate: TEL_AUDIT_EVALUATION_START_DATE,
           },
         ],
+        pausedCurrentRoutes,
         audit: {
           currentDecisions: {
             events: currentDecisions.length,

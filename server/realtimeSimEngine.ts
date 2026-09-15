@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertTelOpenDirectionBreakoutEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, getRtSignalCandidatesForDate, getRtRealtimeDecisionEventsForDate, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertTelOpenDirectionBreakoutEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -89,6 +89,16 @@ import {
   calculateTelOpenDirectionBreakoutMetrics,
   isTelOpenDirectionBreakoutEntryTime,
 } from "./telOpenDirectionBreakout";
+import {
+  PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE,
+  PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION,
+  encodePausedCurrentRouteReason,
+  encodePausedCurrentRouteRepeatReason,
+  isPausedCurrentRouteControlReason,
+  pausedCurrentRouteCaptureKey,
+  resolvePausedCurrentRoute,
+  resolveStoredPausedCurrentRoute,
+} from "./pausedCurrentRouteShadow";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
 const ALLOWED_SYMBOLS: Set<string> = new Set(TARGET_STOCKS.map(s => s.symbol));
@@ -1226,6 +1236,16 @@ const discoConfirmedBreakLongFired = new Set<string>();
 const discoOpeningBreakShortFired = new Set<string>();
 /** ★8035短期ブレイク: 実エントリー成功後は当日の現行予備経路も使用しない。 */
 const telShortBreakFired = new Set<string>();
+/**
+ * 停止現行ルートのシャドー記録は、実売買側の日次枠から完全に分離する。
+ *
+ * 8035短期ブレイクLONG/SHORTや6976後場反転LONG/SHORTは実売買側で同じ
+ * fired setを共有している。停止した片方向を既存setへ書くと、継続対象の反対方向まで
+ * 止めてしまうため、比較用シャドーだけの独立キーで1日1回を保証する。
+ */
+const pausedCurrentRouteShadowCaptured = new Set<string>();
+/** すでに現行停止済みの6976後場LONGを、稼働中SHORTと干渉せず元条件のまま追跡する。 */
+const pausedTaiyoAfternoonReversalLongPending = new Map<string, StructureBreakPendingState>();
 
 function applySpecializedFiredState(symbol: string, key: SpecializedFiredStateKey): void {
   const target = {
@@ -1357,6 +1377,8 @@ function resetIfNewDay(tradeDate: string): void {
     discoConfirmedBreakLongFired.clear();
     discoOpeningBreakShortFired.clear();
     telShortBreakFired.clear();
+    pausedCurrentRouteShadowCaptured.clear();
+    pausedTaiyoAfternoonReversalLongPending.clear();
     resetThreePeakState(tradeDate); // ★3山v2: 日次リセット
     // B2方式撤廃済み（+D構成）
     currentTradeDate = tradeDate;
@@ -1635,7 +1657,7 @@ export function resolveSpecializedFiredStateKeys(
     if (action === "short" && reason.startsWith("高値反転SHORT")) return ["peakReversalShort"];
   }
   if (symbol === "5803") {
-    if (action === "short" && reason.startsWith("フジクラ後場安値更新SHORT")) return ["afternoonLowBreakShort"];
+    if (action === "short" && (reason.startsWith("後場安値更新SHORT") || reason.startsWith("フジクラ後場安値更新SHORT"))) return ["afternoonLowBreakShort"];
     if (action === "buy" && reason.startsWith("安値反転ブレイクLONG")) return ["lowReversalBreakLong"];
     if (action === "short" && reason.startsWith("高値失速ブレイクSHORT")) return ["highFadeBreakShort"];
   }
@@ -1777,6 +1799,40 @@ export async function restoreBuffersFromDb(): Promise<void> {
       }
     } catch (guardErr) {
       console.error("[RealtimeSim] 285A SHORTガード復元エラー:", guardErr);
+    }
+
+    // 停止現行ルートの仮想候補はrt_tradesへ書かないため、通常の売買復元では
+    // 日次捕捉済み状態を戻せない。監査イベントと候補台帳の両方から復元する。
+    if (today >= PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE) {
+      try {
+        const [candidates, decisions] = await Promise.all([
+          getRtSignalCandidatesForDate({
+            candidateVersion: PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION,
+            tradeDate: today,
+          }),
+          getRtRealtimeDecisionEventsForDate(today),
+        ]);
+        for (const decision of decisions) {
+          const spec = resolveStoredPausedCurrentRoute({
+            symbol: decision.symbol,
+            encodedReason: decision.reason,
+          });
+          if (spec) pausedCurrentRouteShadowCaptured.add(pausedCurrentRouteCaptureKey(spec, today));
+        }
+        for (const candidate of candidates) {
+          const spec = resolveStoredPausedCurrentRoute({
+            symbol: candidate.symbol,
+            routeId: candidate.routeId,
+            realtimeDecision: candidate.realtimeDecision,
+          });
+          if (spec) pausedCurrentRouteShadowCaptured.add(pausedCurrentRouteCaptureKey(spec, today));
+        }
+        if (pausedCurrentRouteShadowCaptured.size > 0) {
+          console.log(`[RealtimeSim] 停止現行シャドー日次枠復元: ${pausedCurrentRouteShadowCaptured.size}経路`);
+        }
+      } catch (error) {
+        console.error("[RealtimeSim] 停止現行シャドー日次枠復元エラー:", error);
+      }
     }
 
     // ---- オープンポジションのDBからの復元 ----
@@ -2557,7 +2613,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         });
         if (result.action === "entry") {
           socionextConfirmedLongFired.add(symbol);
-        } else if (result.reason !== "margin_block") {
+        } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
           signalHistory.unshift({
             time: candleTime,
             symbol,
@@ -2665,7 +2721,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       });
       if (result.action === "entry") {
         sumcoBreakdownShortFired.add(symbol);
-      } else if (result.reason !== "margin_block") {
+      } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
         signalHistory.unshift({
           time: candleTime,
           symbol,
@@ -2732,7 +2788,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       });
       if (result.action === "entry") {
         softbankBreakoutLongFired.add(symbol);
-      } else if (result.reason !== "margin_block") {
+      } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
         signalHistory.unshift({
           time: candleTime,
           symbol,
@@ -2812,7 +2868,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         });
         if (result.action === "entry") {
           taiyoCandidateBPrimaryFired.add(symbol);
-        } else if (result.reason !== "margin_block") {
+        } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
           signalHistory.unshift({
             time: candleTime,
             symbol,
@@ -3041,7 +3097,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
             detail: result.reason,
             referencePrice: candle.close,
           });
-          if (result.action !== "entry" && result.reason !== "margin_block") {
+          if (result.action !== "entry" && result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
             signalHistory.unshift({
               time: candleTime,
               symbol,
@@ -3124,7 +3180,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       });
       if (result.action === "entry") {
         trendLongFired.add(symbol);
-      } else if (result.reason !== "margin_block") {
+      } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
         signalHistory.unshift({
           time: candleTime,
           symbol,
@@ -3487,6 +3543,64 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
         taiyoMorningInitialShortPending.set(symbol, { triggerClose: candle.close, triggerTime: candleTime });
         console.log(`[RealtimeSim] ${symbol} 太陽誘電朝初動SHORT: 初動検出、次の1本を確認待ち`);
         return { symbol, tradeDate, candleTime, action: "none" };
+      }
+    }
+
+    // ---- ★6976停止済み後場反転LONG: 元の入口を独立シャドーとして継続 ----
+    // 現行設定ではLONGはすでに無効だが、添付指定の比較対象として元条件をそのまま追跡する。
+    // 稼働中の後場SHORTとpending/firedを共有せず、SHORTの判断・日次枠を一切変更しない。
+    const pausedTaiyoLongCaptureKey = `${tradeDate}:${symbol}:reversal_long`;
+    if (
+      tradeDate >= PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE &&
+      symbol === "6976" &&
+      !pausedCurrentRouteShadowCaptured.has(pausedTaiyoLongCaptureKey) &&
+      canCalcMa &&
+      candleTime >= (symConfig.taiyoAfternoonReversalStartTime ?? "12:50") &&
+      candleTime <= (symConfig.taiyoAfternoonReversalEndTime ?? "14:20")
+    ) {
+      const morningCandles = buffer.filter(item => item.time.slice(11, 16) < "12:00");
+      const morningClose = morningCandles[morningCandles.length - 1]?.close ?? dayOpen;
+      const morningMovePct = dayOpen > 0 ? (morningClose - dayOpen) / dayOpen * 100 : 0;
+      const dayLow = dayLowTracker.get(symbol) ?? candle.low;
+      const reversalPctFromLow = dayLow > 0 ? (candle.close - dayLow) / dayLow * 100 : 0;
+      const lookback = symConfig.taiyoAfternoonHighLowLookback ?? 5;
+      const recentHigh = Math.max(...buffer.slice(buffer.length - 1 - lookback, buffer.length - 1).map(item => item.high));
+      const minMorningMove = symConfig.taiyoAfternoonMinMorningMovePct ?? 3.0;
+      const minReversal = symConfig.taiyoAfternoonMinReversalPct ?? 1.0;
+      const pending = pausedTaiyoAfternoonReversalLongPending.get(symbol);
+      let confirmationEvaluated = false;
+      if (pending && candleTime > pending.triggerTime) {
+        confirmationEvaluated = true;
+        pausedTaiyoAfternoonReversalLongPending.delete(symbol);
+        if (candle.close > pending.triggerClose && candle.close > candle.open) {
+          const slPct = symConfig.taiyoAfternoonSlPct ?? 1.0;
+          const tpPct = symConfig.taiyoAfternoonTpPct ?? 1.2;
+          await enterPosition(
+            "long",
+            candle,
+            tradeDate,
+            candleTime,
+            `太陽誘電後場反転LONG: 1本確認、前場${morningMovePct.toFixed(2)}%、安値反発${reversalPctFromLow.toFixed(2)}%`,
+            boardSnapshot,
+            { slPct, tpPct },
+          );
+        }
+      }
+      if (!confirmationEvaluated) {
+        const longTrigger =
+          morningMovePct <= -minMorningMove &&
+          reversalPctFromLow >= minReversal &&
+          candle.close > recentHigh &&
+          candle.close > candle.open &&
+          currentMA > prevMA &&
+          maSlope2 >= 0.02 &&
+          volumeRatio >= (symConfig.taiyoAfternoonLongMinVolumeRatio ?? 1.0);
+        if (longTrigger) {
+          pausedTaiyoAfternoonReversalLongPending.set(symbol, {
+            triggerClose: candle.close,
+            triggerTime: candleTime,
+          });
+        }
       }
     }
 
@@ -4887,6 +5001,38 @@ export async function enterPosition(
         return { symbol, tradeDate, candleTime, action: "none" };
       }
     }
+  }
+
+  // ---- 低成績の現行経路を「停止現行・比較用シャドー」へ移す ----
+  // 既存の入口条件・共通ATR/BPR/時間フィルターをすべて通過した候補だけを止める。
+  // 本取引・証拠金配分へは接続せず、監査workerが同じ候補を100株仮想取引として追跡する。
+  const pausedRoute = resolvePausedCurrentRoute({ symbol, side, reason, tradeDate });
+  if (pausedRoute) {
+    const pauseReason = encodePausedCurrentRouteReason(pausedRoute, reason);
+    const captureKey = pausedCurrentRouteCaptureKey(pausedRoute, tradeDate);
+    if (pausedCurrentRouteShadowCaptured.has(captureKey)) {
+      return {
+        symbol,
+        tradeDate,
+        candleTime,
+        action: "none",
+        reason: encodePausedCurrentRouteRepeatReason(pausedRoute),
+      };
+    }
+    pausedCurrentRouteShadowCaptured.add(captureKey);
+    signalHistory.unshift({
+      time: candleTime,
+      symbol,
+      symbolName: getStockName(symbol),
+      action: "shadow_only",
+      price,
+      shares: 0,
+      pnl: null,
+      reason: pauseReason,
+    });
+    if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+    console.log(`[RealtimeSim] ${symbol} 現行経路停止・比較用シャドーへ記録: ${pausedRoute.label}`);
+    return { symbol, tradeDate, candleTime, action: "none", reason: pauseReason };
   }
 
   // ---- 証拠金使用率制限チェック ----

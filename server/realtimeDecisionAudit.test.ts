@@ -233,6 +233,59 @@ describe("現行実時判断監査", () => {
     }));
   });
 
+  it("停止した現行経路をshadow_only候補として保存し100株仮想取引へ渡す", async () => {
+    dbMock.getLatestRtTradeAt.mockResolvedValue(null);
+    const pauseReason = "shadow_route_pause:8035_open_direction_breakout_long (東京エレクトロン短期ブレイクLONG: テスト候補)";
+    const detailedSignal = {
+      time: "10:00",
+      symbol: "8035",
+      symbolName: "東京エレクトロン",
+      action: "shadow_only",
+      price: 100,
+      shares: 0,
+      pnl: null,
+      reason: pauseReason,
+    };
+    engineMock.getSignalHistory
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([detailedSignal]);
+    const run = vi.fn(async () => ({
+      symbol: "8035",
+      tradeDate: "2026-09-16",
+      candleTime: "10:00",
+      action: "none" as const,
+      reason: pauseReason,
+    }));
+
+    const result = await processCurrentEngineAudited({
+      sourceEvent: {
+        id: 16, sourceEventId: "relay:16", relaySessionId: "relay", eventSeq: 16,
+        symbol: "8035", tradeDate: "2026-09-16", candleTime: "10:00",
+        relayReceivedAtMs: 4_000, relaySentAtMs: 4_010, cloudReceivedAtMs: 4_020,
+      } as never,
+      candle: { symbol: "8035", tradeDate: "2026-09-16", candleTime: "10:00", open: 99, high: 101, low: 98, close: 100, volume: 100 },
+      board: { currentPrice: 100, currentPriceTime: "10:00:30" } as never,
+      inputHash: "shadow-only-hash",
+      run,
+    });
+
+    expect(result.audit).toMatchObject({ resultType: "rejected", routeId: "8035_open_direction_breakout_long" });
+    await drainCurrentCandidateVirtualQueue();
+    expect(dbMock.upsertRtSignalCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      candidateVersion: "current-10-symbol-candidates-v3-low-win-routes-shadow-only",
+      sourceEventId: "relay:16",
+      routeId: "telShortBreak",
+      side: "long",
+      realtimeDecision: "shadow_only",
+      signalReason: "東京エレクトロン短期ブレイクLONG: テスト候補",
+      signalQualityShares: 100,
+    }));
+    expect(virtualMock).toHaveBeenCalledWith(expect.objectContaining({
+      sourceEventId: "relay:16",
+      candidate: expect.objectContaining({ realtimeDecision: "shadow_only", side: "long" }),
+    }));
+  });
+
   it("旧payloadでside保存に失敗していても固定audit routeからcandidateを復旧する", async () => {
     outboxHarness.memory.row = {
       id: 79,

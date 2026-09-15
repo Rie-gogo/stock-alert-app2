@@ -28,13 +28,17 @@ import {
 } from "./realtimeSimEngine";
 import { sha256Stable } from "./runtimeIdentity";
 import {
-  CURRENT_SIGNAL_CANDIDATE_VERSION,
   parseMarginCandidateReason,
   parseRequiredMarginFromReason,
   resolveCandidateSideFromAuditRoute,
+  resolveCurrentSignalCandidateVersion,
   resolveCurrentRouteSpec,
   type CandidateSide,
 } from "./currentSignalCandidateRegistry";
+import {
+  isPausedCurrentRouteReason,
+  pausedCurrentRouteOriginalReason,
+} from "./pausedCurrentRouteShadow";
 import { processSignalQualityVirtualTradesForEvent } from "./signalCandidateVirtualEngine";
 import type { RtRealtimeDecisionEvent, RtSignalCandidate } from "../drizzle/schema";
 import {
@@ -84,7 +88,7 @@ type CandidateDescriptor = {
   signalReason: string;
   capitalShares: number;
   requiredMargin: number;
-  realtimeDecision: "accepted" | "margin_block";
+  realtimeDecision: "accepted" | "margin_block" | "shadow_only";
   routeSpec: ReturnType<typeof resolveCurrentRouteSpec>;
 };
 
@@ -220,7 +224,7 @@ function classifyResult(result: CurrentEngineResult, hasPositionAfter: boolean, 
   if (["exit", "stop_loss", "take_profit", "forced_close"].includes(result.action)) return "exit" as const;
   const reason = auditReason ?? result.reason ?? "";
   if (/pending|確認待ち|保留/i.test(reason)) return "pending" as const;
-  if (/block|reject|拒否|margin|証拠金/i.test(reason)) return "rejected" as const;
+  if (/block|reject|拒否|margin|証拠金|shadow_route_pause/i.test(reason)) return "rejected" as const;
   if (hasPositionAfter) return "hold" as const;
   return "no_signal" as const;
 }
@@ -280,12 +284,16 @@ function inferCandidateSide(input: {
   if (input.latestTrade?.side === "long" || input.latestTrade?.side === "short") return input.latestTrade.side;
   if (input.decisionSignal?.action === "buy") return "long";
   if (input.decisionSignal?.action === "short") return "short";
-  if (input.rawSignal?.type === "buy") return "long";
-  if (input.rawSignal?.type === "sell") return "short";
-  return resolveCandidateSideFromAuditRoute({
+  // margin_block / shadow_only は履歴actionだけでは方向を持たない。
+  // 同じ判断時に固定したrouteを、後段で再計算した汎用raw signalより優先する。
+  const auditRouteSide = resolveCandidateSideFromAuditRoute({
     externalRouteId: input.auditRouteId,
     symbol: input.symbol,
   });
+  if (auditRouteSide) return auditRouteSide;
+  if (input.rawSignal?.type === "buy") return "long";
+  if (input.rawSignal?.type === "sell") return "short";
+  return null;
 }
 
 function candidateSignalReason(input: {
@@ -296,6 +304,8 @@ function candidateSignalReason(input: {
   rawSignal: Awaited<ReturnType<typeof deriveCurrentRawSignalForEvent>>;
 }): string | null {
   const values = [
+    pausedCurrentRouteOriginalReason(input.candidateReason),
+    pausedCurrentRouteOriginalReason(input.auditReason),
     parseMarginCandidateReason(input.candidateReason),
     input.latestTrade?.reason,
     parseMarginCandidateReason(input.decisionSignal?.reason),
@@ -327,7 +337,9 @@ function buildCandidateDescriptor(input: {
   const isAccepted = input.resultType === "entry";
   const isMarginBlock = input.resultType === "rejected"
     && /証拠金(?:ブロック|使用率制限)|margin_block/i.test(input.candidateReason ?? input.auditReason ?? "");
-  if (!isAccepted && !isMarginBlock) return null;
+  const isShadowOnly = input.resultType === "rejected"
+    && isPausedCurrentRouteReason(input.candidateReason ?? input.auditReason);
+  if (!isAccepted && !isMarginBlock && !isShadowOnly) return null;
   const signalReason = input.candidateSignalReason ?? candidateSignalReason(input);
   if (!signalReason) throw new Error(`candidate_reason_missing:${input.candle.symbol}:${input.candle.tradeDate}:${input.candle.candleTime}`);
   const side = input.candidateSide ?? inferCandidateSide({
@@ -358,7 +370,7 @@ function buildCandidateDescriptor(input: {
     signalReason,
     capitalShares,
     requiredMargin,
-    realtimeDecision: isAccepted ? "accepted" : "margin_block",
+    realtimeDecision: isAccepted ? "accepted" : isMarginBlock ? "margin_block" : "shadow_only",
     routeSpec,
   };
 }
@@ -377,7 +389,7 @@ async function saveStructuredCandidate(input: {
   const price = input.candle.close;
 
   const candidate = await upsertRtSignalCandidate({
-    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    candidateVersion: resolveCurrentSignalCandidateVersion(input.candle.tradeDate),
     sourceEventId: input.sourceEvent.sourceEventId,
     sourceEventDbId: input.sourceEvent.id,
     engineSequence: input.auditId,
@@ -407,7 +419,12 @@ async function saveStructuredCandidate(input: {
       inputHash: input.inputHash,
       acceptedByCurrentRealtime: descriptor.realtimeDecision === "accepted",
       marginBlockedByCurrentRealtime: descriptor.realtimeDecision === "margin_block",
-      requiredMarginSource: descriptor.realtimeDecision === "accepted" ? "rt_trade_amount" : "margin_block_reason_or_reconstructed",
+      shadowOnlyByCurrentRealtime: descriptor.realtimeDecision === "shadow_only",
+      requiredMarginSource: descriptor.realtimeDecision === "accepted"
+        ? "rt_trade_amount"
+        : descriptor.realtimeDecision === "margin_block"
+          ? "margin_block_reason_or_reconstructed"
+          : "reconstructed_for_shadow_only",
       eligibleNominalRiskReward: descriptor.routeSpec.eligibleNominalRiskReward,
       routeSpec: descriptor.routeSpec,
     },
@@ -533,7 +550,7 @@ async function processCandidateVirtualWork(row: RtRealtimeDecisionEvent, ownerTo
       );
       if (descriptor) {
         structuredCandidate = await getRtSignalCandidateBySourceEventId({
-          candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+          candidateVersion: resolveCurrentSignalCandidateVersion(payload.candle.tradeDate),
           sourceEventId: payload.sourceEvent.sourceEventId,
         });
       }

@@ -9,8 +9,8 @@ import {
   getRtSignalCandidateTradesForDate,
 } from "./db";
 import {
-  CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+  resolveCurrentSignalCandidateVersion,
 } from "./currentSignalCandidateRegistry";
 
 export const CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT = "current_candidate_outcome_parity";
@@ -268,10 +268,11 @@ export function compareCurrentCandidateOutcomes(input: {
   const incomplete = details.filter(detail => detail.status === "incomplete").length;
   return {
     comparisonVersion: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
-    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    candidateVersion: input.candidates[0]?.candidateVersion ?? null,
     virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
     acceptedCandidates: accepted.length,
-    marginBlockedExcluded: input.candidates.length - accepted.length,
+    marginBlockedExcluded: input.candidates.filter(candidate => candidate.realtimeDecision === "margin_block").length,
+    shadowOnlyExcluded: input.candidates.filter(candidate => candidate.realtimeDecision === "shadow_only").length,
     matched,
     mismatched,
     incomplete,
@@ -290,8 +291,9 @@ export function compareCurrentCandidateOutcomes(input: {
 }
 
 export async function compareCurrentCandidateOutcomesForDate(tradeDate: string) {
+  const candidateVersion = resolveCurrentSignalCandidateVersion(tradeDate);
   const [candidates, virtualTrades, decisions] = await Promise.all([
-    getRtSignalCandidatesForDate({ candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION, tradeDate }),
+    getRtSignalCandidatesForDate({ candidateVersion, tradeDate }),
     getRtSignalCandidateTradesForDate({ virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION, tradeDate }),
     getRtRealtimeDecisionEventsForDate(tradeDate),
   ]);

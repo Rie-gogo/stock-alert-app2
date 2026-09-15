@@ -8,8 +8,8 @@ import type {
 } from "../drizzle/schema";
 import { getStockName } from "../shared/stocks";
 import {
-  CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+  resolveCurrentSignalCandidateVersion,
 } from "./currentSignalCandidateRegistry";
 import { getRtSignalCandidateLedgerBundle } from "./db";
 import {
@@ -180,7 +180,8 @@ export function buildRtSignalCandidateLedger(input: {
   generatedAt?: Date;
 }) {
   const { bundle } = input;
-  if (bundle.candidates.some(candidate => candidate.candidateVersion !== CURRENT_SIGNAL_CANDIDATE_VERSION)) {
+  const candidateVersion = resolveCurrentSignalCandidateVersion(input.tradeDate);
+  if (bundle.candidates.some(candidate => candidate.candidateVersion !== candidateVersion)) {
     throw new Error("rt_signal_candidate_ledger_candidate_version_mismatch");
   }
   if (bundle.virtualTrades.some(trade => trade.virtualEngineVersion !== CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION)) {
@@ -227,8 +228,16 @@ export function buildRtSignalCandidateLedger(input: {
         requiredMargin: nullableNumber(candidate.requiredMargin),
         marginUsedBefore: nullableNumber(candidate.marginUsedBefore),
         marginLimit: nullableNumber(candidate.marginLimit),
-        blockReasonCode: candidate.realtimeDecision === "margin_block" ? "realtime_margin_limit" : null,
-        blockReasonLabel: candidate.realtimeDecision === "margin_block" ? "現行の証拠金上限超過" : null,
+        blockReasonCode: candidate.realtimeDecision === "margin_block"
+          ? "realtime_margin_limit"
+          : candidate.realtimeDecision === "shadow_only"
+            ? "paused_current_route"
+            : null,
+        blockReasonLabel: candidate.realtimeDecision === "margin_block"
+          ? "現行の証拠金上限超過"
+          : candidate.realtimeDecision === "shadow_only"
+            ? "現行停止・比較用シャドー"
+            : null,
         blockerSourceEventId: null,
         blockerAvailability: candidate.realtimeDecision === "margin_block" ? "not_recorded" : "not_applicable",
         theoreticalEntryPrice: nullableNumber(candidate.theoreticalEntryPrice),
@@ -346,6 +355,7 @@ export function buildRtSignalCandidateLedger(input: {
     candidateCount: rows.length,
     acceptedCount: rows.filter(row => row.realtimeDecision === "accepted").length,
     marginBlockedCount: rows.filter(row => row.realtimeDecision === "margin_block").length,
+    shadowOnlyCount: rows.filter(row => row.realtimeDecision === "shadow_only").length,
     virtualCreatedCount: rows.filter(row => row.virtualTrade.completed !== null).length,
     virtualCompletedCount: rows.filter(row => row.virtualTrade.completed === true).length,
     virtualOpenCount: rows.filter(row => row.virtualTrade.completed === false).length,
@@ -375,7 +385,7 @@ export function buildRtSignalCandidateLedger(input: {
   };
 
   if (summary.candidateCount !== rows.length
-    || summary.acceptedCount + summary.marginBlockedCount !== rows.length
+    || summary.acceptedCount + summary.marginBlockedCount + summary.shadowOnlyCount !== rows.length
     || summary.virtualCompletedCount !== wins + losses + draws
     || summary.signalQualityPnl !== completedRows.reduce((sum, row) => sum + (row.virtualTrade.pnl ?? 0), 0)) {
     throw new Error("rt_signal_candidate_ledger_integrity_mismatch");
@@ -384,7 +394,7 @@ export function buildRtSignalCandidateLedger(input: {
   return {
     tradeDate: input.tradeDate,
     versions: {
-      candidate: CURRENT_SIGNAL_CANDIDATE_VERSION,
+      candidate: candidateVersion,
       virtual: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
       actualReceiptPortfolio: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
       minuteNormalizedPortfolio: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
@@ -396,8 +406,9 @@ export function buildRtSignalCandidateLedger(input: {
 }
 
 export async function getRtSignalCandidateLedger(tradeDate: string) {
+  const candidateVersion = resolveCurrentSignalCandidateVersion(tradeDate);
   const bundle = await getRtSignalCandidateLedgerBundle({
-    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    candidateVersion,
     virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
     tradeDate,
     actualReceiptPortfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,

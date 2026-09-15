@@ -11,8 +11,8 @@ import {
 } from "./db";
 import { getRuntimeIdentity } from "./runtimeIdentity";
 import {
-  CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+  resolveCurrentSignalCandidateVersion,
 } from "./currentSignalCandidateRegistry";
 import { sha256Stable } from "./runtimeIdentity";
 import type { RtSignalCandidate, RtSignalCandidateTrade } from "../drizzle/schema";
@@ -402,7 +402,7 @@ async function persistCandidatePortfolioExit(input: {
 
 async function loadAllCandidateInputs(tradeDate: string) {
   const candidates = await getRtSignalCandidatesForDate({
-    candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    candidateVersion: resolveCurrentSignalCandidateVersion(tradeDate),
     tradeDate,
   });
   const trades = await getRtSignalCandidateTradesForDate({

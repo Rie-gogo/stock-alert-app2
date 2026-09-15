@@ -66,6 +66,7 @@ export const tradingRouter = router({
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ input }) => {
       const { getForwardShadowSummary } = await import("../forwardShadow");
+      const { getPausedCurrentRouteShadowSummary } = await import("../pausedCurrentRouteShadowSummary");
       const {
         DISCO_SHORT_BASELINE_VERSION,
         DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -156,6 +157,7 @@ export const tradingRouter = router({
         discoShortPortfolioComparison,
         outcomeLabels,
         divergenceHypotheses,
+        pausedCurrentRoutes,
       ] = await Promise.all([
         getRtRealtimeDecisionEventsForDate(input.asOfDate),
         getRtReplayComparisonsForDate({ tradeDate: input.asOfDate, baselineVersion: TEL_CURRENT_PARITY_VERSION }),
@@ -170,6 +172,7 @@ export const tradingRouter = router({
         }),
         getRtOutcomeLabelsForDate({ baselineVersion: "current-realtime-outcome-label-v1", tradeDate: input.asOfDate }),
         getRtDivergenceHypotheses(input.asOfDate),
+        getPausedCurrentRouteShadowSummary(input.asOfDate),
       ]);
       const countBy = (values: Array<string | null | undefined>) => Object.fromEntries(
         Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
@@ -181,8 +184,7 @@ export const tradingRouter = router({
         blockEdges: events.filter(event => event.decision === "margin_block" && event.blockerSourceEventId).length,
         maxMarginUsed: events.reduce((max, event) => Math.max(max, event.marginUsedAfter ?? 0), 0),
       });
-      return {
-        strategies: [
+      const strategies = [
           {
             strategyVersion: FORWARD_STRATEGY_VERSION,
             symbol: "8035",
@@ -354,7 +356,12 @@ export const tradingRouter = router({
             collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
             evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
           },
-        ],
+        ];
+      const pausedDiscoShort = strategies
+        .find(strategy => strategy.strategyVersion === DISCO_SHORT_BASELINE_VERSION)
+        ?.summaries.find(summary => summary.mode === "signal_quality");
+      return {
+        strategies,
         auditStrategies: [
           {
             strategyVersion: TEL_CURRENT_PARITY_VERSION,
@@ -369,6 +376,35 @@ export const tradingRouter = router({
             purpose: "causality_audit" as const,
             eligibleForAdoption: false,
             evaluationStartDate: TEL_AUDIT_EVALUATION_START_DATE,
+          },
+        ],
+        pausedCurrentRoutes: [
+          ...pausedCurrentRoutes,
+          {
+            policyVersion: "paused-current-routes-below40-v1",
+            candidateVersion: DISCO_SHORT_BASELINE_VERSION,
+            virtualEngineVersion: DISCO_SHORT_BASELINE_VERSION,
+            collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
+            asOfDate: input.asOfDate,
+            symbol: "6146",
+            routeId: "discoOpeningBreakShort",
+            publicRouteId: "disco_opening_short",
+            logicName: "寄り付き10本安値更新SHORT",
+            side: "short" as const,
+            purpose: "paused_current_route_comparison_only" as const,
+            eligibleForAdoption: false,
+            source: "dedicated_forward_shadow" as const,
+            signals: pausedDiscoShort?.collectionMetrics?.closedTrades ?? 0,
+            openedVirtualTrades: pausedDiscoShort?.collectionMetrics?.closedTrades ?? 0,
+            openTrades: 0,
+            closedTrades: pausedDiscoShort?.collectionMetrics?.closedTrades ?? 0,
+            wins: pausedDiscoShort?.collectionMetrics?.wins ?? 0,
+            losses: pausedDiscoShort?.collectionMetrics?.losses ?? 0,
+            draws: 0,
+            winRatePct: pausedDiscoShort?.collectionMetrics && pausedDiscoShort.collectionMetrics.closedTrades > 0
+              ? pausedDiscoShort.collectionMetrics.winRatePct
+              : null,
+            pnl: pausedDiscoShort?.collectionMetrics?.pnl ?? 0,
           },
         ],
         audit: {

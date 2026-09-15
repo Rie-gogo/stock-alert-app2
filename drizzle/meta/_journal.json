@@ -211,6 +211,13 @@
       "when": 1788957674935,
       "tag": "0029_restore_users_table",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1789429511370,
+      "tag": "0030_paused_current_routes_shadow_only",
+      "breakpoints": true
     }
   ]
 }

@@ -60,7 +60,7 @@ async function feedPrefix(tradeDate: string, narrow = false) {
 
 describe("8035始値方向付き短期ブレイク 実エンジン監査", () => {
   it("証拠金拒否は日次枠を消費せず、資金解放後の次候補へ再探索する", async () => {
-    const tradeDate = "2099-05-01";
+    const tradeDate = "2026-09-10";
     await feedPrefix(tradeDate);
     restoreOpenPositions([{
       symbol: "9984", side: "long", price: 8_905_000, shares: 1,
@@ -94,7 +94,7 @@ describe("8035始値方向付き短期ブレイク 実エンジン監査", () =>
   });
 
   it("ATR拒否も日次枠を消費せず、ボラティリティ回復後に再探索する", async () => {
-    const tradeDate = "2099-05-02";
+    const tradeDate = "2026-09-11";
     await feedPrefix(tradeDate, true);
     const blocked = await processCandle({
       symbol: "8035", tradeDate, candleTime: "10:00",
@@ -114,7 +114,7 @@ describe("8035始値方向付き短期ブレイク 実エンジン監査", () =>
   });
 
   it("実エントリー成功後だけ日次枠を消費し、同日2回目は発火しない", async () => {
-    const tradeDate = "2099-05-03";
+    const tradeDate = "2026-09-14";
     await feedPrefix(tradeDate);
     const first = await processCandle({
       symbol: "8035", tradeDate, candleTime: "10:00",

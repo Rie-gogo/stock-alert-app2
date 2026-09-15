@@ -147,7 +147,8 @@ describe("6526確認型ブレイクLONG Git fixture実エンジン監査", () =>
   });
 
   it("証拠金拒否は日次枠を消費せず、解放後の後続候補へ再探索する", async () => {
-    const tradeDate = "2099-01-01";
+    // 停止前の現行経路における拒否後再探索を検証する。
+    const tradeDate = "2026-09-14";
     await feedFlatPrefix(tradeDate);
     restoreOpenPositions([{
       symbol: "285A", side: "long", price: 8_800_000, shares: 1,
@@ -177,7 +178,7 @@ describe("6526確認型ブレイクLONG Git fixture実エンジン監査", () =>
   });
 
   it("ATR拒否も日次枠を消費せず、ボラティリティ回復後の後続候補へ再探索する", async () => {
-    const tradeDate = "2099-01-02";
+    const tradeDate = "2026-09-15";
     await feedFlatPrefix(tradeDate, true);
     await processCandle({ symbol: "6526", tradeDate, candleTime: "09:30", open: 100.4, high: 100.51, low: 100.39, close: 100.5, volume: 150 });
     const blocked = await processCandle({ symbol: "6526", tradeDate, candleTime: "09:31", open: 100.5, high: 100.61, low: 100.49, close: 100.6, volume: 100 });

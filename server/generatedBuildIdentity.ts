@@ -1,11 +1,11 @@
 // 自動生成ファイル。scripts/generate-build-identity.mjs以外で編集しない。
 export const GENERATED_BUILD_IDENTITY = {
-  "gitSha": "d6c1a0397bfef1e31a3acce0c60837816312df49",
-  "sourceTreeHash": "de9d06e6bf9199a16c91a5593ff7bbb37f3776171c0f9f9eb7b9249de826afea",
-  "generatedAt": "2026-09-12T02:31:50.592Z",
+  "gitSha": "unavailable",
+  "sourceTreeHash": "a7843f9529e92f41abc0c34c8203d69747ab064c6d75feadcfe5fb9be239dce8",
+  "generatedAt": "2026-09-15T12:06:51.851Z",
   "fileHashes": {
     "shared/stocks.ts": "b849001124cc7df3ce8f58f7af7ea39a274672129df7f4a6c4088ef10d2a7401",
-    "server/realtimeSimEngine.ts": "43d66b71ba89ce6ae0f46962fc06e6b0cd6f661bcdd313b5b764cc705fe068e5",
+    "server/realtimeSimEngine.ts": "37e7bf5e262b7abf406a2c8cdf8bf223047e938cb198396b9334adcac54a05e1",
     "server/orderBridge.ts": "8806dfb8b47f19a796482b3b58880b20532663c940f0ba50d6e1aaa752d967a4",
     "server/socionextConfirmedLong.ts": "684c01b1a873692042b4a0c131f3e2b2151be6475c360c366d85b8511161dc08",
     "server/sumcoBreakdownShort.ts": "717bc43c216c5f19b9143f4cf6b67770b0b0fa53cfb89e07706ec1b21b31510e",

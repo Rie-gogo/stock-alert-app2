@@ -16,7 +16,7 @@
  * - 大口壁がある場合: 逆方向シグナルを抑制
  */
 
-import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertTelOpenDirectionBreakoutEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
+import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, getRtSignalCandidatesForDate, getRtRealtimeDecisionEventsForDate, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertTelOpenDirectionBreakoutEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
 import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
@@ -91,10 +91,13 @@ import {
 } from "./telOpenDirectionBreakout";
 import {
   PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE,
+  PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION,
   encodePausedCurrentRouteReason,
   encodePausedCurrentRouteRepeatReason,
   isPausedCurrentRouteControlReason,
+  pausedCurrentRouteCaptureKey,
   resolvePausedCurrentRoute,
+  resolveStoredPausedCurrentRoute,
 } from "./pausedCurrentRouteShadow";
 
 // TARGET_STOCKSに含まれる銘柄のみ処理対象（除外銘柄はスキップ）
@@ -1654,7 +1657,7 @@ export function resolveSpecializedFiredStateKeys(
     if (action === "short" && reason.startsWith("高値反転SHORT")) return ["peakReversalShort"];
   }
   if (symbol === "5803") {
-    if (action === "short" && reason.startsWith("フジクラ後場安値更新SHORT")) return ["afternoonLowBreakShort"];
+    if (action === "short" && (reason.startsWith("後場安値更新SHORT") || reason.startsWith("フジクラ後場安値更新SHORT"))) return ["afternoonLowBreakShort"];
     if (action === "buy" && reason.startsWith("安値反転ブレイクLONG")) return ["lowReversalBreakLong"];
     if (action === "short" && reason.startsWith("高値失速ブレイクSHORT")) return ["highFadeBreakShort"];
   }
@@ -1796,6 +1799,40 @@ export async function restoreBuffersFromDb(): Promise<void> {
       }
     } catch (guardErr) {
       console.error("[RealtimeSim] 285A SHORTガード復元エラー:", guardErr);
+    }
+
+    // 停止現行ルートの仮想候補はrt_tradesへ書かないため、通常の売買復元では
+    // 日次捕捉済み状態を戻せない。監査イベントと候補台帳の両方から復元する。
+    if (today >= PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE) {
+      try {
+        const [candidates, decisions] = await Promise.all([
+          getRtSignalCandidatesForDate({
+            candidateVersion: PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION,
+            tradeDate: today,
+          }),
+          getRtRealtimeDecisionEventsForDate(today),
+        ]);
+        for (const decision of decisions) {
+          const spec = resolveStoredPausedCurrentRoute({
+            symbol: decision.symbol,
+            encodedReason: decision.reason,
+          });
+          if (spec) pausedCurrentRouteShadowCaptured.add(pausedCurrentRouteCaptureKey(spec, today));
+        }
+        for (const candidate of candidates) {
+          const spec = resolveStoredPausedCurrentRoute({
+            symbol: candidate.symbol,
+            routeId: candidate.routeId,
+            realtimeDecision: candidate.realtimeDecision,
+          });
+          if (spec) pausedCurrentRouteShadowCaptured.add(pausedCurrentRouteCaptureKey(spec, today));
+        }
+        if (pausedCurrentRouteShadowCaptured.size > 0) {
+          console.log(`[RealtimeSim] 停止現行シャドー日次枠復元: ${pausedCurrentRouteShadowCaptured.size}経路`);
+        }
+      } catch (error) {
+        console.error("[RealtimeSim] 停止現行シャドー日次枠復元エラー:", error);
+      }
     }
 
     // ---- オープンポジションのDBからの復元 ----
@@ -4972,7 +5009,7 @@ export async function enterPosition(
   const pausedRoute = resolvePausedCurrentRoute({ symbol, side, reason, tradeDate });
   if (pausedRoute) {
     const pauseReason = encodePausedCurrentRouteReason(pausedRoute, reason);
-    const captureKey = `${tradeDate}:${symbol}:${pausedRoute.publicRouteId}`;
+    const captureKey = pausedCurrentRouteCaptureKey(pausedRoute, tradeDate);
     if (pausedCurrentRouteShadowCaptured.has(captureKey)) {
       return {
         symbol,

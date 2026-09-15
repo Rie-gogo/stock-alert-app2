@@ -1,8 +1,11 @@
 import type { RtSignalCandidate, RtSignalCandidateTrade } from "../drizzle/schema";
 import {
+  getRtForwardShadowTrades,
   getRtSignalCandidatesForDateRange,
   getRtSignalCandidateTradesForDateRange,
 } from "./db";
+import { DISCO_SHORT_COLLECTION_START_DATE } from "./discoOpeningShortForwardShadow";
+import { DISCO_SHORT_BASELINE_VERSION } from "./runtimeIdentity";
 import {
   CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
@@ -93,4 +96,65 @@ export async function getPausedCurrentRouteShadowSummary(asOfDate: string) {
     }),
   ]);
   return buildPausedCurrentRouteShadowSummary({ candidates, trades, asOfDate });
+}
+
+export function buildPausedDiscoShortShadowSummary(input: {
+  trades: Array<{
+    evaluationMode: string;
+    entryTradeDate: string;
+    exitTradeDate: string | null;
+    pnl: number | null;
+  }>;
+  asOfDate: string;
+}) {
+  const trades = input.trades.filter(trade =>
+    trade.evaluationMode === "signal_quality"
+    && trade.entryTradeDate >= DISCO_SHORT_COLLECTION_START_DATE
+    && trade.entryTradeDate <= input.asOfDate,
+  );
+  const completed = trades.filter(trade =>
+    trade.exitTradeDate !== null
+    && trade.exitTradeDate <= input.asOfDate
+    && finite(trade.pnl) !== null,
+  );
+  const wins = completed.filter(trade => finite(trade.pnl)! > 0).length;
+  const losses = completed.filter(trade => finite(trade.pnl)! < 0).length;
+  const draws = completed.length - wins - losses;
+  const pnl = completed.reduce((sum, trade) => sum + (finite(trade.pnl) ?? 0), 0);
+  return {
+    policyVersion: PAUSED_CURRENT_ROUTE_SHADOW_POLICY_VERSION,
+    candidateVersion: DISCO_SHORT_BASELINE_VERSION,
+    virtualEngineVersion: DISCO_SHORT_BASELINE_VERSION,
+    collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
+    asOfDate: input.asOfDate,
+    symbol: "6146",
+    routeId: "discoOpeningBreakShort",
+    publicRouteId: "disco_opening_short",
+    logicName: "寄り付き10本安値更新SHORT",
+    side: "short" as const,
+    purpose: "paused_current_route_comparison_only" as const,
+    eligibleForAdoption: false,
+    source: "dedicated_forward_shadow" as const,
+    signals: trades.length,
+    openedVirtualTrades: trades.length,
+    openTrades: trades.length - completed.length,
+    closedTrades: completed.length,
+    wins,
+    losses,
+    draws,
+    winRatePct: completed.length === 0 ? null : wins / completed.length * 100,
+    pnl,
+  };
+}
+
+/** 停止した現行11経路だけの軽量な読取専用集計。既存シャドーと発注経路は変更しない。 */
+export async function getAllPausedCurrentRouteShadowSummary(asOfDate: string) {
+  const [genericRoutes, discoTrades] = await Promise.all([
+    getPausedCurrentRouteShadowSummary(asOfDate),
+    getRtForwardShadowTrades(DISCO_SHORT_BASELINE_VERSION),
+  ]);
+  return [
+    ...genericRoutes,
+    buildPausedDiscoShortShadowSummary({ trades: discoTrades, asOfDate }),
+  ];
 }

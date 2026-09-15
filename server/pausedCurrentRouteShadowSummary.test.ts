@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildPausedCurrentRouteShadowSummary } from "./pausedCurrentRouteShadowSummary";
+import {
+  buildPausedCurrentRouteShadowSummary,
+  buildPausedDiscoShortShadowSummary,
+} from "./pausedCurrentRouteShadowSummary";
 
 describe("paused current route shadow summary", () => {
   it("keeps one row for every generic paused route and aggregates completed 100-share outcomes", () => {
@@ -39,6 +42,24 @@ describe("paused current route shadow summary", () => {
       closedTrades: 0,
       winRatePct: null,
       pnl: 0,
+    });
+  });
+
+  it("counts only dedicated 6146 baseline trades closed by the selected date", () => {
+    const trades = [
+      { evaluationMode: "signal_quality", entryTradeDate: "2026-09-11", exitTradeDate: "2026-09-11", pnl: 2500 },
+      { evaluationMode: "signal_quality", entryTradeDate: "2026-09-12", exitTradeDate: "2026-09-17", pnl: -800 },
+      { evaluationMode: "capital_constrained", entryTradeDate: "2026-09-11", exitTradeDate: "2026-09-11", pnl: 9999 },
+      { evaluationMode: "signal_quality", entryTradeDate: "2026-09-10", exitTradeDate: "2026-09-10", pnl: 9999 },
+    ];
+    expect(buildPausedDiscoShortShadowSummary({ trades, asOfDate: "2026-09-16" })).toMatchObject({
+      signals: 2,
+      closedTrades: 1,
+      openTrades: 1,
+      wins: 1,
+      losses: 0,
+      winRatePct: 100,
+      pnl: 2500,
     });
   });
 });

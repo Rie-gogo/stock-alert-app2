@@ -6,9 +6,13 @@ import {
   encodePausedCurrentRouteRepeatReason,
   isPausedCurrentRouteControlReason,
   isPausedCurrentRouteReason,
+  pausedCurrentRouteCaptureKey,
   pausedCurrentRouteOriginalReason,
   resolvePausedCurrentRoute,
+  resolveStoredPausedCurrentRoute,
 } from "./pausedCurrentRouteShadow";
+import { resolveSpecializedFiredStateKeys } from "./realtimeSimEngine";
+import { resolveCurrentRouteSpec } from "./currentSignalCandidateRegistry";
 
 describe("paused current route shadow policy", () => {
   it("添付指定の11経路を重複なく固定する", () => {
@@ -53,5 +57,38 @@ describe("paused current route shadow policy", () => {
     expect(isPausedCurrentRouteReason(repeat)).toBe(false);
     expect(isPausedCurrentRouteControlReason(repeat)).toBe(true);
     expect(pausedCurrentRouteOriginalReason(repeat)).toBeNull();
+  });
+
+  it("5803後場SHORTを実際の理由文字列から仮想損益の経路へ分類する", () => {
+    const reason = "後場安値更新SHORT: 始値比-1.5%、5本安値更新";
+    expect(resolveSpecializedFiredStateKeys("5803", "short", reason)).toEqual(["afternoonLowBreakShort"]);
+    expect(resolveCurrentRouteSpec({
+      symbol: "5803", side: "short", reason, entryCandleTime: "13:45",
+    }).routeId).toBe("afternoonLowBreakShort");
+  });
+
+  it("停止する10経路すべてを同じrouteIdの仮想取引として追跡できる", () => {
+    for (const spec of PAUSED_CURRENT_ROUTE_SPECS.filter(item => item.captureViaGenericCandidateLedger)) {
+      const reason = `${spec.reasonPrefixes[0]}: テスト候補`;
+      expect(resolvePausedCurrentRoute({
+        symbol: spec.symbol, side: spec.side, reason, tradeDate: "2026-09-16",
+      })?.stateKey).toBe(spec.stateKey);
+      expect(resolveCurrentRouteSpec({
+        symbol: spec.symbol, side: spec.side, reason, entryCandleTime: "10:00",
+      }).routeId).toBe(spec.stateKey);
+    }
+  });
+
+  it("再起動後も保存済み監査イベント・仮想候補から日次枠を復元できる", () => {
+    const spec = PAUSED_CURRENT_ROUTE_SPECS.find(item => item.symbol === "6526")!;
+    const encodedReason = encodePausedCurrentRouteReason(spec, "ソシオネクスト確認型LONG: テスト");
+    expect(resolveStoredPausedCurrentRoute({ symbol: "6526", encodedReason })).toBe(spec);
+    expect(resolveStoredPausedCurrentRoute({
+      symbol: "6526", routeId: "socionextConfirmedLong", realtimeDecision: "shadow_only",
+    })).toBe(spec);
+    expect(resolveStoredPausedCurrentRoute({
+      symbol: "6526", routeId: "socionextConfirmedLong", realtimeDecision: "accepted",
+    })).toBeNull();
+    expect(pausedCurrentRouteCaptureKey(spec, "2026-09-16")).toBe("2026-09-16:6526:socionext_confirmed_long");
   });
 });

@@ -6,8 +6,8 @@ import {
   getRtSignalCandidateTradesForDate,
 } from "./db";
 import {
-  CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+  resolveCurrentSignalCandidateVersion,
 } from "./currentSignalCandidateRegistry";
 import {
   DISCO_SHORT_BASELINE_VERSION,
@@ -239,7 +239,7 @@ export async function buildDiscoShortPortfolioComparisonForDate(tradeDate: strin
   const identity = getRuntimeIdentity();
   const activeSymbols = new Set(identity.activeEntrySymbols);
   const [candidates, candidateTrades, decisions, baselineTrades, executableTrades, retestTrades] = await Promise.all([
-    getRtSignalCandidatesForDate({ candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION, tradeDate }),
+    getRtSignalCandidatesForDate({ candidateVersion: resolveCurrentSignalCandidateVersion(tradeDate), tradeDate }),
     getRtSignalCandidateTradesForDate({ virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION, tradeDate }),
     getRtRealtimeDecisionEventsForDate(tradeDate),
     getRtForwardShadowTrades(DISCO_SHORT_BASELINE_VERSION),

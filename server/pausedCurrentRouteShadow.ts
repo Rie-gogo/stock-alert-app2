@@ -6,6 +6,7 @@
  */
 export const PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE = "2026-09-16";
 export const PAUSED_CURRENT_ROUTE_SHADOW_POLICY_VERSION = "paused-current-routes-below40-v1";
+export const PAUSED_CURRENT_ROUTE_SHADOW_CANDIDATE_VERSION = "current-10-symbol-candidates-v3-low-win-routes-shadow-only";
 
 export type PausedCurrentRouteSide = "long" | "short";
 export type PausedCurrentRouteStateKey =
@@ -41,7 +42,7 @@ export const PAUSED_CURRENT_ROUTE_SPECS: readonly PausedCurrentRouteSpec[] = Obj
   {
     symbol: "6526", side: "long", stateKey: "socionextConfirmedLong", publicRouteId: "socionext_confirmed_long",
     label: "確認型LONG",
-    reasonPrefixes: Object.freeze(["ソシオネクスト確認型10本高値更新LONG"]),
+    reasonPrefixes: Object.freeze(["ソシオネクスト確認型LONG"]),
     captureViaGenericCandidateLedger: true,
   },
   {
@@ -117,6 +118,26 @@ export function resolvePausedCurrentRoute(input: {
 
 export function encodePausedCurrentRouteReason(spec: PausedCurrentRouteSpec, originalReason: string): string {
   return `shadow_route_pause:${spec.publicRouteId} (${originalReason})`;
+}
+
+export function pausedCurrentRouteCaptureKey(spec: PausedCurrentRouteSpec, tradeDate: string): string {
+  return `${tradeDate}:${spec.symbol}:${spec.publicRouteId}`;
+}
+
+/** 再起動時、監査イベントまたは仮想候補の保存結果から日次捕捉済み状態を復元する。 */
+export function resolveStoredPausedCurrentRoute(input: {
+  symbol: string;
+  encodedReason?: string | null;
+  routeId?: string | null;
+  realtimeDecision?: string | null;
+}): PausedCurrentRouteSpec | null {
+  const encodedRouteId = input.encodedReason?.match(/^shadow_route_pause:([^ ]+) \(/)?.[1];
+  return PAUSED_CURRENT_ROUTE_SPECS.find(spec =>
+    spec.captureViaGenericCandidateLedger
+    && spec.symbol === input.symbol
+    && (encodedRouteId === spec.publicRouteId
+      || (input.realtimeDecision === "shadow_only" && input.routeId === spec.stateKey)),
+  ) ?? null;
 }
 
 export function encodePausedCurrentRouteRepeatReason(spec: PausedCurrentRouteSpec): string {

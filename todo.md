@@ -2248,6 +2248,6 @@
 - [x] `drizzle/0030_paused_current_routes_shadow_only.sql`、Plan D差分、停止11経路、6146 SHORT baseline、既存経路への非干渉を監査する
 - [x] migration 0030を空MariaDBで0000〜0030まで順次再構築して検証し、本番DBへ非破壊で適用する
 - [x] Plan D対象回帰、型検査、J-Quants外部認証2件を除く全回帰、本番build、固定sourceTreeHashを確認する
-- [ ] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
-- [ ] 公開runtime、`/realtime`の停止現行11経路・シャドー成績表示、本番DB、production logs、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
-- [ ] 実装・migration・テスト・公開結果と翌営業日の実イベント受入を分離して日本語で報告する
+- [x] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
+- [x] 公開runtime、`/realtime`の停止現行11経路・シャドー成績表示、本番DB、production logs、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
+- [x] 実装・migration・テスト・公開結果と翌営業日の実イベント受入を分離して日本語で報告する

@@ -91,6 +91,7 @@ export const tradingRouter = router({
         DISCO_SHORT_RETEST_B_VERSION,
         FORWARD_STRATEGY_VERSION,
         FUJIKURA_FORWARD_STRATEGY_VERSION,
+        FUJIKURA_MORNING_SHORT_VERSION,
         KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
         KIOXIA_FORWARD_STRATEGY_VERSION,
         SOFTBANK_DEPTH_CONFIRM_VERSION,
@@ -106,6 +107,10 @@ export const tradingRouter = router({
         TAIYO_BOARD_DEMAND_VERSION,
         TAIYO_RR2_PROTECT_VERSION,
       } = await import("../runtimeIdentity");
+      const {
+        FUJIKURA_MORNING_SHORT_COLLECTION_START_DATE,
+        FUJIKURA_MORNING_SHORT_FORMAL_START_DATE,
+      } = await import("../fujikuraMorningBreakdownShortShadow");
       const {
         SOFTBANK_FORWARD_COLLECTION_START_DATE,
         SOFTBANK_FORWARD_FORMAL_START_DATE,
@@ -212,6 +217,17 @@ export const tradingRouter = router({
             strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION,
             symbol: "5803",
             summaries: await getForwardShadowSummary(input.asOfDate, FUJIKURA_FORWARD_STRATEGY_VERSION),
+          },
+          {
+            strategyVersion: FUJIKURA_MORNING_SHORT_VERSION,
+            symbol: "5803",
+            summaries: await getForwardShadowSummary(input.asOfDate, FUJIKURA_MORNING_SHORT_VERSION),
+            purpose: "diagnostic_candidate" as const,
+            eligibleForAdoption: false,
+            automaticAdoption: false,
+            orderInstructionConnection: false,
+            collectionStartDate: FUJIKURA_MORNING_SHORT_COLLECTION_START_DATE,
+            evaluationStartDate: FUJIKURA_MORNING_SHORT_FORMAL_START_DATE,
           },
           {
             strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION,

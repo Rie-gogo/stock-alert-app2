@@ -2251,3 +2251,14 @@
 - [x] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
 - [x] 公開runtime、`/realtime`の停止現行11経路・シャドー成績表示、本番DB、production logs、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
 - [x] 実装・migration・テスト・公開結果と翌営業日の実イベント受入を分離して日本語で報告する
+
+## 5803 前場20本安値更新SHORT・次event bid depth独立シャドー（2026-09-15）
+- [x] 同期前の未保存変更のファイル名・要点と指定commitとの重なりを確認し、動作コード競合なら公開前に停止する
+- [x] GitHub `main`の指定commit `be654175aea8d5e6f42bbf19db37d3aa04bb6568`を既存変更を破棄せず同期し、HEAD・main・直系性を確認する
+- [x] `candidate-5803-morning-20bar-breakdown-short-depth-v1`の版、collection/formal開始日2026-09-17、2評価mode、冪等性、clock-safe bid depth、注文非接続を監査する
+- [x] schema/migration・`realtimeSimEngine.ts`・既存TP/SL・証拠金配分・通知/scheduleが変更されず、既存5803 LONG・既存shadow・Plan D停止経路・他銘柄・受信に非干渉であることを確認する
+- [x] 追加34件を含む対象回帰、固定replay mismatch 0、型検査、J-Quants等の外部依存を理由付きで分離した全回帰、本番build、固定source hashを確認する
+- [x] 指定commit以前から再現する6526確認型LONGの再起動復元テスト失敗を今回の公開対象外として固定し、親commit `d8e4c076`での再現証拠とともに報告する
+- [ ] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
+- [ ] 公開runtime／forward summary／本番DB／production logsで新version、設定、error/lease/gap、通常`rt_trades`非作成、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
+- [ ] 実装・同期commit・checkpoint・公開revision・source hash・テスト・既存経路不変と、2026-09-17以降の実イベント受入を分離して報告する

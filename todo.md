@@ -2263,3 +2263,8 @@
 - [x] 公開`getForwardShadowSummary`のstrategy一覧へ新5803独立shadowを追加し、開始前0件・2評価mode・formal未承認を返すことを回帰・再公開で確認する
 - [x] 公開runtime／forward summary／本番DB／production logsで新version、設定、error/lease/gap、通常`rt_trades`非作成、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
 - [x] 実装・同期commit・checkpoint・公開revision・source hash・テスト・既存経路不変と、2026-09-17以降の実イベント受入を分離して報告する
+
+## 30分境界SL/TP優先順位・板鮮度5秒 精査（2026-09-16）
+- [x] 30分境界でSL/TP到達と板決済が競合したときの実際の優先順位・板欠損時動作をコードとテストで精査する
+- [x] source eventのboard発生時刻・中継受信時刻・鮮度計算の実装を精査し、中継前の古い板を誤って新鮮と判定しないか確認する（新shadowでは`boardObservedAt→relayAssembled`が5秒式から漏れるため修正要、legacy cacheは`receivedAt`をcloud時刻へ上書きするが5秒Gate自体は未使用）
+- [x] 影響範囲、既存回帰の不足、固定source hash・DRY_RUN・注文非接続への影響を監査し、修正要否と受入条件を報告する

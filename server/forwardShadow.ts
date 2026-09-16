@@ -39,6 +39,7 @@ import {
   FORWARD_EVALUATION_POLICY,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
+  FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
@@ -61,6 +62,10 @@ import {
   FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
   replayFujikuraForwardShadowDay,
 } from "./fujikuraForwardShadowEngine";
+import {
+  FUJIKURA_MORNING_SHORT_FORMAL_START_DATE,
+  FUJIKURA_MORNING_SHORT_LEARNING_CUTOFF_DATE,
+} from "./fujikuraMorningBreakdownShortShadow";
 import {
   KIOXIA_FORWARD_EVALUATION_START_DATE,
   KIOXIA_FORWARD_LEARNING_CUTOFF_DATE,
@@ -677,7 +682,18 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   }
   if (input.candle.symbol === "5803") {
     const { processFujikuraForwardShadowSourceEvent } = await import("./fujikuraForwardShadowEngine");
-    return processFujikuraForwardShadowSourceEvent(input);
+    const { processFujikuraMorningShortShadowSourceEvent } = await import("./fujikuraMorningBreakdownShortShadowEngine");
+    const evaluations: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    for (const evaluate of [processFujikuraForwardShadowSourceEvent, processFujikuraMorningShortShadowSourceEvent]) {
+      try {
+        evaluations.push(await evaluate(input));
+      } catch (error) {
+        errors.push(String(error));
+      }
+    }
+    if (errors.length > 0) throw new Error(`fujikura_forward_shadow_partial_failure:${errors.join(" | ")}`);
+    return { skipped: false as const, symbol: "5803", evaluations };
   }
   if (input.candle.symbol === "9984") {
     const { processSoftbankForwardShadowSourceEvent } = await import("./softbankForwardShadowEngine");
@@ -1060,6 +1076,15 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       cutoffDate: FUJIKURA_FORWARD_LEARNING_CUTOFF_DATE,
       adoptionEligible: true,
       lifecycle: "active_candidate",
+    },
+    {
+      versionId: FUJIKURA_MORNING_SHORT_VERSION,
+      symbol: "5803",
+      title: "5803 前場20本安値更新SHORT・次イベントbid depth確認",
+      startDate: FUJIKURA_MORNING_SHORT_FORMAL_START_DATE,
+      cutoffDate: FUJIKURA_MORNING_SHORT_LEARNING_CUTOFF_DATE,
+      adoptionEligible: false,
+      lifecycle: "exploratory_shadow_slippage_gate_failed",
     },
     {
       versionId: KIOXIA_FORWARD_STRATEGY_VERSION,

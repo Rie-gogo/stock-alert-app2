@@ -12,6 +12,7 @@ const replayMock = vi.hoisted(() => vi.fn(() => ({ replayedEvents: 1, mismatches
 vi.mock("./db", () => dbMock);
 vi.mock("./forwardShadow", () => ({ replayForwardShadowDay: replayMock }));
 vi.mock("./fujikuraForwardShadowEngine", () => ({ replayFujikuraForwardShadowDay: replayMock }));
+vi.mock("./fujikuraMorningBreakdownShortShadowEngine", () => ({ auditFujikuraMorningShortShadowDay: replayMock }));
 vi.mock("./kioxiaForwardShadowEngine", () => ({ replayKioxiaForwardShadowDay: replayMock }));
 vi.mock("./kioxiaAtrForwardShadowEngine", () => ({ replayKioxiaAtrForwardShadowDay: replayMock }));
 vi.mock("./telExecutableConfirmEngine", () => ({ auditTelExecutableConfirmDay: replayMock }));
@@ -47,7 +48,7 @@ describe("forward strategy replay materializer", () => {
       status: "processing",
       version: FORWARD_STRATEGY_VERSION,
       completedVersions: 1,
-      totalVersions: 21,
+      totalVersions: 22,
     });
     expect(replayMock).toHaveBeenCalledTimes(1);
     expect(dbMock.getRtSourceEventsForDateAndSymbol).toHaveBeenCalledWith({ tradeDate: "2026-09-07", symbol: "8035" });
@@ -59,20 +60,20 @@ describe("forward strategy replay materializer", () => {
     }));
   });
 
-  it("21 versionが同じ元件数で完了済みなら重い入力を読まずcompleteを返す", async () => {
+  it("22 versionが同じ元件数で完了済みなら重い入力を読まずcompleteを返す", async () => {
     const first = await materializeNextForwardReplayForDate({
       tradeDate: "2026-09-07",
       processedThroughEngineSequence: 6454,
       sourceDecisionCount: 6454,
     });
     const firstVersion = first.status === "processing" ? first.version : "";
-    const rows = Array.from({ length: 21 }, (_, index) => ({
+    const rows = Array.from({ length: 22 }, (_, index) => ({
       version: index === 0 ? firstVersion : `complete-${index}`,
       status: "complete",
       sourceDecisionCount: 6454,
     }));
-    // 実際のversion名21件を得るため、各回で返されたversionを既存一覧へ蓄積する。
-    for (let index = 1; index < 21; index += 1) {
+    // 実際のversion名22件を得るため、各回で返されたversionを既存一覧へ蓄積する。
+    for (let index = 1; index < 22; index += 1) {
       dbMock.getRtDailyAuditMaterializationsForComponent.mockResolvedValue(rows.slice(0, index));
       const next = await materializeNextForwardReplayForDate({
         tradeDate: "2026-09-07",
@@ -90,7 +91,7 @@ describe("forward strategy replay materializer", () => {
       sourceDecisionCount: 6454,
     });
 
-    expect(complete).toEqual({ status: "complete", completedVersions: 21 });
+    expect(complete).toEqual({ status: "complete", completedVersions: 22 });
     expect(dbMock.getRtSourceEventsForDateAndSymbol).not.toHaveBeenCalled();
     expect(replayMock).not.toHaveBeenCalled();
   });

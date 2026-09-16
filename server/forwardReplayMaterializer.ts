@@ -11,6 +11,7 @@ import {
   DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
+  FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
@@ -28,6 +29,7 @@ import {
 } from "./runtimeIdentity";
 import { replayForwardShadowDay } from "./forwardShadow";
 import { replayFujikuraForwardShadowDay } from "./fujikuraForwardShadowEngine";
+import { auditFujikuraMorningShortShadowDay } from "./fujikuraMorningBreakdownShortShadowEngine";
 import { replayKioxiaForwardShadowDay } from "./kioxiaForwardShadowEngine";
 import { replayKioxiaAtrForwardShadowDay } from "./kioxiaAtrForwardShadowEngine";
 import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
@@ -53,6 +55,7 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
 }> = [
   { version: FORWARD_STRATEGY_VERSION, symbol: "8035", run: (source, shadow) => replayForwardShadowDay(source, shadow) },
   { version: FUJIKURA_FORWARD_STRATEGY_VERSION, symbol: "5803", run: (source, shadow) => replayFujikuraForwardShadowDay(source, shadow) },
+  { version: FUJIKURA_MORNING_SHORT_VERSION, symbol: "5803", run: (source, shadow, realtime) => auditFujikuraMorningShortShadowDay(source, shadow, realtime) },
   { version: KIOXIA_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaForwardShadowDay(source, shadow) },
   { version: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaAtrForwardShadowDay(source, shadow) },
   { version: TEL_EXECUTABLE_CONFIRM_VERSION, symbol: "8035", run: (source, shadow) => auditTelExecutableConfirmDay(source, shadow) },

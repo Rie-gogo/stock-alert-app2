@@ -10,6 +10,7 @@ export const PRE_PLAN_D_TRADING_SOURCE_TREE_HASH = "de9d06e6bf9199a16c91a5593ff7
 export const BASELINE_TRADING_SOURCE_TREE_HASH = "a7843f9529e92f41abc0c34c8203d69747ab064c6d75feadcfe5fb9be239dce8";
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
+export const FUJIKURA_MORNING_SHORT_VERSION = "candidate-5803-morning-20bar-breakdown-short-depth-v1";
 export const KIOXIA_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-confirmed-long-momentum-protect-v1";
 export const KIOXIA_ATR_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
 export const TEL_CURRENT_PARITY_VERSION = "baseline-8035-current-parity-v1";
@@ -34,6 +35,7 @@ export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
+  FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,

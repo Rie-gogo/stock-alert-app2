@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import auditFixture from "./fixtures/taiyoCandidateA.audit.fixture.json";
 import {
   TAIYO_CANDIDATE_B_EXPECTED_SUMMARY,
@@ -63,13 +63,20 @@ import {
   getTaiyoCandidateBAuditEventsForTest,
   processCandle,
   restoreOpenPositions,
+  setTaiyoCandidateBExecutablePricingEnabledForTest,
   setTaiyoCandidateAAuditEnabledForTest,
   shouldBoardEarlyExit,
 } from "./realtimeSimEngine";
 import { upsertTaiyoCandidateBEvent } from "./db";
 
+beforeEach(() => {
+  // raw depthを保存していない旧46日fixtureは、選定時の理論終値モデルとして固定比較する。
+  setTaiyoCandidateBExecutablePricingEnabledForTest(false);
+});
+
 afterEach(() => {
   setTaiyoCandidateAAuditEnabledForTest(false);
+  setTaiyoCandidateBExecutablePricingEnabledForTest(true);
   currentSnapshot = null;
   vi.clearAllMocks();
 });

@@ -133,7 +133,7 @@ describe("9984 A: 次イベント100株ask depth確認", () => {
     }, "signal_quality");
 
     expect(confirmed.resultType).toBe("entry");
-    expect(confirmed.openedPosition?.boardAgeMs).toBe(500);
+    expect(confirmed.openedPosition?.boardAgeMs).toBe(600);
   });
 
   it("pending状態をJSON復元しても次イベントdepth確認結果が一致する", () => {

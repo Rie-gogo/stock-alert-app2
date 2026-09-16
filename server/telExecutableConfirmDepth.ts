@@ -18,6 +18,11 @@ export type TelClockSafeBoardAge = {
   causal: boolean;
   fresh: boolean;
   boardAgeMs: number | null;
+  /** board観測からrelay payload組立までの、Windows側同一時計の経過時間。 */
+  boardToRelayAssemblyMs: number | null;
+  /** board観測からrelay送信までの、Windows側同一時計の経過時間。 */
+  relayBoardAgeMs: number | null;
+  /** 互換用: relay payload組立から送信までの経過時間。 */
   relayPackagingMs: number | null;
   cloudProcessingMs: number | null;
   basis: "same_clock_intervals";
@@ -28,25 +33,36 @@ export type TelClockSafeBoardAge = {
 export function calculateClockSafeBoardAge(
   audit: ForwardSourceEventInput["currentAudit"],
 ): TelClockSafeBoardAge {
+  const boardObservedAtMs = audit?.boardObservedAtMs ?? null;
   const relayAssembledAtMs = audit?.relayAssembledAtMs ?? null;
   const relaySentAtMs = audit?.relaySentAtMs ?? null;
   const cloudReceivedAtMs = audit?.cloudReceivedAtMs ?? null;
   const decisionAtMs = audit?.decisionCompletedAtMs ?? null;
-  const timestampsAvailable = relayAssembledAtMs !== null
+  const timestampsAvailable = boardObservedAtMs !== null
+    && relayAssembledAtMs !== null
     && relaySentAtMs !== null
     && cloudReceivedAtMs !== null
     && decisionAtMs !== null;
+  const boardToRelayAssemblyMs = timestampsAvailable ? relayAssembledAtMs - boardObservedAtMs : null;
+  const relayBoardAgeMs = timestampsAvailable ? relaySentAtMs - boardObservedAtMs : null;
   const relayPackagingMs = timestampsAvailable ? relaySentAtMs - relayAssembledAtMs : null;
   const cloudProcessingMs = timestampsAvailable ? decisionAtMs - cloudReceivedAtMs : null;
-  const causal = relayPackagingMs !== null && cloudProcessingMs !== null
+  const causal = boardToRelayAssemblyMs !== null
+    && relayBoardAgeMs !== null
+    && relayPackagingMs !== null
+    && cloudProcessingMs !== null
+    && boardToRelayAssemblyMs >= 0
+    && relayBoardAgeMs >= 0
     && relayPackagingMs >= 0
     && cloudProcessingMs >= 0;
-  const boardAgeMs = causal ? relayPackagingMs + cloudProcessingMs : null;
+  const boardAgeMs = causal ? relayBoardAgeMs + cloudProcessingMs : null;
   return {
     timestampsAvailable,
     causal,
     fresh: boardAgeMs !== null && boardAgeMs <= TEL_EXECUTABLE_DEPTH_MAX_BOARD_AGE_MS,
     boardAgeMs,
+    boardToRelayAssemblyMs,
+    relayBoardAgeMs,
     relayPackagingMs,
     cloudProcessingMs,
     basis: "same_clock_intervals",

@@ -35,6 +35,7 @@ vi.mock("./realtimeSimEngine", () => ({ processCandle: processCandleMock }));
 vi.mock("./realtimeDecisionAudit", () => ({
   processCurrentEngineAudited: auditedCurrentMock,
   drainCurrentCandidateVirtualQueue: candidateDrainMock,
+  parseBoardObservedAtMs: vi.fn(() => 123_456),
 }));
 vi.mock("./forwardShadowSequence", () => ({
   enqueueAndDrainForwardShadow: shadowMock,
@@ -91,6 +92,13 @@ describe("受信イベントの一度きり処理", () => {
     dbMock.claimRtSourceEvent.mockResolvedValue(true);
     const result = await ingestSourceCandle(input);
     expect(processCandleMock).toHaveBeenCalledTimes(1);
+    expect(processCandleMock).toHaveBeenCalledWith(
+      expect.objectContaining({ symbol: "8035", candleTime: "10:00" }),
+      expect.objectContaining({
+        sourceEventId: "session-a:1",
+        currentAudit: expect.objectContaining({ boardObservedAtMs: 123_456 }),
+      }),
+    );
     expect(shadowMock).toHaveBeenCalledTimes(1);
     expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "processed" }));
     expect(result.sourceEventDuplicate).toBe(false);

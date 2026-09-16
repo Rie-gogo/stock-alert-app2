@@ -18,9 +18,10 @@
 
 import { insertRtCandle, insertRtTrade, upsertRtDailySummary, getRtTradesForDate, getRtCandlesAllForDate, getRtOpenPositionsFromDb, getRtSignalCandidatesForDate, getRtRealtimeDecisionEventsForDate, insertScore0Block, upsertTaiyoCandidateBEvent, upsertSocionextConfirmedLongEvent, upsertSumcoBreakdownShortEvent, upsertSoftbankBreakoutLongEvent, upsertKioxiaConfirmedMorningLongEvent, upsertTelOpenDirectionBreakoutEvent, upsertKioxiaShortGuardEvent, getKioxiaShortGuardEventsForDate } from "./db";
 import { detectSignals, calcMA, calcRSI, calcBollinger, type CandleWithSignal } from "./routers/stockData";
-import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer } from "./kabuStation";
+import { getOrderBook, analyzeOrderBook, calcExtendedBoardFields, getAggregatedBoardStats, clearBoardRingBuffer, type KabuOrderBook } from "./kabuStation";
 import { getHigherTfTrend } from "./vwap";
 import { calcATR } from "./intradayRegime";
+import { calculateClockSafeBoardAge, calculateDepthVwap } from "./telExecutableConfirmDepth";
 import { getStockName, TARGET_STOCKS, TRADE_EXCLUDED_SYMBOLS, ACTIVE_ENTRY_SYMBOLS } from "../shared/stocks";
 import {
   evaluateConfirmation,
@@ -544,7 +545,7 @@ export const SYMBOL_CONFIG: Record<string, Partial<SymbolConfig>> = {
     taiyoAfternoonSlPct: 1.0,
     taiyoAfternoonTpPct: 1.2,
     exclusiveEntryRoutes: true,
-    notes: "太陽誘電DRY_RUN候補B: 09:45〜11:00の10本終値ブレイクを1本確認、09:00以降最初の足を始値基準、MA8二本傾き±0.05%以上・初動出来高1.0倍、SL1.0%/TP0.6%、最大30分確定足終値、板入口/板利確なし。共通ゲート拒否では枠を消費せず後続候補を再探索。朝初動SHORTと後場LONGは停止し、既存後場SHORTだけ維持。LIVE未承認。",
+    notes: "太陽誘電DRY_RUN候補B: 09:45〜11:00の10本終値ブレイクを1本確認、09:00以降最初の足を始値基準、MA8二本傾き±0.05%以上・初動出来高1.0倍。入口は確認後の次source event方向別板VWAP、SL1.0%/TP0.6%、最大30分は期限到達eventの反対側板VWAP、source event監査時刻で板鮮度5秒以内、板利確なし。共通ゲート拒否では枠を消費せず後続候補を再探索。朝初動SHORTと後場LONGは停止し、既存後場SHORTだけ維持。LIVE未承認。",
   },
   "6526": {
     sl: { long: 0.8, short: 1.0 },
@@ -945,6 +946,37 @@ export interface TaiyoCandidateBAuditEvent {
   referencePrice?: number;
 }
 const taiyoCandidateBAuditEvents: TaiyoCandidateBAuditEvent[] = [];
+
+export type RealtimeExecutionPriceSource =
+  | "next_event_ask_depth_vwap"
+  | "next_event_bid_depth_vwap"
+  | "current_event_ask_depth_vwap"
+  | "current_event_bid_depth_vwap";
+
+export interface RealtimeSourceExecutionContext {
+  sourceEventId: string;
+  board: Omit<KabuOrderBook, "symbol" | "receivedAt"> | null;
+  currentAudit: {
+    boardObservedAtMs: number | null;
+    relayAssembledAtMs: number | null;
+    relaySentAtMs: number | null;
+    cloudReceivedAtMs: number | null;
+  };
+}
+
+interface RealtimeExecutionOverride {
+  price: number;
+  shares?: number;
+  priceSource: RealtimeExecutionPriceSource;
+  /** 入口なら確認足、時間決済ならエントリー時刻。 */
+  referenceTime: string;
+  signalReferencePrice?: number;
+  sourceEventId: string;
+  boardAgeMs: number;
+}
+
+/** raw depthのない旧fixtureだけ、選定時の理論終値モデルを固定比較する。 */
+let taiyoCandidateBExecutablePricingEnabled = true;
 
 /** ★6526確認型LONG: DRY_RUN実エントリー成功時だけ当日枠を消費し、拒否後は再探索する。 */
 const socionextConfirmedLongFired = new Set<string>();
@@ -1919,8 +1951,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
       console.error("[RealtimeSim] シグナル履歴復元エラー:", sigErr);
     }
 
-    // ---- 6976候補Bの1本確認待ちを最新保存足から再構築 ----
-    // 最新足そのものが初動条件を満たす場合だけ次の1分足を待つ。
+    // ---- 6976候補Bの確認待ち／次source event執行待ちを最新保存足から再構築 ----
     // 既に当日エントリー済み、またはポジション保有中なら再作成しない。
     if (!taiyoCandidateBPrimaryFired.has("6976") && !openPositions.has("6976")) {
       const restored = candleBuffers.get("6976") ?? [];
@@ -1933,11 +1964,48 @@ export async function restoreBuffersFromDb(): Promise<void> {
         volume: item.volume,
       }));
       const latest = candidateBuffer[candidateBuffer.length - 1];
+      const priorBuffer = candidateBuffer.slice(0, -1);
+      const prior = priorBuffer[priorBuffer.length - 1];
       const dayOpen = getTaiyoCandidateBDayOpen(candidateBuffer);
-      if (latest && dayOpen !== null && isTaiyoCandidateBInitialTriggerTime(latest.time)) {
+      const priorMetrics = dayOpen === null ? null : calculateTaiyoCandidateBMetrics(priorBuffer, dayOpen);
+      const restoredConfirmation = latest && prior && priorMetrics?.side
+        && isTaiyoCandidateBInitialTriggerTime(prior.time)
+        && isTaiyoCandidateBConfirmationTime(latest.time)
+        ? evaluateTaiyoCandidateBConfirmation({
+            pending: {
+              stage: "await_confirmation",
+              side: priorMetrics.side,
+              triggerClose: prior.close,
+              triggerTime: prior.time,
+              triggerMaSlope2Pct: priorMetrics.maSlope2Pct,
+              triggerVolumeRatio: priorMetrics.volumeRatio,
+              triggerOpenMovePct: priorMetrics.openMovePct,
+            },
+            candle: latest,
+          })
+        : null;
+
+      if (latest && prior && priorMetrics?.side && restoredConfirmation?.allowed) {
+        const restoredPending: TaiyoCandidateBPending = {
+          stage: "await_execution",
+          side: priorMetrics.side,
+          triggerClose: prior.close,
+          triggerTime: prior.time,
+          triggerMaSlope2Pct: priorMetrics.maSlope2Pct,
+          triggerVolumeRatio: priorMetrics.volumeRatio,
+          triggerOpenMovePct: priorMetrics.openMovePct,
+          confirmationTime: latest.time,
+          confirmationClose: latest.close,
+          entryReason:
+            `太陽誘電候補B${priorMetrics.side === "long" ? "LONG" : "SHORT"}: 10本終値ブレイク後1本確認、MA8二本傾き${priorMetrics.maSlope2Pct.toFixed(3)}%、初動出来高${priorMetrics.volumeRatio.toFixed(2)}倍、初動始値比${priorMetrics.openMovePct.toFixed(2)}%`,
+        };
+        taiyoCandidateBPending.set("6976", restoredPending);
+        console.log(`[RealtimeSim] 6976候補B次event執行待ち復元: ${restoredPending.side} 確認 ${latest.time}`);
+      } else if (latest && dayOpen !== null && isTaiyoCandidateBInitialTriggerTime(latest.time)) {
         const metrics = calculateTaiyoCandidateBMetrics(candidateBuffer, dayOpen);
         if (metrics?.side) {
           taiyoCandidateBPending.set("6976", {
+            stage: "await_confirmation",
             side: metrics.side,
             triggerClose: latest.close,
             triggerTime: latest.time,
@@ -2006,6 +2074,86 @@ function calcShares(price: number): number {
   const amount = INITIAL_CAPITAL_PER_STOCK * LOT_RATIO;
   const rawShares = Math.floor(amount / price);
   return Math.max(100, Math.floor(rawShares / 100) * 100);
+}
+
+type RealtimeDepthExecutionResult =
+  | {
+      ok: true;
+      price: number;
+      shares: number;
+      boardAgeMs: number;
+      sourceEventId: string;
+    }
+  | {
+      ok: false;
+      reason:
+        | "source_event_execution_context_missing"
+        | "source_event_board_missing"
+        | "source_event_audit_timestamps_missing"
+        | "source_event_audit_timestamps_noncausal"
+        | "source_event_board_stale_over_5000ms"
+        | "source_event_depth_insufficient";
+    };
+
+/**
+ * 現在処理中のsource eventに同梱された板だけを使う。
+ * cloud側で更新されたcache受信時刻は鮮度根拠にしない。
+ */
+function resolveRealtimeDepthExecution(
+  context: RealtimeSourceExecutionContext | undefined,
+  side: "long" | "short",
+  fixedShares?: number,
+): RealtimeDepthExecutionResult {
+  if (!context) return { ok: false, reason: "source_event_execution_context_missing" };
+  if (!context.board) return { ok: false, reason: "source_event_board_missing" };
+
+  const clockAge = calculateClockSafeBoardAge({
+    engineSequence: null,
+    resultType: "pending",
+    routeId: null,
+    marginUsedBefore: 0,
+    marginUsedAfter: 0,
+    stateHashBefore: "not_available_inside_engine",
+    stateHashAfter: "not_available_inside_engine",
+    causalityStatus: "pending",
+    causalityReason: "candidate_b_depth_execution",
+    boardObservedAtMs: context.currentAudit.boardObservedAtMs,
+    relayAssembledAtMs: context.currentAudit.relayAssembledAtMs,
+    relaySentAtMs: context.currentAudit.relaySentAtMs,
+    cloudReceivedAtMs: context.currentAudit.cloudReceivedAtMs,
+    decisionStartedAtMs: Date.now(),
+    decisionCompletedAtMs: Date.now(),
+  });
+  if (!clockAge.timestampsAvailable) {
+    return { ok: false, reason: "source_event_audit_timestamps_missing" };
+  }
+  if (!clockAge.causal) {
+    return { ok: false, reason: "source_event_audit_timestamps_noncausal" };
+  }
+  if (!clockAge.fresh || clockAge.boardAgeMs === null) {
+    return { ok: false, reason: "source_event_board_stale_over_5000ms" };
+  }
+
+  const initial = calculateDepthVwap({ board: context.board, side, shares: fixedShares ?? 100 });
+  if (!initial) return { ok: false, reason: "source_event_depth_insufficient" };
+  let shares = fixedShares ?? calcShares(initial.price);
+  let fill = calculateDepthVwap({ board: context.board, side, shares });
+  if (!fill) return { ok: false, reason: "source_event_depth_insufficient" };
+  if (fixedShares === undefined) {
+    const recalculatedShares = calcShares(fill.price);
+    if (recalculatedShares !== shares) {
+      shares = recalculatedShares;
+      fill = calculateDepthVwap({ board: context.board, side, shares });
+      if (!fill) return { ok: false, reason: "source_event_depth_insufficient" };
+    }
+  }
+  return {
+    ok: true,
+    price: fill.price,
+    shares,
+    boardAgeMs: clockAge.boardAgeMs,
+    sourceEventId: context.sourceEventId,
+  };
 }
 
 /**
@@ -2393,13 +2541,22 @@ function restoreAdvantestProfitProtectionState(pos: OpenPosition): void {
  * @param candle 受信した1分足データ
  * @returns 実行結果（取引が発生した場合はその情報）
  */
-export async function processCandle(candle: RtCandle1Min): Promise<{
+export async function processCandle(
+  candle: RtCandle1Min,
+  sourceExecutionContext?: RealtimeSourceExecutionContext,
+): Promise<{
   symbol: string;
   tradeDate: string;
   candleTime: string;
   action: "entry" | "exit" | "stop_loss" | "take_profit" | "forced_close" | "none";
   reason?: string;
   pnl?: number;
+  executionPrice?: number;
+  executionPriceSource?: RealtimeExecutionPriceSource;
+  executionReferenceTime?: string;
+  signalReferencePrice?: number;
+  executionSourceEventId?: string;
+  executionBoardAgeMs?: number;
 }> {
   const { symbol, tradeDate, candleTime } = candle;
 
@@ -2513,8 +2670,18 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // ---- 既存ポジションの損切り・利確チェック ----
   const existingPos = openPositions.get(symbol);
   if (existingPos) {
-    const result = await checkExitConditions(existingPos, candle, tradeDate, candleTime, boardSnapshot);
+    const result = await checkExitConditions(
+      existingPos,
+      candle,
+      tradeDate,
+      candleTime,
+      boardSnapshot,
+      sourceExecutionContext,
+    );
     if (result.action !== "none") {
+      return result;
+    }
+    if (result.reason?.startsWith("candidate_b_time_exit_pending:")) {
       return result;
     }
   }
@@ -2810,12 +2977,17 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
   // ---- 6976候補B: DRY_RUN正式経路 ----
   // 候補Aの監査再生時は候補Bを止め、通常DRY_RUNでは候補Bを優先する。
   // 実エントリー成功時だけ当日枠を消費するため、ATR・証拠金等で拒否された後も後続候補を再探索する。
+  const existingTaiyoCandidateBPending = taiyoCandidateBPending.get(symbol);
   if (
     !taiyoCandidateAAuditEnabled &&
     symConfig.enableTaiyoCandidateB &&
     symbol === TAIYO_CANDIDATE_B_SPEC.symbol &&
     !taiyoCandidateBPrimaryFired.has(symbol) &&
-    (isTaiyoCandidateBConfirmationTime(candleTime) || isTaiyoCandidateBInitialTriggerTime(candleTime))
+    (
+      existingTaiyoCandidateBPending?.stage === "await_execution" ||
+      isTaiyoCandidateBConfirmationTime(candleTime) ||
+      isTaiyoCandidateBInitialTriggerTime(candleTime)
+    )
   ) {
     const spec = TAIYO_CANDIDATE_B_SPEC.primary;
     const candidateBuffer = buffer.map(item => ({
@@ -2832,7 +3004,89 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       : calculateTaiyoCandidateBMetrics(candidateBuffer, candidateDayOpen);
     const pending = taiyoCandidateBPending.get(symbol);
 
-    if (pending && candleTime > pending.triggerTime) {
+    // 確認足終値へ遡って約定せず、必ず次のsource eventに同梱された方向別depth VWAPを使う。
+    if (
+      taiyoCandidateBExecutablePricingEnabled &&
+      pending?.stage === "await_execution" &&
+      pending.confirmationTime &&
+      candleTime > pending.confirmationTime
+    ) {
+      taiyoCandidateBPending.delete(symbol);
+      const executable = resolveRealtimeDepthExecution(sourceExecutionContext, pending.side);
+      if (!executable.ok) {
+        await recordTaiyoCandidateBAuditEvent({
+          tradeDate,
+          candleTime,
+          symbol,
+          event: "engine_rejected",
+          side: pending.side,
+          triggerTime: pending.triggerTime,
+          detail: executable.reason,
+          referencePrice: pending.confirmationClose ?? candle.close,
+        });
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "candidate_b_block",
+          price: pending.confirmationClose ?? candle.close,
+          shares: 0,
+          pnl: null,
+          reason: `太陽誘電候補B拒否・後続再探索: ${executable.reason}`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+        return { symbol, tradeDate, candleTime, action: "none", reason: executable.reason };
+      }
+
+      const result = await enterPosition(
+        pending.side,
+        candle,
+        tradeDate,
+        candleTime,
+        pending.entryReason ?? `太陽誘電候補B${pending.side === "long" ? "LONG" : "SHORT"}`,
+        boardSnapshot,
+        { slPct: spec.slPct, tpPct: spec.tpPct },
+        {
+          price: executable.price,
+          shares: executable.shares,
+          priceSource: pending.side === "long"
+            ? "next_event_ask_depth_vwap"
+            : "next_event_bid_depth_vwap",
+          referenceTime: pending.confirmationTime,
+          signalReferencePrice: pending.confirmationClose,
+          sourceEventId: executable.sourceEventId,
+          boardAgeMs: executable.boardAgeMs,
+        },
+      );
+      await recordTaiyoCandidateBAuditEvent({
+        tradeDate,
+        candleTime,
+        symbol,
+        event: result.action === "entry" ? "entry" : "engine_rejected",
+        side: pending.side,
+        triggerTime: pending.triggerTime,
+        detail: result.reason,
+        referencePrice: executable.price,
+      });
+      if (result.action === "entry") {
+        taiyoCandidateBPrimaryFired.add(symbol);
+      } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
+        signalHistory.unshift({
+          time: candleTime,
+          symbol,
+          symbolName: getStockName(symbol),
+          action: "candidate_b_block",
+          price: executable.price,
+          shares: 0,
+          pnl: null,
+          reason: `太陽誘電候補B拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+        });
+        if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
+      }
+      return result;
+    }
+
+    if (pending && pending.stage !== "await_execution" && candleTime > pending.triggerTime) {
       taiyoCandidateBPending.delete(symbol);
       const confirmation = evaluateTaiyoCandidateBConfirmation({
         pending,
@@ -2847,12 +3101,32 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
       });
 
       if (confirmation.allowed) {
+        const entryReason =
+          `太陽誘電候補B${pending.side === "long" ? "LONG" : "SHORT"}: 10本終値ブレイク後1本確認、MA8二本傾き${pending.triggerMaSlope2Pct.toFixed(3)}%、初動出来高${pending.triggerVolumeRatio.toFixed(2)}倍、初動始値比${pending.triggerOpenMovePct.toFixed(2)}%`;
+
+        if (taiyoCandidateBExecutablePricingEnabled) {
+          taiyoCandidateBPending.set(symbol, {
+            ...pending,
+            stage: "await_execution",
+            confirmationTime: candleTime,
+            confirmationClose: candle.close,
+            entryReason,
+          });
+          return {
+            symbol,
+            tradeDate,
+            candleTime,
+            action: "none",
+            reason: "candidate_b_next_event_execution_pending",
+          };
+        }
+
         const result = await enterPosition(
           pending.side,
           candle,
           tradeDate,
           candleTime,
-          `太陽誘電候補B${pending.side === "long" ? "LONG" : "SHORT"}: 10本終値ブレイク後1本確認、MA8二本傾き${pending.triggerMaSlope2Pct.toFixed(3)}%、初動出来高${pending.triggerVolumeRatio.toFixed(2)}倍、初動始値比${pending.triggerOpenMovePct.toFixed(2)}%`,
+          entryReason,
           boardSnapshot,
           { slPct: spec.slPct, tpPct: spec.tpPct },
         );
@@ -2899,6 +3173,7 @@ export async function processCandle(candle: RtCandle1Min): Promise<{
 
     if (metrics?.side && isTaiyoCandidateBInitialTriggerTime(candleTime)) {
       taiyoCandidateBPending.set(symbol, {
+        stage: "await_confirmation",
         side: metrics.side,
         triggerClose: candle.close,
         triggerTime: candleTime,
@@ -4862,6 +5137,7 @@ export async function enterPosition(
   reason: string,
   boardSnapshot: BoardSnapshot | null,
   riskOverride?: { slPct: number; tpPct: number },
+  executionOverride?: RealtimeExecutionOverride,
 ): Promise<ReturnType<typeof processCandle>> {
   const { symbol } = candle;
 
@@ -4870,8 +5146,8 @@ export async function enterPosition(
     return { symbol, tradeDate, candleTime, action: "none" as const, reason: "entry_symbol_block" };
   }
 
-  const price = candle.close;
-  const shares = calcShares(price);
+  const price = executionOverride?.price ?? candle.close;
+  const shares = executionOverride?.shares ?? calcShares(price);
   const amount = price * shares;
   const action = side === "long" ? "buy" : "short";
   const boardSignal = boardSnapshot?.signal ?? undefined;
@@ -5126,7 +5402,19 @@ export async function enterPosition(
   });
   if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
 
-  return { symbol, tradeDate, candleTime, action: "entry", reason };
+  return {
+    symbol,
+    tradeDate,
+    candleTime,
+    action: "entry",
+    reason,
+    executionPrice: executionOverride?.price,
+    executionPriceSource: executionOverride?.priceSource,
+    executionReferenceTime: executionOverride?.referenceTime,
+    signalReferencePrice: executionOverride?.signalReferencePrice,
+    executionSourceEventId: executionOverride?.sourceEventId,
+    executionBoardAgeMs: executionOverride?.boardAgeMs,
+  };
 }
 
 /**
@@ -5138,6 +5426,7 @@ async function checkExitConditions(
   tradeDate: string,
   candleTime: string,
   boardSnapshot: BoardSnapshot | null,
+  sourceExecutionContext?: RealtimeSourceExecutionContext,
 ): Promise<ReturnType<typeof processCandle>> {
   const { symbol, side, entryPrice, shares } = pos;
   const { high, low, close } = candle;
@@ -5305,9 +5594,47 @@ async function checkExitConditions(
     }
   }
 
-  // 6976候補B DRY_RUN: 30分境界の完成足終値を約定近似値として決済する。
-  // 完成済み足の始値へ遡らず、実成行約定との差は前向きDRY_RUNで計測する。
-  if (exitPrice === null && isTaiyoCandidateBPosition) {
+  // 6976候補B DRY_RUN: SL/TPが成立していない場合だけ、30分境界の現在source event板で決済する。
+  // 板が欠損・古い・非因果なら保有を継続し、次eventで再試行する。
+  if (exitPrice === null && isTaiyoCandidateBPosition && taiyoCandidateBExecutablePricingEnabled) {
+    const maxHoldingMinutes = TAIYO_CANDIDATE_B_SPEC.primary.maxHoldingMinutes;
+    const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
+    if (elapsedMinutes >= maxHoldingMinutes) {
+      const executionSide = side === "long" ? "short" : "long";
+      const executable = resolveRealtimeDepthExecution(sourceExecutionContext, executionSide, shares);
+      if (!executable.ok) {
+        return {
+          symbol,
+          tradeDate,
+          candleTime,
+          action: "none",
+          reason: `candidate_b_time_exit_pending:${executable.reason}`,
+        };
+      }
+      return await closePosition(
+        pos,
+        executable.price,
+        `候補B最大保有${maxHoldingMinutes}分・期限到達event板VWAP決済`,
+        "exit",
+        tradeDate,
+        candleTime,
+        boardSnapshot,
+        {
+          price: executable.price,
+          shares,
+          priceSource: side === "long"
+            ? "current_event_bid_depth_vwap"
+            : "current_event_ask_depth_vwap",
+          referenceTime: pos.entryTime,
+          sourceEventId: executable.sourceEventId,
+          boardAgeMs: executable.boardAgeMs,
+        },
+      );
+    }
+  }
+
+  // raw depthのない旧fixtureだけで使う、選定時の理論終値モデル。
+  if (exitPrice === null && isTaiyoCandidateBPosition && !taiyoCandidateBExecutablePricingEnabled) {
     const maxHoldingMinutes = TAIYO_CANDIDATE_B_SPEC.primary.maxHoldingMinutes;
     const elapsedMinutes = timeToMinutes(candleTime) - timeToMinutes(pos.entryTime);
     if (elapsedMinutes >= maxHoldingMinutes) {
@@ -5381,6 +5708,7 @@ async function closePosition(
   tradeDate: string,
   candleTime: string,
   boardSnapshot: BoardSnapshot | null,
+  executionOverride?: RealtimeExecutionOverride,
 ): Promise<ReturnType<typeof processCandle>> {
   const { symbol, side, entryPrice, shares } = pos;
   const exitAction = side === "long" ? "sell" : "cover";
@@ -5443,7 +5771,20 @@ async function closePosition(
   // 日次サマリーを更新
   await updateDailySummary(tradeDate);
 
-  return { symbol, tradeDate, candleTime, action, reason, pnl };
+  return {
+    symbol,
+    tradeDate,
+    candleTime,
+    action,
+    reason,
+    pnl,
+    executionPrice: executionOverride?.price,
+    executionPriceSource: executionOverride?.priceSource,
+    executionReferenceTime: executionOverride?.referenceTime,
+    signalReferencePrice: executionOverride?.signalReferencePrice,
+    executionSourceEventId: executionOverride?.sourceEventId,
+    executionBoardAgeMs: executionOverride?.boardAgeMs,
+  };
 }
 
 /**
@@ -5625,6 +5966,14 @@ export function getTaiyoCandidateBAuditEventsForTest(): TaiyoCandidateBAuditEven
     ...event,
     rejectionCodes: event.rejectionCodes ? [...event.rejectionCodes] : undefined,
   }));
+}
+
+/** 旧fixtureの理論価格モデルを固定比較するVitest専用setter。既定値は因果的板執行。 */
+export function setTaiyoCandidateBExecutablePricingEnabledForTest(enabled: boolean): void {
+  if (process.env.VITEST !== "true") {
+    throw new Error("6976候補B執行価格切替はVitest専用です");
+  }
+  taiyoCandidateBExecutablePricingEnabled = enabled;
 }
 
 /** 6526確認型LONGの当日DRY_RUN監査イベントをVitestから取得する。 */

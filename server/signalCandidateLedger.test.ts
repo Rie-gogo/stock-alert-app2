@@ -9,6 +9,13 @@ import type {
 } from "../drizzle/schema";
 
 vi.mock("./runtimeIdentity", () => ({
+  FORWARD_EVALUATION_POLICY: {
+    learningCutoffDate: "2026-09-04",
+    evaluationStartDate: "2026-09-07",
+    minimumCalendarDays: 28,
+    minimumClosedTrades: 10,
+  },
+  TEL_EXECUTABLE_DEPTH_VERSION: "test-tel-executable-depth-v1",
   getRuntimeIdentity: () => ({
     runtimeBuildIdentifier: "test-build",
     sourceTreeHash: "42006f0ef757255a1b1eda86fa7c37dd28a4b42f7d23503867b9fefdf24dfeda",

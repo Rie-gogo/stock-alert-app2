@@ -43,7 +43,7 @@ describe("8035板depth VWAP改善案A v2", () => {
     expect(result.resultType).toBe("entry");
     expect(result.openedPosition).toMatchObject({
       executionProxyKind: "ask_depth_vwap",
-      boardAgeMs: 1_200,
+      boardAgeMs: 1_300,
       shares: 100,
       slPct: 0.6,
       tpPct: 1.2,
@@ -70,6 +70,7 @@ describe("8035板depth VWAP改善案A v2", () => {
 
   it("Windowsとcloudの絶対時計差を直接引かず、各環境内の経過時間だけを合算する", () => {
     const age = calculateClockSafeBoardAge({
+      boardObservedAtMs: 99_900,
       relayAssembledAtMs: 100_000,
       relaySentAtMs: 100_100,
       cloudReceivedAtMs: 1_000,
@@ -78,10 +79,50 @@ describe("8035板depth VWAP改善案A v2", () => {
     expect(age).toMatchObject({
       causal: true,
       fresh: true,
+      boardToRelayAssemblyMs: 100,
+      relayBoardAgeMs: 200,
       relayPackagingMs: 100,
       cloudProcessingMs: 500,
-      boardAgeMs: 600,
+      boardAgeMs: 700,
       basis: "same_clock_intervals",
     });
+  });
+
+  it("relay組立より10秒前の古い板を、送信直前に包んでもfreshにしない", () => {
+    const age = calculateClockSafeBoardAge({
+      boardObservedAtMs: 90_000,
+      relayAssembledAtMs: 100_000,
+      relaySentAtMs: 100_100,
+      cloudReceivedAtMs: 1_000,
+      decisionCompletedAtMs: 1_100,
+    } as any);
+    expect(age).toMatchObject({
+      timestampsAvailable: true,
+      causal: true,
+      fresh: false,
+      boardToRelayAssemblyMs: 10_000,
+      relayBoardAgeMs: 10_100,
+      boardAgeMs: 10_200,
+    });
+  });
+
+  it("board観測・relay組立・relay送信の時刻順が逆なら因果性違反にする", () => {
+    const observedAfterAssembly = calculateClockSafeBoardAge({
+      boardObservedAtMs: 1_100,
+      relayAssembledAtMs: 1_000,
+      relaySentAtMs: 1_200,
+      cloudReceivedAtMs: 2_000,
+      decisionCompletedAtMs: 2_100,
+    } as any);
+    expect(observedAfterAssembly).toMatchObject({ causal: false, fresh: false, boardAgeMs: null });
+
+    const sentBeforeAssembly = calculateClockSafeBoardAge({
+      boardObservedAtMs: 900,
+      relayAssembledAtMs: 1_000,
+      relaySentAtMs: 950,
+      cloudReceivedAtMs: 2_000,
+      decisionCompletedAtMs: 2_100,
+    } as any);
+    expect(sentBeforeAssembly).toMatchObject({ causal: false, fresh: false, boardAgeMs: null });
   });
 });

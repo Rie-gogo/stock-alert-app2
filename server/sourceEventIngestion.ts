@@ -11,7 +11,7 @@ import {
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
 import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow } from "./forwardShadowSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
-import { processCurrentEngineAudited } from "./realtimeDecisionAudit";
+import { parseBoardObservedAtMs, processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
 
 export interface SourceEventMetadata {
@@ -284,16 +284,28 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
             receivedAt: Date.now(),
           } as KabuOrderBook);
         }
-        return processCandle({
-          symbol: input.symbol,
-          tradeDate: input.tradeDate,
-          candleTime: input.candleTime,
-          open: input.open,
-          high: input.high,
-          low: input.low,
-          close: input.close,
-          volume: input.volume,
-        });
+        return processCandle(
+          {
+            symbol: input.symbol,
+            tradeDate: input.tradeDate,
+            candleTime: input.candleTime,
+            open: input.open,
+            high: input.high,
+            low: input.low,
+            close: input.close,
+            volume: input.volume,
+          },
+          {
+            sourceEventId: sourceEvent.sourceEventId,
+            board: input.board ?? null,
+            currentAudit: {
+              boardObservedAtMs: parseBoardObservedAtMs(input.tradeDate, input.board?.currentPriceTime),
+              relayAssembledAtMs: sourceEvent.relayReceivedAtMs,
+              relaySentAtMs: sourceEvent.relaySentAtMs,
+              cloudReceivedAtMs: sourceEvent.cloudReceivedAtMs,
+            },
+          },
+        );
       },
     });
     const result = audited.result;

@@ -76,6 +76,11 @@ describe("6976候補B30分 数値仕様", () => {
     expect(TAIYO_CANDIDATE_B_SPEC.primary.confirmationFailureTransition)
       .toBe("same_candle_fall_through_and_redetect");
     expect(TAIYO_CANDIDATE_B_SPEC.primary.maxHoldingMinutes).toBe(30);
+    expect(TAIYO_CANDIDATE_B_SPEC.primary.entryExecution)
+      .toBe("confirmed_next_source_event_directional_depth_vwap");
+    expect(TAIYO_CANDIDATE_B_SPEC.primary.maxHoldingExit)
+      .toBe("elapsed_boundary_current_source_event_opposite_depth_vwap");
+    expect(TAIYO_CANDIDATE_B_SPEC.primary.maxExecutionBoardAgeMs).toBe(5_000);
     expect(TAIYO_CANDIDATE_B_SPEC.primary.tpPct).toBe(0.6);
     expect(TAIYO_CANDIDATE_B_SPEC.primary.slPct).toBe(1.0);
     expect(TAIYO_CANDIDATE_B_SPEC.liveOrderApproved).toBe(false);

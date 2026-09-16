@@ -31,6 +31,19 @@ const { today, restoredRows } = vi.hoisted(() => {
         boardSnapshot: null,
         createdAt: new Date(),
       },
+      {
+        id: 62,
+        symbol: "6976",
+        tradeDate,
+        candleTime: "10:01",
+        open: "101",
+        high: "101.6",
+        low: "100.9",
+        close: "101.5",
+        volume: 100,
+        boardSnapshot: null,
+        createdAt: new Date(),
+      },
     ],
   };
 });
@@ -42,6 +55,9 @@ vi.mock("./db", () => ({
   getRtTradesForDate: vi.fn().mockResolvedValue([]),
   getRtCandlesAllForDate: vi.fn().mockResolvedValue(restoredRows),
   getRtOpenPositionsFromDb: vi.fn().mockResolvedValue([]),
+  getRtSignalCandidatesForDate: vi.fn().mockResolvedValue([]),
+  getRtRealtimeDecisionEventsForDate: vi.fn().mockResolvedValue([]),
+  getKioxiaShortGuardEventsForDate: vi.fn().mockResolvedValue([]),
   insertScore0Block: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./kabuStation", () => ({
@@ -61,19 +77,57 @@ vi.mock("../shared/stocks", () => ({
 import { processCandle, restoreBuffersFromDb } from "./realtimeSimEngine";
 
 describe("6976候補B30分 再起動復元", () => {
-  it("最新保存足が初動なら確認待ちを再構築し、次の確定足でエントリー判定を継続する", async () => {
+  function executionContext(sourceEventId: string) {
+    const now = Date.now();
+    return {
+      sourceEventId,
+      board: {
+        currentPrice: 101.45,
+        currentPriceTime: "10:02:01",
+        asks: [{ price: 101.5, qty: 100_000 }],
+        bids: [{ price: 101.4, qty: 100_000 }],
+        marketOrderSellQty: 0,
+        marketOrderBuyQty: 0,
+        overSellQty: 0,
+        underBuyQty: 0,
+        vwap: 101.45,
+      },
+      currentAudit: {
+        boardObservedAtMs: now - 100,
+        relayAssembledAtMs: now - 80,
+        relaySentAtMs: now - 60,
+        cloudReceivedAtMs: now - 40,
+      },
+    } as any;
+  }
+
+  it("確認成立直後の再起動でも次event待ちを復元し、同じsource eventの板VWAPで入る", async () => {
     await restoreBuffersFromDb();
     const result = await processCandle({
-      symbol: "6976",
-      tradeDate: today,
-      candleTime: "10:01",
-      open: 101,
-      high: 101.6,
-      low: 100.9,
-      close: 101.5,
-      volume: 100,
+      symbol: "6976", tradeDate: today, candleTime: "10:02",
+      open: 101.5, high: 101.7, low: 101.3, close: 101.4, volume: 100,
+    }, executionContext("entry-event"));
+    expect(result).toMatchObject({
+      action: "entry",
+      executionPrice: 101.5,
+      executionPriceSource: "next_event_ask_depth_vwap",
+      executionReferenceTime: "10:01",
+      signalReferencePrice: 101.5,
+      executionSourceEventId: "entry-event",
     });
-    expect(result.action).toBe("entry");
     expect(result.reason).toContain("太陽誘電候補BLONG");
+
+    const exit = await processCandle({
+      symbol: "6976", tradeDate: today, candleTime: "10:32",
+      open: 101.5, high: 101.55, low: 101.35, close: 101.4, volume: 100,
+    }, executionContext("exit-event"));
+    expect(exit).toMatchObject({
+      action: "exit",
+      executionPrice: 101.4,
+      executionPriceSource: "current_event_bid_depth_vwap",
+      executionReferenceTime: "10:02",
+      executionSourceEventId: "exit-event",
+    });
+    expect(exit.reason).toContain("期限到達event板VWAP決済");
   });
 });

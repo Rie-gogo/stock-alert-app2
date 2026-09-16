@@ -58,6 +58,16 @@ export type CurrentEngineResult = {
   action: "entry" | "exit" | "stop_loss" | "take_profit" | "forced_close" | "none";
   reason?: string;
   pnl?: number;
+  executionPrice?: number;
+  executionPriceSource?:
+    | "next_event_ask_depth_vwap"
+    | "next_event_bid_depth_vwap"
+    | "current_event_ask_depth_vwap"
+    | "current_event_bid_depth_vwap";
+  executionReferenceTime?: string;
+  signalReferencePrice?: number;
+  executionSourceEventId?: string;
+  executionBoardAgeMs?: number;
 };
 
 type CandidateVirtualWorkPayload = {
@@ -233,8 +243,49 @@ function evaluateCausality(input: {
   result: CurrentEngineResult;
   latestTrade: Awaited<ReturnType<typeof getLatestRtTradeAt>>;
   board: Omit<KabuOrderBook, "symbol" | "receivedAt"> | null;
+  sourceEventId: string;
 }) {
   const trade = input.latestTrade;
+  if (input.result.executionPriceSource && input.result.executionPrice !== undefined) {
+    const isNextEventPrice = input.result.executionPriceSource.startsWith("next_event_");
+    if (input.result.executionSourceEventId !== input.sourceEventId) {
+      return {
+        status: "violation" as const,
+        reason: "depth_execution_source_event_id_mismatch",
+      };
+    }
+    if (
+      isNextEventPrice &&
+      (!input.result.executionReferenceTime || input.result.executionReferenceTime >= input.result.candleTime)
+    ) {
+      return {
+        status: "violation" as const,
+        reason: "next_event_execution_reference_does_not_precede_execution_event",
+      };
+    }
+    if (!input.board) {
+      return {
+        status: "unverified" as const,
+        reason: "depth_execution_metadata_without_source_event_board",
+      };
+    }
+    if (
+      input.result.executionBoardAgeMs === undefined ||
+      input.result.executionBoardAgeMs < 0 ||
+      input.result.executionBoardAgeMs > 5_000
+    ) {
+      return {
+        status: "violation" as const,
+        reason: "depth_execution_board_age_missing_or_out_of_range",
+      };
+    }
+    return {
+      status: "pass" as const,
+      reason: isNextEventPrice
+        ? "next_source_event_depth_vwap_observed_before_decision"
+        : "current_source_event_depth_vwap_observed_before_decision",
+    };
+  }
   if (input.result.action === "entry") {
     return {
       status: "violation" as const,
@@ -635,7 +686,7 @@ export async function drainCurrentCandidateVirtualQueue(options: {
   }
 }
 
-function parseBoardObservedAtMs(tradeDate: string, value: string | null | undefined): number | null {
+export function parseBoardObservedAtMs(tradeDate: string, value: string | null | undefined): number | null {
   if (!value) return null;
   const normalized = value.includes("T") ? value : `${tradeDate}T${value}`;
   const withZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}+09:00`;
@@ -693,7 +744,14 @@ export async function processCurrentEngineAudited(input: {
     const routeId = resultType === "exit"
       ? resolveRealtimeRouteId(positionBefore?.entryReason ?? candidateReason ?? auditReason)
       : resolveRealtimeRouteId(candidateReason ?? auditReason);
-    const causality = evaluateCausality({ result, latestTrade, board: input.board });
+    const causality = evaluateCausality({
+      result,
+      latestTrade,
+      board: input.board,
+      sourceEventId: input.sourceEvent.sourceEventId,
+    });
+    const executablePriceProxy = result.executionPrice ?? input.board?.currentPrice ?? null;
+    const simulatedBarFillPrice = result.executionPriceSource ? null : latestTrade?.price ?? null;
     const boardObservedAtMs = parseBoardObservedAtMs(input.candle.tradeDate, input.board?.currentPriceTime);
     const availabilityTimeline = {
       sourceEventId: input.sourceEvent.sourceEventId,
@@ -806,11 +864,11 @@ export async function processCurrentEngineAudited(input: {
         stateAfterJson: stateAfter,
         stateHashBefore,
         stateHashAfter,
-        signalReferencePrice: String(input.candle.close),
+        signalReferencePrice: String(result.signalReferencePrice ?? input.candle.close),
         marketObservedPrice: input.board?.currentPrice ? String(input.board.currentPrice) : null,
         boardPriceTime: input.board?.currentPriceTime ?? null,
-        executablePriceProxy: input.board?.currentPrice ? String(input.board.currentPrice) : null,
-        simulatedBarFillPrice: latestTrade ? String(latestTrade.price) : null,
+        executablePriceProxy: executablePriceProxy !== null ? String(executablePriceProxy) : null,
+        simulatedBarFillPrice: simulatedBarFillPrice !== null ? String(simulatedBarFillPrice) : null,
         brokerExecutionPrice: null,
         shares: latestTrade?.shares ?? positionAfter?.shares ?? null,
         amount: latestTrade?.amount ?? null,
@@ -830,10 +888,15 @@ export async function processCurrentEngineAudited(input: {
           availabilityTimeline,
           latency,
           priceLabels: {
-            signalReferencePrice: "candle.close",
+            signalReferencePrice: result.signalReferencePrice === undefined
+              ? "candle.close"
+              : "confirmed_signal_candle.close",
             marketObservedPrice: "board.currentPrice_observed_before_or_at_decision",
-            executablePriceProxy: "board.currentPrice_as_dry_run_executable_price_proxy",
-            simulatedBarFillPrice: "rt_trades.price_from_bar_simulation",
+            executablePriceProxy: result.executionPriceSource
+              ?? "board.currentPrice_as_dry_run_executable_price_proxy",
+            simulatedBarFillPrice: result.executionPriceSource
+              ? "not_used_causal_depth_execution"
+              : "rt_trades.price_from_bar_simulation",
             brokerExecutionPrice: "unavailable_in_dry_run",
           },
         },

@@ -197,7 +197,7 @@ describe("taiyo forward shadow pure transitions", () => {
       "signal_quality",
     );
     expect(transition.resultType).toBe("entry");
-    expect(transition.openedPosition?.boardAgeMs).toBe(300);
+    expect(transition.openedPosition?.boardAgeMs).toBe(400);
   });
 
   it("現行確認失敗時は当該足を新しい初動としてsame-candle再検出する", () => {

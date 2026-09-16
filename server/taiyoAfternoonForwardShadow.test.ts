@@ -192,7 +192,7 @@ describe("taiyoAfternoonForwardShadow", () => {
     }), "signal_quality");
     expect(entered.resultType).toBe("entry");
     expect(entered.openedPosition?.entryPrice).toBeCloseTo(98.952, 6);
-    expect(entered.openedPosition).toMatchObject({ executionProxyKind: "bid_depth_vwap_100", entryBoardAgeMs: 250 });
+    expect(entered.openedPosition).toMatchObject({ executionProxyKind: "bid_depth_vwap_100", entryBoardAgeMs: 350 });
   });
 
   it("rejects depth entry beyond the 0.10% adverse cap without consuming the day", () => {

@@ -22,10 +22,12 @@ export const TAIYO_CANDIDATE_B_SPEC = Object.freeze({
     confirmationFailureTransition: "same_candle_fall_through_and_redetect",
     engineRejectionTransition: "next_candle_continue_search_without_consuming_daily_slot",
     dailySlotConsumedOn: "successful_entry_only",
+    entryExecution: "confirmed_next_source_event_directional_depth_vwap",
+    maxExecutionBoardAgeMs: 5_000,
     slPct: 1.0,
     tpPct: 0.6,
     maxHoldingMinutes: 30,
-    maxHoldingExit: "elapsed_boundary_completed_candle_close",
+    maxHoldingExit: "elapsed_boundary_current_source_event_opposite_depth_vwap",
     sameMinuteTpSlPriority: "stop_loss_first",
     genericSignalExit: false,
     boardEntryFilter: false,
@@ -81,12 +83,17 @@ export interface TaiyoCandidateBMetrics {
 }
 
 export interface TaiyoCandidateBPending {
+  /** stage未設定は旧保存状態との互換のためawait_confirmationとして扱う。 */
+  stage?: "await_confirmation" | "await_execution";
   side: TaiyoCandidateBSide;
   triggerClose: number;
   triggerTime: string;
   triggerMaSlope2Pct: number;
   triggerVolumeRatio: number;
   triggerOpenMovePct: number;
+  confirmationTime?: string;
+  confirmationClose?: number;
+  entryReason?: string;
 }
 
 export type TaiyoCandidateBRejectionCode =

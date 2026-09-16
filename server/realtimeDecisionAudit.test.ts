@@ -180,6 +180,82 @@ describe("現行実時判断監査", () => {
     expect(dbMock.releaseRtCurrentEngineLock).toHaveBeenCalledTimes(1);
   });
 
+  it("同じ次source eventの新鮮な板VWAPなら因果性passとして価格出所を保存する", async () => {
+    dbMock.getLatestRtTradeAt.mockResolvedValue({
+      action: "short", side: "short", price: 99.8, shares: 100, amount: 9_980,
+      reason: "太陽誘電候補BSHORT: テスト",
+    });
+    const result = await processCurrentEngineAudited({
+      sourceEvent: {
+        id: 12, sourceEventId: "relay:12", relaySessionId: "relay", eventSeq: 12,
+        symbol: "6976", tradeDate: "2026-09-07", candleTime: "10:02",
+        relayReceivedAtMs: 3_000, relaySentAtMs: 3_010, cloudReceivedAtMs: 3_020,
+      } as never,
+      candle: { symbol: "6976", tradeDate: "2026-09-07", candleTime: "10:02", open: 100, high: 101, low: 99, close: 100, volume: 100 },
+      board: { currentPrice: 99.9, currentPriceTime: "10:02:01" } as never,
+      inputHash: "causal-depth-hash",
+      run: async () => ({
+        symbol: "6976",
+        tradeDate: "2026-09-07",
+        candleTime: "10:02",
+        action: "entry" as const,
+        reason: "太陽誘電候補BSHORT: テスト",
+        executionPrice: 99.8,
+        executionPriceSource: "next_event_bid_depth_vwap" as const,
+        executionReferenceTime: "10:01",
+        signalReferencePrice: 100.1,
+        executionSourceEventId: "relay:12",
+        executionBoardAgeMs: 420,
+      }),
+    });
+
+    expect(result.audit).toMatchObject({
+      causalityStatus: "pass",
+      causalityReason: "next_source_event_depth_vwap_observed_before_decision",
+    });
+    expect(dbMock.insertRtRealtimeDecisionEvent).toHaveBeenCalledWith(expect.objectContaining({
+      signalReferencePrice: "100.1",
+      executablePriceProxy: "99.8",
+      simulatedBarFillPrice: null,
+      causalityStatus: "pass",
+      resultJson: expect.objectContaining({
+        priceLabels: expect.objectContaining({
+          executablePriceProxy: "next_event_bid_depth_vwap",
+          simulatedBarFillPrice: "not_used_causal_depth_execution",
+        }),
+      }),
+    }));
+  });
+
+  it("depth約定のsource event ID不一致は因果性違反にする", async () => {
+    dbMock.getLatestRtTradeAt.mockResolvedValue({
+      action: "buy", side: "long", price: 100.2, shares: 100, amount: 10_020,
+      reason: "太陽誘電候補BLONG: テスト",
+    });
+    const result = await processCurrentEngineAudited({
+      sourceEvent: {
+        id: 13, sourceEventId: "relay:13", relaySessionId: "relay", eventSeq: 13,
+        symbol: "6976", tradeDate: "2026-09-07", candleTime: "10:02",
+        relayReceivedAtMs: 3_000, relaySentAtMs: 3_010, cloudReceivedAtMs: 3_020,
+      } as never,
+      candle: { symbol: "6976", tradeDate: "2026-09-07", candleTime: "10:02", open: 100, high: 101, low: 99, close: 100, volume: 100 },
+      board: { currentPrice: 100.2, currentPriceTime: "10:02:01" } as never,
+      inputHash: "mismatched-source-hash",
+      run: async () => ({
+        symbol: "6976", tradeDate: "2026-09-07", candleTime: "10:02", action: "entry" as const,
+        executionPrice: 100.2,
+        executionPriceSource: "next_event_ask_depth_vwap" as const,
+        executionReferenceTime: "10:01",
+        executionSourceEventId: "different-event",
+        executionBoardAgeMs: 100,
+      }),
+    });
+    expect(result.audit).toMatchObject({
+      causalityStatus: "violation",
+      causalityReason: "depth_execution_source_event_id_mismatch",
+    });
+  });
+
   it("本番同型の短いmargin_block返り値でもsignal履歴から元route・side・必要証拠金を復元する", async () => {
     dbMock.getLatestRtTradeAt.mockResolvedValue(null);
     const detailedSignal = {

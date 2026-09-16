@@ -2260,6 +2260,6 @@
 - [x] 追加34件を含む対象回帰、固定replay mismatch 0、型検査、J-Quants等の外部依存を理由付きで分離した全回帰、本番build、固定source hashを確認する
 - [x] 指定commit以前から再現する6526確認型LONGの再起動復元テスト失敗を今回の公開対象外として固定し、親commit `d8e4c076`での再現証拠とともに報告する
 - [x] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
-- [ ] 公開`getForwardShadowSummary`のstrategy一覧へ新5803独立shadowを追加し、開始前0件・2評価mode・formal未承認を返すことを回帰・再公開で確認する
-- [ ] 公開runtime／forward summary／本番DB／production logsで新version、設定、error/lease/gap、通常`rt_trades`非作成、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
-- [ ] 実装・同期commit・checkpoint・公開revision・source hash・テスト・既存経路不変と、2026-09-17以降の実イベント受入を分離して報告する
+- [x] 公開`getForwardShadowSummary`のstrategy一覧へ新5803独立shadowを追加し、開始前0件・2評価mode・formal未承認を返すことを回帰・再公開で確認する
+- [x] 公開runtime／forward summary／本番DB／production logsで新version、設定、error/lease/gap、通常`rt_trades`非作成、DRY_RUN・LIVE・formal Gate・注文非接続を読取確認する
+- [x] 実装・同期commit・checkpoint・公開revision・source hash・テスト・既存経路不変と、2026-09-17以降の実イベント受入を分離して報告する

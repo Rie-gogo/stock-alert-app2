@@ -2268,3 +2268,19 @@
 - [x] 30分境界でSL/TP到達と板決済が競合したときの実際の優先順位・板欠損時動作をコードとテストで精査する
 - [x] source eventのboard発生時刻・中継受信時刻・鮮度計算の実装を精査し、中継前の古い板を誤って新鮮と判定しないか確認する（新shadowでは`boardObservedAt→relayAssembled`が5秒式から漏れるため修正要、legacy cacheは`receivedAt`をcloud時刻へ上書きするが5秒Gate自体は未使用）
 - [x] 影響範囲、既存回帰の不足、固定source hash・DRY_RUN・注文非接続への影響を監査し、修正要否と受入条件を報告する
+
+## c64a4fed基準の再精査：30分板決済・6976鮮度・共通鮮度helper（2026-09-16）
+- [ ] c64a4fedの取得可否、親版との差分、未保存変更との競合範囲を確認する
+- [ ] 6976候補Bの30分板決済と5秒鮮度をc64a4fed上で再現・検証する
+- [ ] `calculateClockSafeBoardAge`の全利用経路とstrategyVersionを稼働・開始前・停止中に棚卸しする
+- [ ] 影響範囲、修正仕様、回帰条件、公開停止要否をc64a4fed正本で再判定する
+- [ ] 更新版の精査結果と実装開始に必要な条件を報告する
+
+## 6976候補B因果的depth・共通板鮮度補正の同期公開（2026-09-16）
+- [x] 同期前の未保存変更とGitHub `main`の指定commit `7b9397a6058660dafb17b919a8c60aec9e42d204`の重なりを確認し、動作コード競合なら公開前に停止する
+- [x] 6976候補Bの30分境界・SL/TP優先・時間決済next event待ち、clock-safe 5秒鮮度、共通helper全利用経路を監査する
+- [x] `boardObservedAt→relaySent`を含む鮮度、10秒古い板・時刻逆転拒否、板欠損時のSL/TP決済、冪等性・注文非接続を対象回帰で確認する
+- [x] TypeScript型検査、承認済み外部依存を理由付きで分離した全回帰、本番build、固定sourceTreeHash `98a1d09d76c0d27d1a3026704b777c5e9449bca727ed376434932e77d8f7a9fc`を確認する
+- [ ] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
+- [ ] 公開runtime／forward summary／本番DB／production logsでsource hash・DRY_RUN/LIVE・formal Gate・既存経路稼働・通常取引非作成を読取確認する
+- [ ] 同期・テスト・公開と翌営業日の実イベント受入を分離して報告する

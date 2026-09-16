@@ -7,7 +7,9 @@ import { GENERATED_BUILD_IDENTITY } from "./generatedBuildIdentity";
 export const BASELINE_STRATEGY_GIT_SHA = "7291737d6ee3fdd798a6b090d2a3d3bda3e96bcc";
 /** Plan Dの11経路停止を含む固定版。旧基準hashは監査履歴として保持する。 */
 export const PRE_PLAN_D_TRADING_SOURCE_TREE_HASH = "de9d06e6bf9199a16c91a5593ff7bbb37f3776171c0f9f9eb7b9249de826afea";
-export const BASELINE_TRADING_SOURCE_TREE_HASH = "a7843f9529e92f41abc0c34c8203d69747ab064c6d75feadcfe5fb9be239dce8";
+/** Plan D公開版。6976因果執行・共通板鮮度補正前の監査基準として保持する。 */
+export const PRE_CAUSAL_EXECUTION_TRADING_SOURCE_TREE_HASH = "a7843f9529e92f41abc0c34c8203d69747ab064c6d75feadcfe5fb9be239dce8";
+export const BASELINE_TRADING_SOURCE_TREE_HASH = "98a1d09d76c0d27d1a3026704b777c5e9449bca727ed376434932e77d8f7a9fc";
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const FUJIKURA_MORNING_SHORT_VERSION = "candidate-5803-morning-20bar-breakdown-short-depth-v1";

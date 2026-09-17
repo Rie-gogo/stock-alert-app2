@@ -136,12 +136,12 @@ describe("8035未見データ前向きシャドー統合", () => {
     expect(memory.events).toHaveLength(eventCount);
   });
 
-  it("9月7日以降は既存8035・現行parity・旧A・depth新版を別version・別2評価状態で並走する", async () => {
+  it("比較基盤修正後は既存8035・現行parity・旧A・depth新版を別version・別2評価状態で並走する", async () => {
     for (let index = 0; index < 30; index += 1) {
       await processForwardShadowSourceEvent({
         sourceEventId: `triple:${index + 1}`,
         candle: {
-          symbol: "8035", tradeDate: "2026-09-07", candleTime: minuteTime(index),
+          symbol: "8035", tradeDate: "2026-09-18", candleTime: minuteTime(index),
           open: 100, high: 100.1, low: 99.9, close: 100, volume: 100,
         },
         board: { currentPrice: 100 },
@@ -156,7 +156,7 @@ describe("8035未見データ前向きシャドー統合", () => {
     await processForwardShadowSourceEvent({
       sourceEventId: "triple:31",
       candle: {
-        symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:10",
+        symbol: "8035", tradeDate: "2026-09-18", candleTime: "10:10",
         open: 100, high: 101.1, low: 99.9, close: 101, volume: 200,
       },
         board: { currentPrice: 101, asks: [{ price: 101.02, qty: 100_000 }], bids: [{ price: 100.98, qty: 100_000 }] },
@@ -172,7 +172,7 @@ describe("8035未見データ前向きシャドー統合", () => {
     await processForwardShadowSourceEvent({
       sourceEventId: "triple:32",
       candle: {
-        symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:11",
+        symbol: "8035", tradeDate: "2026-09-18", candleTime: "10:11",
         open: 101, high: 101.2, low: 100.9, close: 101.1, volume: 100,
       },
         board: { currentPrice: 101.05, asks: [{ price: 101.05, qty: 100_000 }], bids: [{ price: 101.03, qty: 100_000 }] },

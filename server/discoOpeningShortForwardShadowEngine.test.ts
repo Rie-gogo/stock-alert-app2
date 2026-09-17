@@ -50,7 +50,7 @@ import {
   resetDiscoOpeningShortForwardVersionCacheForTest,
 } from "./discoOpeningShortForwardShadowEngine";
 
-function source(symbol = "6146", tradeDate = "2026-09-11") {
+function source(symbol = "6146", tradeDate = "2026-09-18") {
   return {
     sourceEventId: `${symbol}:${tradeDate}:09:00`,
     candle: {

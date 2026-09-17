@@ -16,9 +16,7 @@ const auditDbMock = vi.hoisted(() => ({
   getRtDivergenceHypotheses: vi.fn(async () => []),
 }));
 
-vi.mock("./forwardShadow", () => ({
-  getForwardShadowSummary: summaryMock,
-}));
+vi.mock("./forwardShadow", () => ({ getForwardShadowSummary: summaryMock }));
 vi.mock("./db", async importOriginal => ({
   ...await importOriginal<typeof import("./db")>(),
   ...auditDbMock,
@@ -27,7 +25,9 @@ vi.mock("./db", async importOriginal => ({
 import { tradingRouter } from "./routers/trading";
 import {
   DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
+  DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -46,44 +46,48 @@ import {
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
+  TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
 } from "./runtimeIdentity";
 import { TEL_CURRENT_PARITY_VERSION, TEL_CAUSALITY_AUDIT_VERSION } from "./telCurrentParity";
 import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
 import { TEL_EXECUTABLE_DEPTH_VERSION } from "./telExecutableConfirmDepth";
 
 describe("trading.getForwardShadowSummary", () => {
-  it("既存順序を保ち、6146停止前基準・A・Bも独立追加する", async () => {
+  it("既存順序を保ち、比較基盤修正前の履歴と修正後の8035・6146候補を分離する", async () => {
     const caller = tradingRouter.createCaller({} as never);
-    const result = await caller.getForwardShadowSummary({ asOfDate: "2026-09-04" });
+    const result = await caller.getForwardShadowSummary({ asOfDate: "2026-09-17" });
 
-    expect(result.strategies.map(item => ({
-      strategyVersion: item.strategyVersion,
-      symbol: item.symbol,
-    }))).toEqual([
-      { strategyVersion: FORWARD_STRATEGY_VERSION, symbol: "8035" },
-      { strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION, symbol: "5803" },
-      { strategyVersion: FUJIKURA_MORNING_SHORT_VERSION, symbol: "5803" },
-      { strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION, symbol: "285A" },
-      { strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, symbol: "285A" },
-      { strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION, symbol: "8035" },
-      { strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035" },
-      { strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984" },
-      { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984" },
-      { strategyVersion: TAIYO_BOARD_DEMAND_VERSION, symbol: "6976" },
-      { strategyVersion: TAIYO_RR2_PROTECT_VERSION, symbol: "6976" },
-      { strategyVersion: TAIYO_AFTERNOON_RR2_VERSION, symbol: "6976" },
-      { strategyVersion: TAIYO_AFTERNOON_DEPTH_VERSION, symbol: "6976" },
-      { strategyVersion: TAIYO_AFTERNOON_LONG_RR2_VERSION, symbol: "6976" },
-      { strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976" },
-      { strategyVersion: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526" },
-      { strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526" },
-      { strategyVersion: SUMCO_VOLUME_110_VERSION, symbol: "3436" },
-      { strategyVersion: SUMCO_TIME_15_VERSION, symbol: "3436" },
-      { strategyVersion: DISCO_SHORT_BASELINE_VERSION, symbol: "6146" },
-      { strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, symbol: "6146" },
-      { strategyVersion: DISCO_SHORT_RETEST_B_VERSION, symbol: "6146" },
-    ]);
-    expect(result.strategies[2]).toMatchObject({
+    const expected = [
+      [FORWARD_STRATEGY_VERSION, "8035"],
+      [FUJIKURA_FORWARD_STRATEGY_VERSION, "5803"],
+      [FUJIKURA_MORNING_SHORT_VERSION, "5803"],
+      [KIOXIA_FORWARD_STRATEGY_VERSION, "285A"],
+      [KIOXIA_ATR_FORWARD_STRATEGY_VERSION, "285A"],
+      [TEL_EXECUTABLE_CONFIRM_VERSION, "8035"],
+      [TEL_EXECUTABLE_DEPTH_LEGACY_VERSION, "8035"],
+      [TEL_EXECUTABLE_DEPTH_VERSION, "8035"],
+      [SOFTBANK_DEPTH_CONFIRM_VERSION, "9984"],
+      [SOFTBANK_RR2_PROTECT_VERSION, "9984"],
+      [TAIYO_BOARD_DEMAND_VERSION, "6976"],
+      [TAIYO_RR2_PROTECT_VERSION, "6976"],
+      [TAIYO_AFTERNOON_RR2_VERSION, "6976"],
+      [TAIYO_AFTERNOON_DEPTH_VERSION, "6976"],
+      [TAIYO_AFTERNOON_LONG_RR2_VERSION, "6976"],
+      [TAIYO_AFTERNOON_LONG_WINRATE_VERSION, "6976"],
+      [SOCIONEXT_INITIAL_STRENGTH_VERSION, "6526"],
+      [SOCIONEXT_CONFIRM_STRENGTH_VERSION, "6526"],
+      [SUMCO_VOLUME_110_VERSION, "3436"],
+      [SUMCO_TIME_15_VERSION, "3436"],
+      [DISCO_SHORT_BASELINE_VERSION, "6146"],
+      [DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION, "6146"],
+      [DISCO_SHORT_RETEST_B_LEGACY_VERSION, "6146"],
+      [DISCO_SHORT_EXECUTABLE_A_VERSION, "6146"],
+      [DISCO_SHORT_RETEST_B_VERSION, "6146"],
+    ] as const;
+    expect(result.strategies.map(item => [item.strategyVersion, item.symbol])).toEqual(expected);
+
+    const byVersion = new Map(result.strategies.map(item => [item.strategyVersion, item]));
+    expect(byVersion.get(FUJIKURA_MORNING_SHORT_VERSION)).toMatchObject({
       eligibleForAdoption: false,
       purpose: "diagnostic_candidate",
       automaticAdoption: false,
@@ -91,98 +95,28 @@ describe("trading.getForwardShadowSummary", () => {
       collectionStartDate: "2026-09-17",
       evaluationStartDate: "2026-09-17",
     });
-    expect(result.strategies[5]).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
-    expect(result.strategies[6]).toMatchObject({ eligibleForAdoption: true, purpose: "candidate" });
-    expect(result.strategies[7]).toMatchObject({
+    expect(byVersion.get(TEL_EXECUTABLE_CONFIRM_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
+    expect(byVersion.get(TEL_EXECUTABLE_DEPTH_LEGACY_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
+    expect(byVersion.get(TEL_EXECUTABLE_DEPTH_VERSION)).toMatchObject({
       eligibleForAdoption: true,
       purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
+      collectionStartDate: "2026-09-18",
+      evaluationStartDate: "2026-09-18",
     });
-    expect(result.strategies[8]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[9]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[10]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[11]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[12]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[13]).toMatchObject({
-      eligibleForAdoption: false,
-      purpose: "diagnostic_candidate",
-      collectionStartDate: "2026-09-14",
-      evaluationStartDate: "2026-09-14",
-    });
-    expect(result.strategies[14]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-14",
-      evaluationStartDate: "2026-09-14",
-    });
-    expect(result.strategies[15]).toMatchObject({
-      eligibleForAdoption: false,
-      purpose: "diagnostic_candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[16]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[17]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[18]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-07",
-      evaluationStartDate: "2026-09-08",
-    });
-    expect(result.strategies[19]).toMatchObject({
-      eligibleForAdoption: false,
-      purpose: "paused_current_route_comparison_only",
-      collectionStartDate: "2026-09-11",
-      evaluationStartDate: "2026-09-11",
-    });
-    expect(result.strategies[20]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-11",
-      evaluationStartDate: "2026-09-11",
-    });
-    expect(result.strategies[21]).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-11",
-      evaluationStartDate: "2026-09-11",
-    });
+    expect(byVersion.get(TAIYO_AFTERNOON_LONG_RR2_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "diagnostic_candidate" });
+    expect(byVersion.get(DISCO_SHORT_BASELINE_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "paused_current_route_comparison_only" });
+    for (const version of [DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION, DISCO_SHORT_RETEST_B_LEGACY_VERSION]) {
+      expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
+    }
+    for (const version of [DISCO_SHORT_EXECUTABLE_A_VERSION, DISCO_SHORT_RETEST_B_VERSION]) {
+      expect(byVersion.get(version)).toMatchObject({
+        eligibleForAdoption: true,
+        purpose: "candidate",
+        collectionStartDate: "2026-09-18",
+        evaluationStartDate: "2026-09-18",
+      });
+    }
+
     expect(result.auditStrategies).toEqual([
       expect.objectContaining({ strategyVersion: TEL_CURRENT_PARITY_VERSION, purpose: "parity_only", eligibleForAdoption: false }),
       expect.objectContaining({ strategyVersion: TEL_CAUSALITY_AUDIT_VERSION, purpose: "causality_audit", eligibleForAdoption: false }),
@@ -192,33 +126,12 @@ describe("trading.getForwardShadowSummary", () => {
       brokerExecutionPrice: "unavailable_in_dry_run",
       automaticAdoption: false,
     });
-    expect(result.audit.discoShortPortfolioComparison).toMatchObject({
-      scenarios: { paused_current: { actualReceipt: { complete: true } } },
-    });
+    expect(result.audit.discoShortPortfolioComparison).toMatchObject({ scenarios: { paused_current: { actualReceipt: { complete: true } } } });
     expect(result.pausedCurrentRoutes).toHaveLength(11);
-    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain(
-      "6146:寄り付き10本安値更新SHORT",
-    );
-    expect(summaryMock).toHaveBeenCalledTimes(22);
-    expect(summaryMock).toHaveBeenNthCalledWith(3, "2026-09-04", FUJIKURA_MORNING_SHORT_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(4, "2026-09-04", KIOXIA_FORWARD_STRATEGY_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(5, "2026-09-04", KIOXIA_ATR_FORWARD_STRATEGY_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(6, "2026-09-04", TEL_EXECUTABLE_CONFIRM_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(7, "2026-09-04", TEL_EXECUTABLE_DEPTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(8, "2026-09-04", SOFTBANK_DEPTH_CONFIRM_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(9, "2026-09-04", SOFTBANK_RR2_PROTECT_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(10, "2026-09-04", TAIYO_BOARD_DEMAND_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(11, "2026-09-04", TAIYO_RR2_PROTECT_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(12, "2026-09-04", TAIYO_AFTERNOON_RR2_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(13, "2026-09-04", TAIYO_AFTERNOON_DEPTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(14, "2026-09-04", TAIYO_AFTERNOON_LONG_RR2_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(15, "2026-09-04", TAIYO_AFTERNOON_LONG_WINRATE_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(16, "2026-09-04", SOCIONEXT_INITIAL_STRENGTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(17, "2026-09-04", SOCIONEXT_CONFIRM_STRENGTH_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(18, "2026-09-04", SUMCO_VOLUME_110_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(19, "2026-09-04", SUMCO_TIME_15_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(20, "2026-09-04", DISCO_SHORT_BASELINE_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(21, "2026-09-04", DISCO_SHORT_EXECUTABLE_A_VERSION);
-    expect(summaryMock).toHaveBeenNthCalledWith(22, "2026-09-04", DISCO_SHORT_RETEST_B_VERSION);
+    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain("6146:寄り付き10本安値更新SHORT");
+    expect(summaryMock).toHaveBeenCalledTimes(expected.length);
+    for (const [version] of expected) {
+      expect(summaryMock).toHaveBeenCalledWith("2026-09-17", version);
+    }
   });
 });

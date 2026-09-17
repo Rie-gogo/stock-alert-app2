@@ -8,8 +8,11 @@ import {
   type TelOpenDirectionBreakoutCandle,
 } from "./telOpenDirectionBreakout";
 
-export const TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE = "2026-09-04";
-export const TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE = "2026-09-07";
+/** 比較基盤修正後の未見期間だけを正式候補として数える。 */
+export const TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE = "2026-09-17";
+export const TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE = "2026-09-18";
+/** 純粋遷移の保存再生互換。v3実収集の開始日はEngine側の上記Gateで制限する。 */
+export const TEL_EXECUTABLE_DEPTH_LOGIC_REPLAY_START_DATE = "2026-09-07";
 export const TEL_EXECUTABLE_DEPTH_MAX_ADVERSE_PCT = 0.1;
 export const TEL_EXECUTABLE_DEPTH_MAX_BOARD_AGE_MS = 5_000;
 
@@ -292,11 +295,11 @@ export function applyTelExecutableConfirmTransition(stateBefore: TelExecutableCo
   });
   state.candles = state.candles.slice(-64);
 
-  if (state.stopped || input.candle.tradeDate < TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE) {
+  if (state.stopped || input.candle.tradeDate < TEL_EXECUTABLE_DEPTH_LOGIC_REPLAY_START_DATE) {
     return finalize(state, input, "rejected", [{
       type: "not_collecting",
       stopped: state.stopped,
-      evaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
+      evaluationStartDate: TEL_EXECUTABLE_DEPTH_LOGIC_REPLAY_START_DATE,
     }], null, null);
   }
 

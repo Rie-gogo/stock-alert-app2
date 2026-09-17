@@ -96,6 +96,12 @@ type CandidateDescriptor = {
   side: CandidateSide;
   routeId: string;
   signalReason: string;
+  /**
+   * accepted は現行エンジンが実際に保存した約定価格を唯一の正とする。
+   * margin_block / shadow_only は約定がないため、判断時点の理論終値を使う。
+   */
+  entryPrice: number;
+  entryPriceSource: "accepted_rt_trade" | "signal_candle_close";
   capitalShares: number;
   requiredMargin: number;
   realtimeDecision: "accepted" | "margin_block" | "shadow_only";
@@ -407,7 +413,11 @@ function buildCandidateDescriptor(input: {
     reason: signalReason,
     entryCandleTime: input.candle.candleTime,
   });
-  const price = input.candle.close;
+  const acceptedTradePrice = Number(input.latestTrade?.price);
+  if (isAccepted && (!Number.isFinite(acceptedTradePrice) || acceptedTradePrice <= 0)) {
+    throw new Error(`candidate_accepted_entry_price_missing:${input.candle.symbol}:${input.candle.tradeDate}:${input.candle.candleTime}`);
+  }
+  const price = isAccepted ? acceptedTradePrice : input.candle.close;
   const reconstructedShares = Math.floor((3_000_000 * 0.9) / price / 100) * 100;
   const capitalShares = isAccepted && input.latestTrade?.shares
     ? input.latestTrade.shares
@@ -419,6 +429,8 @@ function buildCandidateDescriptor(input: {
     side,
     routeId: routeSpec.routeId,
     signalReason,
+    entryPrice: price,
+    entryPriceSource: isAccepted ? "accepted_rt_trade" : "signal_candle_close",
     capitalShares,
     requiredMargin,
     realtimeDecision: isAccepted ? "accepted" : isMarginBlock ? "margin_block" : "shadow_only",
@@ -437,7 +449,7 @@ async function saveStructuredCandidate(input: {
 }): Promise<RtSignalCandidate | null> {
   const descriptor = input.descriptor;
   if (!descriptor) return null;
-  const price = input.candle.close;
+  const price = descriptor.entryPrice;
 
   const candidate = await upsertRtSignalCandidate({
     candidateVersion: resolveCurrentSignalCandidateVersion(input.candle.tradeDate),
@@ -471,6 +483,7 @@ async function saveStructuredCandidate(input: {
       acceptedByCurrentRealtime: descriptor.realtimeDecision === "accepted",
       marginBlockedByCurrentRealtime: descriptor.realtimeDecision === "margin_block",
       shadowOnlyByCurrentRealtime: descriptor.realtimeDecision === "shadow_only",
+      entryPriceSource: descriptor.entryPriceSource,
       requiredMarginSource: descriptor.realtimeDecision === "accepted"
         ? "rt_trade_amount"
         : descriptor.realtimeDecision === "margin_block"
@@ -498,6 +511,21 @@ function descriptorForPayload(
   persistedRouteId?: string | null,
   persistedSide?: CandidateSide | null,
 ): CandidateDescriptor | null {
+  const withEntryPrice = (descriptor: CandidateDescriptor): CandidateDescriptor => {
+    if (Number.isFinite(descriptor.entryPrice) && descriptor.entryPrice > 0 && descriptor.entryPriceSource) {
+      return descriptor;
+    }
+    const acceptedPrice = Number(payload.latestTrade?.price);
+    const accepted = descriptor.realtimeDecision === "accepted";
+    if (accepted && (!Number.isFinite(acceptedPrice) || acceptedPrice <= 0)) {
+      throw new Error(`candidate_accepted_entry_price_missing:${payload.candle.symbol}:${payload.candle.tradeDate}:${payload.candle.candleTime}`);
+    }
+    return {
+      ...descriptor,
+      entryPrice: accepted ? acceptedPrice : payload.candle.close,
+      entryPriceSource: accepted ? "accepted_rt_trade" : "signal_candle_close",
+    };
+  };
   const status = persistedStatus ?? payload.candidateDescriptorStatus;
   const descriptorError = payload.candidateDescriptorError;
   const recoverableDescriptorError = typeof descriptorError === "string"
@@ -508,11 +536,12 @@ function descriptorForPayload(
   if (status === "complete") {
     const descriptor = persistedDescriptor ?? payload.candidateDescriptor;
     if (!descriptor) throw new Error("candidate_descriptor_complete_without_payload");
-    return descriptor;
+    // 公開切替時にoutboxへ残っていた旧descriptorも、同じ価格契約へ安全に昇格する。
+    return withEntryPrice(descriptor);
   }
   if (status === "not_candidate") return null;
   if (payload.candidateDescriptor !== undefined && status !== "error" && !descriptorError) {
-    return payload.candidateDescriptor;
+    return payload.candidateDescriptor ? withEntryPrice(payload.candidateDescriptor) : null;
   }
   const rebuilt = buildCandidateDescriptor({
     candle: payload.candle,

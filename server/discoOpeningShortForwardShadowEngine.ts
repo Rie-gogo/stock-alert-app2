@@ -26,6 +26,9 @@ import {
 import {
   DISCO_SHORT_BASELINE_SPEC,
   DISCO_SHORT_COLLECTION_START_DATE,
+  DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE,
+  DISCO_SHORT_CANDIDATE_FORMAL_START_DATE,
+  DISCO_SHORT_CANDIDATE_LEARNING_CUTOFF_DATE,
   DISCO_SHORT_EXECUTABLE_SPEC,
   DISCO_SHORT_FORMAL_START_DATE,
   DISCO_SHORT_LEARNING_CUTOFF_DATE,
@@ -78,10 +81,20 @@ async function ensureVersion(variant: Variant) {
   const definition = DEFINITIONS[variant];
   if (ensuredVersions.has(definition.strategyVersion)) return;
   const identity = getRuntimeIdentity();
+  const candidate = variant !== "paused_baseline";
+  const collectionStartDate = candidate
+    ? DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE
+    : DISCO_SHORT_COLLECTION_START_DATE;
+  const evaluationStartDate = candidate
+    ? DISCO_SHORT_CANDIDATE_FORMAL_START_DATE
+    : DISCO_SHORT_FORMAL_START_DATE;
+  const learningCutoffDate = candidate
+    ? DISCO_SHORT_CANDIDATE_LEARNING_CUTOFF_DATE
+    : DISCO_SHORT_LEARNING_CUTOFF_DATE;
   const config = {
     ...definition.spec,
-    collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
-    formalEvaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
+    collectionStartDate,
+    formalEvaluationStartDate: evaluationStartDate,
     evaluationPolicy: FORWARD_EVALUATION_POLICY,
     evaluationModes: MODES,
     eligibleForAdoption: definition.eligibleForAdoption,
@@ -96,8 +109,8 @@ async function ensureVersion(variant: Variant) {
     sourceTreeHash: identity.sourceTreeHash,
     configHash: sha256Stable(config),
     configJson: config,
-    learningCutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
-    evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
+    learningCutoffDate,
+    evaluationStartDate,
     evaluationPurpose: definition.evaluationPurpose,
     eligibleForAdoption: definition.eligibleForAdoption,
     status: "monitoring",
@@ -256,6 +269,9 @@ async function processMode(source: ForwardSourceEventInput, variant: Variant, mo
 
 async function processVariant(source: ForwardSourceEventInput, variant: Variant) {
   const definition = DEFINITIONS[variant];
+  if (variant !== "paused_baseline" && source.candle.tradeDate < DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE) {
+    return { skipped: "before_candidate_parity_reset_start" as const, strategyVersion: definition.strategyVersion };
+  }
   await ensureVersion(variant);
   const version = await getRtStrategyVersion(definition.strategyVersion);
   if (version?.status === "stopped" || version?.status === "insufficient") {

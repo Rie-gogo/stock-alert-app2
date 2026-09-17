@@ -1,5 +1,7 @@
 import {
   DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+  DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_STRATEGY_VERSION,
@@ -19,6 +21,7 @@ import {
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
+  TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./runtimeIdentity";
 import { TEL_CURRENT_PARITY_VERSION } from "./telCurrentParity";
@@ -58,6 +61,8 @@ const PASSED_TEL_GATE: RouteParityGate = {
 
 const REQUIRED_BY_VERSION: Record<string, string[]> = {
   [DISCO_SHORT_BASELINE_VERSION]: ["discoOpeningBreakShort"],
+  [DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION]: ["discoOpeningBreakShort"],
+  [DISCO_SHORT_RETEST_B_LEGACY_VERSION]: ["discoOpeningBreakShort"],
   [DISCO_SHORT_EXECUTABLE_A_VERSION]: ["discoOpeningBreakShort"],
   [DISCO_SHORT_RETEST_B_VERSION]: ["discoOpeningBreakShort"],
   [FUJIKURA_FORWARD_STRATEGY_VERSION]: ["lowReversalBreakLong"],
@@ -84,7 +89,7 @@ const REQUIRED_BY_VERSION: Record<string, string[]> = {
 };
 
 export function resolveForwardRouteParityGate(strategyVersion: string): RouteParityGate {
-  if ([FORWARD_STRATEGY_VERSION, TEL_EXECUTABLE_CONFIRM_VERSION, TEL_EXECUTABLE_DEPTH_VERSION].includes(strategyVersion)) {
+  if ([FORWARD_STRATEGY_VERSION, TEL_EXECUTABLE_CONFIRM_VERSION, TEL_EXECUTABLE_DEPTH_LEGACY_VERSION, TEL_EXECUTABLE_DEPTH_VERSION].includes(strategyVersion)) {
     return { ...PASSED_TEL_GATE, requiredRoutes: [...PASSED_TEL_GATE.requiredRoutes] };
   }
   const requiredRoutes = REQUIRED_BY_VERSION[strategyVersion];

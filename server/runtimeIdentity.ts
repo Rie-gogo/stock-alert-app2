@@ -9,7 +9,9 @@ export const BASELINE_STRATEGY_GIT_SHA = "7291737d6ee3fdd798a6b090d2a3d3bda3e96b
 export const PRE_PLAN_D_TRADING_SOURCE_TREE_HASH = "de9d06e6bf9199a16c91a5593ff7bbb37f3776171c0f9f9eb7b9249de826afea";
 /** Plan D公開版。6976因果執行・共通板鮮度補正前の監査基準として保持する。 */
 export const PRE_CAUSAL_EXECUTION_TRADING_SOURCE_TREE_HASH = "a7843f9529e92f41abc0c34c8203d69747ab064c6d75feadcfe5fb9be239dce8";
-export const BASELINE_TRADING_SOURCE_TREE_HASH = "98a1d09d76c0d27d1a3026704b777c5e9449bca727ed376434932e77d8f7a9fc";
+/** 比較基盤の約定価格統一・自動materialization・候補世代reset前の監査基準。 */
+export const PRE_COMPARISON_PLATFORM_FIX_SOURCE_TREE_HASH = "98a1d09d76c0d27d1a3026704b777c5e9449bca727ed376434932e77d8f7a9fc";
+export const BASELINE_TRADING_SOURCE_TREE_HASH = "7fb4bcd9d63018f6abec18218aad47b0581da1a6cab1ec1ebd1dd2b5aed8d5d1";
 export const FORWARD_STRATEGY_VERSION = "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION = "forward-shadow-5803-low-reversal-ab-v2-day-baseline-session-gap-fix";
 export const FUJIKURA_MORNING_SHORT_VERSION = "candidate-5803-morning-20bar-breakdown-short-depth-v1";
@@ -18,7 +20,9 @@ export const KIOXIA_ATR_FORWARD_STRATEGY_VERSION = "forward-shadow-285a-five-rou
 export const TEL_CURRENT_PARITY_VERSION = "baseline-8035-current-parity-v1";
 export const TEL_CAUSALITY_AUDIT_VERSION = "baseline-8035-causality-audit-v1";
 export const TEL_EXECUTABLE_CONFIRM_VERSION = "candidate-8035-executable-confirm-v1";
-export const TEL_EXECUTABLE_DEPTH_VERSION = "candidate-8035-executable-depth-v2";
+/** 比較基盤修正前の履歴。新規イベントはv3へ収集する。 */
+export const TEL_EXECUTABLE_DEPTH_LEGACY_VERSION = "candidate-8035-executable-depth-v2";
+export const TEL_EXECUTABLE_DEPTH_VERSION = "candidate-8035-executable-depth-v3-parity-reset";
 export const SOFTBANK_DEPTH_CONFIRM_VERSION = "forward-shadow-9984-breakout-depth-confirm-v1";
 export const SOFTBANK_RR2_PROTECT_VERSION = "forward-shadow-9984-breakout-rr2-protect-v1";
 export const TAIYO_BOARD_DEMAND_VERSION = "candidate-6976-board-demand-bpr130-v1";
@@ -32,8 +36,11 @@ export const TAIYO_AFTERNOON_DEPTH_VERSION = "candidate-6976-afternoon-short-dep
 export const TAIYO_AFTERNOON_LONG_RR2_VERSION = "candidate-6976-afternoon-long-rr2-10-v1";
 export const TAIYO_AFTERNOON_LONG_WINRATE_VERSION = "candidate-6976-afternoon-long-recovery-winrate-v1";
 export const DISCO_SHORT_BASELINE_VERSION = "baseline-6146-opening-short-paused-v1";
-export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-executable-a-v2";
-export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v2";
+/** 比較基盤修正前の履歴。新規イベントはv3へ収集する。 */
+export const DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION = "candidate-6146-opening-short-executable-a-v2";
+export const DISCO_SHORT_RETEST_B_LEGACY_VERSION = "candidate-6146-opening-short-retest-b-v2";
+export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-executable-a-v3-parity-reset";
+export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v3-parity-reset";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -41,6 +48,7 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   KIOXIA_FORWARD_STRATEGY_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
+  TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
   TEL_EXECUTABLE_DEPTH_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
@@ -55,6 +63,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+  DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
 ]);

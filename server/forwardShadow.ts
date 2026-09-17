@@ -34,6 +34,8 @@ import {
 import {
   BASELINE_STRATEGY_GIT_SHA,
   DISCO_SHORT_BASELINE_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+  DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_EVALUATION_POLICY,
@@ -54,6 +56,7 @@ import {
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
+  TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -110,6 +113,7 @@ import {
 } from "./sumcoForwardShadow";
 import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
 import {
+  DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE,
   DISCO_SHORT_COLLECTION_START_DATE,
   DISCO_SHORT_LEARNING_CUTOFF_DATE,
 } from "./discoOpeningShortForwardShadow";
@@ -864,6 +868,17 @@ export function applyForwardStrategyLifecyclePolicy(
       reason: "superseded_by_depth_v2_audit_only",
     };
   }
+  if ([
+    TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
+    DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+    DISCO_SHORT_RETEST_B_LEGACY_VERSION,
+  ].includes(strategyVersion)) {
+    return {
+      ...decision,
+      status: "stopped" as const,
+      reason: "superseded_after_comparison_platform_parity_fix",
+    };
+  }
   if (strategyVersion === TAIYO_AFTERNOON_LONG_RR2_VERSION) {
     return {
       ...decision,
@@ -874,20 +889,51 @@ export function applyForwardStrategyLifecyclePolicy(
   return decision;
 }
 
+function laterIsoDate(left: string, right: string) {
+  return left >= right ? left : right;
+}
+
+/**
+ * 新しいstrategyVersionは、比較基盤修正前の取引を正式・収集中の成績へ混ぜない。
+ * 全体Gateは「基盤を使ってよい最短日」、ここで返す日は「このversionを評価してよい最短日」。
+ */
+export function resolveForwardStrategyCollectionStartDate(
+  strategyVersion: string,
+  platformValidationDate: string,
+) {
+  if (strategyVersion === TEL_EXECUTABLE_DEPTH_VERSION) {
+    return laterIsoDate(platformValidationDate, TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE);
+  }
+  if ([DISCO_SHORT_EXECUTABLE_A_VERSION, DISCO_SHORT_RETEST_B_VERSION].includes(strategyVersion)) {
+    return laterIsoDate(platformValidationDate, DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE);
+  }
+  return platformValidationDate;
+}
+
 export async function getForwardShadowSummary(asOfDate: string, strategyVersion = FORWARD_STRATEGY_VERSION) {
   const trades = await getRtForwardShadowTrades(strategyVersion);
   const formalEvaluationGate = await loadForwardFormalEvaluationGate(asOfDate);
+  const strategyCollectionStartDate = resolveForwardStrategyCollectionStartDate(
+    strategyVersion,
+    formalEvaluationGate.validationDate,
+  );
+  const strategyFormalStartDate = formalEvaluationGate.status === "active" && formalEvaluationGate.formalStartDate
+    ? laterIsoDate(formalEvaluationGate.formalStartDate, strategyCollectionStartDate)
+    : null;
   return FORWARD_EVALUATION_POLICY.evaluationModes.map(mode => {
+    // asOfDate は「その日までに知り得た成績」の上限。未来日のtradeを混ぜると、
+    // 過去時点の報告が後から書き換わり前向き評価にならないため、必ず上限を切る。
     const collectionTrades = trades.filter(trade => trade.evaluationMode === mode
-      && trade.entryTradeDate >= formalEvaluationGate.validationDate);
-    const modeTrades = formalEvaluationGate.status === "active" && formalEvaluationGate.formalStartDate
-      ? collectionTrades.filter(trade => trade.entryTradeDate >= formalEvaluationGate.formalStartDate!
+      && trade.entryTradeDate >= strategyCollectionStartDate
+      && trade.entryTradeDate <= asOfDate);
+    const modeTrades = strategyFormalStartDate
+      ? collectionTrades.filter(trade => trade.entryTradeDate >= strategyFormalStartDate
         && !formalEvaluationGate.excludedTradeDates.includes(trade.entryTradeDate))
       : [];
     const collectionMetrics = calculateForwardTradeMetrics(collectionTrades);
     const metrics = calculateForwardTradeMetrics(modeTrades);
-    const decision = formalEvaluationGate.status === "active" && formalEvaluationGate.formalStartDate
-      ? evaluateForwardDecision(metrics, asOfDate, formalEvaluationGate.formalStartDate)
+    const decision = strategyFormalStartDate
+      ? evaluateForwardDecision(metrics, asOfDate, strategyFormalStartDate)
       : { status: "monitoring" as const, reason: "formal_evaluation_gate_pending", days: 0 };
     const routeParityGate = resolveForwardRouteParityGate(strategyVersion);
     const lifecycleDecision = applyForwardStrategyLifecyclePolicy(strategyVersion, decision);
@@ -918,6 +964,8 @@ export async function getForwardShadowSummary(asOfDate: string, strategyVersion 
       decision: applyForwardRouteParityGate(candidateDecision, routeParityGate),
       routeParityGate,
       formalEvaluationGate,
+      strategyCollectionStartDate,
+      strategyFormalStartDate,
       softbankAdoptionGate,
       taiyoAdoptionGate,
       socionextAdoptionGate,
@@ -1114,9 +1162,18 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       lifecycle: "superseded_stopped_audit_only",
     },
     {
+      versionId: TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
+      symbol: "8035",
+      title: "8035 次イベント・side別板depth VWAP継続確認A案 v2（比較基盤修正前・履歴）",
+      startDate: "2026-09-07",
+      cutoffDate: "2026-09-04",
+      adoptionEligible: false,
+      lifecycle: "superseded_stopped_audit_only",
+    },
+    {
       versionId: TEL_EXECUTABLE_DEPTH_VERSION,
       symbol: "8035",
-      title: "8035 次イベント・side別板depth VWAP継続確認A案 v2",
+      title: "8035 次イベント・side別板depth VWAP継続確認A案 v3（比較基盤修正後）",
       startDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
       cutoffDate: TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
       adoptionEligible: true,
@@ -1242,20 +1299,38 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       keepCollectingWhenIneligible: true,
     },
     {
+      versionId: DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+      symbol: "6146",
+      title: "6146 SHORT A v2（比較基盤修正前・履歴）",
+      startDate: "2026-09-11",
+      cutoffDate: "2026-09-10",
+      adoptionEligible: false,
+      lifecycle: "superseded_stopped_audit_only",
+    },
+    {
+      versionId: DISCO_SHORT_RETEST_B_LEGACY_VERSION,
+      symbol: "6146",
+      title: "6146 SHORT B v2（比較基盤修正前・履歴）",
+      startDate: "2026-09-11",
+      cutoffDate: "2026-09-10",
+      adoptionEligible: false,
+      lifecycle: "superseded_stopped_audit_only",
+    },
+    {
       versionId: DISCO_SHORT_EXECUTABLE_A_VERSION,
       symbol: "6146",
-      title: "6146 SHORT A・次イベント評価株数bid depth継続確認",
-      startDate: DISCO_SHORT_COLLECTION_START_DATE,
-      cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
+      title: "6146 SHORT A v3・次イベント評価株数bid depth継続確認（比較基盤修正後）",
+      startDate: "2026-09-18",
+      cutoffDate: "2026-09-17",
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
     {
       versionId: DISCO_SHORT_RETEST_B_VERSION,
       symbol: "6146",
-      title: "6146 SHORT B・失敗リテスト＋再安値更新後の次イベントdepth確認",
-      startDate: DISCO_SHORT_COLLECTION_START_DATE,
-      cutoffDate: DISCO_SHORT_LEARNING_CUTOFF_DATE,
+      title: "6146 SHORT B v3・失敗リテスト＋再安値更新後の次イベントdepth確認（比較基盤修正後）",
+      startDate: "2026-09-18",
+      cutoffDate: "2026-09-17",
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },

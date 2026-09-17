@@ -87,6 +87,8 @@ export const tradingRouter = router({
       const { getAllPausedCurrentRouteShadowSummary } = await import("../pausedCurrentRouteShadowSummary");
       const {
         DISCO_SHORT_BASELINE_VERSION,
+        DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+        DISCO_SHORT_RETEST_B_LEGACY_VERSION,
         DISCO_SHORT_EXECUTABLE_A_VERSION,
         DISCO_SHORT_RETEST_B_VERSION,
         FORWARD_STRATEGY_VERSION,
@@ -106,6 +108,7 @@ export const tradingRouter = router({
         TAIYO_AFTERNOON_RR2_VERSION,
         TAIYO_BOARD_DEMAND_VERSION,
         TAIYO_RR2_PROTECT_VERSION,
+        TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
       } = await import("../runtimeIdentity");
       const {
         FUJIKURA_MORNING_SHORT_COLLECTION_START_DATE,
@@ -248,11 +251,20 @@ export const tradingRouter = router({
             evaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
           },
           {
+            strategyVersion: TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
+            symbol: "8035",
+            summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_DEPTH_LEGACY_VERSION),
+            purpose: "superseded_stopped_audit_only" as const,
+            eligibleForAdoption: false,
+            evaluationStartDate: "2026-09-07",
+          },
+          {
             strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
             symbol: "8035",
             summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_DEPTH_VERSION),
             purpose: "candidate" as const,
             eligibleForAdoption: true,
+            collectionStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
             evaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
           },
           {
@@ -373,13 +385,31 @@ export const tradingRouter = router({
             evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
           },
           {
+            strategyVersion: DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION),
+            purpose: "superseded_stopped_audit_only" as const,
+            eligibleForAdoption: false,
+            collectionStartDate: "2026-09-11",
+            evaluationStartDate: "2026-09-11",
+          },
+          {
+            strategyVersion: DISCO_SHORT_RETEST_B_LEGACY_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_RETEST_B_LEGACY_VERSION),
+            purpose: "superseded_stopped_audit_only" as const,
+            eligibleForAdoption: false,
+            collectionStartDate: "2026-09-11",
+            evaluationStartDate: "2026-09-11",
+          },
+          {
             strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION,
             symbol: "6146",
             summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_EXECUTABLE_A_VERSION),
             purpose: "candidate" as const,
             eligibleForAdoption: true,
-            collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
-            evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
+            collectionStartDate: "2026-09-18",
+            evaluationStartDate: "2026-09-18",
           },
           {
             strategyVersion: DISCO_SHORT_RETEST_B_VERSION,
@@ -387,8 +417,8 @@ export const tradingRouter = router({
             summaries: await getForwardShadowSummary(input.asOfDate, DISCO_SHORT_RETEST_B_VERSION),
             purpose: "candidate" as const,
             eligibleForAdoption: true,
-            collectionStartDate: DISCO_SHORT_COLLECTION_START_DATE,
-            evaluationStartDate: DISCO_SHORT_FORMAL_START_DATE,
+            collectionStartDate: "2026-09-18",
+            evaluationStartDate: "2026-09-18",
           },
         ];
       return {

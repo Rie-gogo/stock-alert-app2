@@ -14,6 +14,10 @@ import { FORWARD_EVALUATION_POLICY } from "./runtimeIdentity";
 export const DISCO_SHORT_LEARNING_CUTOFF_DATE = "2026-09-10";
 export const DISCO_SHORT_COLLECTION_START_DATE = "2026-09-11";
 export const DISCO_SHORT_FORMAL_START_DATE = "2026-09-11";
+/** A/B候補は比較基盤修正後のイベントだけを新versionへ収集する。 */
+export const DISCO_SHORT_CANDIDATE_LEARNING_CUTOFF_DATE = "2026-09-17";
+export const DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE = "2026-09-18";
+export const DISCO_SHORT_CANDIDATE_FORMAL_START_DATE = "2026-09-18";
 
 const COMMON_ENTRY = Object.freeze({
   startTime: "09:30",

@@ -225,6 +225,12 @@ describe("現行実時判断監査", () => {
         }),
       }),
     }));
+    await drainCurrentCandidateVirtualQueue();
+    expect(dbMock.upsertRtSignalCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      // 足終値100ではなく、現行が実際に採用したdepth約定価格99.8を固定する。
+      theoreticalEntryPrice: "99.8",
+      inputJson: expect.objectContaining({ entryPriceSource: "accepted_rt_trade" }),
+    }));
   });
 
   it("depth約定のsource event ID不一致は因果性違反にする", async () => {

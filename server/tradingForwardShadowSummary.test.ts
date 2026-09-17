@@ -29,6 +29,8 @@ import {
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
+  DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+  DISCO_LONG_PRIOR_THREE_B_VERSION,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
   FUJIKURA_MORNING_SHORT_VERSION,
@@ -83,6 +85,8 @@ describe("trading.getForwardShadowSummary", () => {
       [DISCO_SHORT_RETEST_B_LEGACY_VERSION, "6146"],
       [DISCO_SHORT_EXECUTABLE_A_VERSION, "6146"],
       [DISCO_SHORT_RETEST_B_VERSION, "6146"],
+      [DISCO_LONG_PROFIT_PROTECTION_A_VERSION, "6146"],
+      [DISCO_LONG_PRIOR_THREE_B_VERSION, "6146"],
     ] as const;
     expect(result.strategies.map(item => [item.strategyVersion, item.symbol])).toEqual(expected);
 
@@ -109,6 +113,14 @@ describe("trading.getForwardShadowSummary", () => {
       expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
     }
     for (const version of [DISCO_SHORT_EXECUTABLE_A_VERSION, DISCO_SHORT_RETEST_B_VERSION]) {
+      expect(byVersion.get(version)).toMatchObject({
+        eligibleForAdoption: true,
+        purpose: "candidate",
+        collectionStartDate: "2026-09-18",
+        evaluationStartDate: "2026-09-18",
+      });
+    }
+    for (const version of [DISCO_LONG_PROFIT_PROTECTION_A_VERSION, DISCO_LONG_PRIOR_THREE_B_VERSION]) {
       expect(byVersion.get(version)).toMatchObject({
         eligibleForAdoption: true,
         purpose: "candidate",

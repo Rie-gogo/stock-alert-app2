@@ -41,6 +41,8 @@ export const DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION = "candidate-6146-opening-s
 export const DISCO_SHORT_RETEST_B_LEGACY_VERSION = "candidate-6146-opening-short-retest-b-v2";
 export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-executable-a-v3-parity-reset";
 export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v3-parity-reset";
+export const DISCO_LONG_PROFIT_PROTECTION_A_VERSION = "candidate-6146-confirmed-long-profit-protection-a-v1";
+export const DISCO_LONG_PRIOR_THREE_B_VERSION = "candidate-6146-confirmed-long-prior-three-b-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -67,6 +69,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
+  DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+  DISCO_LONG_PRIOR_THREE_B_VERSION,
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

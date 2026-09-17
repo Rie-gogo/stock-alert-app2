@@ -38,6 +38,8 @@ import {
   DISCO_SHORT_RETEST_B_LEGACY_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
+  DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+  DISCO_LONG_PRIOR_THREE_B_VERSION,
   FORWARD_EVALUATION_POLICY,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -117,6 +119,10 @@ import {
   DISCO_SHORT_COLLECTION_START_DATE,
   DISCO_SHORT_LEARNING_CUTOFF_DATE,
 } from "./discoOpeningShortForwardShadow";
+import {
+  DISCO_LONG_FORWARD_COLLECTION_START_DATE,
+  DISCO_LONG_FORWARD_LEARNING_CUTOFF_DATE,
+} from "./discoConfirmedLongForwardShadow";
 import {
   TAIYO_AFTERNOON_COLLECTION_START_DATE,
   TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
@@ -737,7 +743,21 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   }
   if (input.candle.symbol === "6146") {
     const { processDiscoOpeningShortForwardShadowSourceEvent } = await import("./discoOpeningShortForwardShadowEngine");
-    return processDiscoOpeningShortForwardShadowSourceEvent(input);
+    const { processDiscoConfirmedLongForwardShadowSourceEvent } = await import("./discoConfirmedLongForwardShadowEngine");
+    const evaluations: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    for (const [label, evaluate] of [
+      ["opening_short", processDiscoOpeningShortForwardShadowSourceEvent],
+      ["confirmed_long", processDiscoConfirmedLongForwardShadowSourceEvent],
+    ] as const) {
+      try {
+        evaluations.push(await evaluate(input));
+      } catch (error) {
+        errors.push(`${label}:${String(error)}`);
+      }
+    }
+    if (errors.length > 0) throw new Error(`disco_forward_shadow_partial_failure:${errors.join(" | ")}`);
+    return { skipped: false as const, symbol: "6146", evaluations };
   }
   if (input.candle.symbol !== FORWARD_SHADOW_SYMBOL) return { skipped: "non_shadow_symbol" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) {
@@ -906,6 +926,9 @@ export function resolveForwardStrategyCollectionStartDate(
   }
   if ([DISCO_SHORT_EXECUTABLE_A_VERSION, DISCO_SHORT_RETEST_B_VERSION].includes(strategyVersion)) {
     return laterIsoDate(platformValidationDate, DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE);
+  }
+  if ([DISCO_LONG_PROFIT_PROTECTION_A_VERSION, DISCO_LONG_PRIOR_THREE_B_VERSION].includes(strategyVersion)) {
+    return laterIsoDate(platformValidationDate, DISCO_LONG_FORWARD_COLLECTION_START_DATE);
   }
   return platformValidationDate;
 }
@@ -1331,6 +1354,24 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       title: "6146 SHORT B v3・失敗リテスト＋再安値更新後の次イベントdepth確認（比較基盤修正後）",
       startDate: "2026-09-18",
       cutoffDate: "2026-09-17",
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
+    {
+      versionId: DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+      symbol: "6146",
+      title: "6146 確認型10本高値更新LONG A・+0.50%到達後+0.25%利益保護",
+      startDate: DISCO_LONG_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: DISCO_LONG_FORWARD_LEARNING_CUTOFF_DATE,
+      adoptionEligible: true,
+      lifecycle: "active_candidate",
+    },
+    {
+      versionId: DISCO_LONG_PRIOR_THREE_B_VERSION,
+      symbol: "6146",
+      title: "6146 確認型10本高値更新LONG B・直前3本足構成確認",
+      startDate: DISCO_LONG_FORWARD_COLLECTION_START_DATE,
+      cutoffDate: DISCO_LONG_FORWARD_LEARNING_CUTOFF_DATE,
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },

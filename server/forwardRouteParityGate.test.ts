@@ -3,6 +3,8 @@ import {
   DISCO_SHORT_BASELINE_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
+  DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+  DISCO_LONG_PRIOR_THREE_B_VERSION,
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
@@ -93,6 +95,16 @@ describe("候補経路別parity Gate", () => {
       expect(resolveForwardRouteParityGate(version)).toMatchObject({
         status: "required",
         requiredRoutes: ["discoOpeningBreakShort"],
+        evidence: { kind: "missing_route_parity" },
+      });
+    }
+  });
+
+  it("6146 LONG A/Bは現行discoConfirmedBreakLong経路のparity証拠を必須にする", () => {
+    for (const version of [DISCO_LONG_PROFIT_PROTECTION_A_VERSION, DISCO_LONG_PRIOR_THREE_B_VERSION]) {
+      expect(resolveForwardRouteParityGate(version)).toMatchObject({
+        status: "required",
+        requiredRoutes: ["discoConfirmedBreakLong"],
         evidence: { kind: "missing_route_parity" },
       });
     }

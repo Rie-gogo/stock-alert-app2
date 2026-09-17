@@ -54,6 +54,8 @@ import {
   DISCO_SHORT_BASELINE_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
+  DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+  DISCO_LONG_PRIOR_THREE_B_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
@@ -169,6 +171,8 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain(`戦略版: ${DISCO_SHORT_EXECUTABLE_A_VERSION}`);
     expect(section).toContain("6146 SHORT A v3・次イベント評価株数bid depth継続確認");
     expect(section).toContain(`戦略版: ${DISCO_SHORT_RETEST_B_VERSION}`);
+    expect(section).toContain(`戦略版: ${DISCO_LONG_PROFIT_PROTECTION_A_VERSION}`);
+    expect(section).toContain(`戦略版: ${DISCO_LONG_PRIOR_THREE_B_VERSION}`);
     expect(section).toContain("6146 SHORT B v3・失敗リテスト＋再安値更新後の次イベントdepth確認");
     expect(section).toContain("対象外（停止した現行経路の比較基準として収集継続）");
     expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");

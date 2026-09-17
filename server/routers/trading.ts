@@ -91,6 +91,8 @@ export const tradingRouter = router({
         DISCO_SHORT_RETEST_B_LEGACY_VERSION,
         DISCO_SHORT_EXECUTABLE_A_VERSION,
         DISCO_SHORT_RETEST_B_VERSION,
+        DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+        DISCO_LONG_PRIOR_THREE_B_VERSION,
         FORWARD_STRATEGY_VERSION,
         FUJIKURA_FORWARD_STRATEGY_VERSION,
         FUJIKURA_MORNING_SHORT_VERSION,
@@ -142,6 +144,10 @@ export const tradingRouter = router({
         DISCO_SHORT_COLLECTION_START_DATE,
         DISCO_SHORT_FORMAL_START_DATE,
       } = await import("../discoOpeningShortForwardShadow");
+      const {
+        DISCO_LONG_FORWARD_COLLECTION_START_DATE,
+        DISCO_LONG_FORWARD_FORMAL_START_DATE,
+      } = await import("../discoConfirmedLongForwardShadow");
       const {
         TEL_AUDIT_EVALUATION_START_DATE,
         TEL_CAUSALITY_AUDIT_VERSION,
@@ -419,6 +425,24 @@ export const tradingRouter = router({
             eligibleForAdoption: true,
             collectionStartDate: "2026-09-18",
             evaluationStartDate: "2026-09-18",
+          },
+          {
+            strategyVersion: DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_LONG_PROFIT_PROTECTION_A_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: DISCO_LONG_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: DISCO_LONG_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: DISCO_LONG_PRIOR_THREE_B_VERSION,
+            symbol: "6146",
+            summaries: await getForwardShadowSummary(input.asOfDate, DISCO_LONG_PRIOR_THREE_B_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: true,
+            collectionStartDate: DISCO_LONG_FORWARD_COLLECTION_START_DATE,
+            evaluationStartDate: DISCO_LONG_FORWARD_FORMAL_START_DATE,
           },
         ];
       return {

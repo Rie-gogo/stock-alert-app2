@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 const queue = vi.hoisted(() => ({ items: [] as any[] }));
@@ -12,12 +12,21 @@ const processMock = vi.hoisted(() => vi.fn(async (input: any) => ({ sourceEventI
 vi.mock("./db", () => dbMock);
 vi.mock("./forwardShadow", () => ({ processForwardShadowSourceEvent: processMock }));
 
-import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow, enqueueForwardShadow } from "./forwardShadowSequence";
+import {
+  drainForwardShadowDispatchQueue,
+  enqueueAndDrainForwardShadow,
+  enqueueForwardShadow,
+  scheduleForwardShadowDispatchDrain,
+} from "./forwardShadowSequence";
 
 describe("engineSequence順シャドーdispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queue.items.length = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("DB先頭claimのengineSequence順に処理して完了保存する", async () => {
@@ -47,6 +56,29 @@ describe("engineSequence順シャドーdispatch", () => {
     expect(dbMock.enqueueRtShadowDispatch).toHaveBeenCalledTimes(1);
     expect(dbMock.claimNextRtShadowDispatch).not.toHaveBeenCalled();
     expect(processMock).not.toHaveBeenCalled();
+  });
+
+  it("drain実行中の後発要求を再スケジュールし、engineSequence順で取りこぼさない", async () => {
+    vi.useFakeTimers();
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>(resolve => { releaseFirst = resolve; });
+    processMock.mockImplementationOnce(async (input: any) => {
+      await firstBlocked;
+      return { sourceEventId: input.sourceEventId };
+    });
+    queue.items.push({ id: 1, sourceEventId: "e1", engineSequence: 1, inputJson: { sourceEventId: "e1" } });
+
+    scheduleForwardShadowDispatchDrain();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(processMock).toHaveBeenCalledTimes(1);
+
+    queue.items.push({ id: 2, sourceEventId: "e2", engineSequence: 2, inputJson: { sourceEventId: "e2" } });
+    scheduleForwardShadowDispatchDrain();
+    releaseFirst();
+    await vi.runAllTimersAsync();
+
+    expect(processMock.mock.calls.map(call => call[0].sourceEventId)).toEqual(["e1", "e2"]);
+    expect(dbMock.completeRtShadowDispatch).toHaveBeenCalledTimes(2);
   });
 
   it("DB claimはattempt_countのCAS条件で複数workerの同時取得を防ぐ", () => {

@@ -12,7 +12,7 @@ const processMock = vi.hoisted(() => vi.fn(async (input: any) => ({ sourceEventI
 vi.mock("./db", () => dbMock);
 vi.mock("./forwardShadow", () => ({ processForwardShadowSourceEvent: processMock }));
 
-import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow } from "./forwardShadowSequence";
+import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow, enqueueForwardShadow } from "./forwardShadowSequence";
 
 describe("engineSequence順シャドーdispatch", () => {
   beforeEach(() => {
@@ -37,8 +37,21 @@ describe("engineSequence順シャドーdispatch", () => {
     expect(dbMock.enqueueRtShadowDispatch).not.toHaveBeenCalled();
   });
 
+  it("リアルタイム受信向けenqueueは永続保存だけ行い、重いshadow評価を同期実行しない", async () => {
+    const result = await enqueueForwardShadow({
+      sourceEventId: "e1",
+      candle: { symbol: "8035", tradeDate: "2026-09-18", candleTime: "09:01" },
+      currentAudit: { engineSequence: 1 },
+    } as any);
+    expect(result).toMatchObject({ queued: true, deferred: true, engineSequence: 1 });
+    expect(dbMock.enqueueRtShadowDispatch).toHaveBeenCalledTimes(1);
+    expect(dbMock.claimNextRtShadowDispatch).not.toHaveBeenCalled();
+    expect(processMock).not.toHaveBeenCalled();
+  });
+
   it("DB claimはattempt_countのCAS条件で複数workerの同時取得を防ぐ", () => {
     const source = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
     expect(source).toContain("eq(rtShadowDispatchQueue.attemptCount, row.attemptCount)");
+    expect(source).toContain("inArray(rtShadowDispatchQueue.status, [\"pending\", \"processing\", \"error\"])");
   });
 });

@@ -9,7 +9,7 @@ import {
   reclaimRtSourceEventProcessing,
 } from "./db";
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
-import { drainForwardShadowDispatchQueue, enqueueAndDrainForwardShadow } from "./forwardShadowSequence";
+import { enqueueForwardShadow, scheduleForwardShadowDispatchDrain } from "./forwardShadowSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
 import { parseBoardObservedAtMs, processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
@@ -142,12 +142,13 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
             decisionCompletedAtMs: persistedAudit.decisionCompletedAtMs,
           };
           try {
-            shadowRetry = await enqueueAndDrainForwardShadow({
+            shadowRetry = await enqueueForwardShadow({
               sourceEventId: metadata.sourceEventId,
               candle: input,
               board: input.board ?? null,
               currentAudit: recoveredAudit,
             });
+            scheduleForwardShadowDispatchDrain();
           } catch (error) {
             shadowRetry = { error: String(error) };
           }
@@ -203,7 +204,8 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     if (existing?.status === "processed") {
       try {
         // 現行processCandleは二度と呼ばず、strategyVersion別のshadow errorだけを独立claimで再試行する。
-        shadowRetry = await drainForwardShadowDispatchQueue();
+        scheduleForwardShadowDispatchDrain();
+        shadowRetry = { queued: true, deferred: true, reason: "existing_dispatch_rescheduled" };
       } catch (shadowError) {
         shadowRetry = { error: String(shadowError) };
       }
@@ -311,21 +313,23 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     const result = audited.result;
     let shadowResult: unknown = null;
     try {
-      shadowResult = await enqueueAndDrainForwardShadow({
+      shadowResult = await enqueueForwardShadow({
         sourceEventId: metadata.sourceEventId,
         candle: input,
         board: input.board ?? null,
         currentAudit: audited.audit,
       });
+      scheduleForwardShadowDispatchDrain();
     } catch (firstShadowError) {
       console.warn("[ForwardShadow] シャドー評価一時失敗。現行DRY_RUNを再実行せずシャドーだけ1回再試行:", firstShadowError);
       try {
-        shadowResult = await enqueueAndDrainForwardShadow({
+        shadowResult = await enqueueForwardShadow({
           sourceEventId: metadata.sourceEventId,
           candle: input,
           board: input.board ?? null,
           currentAudit: audited.audit,
         });
+        scheduleForwardShadowDispatchDrain();
       } catch (retryShadowError) {
         console.error("[ForwardShadow] シャドー評価再試行も失敗（現行DRY_RUN処理は継続）:", retryShadowError);
         shadowResult = {

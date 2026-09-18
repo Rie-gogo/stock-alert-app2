@@ -2399,7 +2399,8 @@ export async function claimNextRtShadowDispatch(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const row = (await db.select().from(rtShadowDispatchQueue)
-    .where(ne(rtShadowDispatchQueue.status, "processed"))
+    // processed全履歴を走査しない。active status用複合indexから未完了行だけを読む。
+    .where(inArray(rtShadowDispatchQueue.status, ["pending", "processing", "error"]))
     .orderBy(rtShadowDispatchQueue.engineSequence)
     .limit(1))[0];
   if (!row) return null;

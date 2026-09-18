@@ -26,7 +26,7 @@ const auditedCurrentMock = vi.hoisted(() => vi.fn(async (input: { run: () => Pro
   },
 })));
 const shadowMock = vi.hoisted(() => vi.fn());
-const shadowDrainMock = vi.hoisted(() => vi.fn());
+const shadowScheduleMock = vi.hoisted(() => vi.fn());
 const candidateDrainMock = vi.hoisted(() => vi.fn());
 const boardMock = vi.hoisted(() => vi.fn());
 
@@ -38,8 +38,8 @@ vi.mock("./realtimeDecisionAudit", () => ({
   parseBoardObservedAtMs: vi.fn(() => 123_456),
 }));
 vi.mock("./forwardShadowSequence", () => ({
-  enqueueAndDrainForwardShadow: shadowMock,
-  drainForwardShadowDispatchQueue: shadowDrainMock,
+  enqueueForwardShadow: shadowMock,
+  scheduleForwardShadowDispatchDrain: shadowScheduleMock,
 }));
 vi.mock("./kabuStation", () => ({ updateOrderBook: boardMock }));
 
@@ -84,7 +84,6 @@ describe("受信イベントの一度きり処理", () => {
     });
     processCandleMock.mockResolvedValue({ symbol: "8035", tradeDate: "2026-09-03", candleTime: "10:00", action: "none" });
     shadowMock.mockResolvedValue({ skipped: false, results: [] });
-    shadowDrainMock.mockResolvedValue({ processedEngineSequences: [], stoppedReason: "empty_or_claimed" });
     candidateDrainMock.mockResolvedValue({ processedEngineSequences: [], stoppedReason: "empty_or_claimed" });
   });
 
@@ -100,6 +99,7 @@ describe("受信イベントの一度きり処理", () => {
       }),
     );
     expect(shadowMock).toHaveBeenCalledTimes(1);
+    expect(shadowScheduleMock).toHaveBeenCalledTimes(1);
     expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "processed" }));
     expect(result.sourceEventDuplicate).toBe(false);
   });
@@ -110,7 +110,7 @@ describe("受信イベントの一度きり処理", () => {
     const result = await ingestSourceCandle(input);
     expect(processCandleMock).not.toHaveBeenCalled();
     expect(shadowMock).not.toHaveBeenCalled();
-    expect(shadowDrainMock).toHaveBeenCalledTimes(1);
+    expect(shadowScheduleMock).toHaveBeenCalledTimes(1);
     expect(candidateDrainMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
@@ -132,7 +132,7 @@ describe("受信イベントの一度きり処理", () => {
     const retry = await ingestSourceCandle(input);
     expect(processCandleMock).toHaveBeenCalledTimes(1);
     expect(shadowMock).toHaveBeenCalledTimes(2);
-    expect(shadowDrainMock).toHaveBeenCalledTimes(1);
+    expect(shadowScheduleMock).toHaveBeenCalledTimes(2);
     expect(retry).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 

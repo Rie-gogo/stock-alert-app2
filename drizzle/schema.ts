@@ -3,6 +3,7 @@ import {
   boolean,
   decimal,
   int,
+  index,
   json,
   mysqlEnum,
   mysqlTable,
@@ -871,6 +872,7 @@ export const rtShadowDispatchQueue = mysqlTable("rt_shadow_dispatch_queue", {
 }, table => ({
   sourceIdentity: uniqueIndex("rt_shadow_dispatch_source_identity").on(table.sourceEventId),
   engineSequenceIdentity: uniqueIndex("rt_shadow_dispatch_engine_sequence_identity").on(table.engineSequence),
+  activeStatusSequence: index("rt_shadow_dispatch_active_status_sequence").on(table.status, table.engineSequence),
 }));
 
 export type RtShadowDispatchQueue = typeof rtShadowDispatchQueue.$inferSelect;

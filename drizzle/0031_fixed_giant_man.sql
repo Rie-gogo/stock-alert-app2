@@ -1,0 +1,1 @@
+CREATE INDEX `rt_shadow_dispatch_active_status_sequence` ON `rt_shadow_dispatch_queue` (`rt_shadow_dispatch_status`,`engine_sequence`);

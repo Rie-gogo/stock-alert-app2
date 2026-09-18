@@ -42,6 +42,8 @@ delivery_column_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-na
   "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='rt_report_delivery_controls' AND column_name IN ('rt_report_delivery_status','send_started_at','payload_hash','lease_owner','lease_expires_at');")
 delivery_unique_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
   "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=DATABASE() AND constraint_name IN ('rt_report_delivery_identity','rt_eod_execution_identity') AND constraint_type='UNIQUE';")
+shadow_dispatch_index_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
+  "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='rt_shadow_dispatch_queue' AND index_name='rt_shadow_dispatch_active_status_sequence';")
 
 if [[ "$repair_table_count" != "3" ]]; then
   echo "Expected 3 repair tables, got $repair_table_count" >&2
@@ -57,6 +59,10 @@ if [[ "$repair_unique_count" != "3" ]]; then
 fi
 if [[ "$delivery_table_count" != "2" || "$delivery_column_count" != "5" || "$delivery_unique_count" != "2" ]]; then
   echo "Delivery/EOD control schema assertion failed: tables=$delivery_table_count columns=$delivery_column_count unique=$delivery_unique_count" >&2
+  exit 1
+fi
+if [[ "$shadow_dispatch_index_count" != "1" ]]; then
+  echo "Shadow dispatch active-status index assertion failed: indexes=$shadow_dispatch_index_count" >&2
   exit 1
 fi
 

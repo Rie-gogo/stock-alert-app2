@@ -29,6 +29,7 @@ type RouterOutputs = inferRouterOutputs<AppRouter>;
 export type SignalCandidateLedgerData = RouterOutputs["trading"]["getRtSignalCandidateLedger"];
 export type SignalCandidateLedgerRow = SignalCandidateLedgerData["rows"][number];
 export type SignalCandidateLedgerOrphanGap = SignalCandidateLedgerData["orphanGaps"][number];
+export type SignalCandidateLedgerSummary = SignalCandidateLedgerData["summary"];
 
 export function shouldEnableSignalCandidateLedgerQuery(input: {
   authLoading: boolean;
@@ -108,6 +109,43 @@ export function SignalCandidateLedgerGapAlert({ gaps }: { gaps: SignalCandidateL
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+export function SignalCandidateLedgerSyncStatus({ summary }: { summary: SignalCandidateLedgerSummary }) {
+  const pipeline = summary.pipeline;
+  if (summary.coverageComplete) {
+    return (
+      <div className="mx-4 mt-4 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+        同期済み：受信 {pipeline.sourceCount}件 / 判断 {pipeline.decisionCount}件 / 監査 {pipeline.candidateProcessed}件 / シャドー {pipeline.shadowProcessed}件
+      </div>
+    );
+  }
+  const hasBlockingError = pipeline.sourceFailed > 0
+    || pipeline.candidateTerminal > 0
+    || pipeline.unresolvedGaps > 0;
+  return (
+    <div className="mx-4 mt-4 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100" role="status">
+      <div className="flex items-center gap-2 font-medium">
+        {hasBlockingError
+          ? <AlertCircle className="h-4 w-4 text-red-300" />
+          : <Loader2 className="h-4 w-4 animate-spin" />}
+        {hasBlockingError
+          ? "監査台帳に要確認の未完了があります。候補件数・勝率・損益は確定値ではありません。"
+          : "監査台帳を同期中です。未処理が残る間、候補件数・勝率・損益は確定値ではありません。"}
+      </div>
+      <div className="mt-2 grid gap-1 text-amber-100/80 sm:grid-cols-2 xl:grid-cols-4">
+        <span>受信：{pipeline.sourceProcessed} / {pipeline.sourceCount}件</span>
+        <span>判断：{pipeline.decisionCount}件（未生成 {pipeline.sourceDecisionLag}件）</span>
+        <span>監査：{pipeline.candidateProcessed}件（待ち {pipeline.candidateBacklog}件）</span>
+        <span>シャドー：{pipeline.shadowProcessed} / {pipeline.shadowCount}件（待ち {pipeline.shadowBacklog}件）</span>
+      </div>
+      {hasBlockingError && (
+        <div className="mt-2 text-red-200">
+          要確認：受信失敗 {pipeline.sourceFailed}件 / terminal {pipeline.candidateTerminal}件 / 未解決gap {pipeline.unresolvedGaps}件
+        </div>
+      )}
     </div>
   );
 }
@@ -316,6 +354,7 @@ export default function SignalCandidateLedgerSection({
         </p>
       </CardHeader>
       <CardContent className="p-0">
+        {summary && <SignalCandidateLedgerSyncStatus summary={summary} />}
         {ledgerQuery.isLoading ? (
           <div className="py-12 flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" /> 監査台帳を読み込み中です

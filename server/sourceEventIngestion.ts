@@ -10,6 +10,7 @@ import {
 } from "./db";
 import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
 import { enqueueForwardShadow, scheduleForwardShadowDispatchDrain } from "./forwardShadowSequence";
+import { scheduleCurrentCandidateVirtualDrain } from "./currentCandidateVirtualSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
 import { parseBoardObservedAtMs, processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
@@ -112,6 +113,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
         existing = recovered;
         const persistedAudit = await getRtRealtimeDecisionEvent(metadata.sourceEventId);
         if (persistedAudit) {
+          scheduleCurrentCandidateVirtualDrain();
           const candidateVirtualRetry = {
             deferred: true,
             reason: "independent_candidate_virtual_worker",
@@ -204,6 +206,7 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
     if (existing?.status === "processed") {
       try {
         // 現行processCandleは二度と呼ばず、strategyVersion別のshadow errorだけを独立claimで再試行する。
+        scheduleCurrentCandidateVirtualDrain();
         scheduleForwardShadowDispatchDrain();
         shadowRetry = { queued: true, deferred: true, reason: "existing_dispatch_rescheduled" };
       } catch (shadowError) {
@@ -310,6 +313,8 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
         );
       },
     });
+    // 現行判断はDBへ固定済み。重いcandidate/virtual生成はHTTP応答を塞がず即時に追随させる。
+    scheduleCurrentCandidateVirtualDrain();
     const result = audited.result;
     let shadowResult: unknown = null;
     try {

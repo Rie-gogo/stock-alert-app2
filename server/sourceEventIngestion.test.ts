@@ -28,6 +28,7 @@ const auditedCurrentMock = vi.hoisted(() => vi.fn(async (input: { run: () => Pro
 const shadowMock = vi.hoisted(() => vi.fn());
 const shadowScheduleMock = vi.hoisted(() => vi.fn());
 const candidateDrainMock = vi.hoisted(() => vi.fn());
+const candidateScheduleMock = vi.hoisted(() => vi.fn());
 const boardMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./db", () => dbMock);
@@ -40,6 +41,9 @@ vi.mock("./realtimeDecisionAudit", () => ({
 vi.mock("./forwardShadowSequence", () => ({
   enqueueForwardShadow: shadowMock,
   scheduleForwardShadowDispatchDrain: shadowScheduleMock,
+}));
+vi.mock("./currentCandidateVirtualSequence", () => ({
+  scheduleCurrentCandidateVirtualDrain: candidateScheduleMock,
 }));
 vi.mock("./kabuStation", () => ({ updateOrderBook: boardMock }));
 
@@ -100,6 +104,7 @@ describe("受信イベントの一度きり処理", () => {
     );
     expect(shadowMock).toHaveBeenCalledTimes(1);
     expect(shadowScheduleMock).toHaveBeenCalledTimes(1);
+    expect(candidateScheduleMock).toHaveBeenCalledTimes(1);
     expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "processed" }));
     expect(result.sourceEventDuplicate).toBe(false);
   });
@@ -112,6 +117,7 @@ describe("受信イベントの一度きり処理", () => {
     expect(shadowMock).not.toHaveBeenCalled();
     expect(shadowScheduleMock).toHaveBeenCalledTimes(1);
     expect(candidateDrainMock).not.toHaveBeenCalled();
+    expect(candidateScheduleMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ action: "none", reason: "duplicate_source_event", sourceEventDuplicate: true });
   });
 
@@ -232,6 +238,7 @@ describe("受信イベントの一度きり処理", () => {
 
     expect(processCandleMock).not.toHaveBeenCalled();
     expect(candidateDrainMock).not.toHaveBeenCalled();
+    expect(candidateScheduleMock).toHaveBeenCalledTimes(1);
     expect(shadowMock).toHaveBeenCalledTimes(1);
     expect(dbMock.completeRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ status: "processed" }));
     expect(result.reason).toBe("recovered_after_engine_audit");

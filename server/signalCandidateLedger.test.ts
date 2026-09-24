@@ -300,6 +300,37 @@ describe("全シグナル監査台帳", () => {
     });
   });
 
+  it("表示中candidate行が完了していてもDB outboxに未処理があればcoverage完全と表示しない", () => {
+    const bundle = emptyBundle();
+    bundle.candidates = [candidate({ id: 1, sourceEventId: "source:1", engineSequence: 1, decision: "accepted" })];
+    bundle.virtualTrades = [virtualTrade({ id: 1, candidateId: 1, pnl: 100 })];
+    bundle.decisionEvents = [decisionEvent({ id: 1, sourceEventId: "source:1" })];
+
+    const result = buildRtSignalCandidateLedger({
+      tradeDate: "2026-09-08",
+      bundle,
+      watermark: {
+        source: { count: 200, maxId: 200, processed: 200, processing: 0, failed: 0 },
+        decision: { count: 200, maxId: 200 },
+        candidateOutbox: { processed: 150, pending: 50, processing: 0, retryableError: 0, terminal: 0 },
+        shadowOutbox: { count: 200, processed: 200, pending: 0, processing: 0, error: 0 },
+        unresolvedGaps: 0,
+        latestUpstreamCreatedAt: new Date("2026-09-08T06:00:00Z"),
+      },
+    });
+
+    expect(result.rows[0]?.audit.overallStatus).toBe("complete");
+    expect(result.summary.coverageComplete).toBe(false);
+    expect(result.summary.pipeline).toMatchObject({
+      sourceCount: 200,
+      decisionCount: 200,
+      candidateProcessed: 150,
+      candidateBacklog: 50,
+      shadowProcessed: 200,
+      synchronizedThroughEvents: 150,
+    });
+  });
+
   it("terminal gapとcandidate行へ結合できないgapを隠さない", () => {
     const bundle = emptyBundle();
     bundle.candidates = [candidate({ id: 1, sourceEventId: "source:1", engineSequence: 1, decision: "accepted" })];

@@ -2850,13 +2850,16 @@ export async function getRtSignalCandidateLedgerBundle(input: {
 
 export async function getOpenRtSignalCandidateTrades(
   virtualEngineVersion: string,
+  symbol?: string,
 ): Promise<RtSignalCandidateTrade[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(rtSignalCandidateTrades).where(and(
+  const conditions = [
     eq(rtSignalCandidateTrades.virtualEngineVersion, virtualEngineVersion),
     eq(rtSignalCandidateTrades.completed, false),
-  )).orderBy(rtSignalCandidateTrades.id);
+  ];
+  if (symbol) conditions.push(eq(rtSignalCandidateTrades.symbol, symbol));
+  return db.select().from(rtSignalCandidateTrades).where(and(...conditions)).orderBy(rtSignalCandidateTrades.id);
 }
 
 export async function getRtForwardEvaluationControl(controlName: string): Promise<RtForwardEvaluationControl | null> {

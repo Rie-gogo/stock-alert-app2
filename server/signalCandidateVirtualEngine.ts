@@ -152,8 +152,10 @@ export async function processSignalQualityVirtualTradesForEvent(input: {
   rawSignal?: CurrentRawSignal;
   boardSignal?: CurrentBoardExitSignal;
 }): Promise<{ opened: number; updated: number; closed: number }> {
-  const openTrades = (await getOpenRtSignalCandidateTrades(CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION))
-    .filter(trade => trade.symbol === input.candle.symbol);
+  const openTrades = await getOpenRtSignalCandidateTrades(
+    CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+    input.candle.symbol,
+  );
   let updated = 0;
   let closed = 0;
 

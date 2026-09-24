@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   shouldEnableSignalCandidateLedgerQuery,
   SignalCandidateLedgerGapAlert,
+  SignalCandidateLedgerSyncStatus,
   SignalCandidateLedgerTable,
   type SignalCandidateLedgerOrphanGap,
   type SignalCandidateLedgerRow,
+  type SignalCandidateLedgerSummary,
 } from "./SignalCandidateLedgerSection";
 
 function row(input: { id: number; time: string; symbol: string; decision: "accepted" | "margin_block"; pnl: number }): SignalCandidateLedgerRow {
@@ -140,5 +142,38 @@ describe("SignalCandidateLedgerTable", () => {
     expect(html).toContain("10:35");
     expect(html).toContain("candidate");
     expect(html).toContain("candidate_side_missing");
+  });
+
+  it("DB全体の未処理件数を同期中として明示し、集計を確定扱いしない", () => {
+    const summary = {
+      coverageComplete: false,
+      pipeline: {
+        sourceCount: 220,
+        sourceProcessed: 220,
+        sourceProcessing: 0,
+        sourceFailed: 0,
+        decisionCount: 220,
+        sourceDecisionLag: 0,
+        candidateProcessed: 180,
+        candidatePending: 40,
+        candidateProcessing: 0,
+        candidateRetryableError: 0,
+        candidateTerminal: 0,
+        candidateBacklog: 40,
+        shadowCount: 220,
+        shadowProcessed: 220,
+        shadowPending: 0,
+        shadowProcessing: 0,
+        shadowError: 0,
+        shadowBacklog: 0,
+        unresolvedGaps: 0,
+        synchronizedThroughEvents: 180,
+        latestUpstreamCreatedAt: "2026-09-24T06:00:00.000Z",
+      },
+    } as SignalCandidateLedgerSummary;
+    const html = renderToStaticMarkup(<SignalCandidateLedgerSyncStatus summary={summary} />);
+    expect(html).toContain("監査台帳を同期中です");
+    expect(html).toContain("監査：180件（待ち 40件）");
+    expect(html).toContain("確定値ではありません");
   });
 });

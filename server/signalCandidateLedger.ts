@@ -11,7 +11,11 @@ import {
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
   resolveCurrentSignalCandidateVersion,
 } from "./currentSignalCandidateRegistry";
-import { getRtSignalCandidateLedgerBundle } from "./db";
+import {
+  getRtAuditTradeDateWatermark,
+  getRtSignalCandidateLedgerBundle,
+  type RtAuditTradeDateWatermark,
+} from "./db";
 import {
   ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
   ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
@@ -174,12 +178,74 @@ function portfolioFor(
   };
 }
 
+function inferWatermarkFromBundle(bundle: RtSignalCandidateLedgerBundle): RtAuditTradeDateWatermark {
+  const statuses = bundle.decisionEvents.map(event => event.candidateVirtualStatus);
+  const latestDates = bundle.decisionEvents
+    .map(event => event.createdAt ? new Date(event.createdAt) : null)
+    .filter((value): value is Date => Boolean(value && Number.isFinite(value.getTime())));
+  return {
+    // Pure builder tests and offline reports may not load source/outbox tables. In that case the
+    // supplied decision bundle is treated as an internally complete snapshot. The live endpoint
+    // always supplies the DB watermark below and never relies on this inference.
+    source: {
+      count: bundle.decisionEvents.length,
+      maxId: Math.max(0, ...bundle.decisionEvents.map(event => event.sourceEventDbId)),
+      processed: bundle.decisionEvents.length,
+      processing: 0,
+      failed: 0,
+    },
+    decision: {
+      count: bundle.decisionEvents.length,
+      maxId: Math.max(0, ...bundle.decisionEvents.map(event => event.id)),
+    },
+    candidateOutbox: {
+      processed: statuses.filter(status => status === "processed").length,
+      pending: statuses.filter(status => status === "pending").length,
+      processing: statuses.filter(status => status === "processing").length,
+      retryableError: statuses.filter(status => status === "error").length,
+      terminal: statuses.filter(status => status === "terminal").length,
+    },
+    shadowOutbox: {
+      count: bundle.decisionEvents.length,
+      processed: bundle.decisionEvents.length,
+      pending: 0,
+      processing: 0,
+      error: 0,
+    },
+    unresolvedGaps: bundle.gaps.filter(gap => !gap.resolved).length,
+    latestUpstreamCreatedAt: latestDates.length > 0
+      ? new Date(Math.max(...latestDates.map(value => value.getTime())))
+      : null,
+  };
+}
+
+function isPipelineCoverageComplete(watermark: RtAuditTradeDateWatermark): boolean {
+  return watermark.source.count > 0
+    && watermark.source.processed === watermark.source.count
+    && watermark.source.processing === 0
+    && watermark.source.failed === 0
+    && watermark.decision.count === watermark.source.count
+    && watermark.candidateOutbox.processed === watermark.decision.count
+    && watermark.candidateOutbox.pending === 0
+    && watermark.candidateOutbox.processing === 0
+    && watermark.candidateOutbox.retryableError === 0
+    && watermark.candidateOutbox.terminal === 0
+    && watermark.shadowOutbox.count === watermark.source.count
+    && watermark.shadowOutbox.processed === watermark.shadowOutbox.count
+    && watermark.shadowOutbox.pending === 0
+    && watermark.shadowOutbox.processing === 0
+    && watermark.shadowOutbox.error === 0
+    && watermark.unresolvedGaps === 0;
+}
+
 export function buildRtSignalCandidateLedger(input: {
   tradeDate: string;
   bundle: RtSignalCandidateLedgerBundle;
+  watermark?: RtAuditTradeDateWatermark;
   generatedAt?: Date;
 }) {
   const { bundle } = input;
+  const watermark = input.watermark ?? inferWatermarkFromBundle(bundle);
   const candidateVersion = resolveCurrentSignalCandidateVersion(input.tradeDate);
   if (bundle.candidates.some(candidate => candidate.candidateVersion !== candidateVersion)) {
     throw new Error("rt_signal_candidate_ledger_candidate_version_mismatch");
@@ -350,6 +416,13 @@ export function buildRtSignalCandidateLedger(input: {
   const completedDenominator = wins + losses + draws;
   const decidedDenominator = wins + losses;
   const signalQualityPnl = completedRows.reduce((sum, row) => sum + (row.virtualTrade.pnl ?? 0), 0);
+  const candidateBacklog = watermark.candidateOutbox.pending
+    + watermark.candidateOutbox.processing
+    + watermark.candidateOutbox.retryableError;
+  const shadowBacklog = watermark.shadowOutbox.pending
+    + watermark.shadowOutbox.processing
+    + watermark.shadowOutbox.error;
+  const pipelineCoverageComplete = isPipelineCoverageComplete(watermark);
 
   const summary = {
     candidateCount: rows.length,
@@ -372,9 +445,38 @@ export function buildRtSignalCandidateLedger(input: {
     missingDataCount: countByOverallStatus("missing"),
     unresolvedGapCount,
     orphanGapCount: orphanGaps.length,
-    coverageComplete: rows.every(row => row.audit.overallStatus === "complete")
+    coverageComplete: pipelineCoverageComplete
+      && rows.every(row => row.audit.overallStatus === "complete")
       && unresolvedGapCount === 0
       && orphanGaps.length === 0,
+    pipeline: {
+      sourceCount: watermark.source.count,
+      sourceProcessed: watermark.source.processed,
+      sourceProcessing: watermark.source.processing,
+      sourceFailed: watermark.source.failed,
+      decisionCount: watermark.decision.count,
+      sourceDecisionLag: Math.max(0, watermark.source.count - watermark.decision.count),
+      candidateProcessed: watermark.candidateOutbox.processed,
+      candidatePending: watermark.candidateOutbox.pending,
+      candidateProcessing: watermark.candidateOutbox.processing,
+      candidateRetryableError: watermark.candidateOutbox.retryableError,
+      candidateTerminal: watermark.candidateOutbox.terminal,
+      candidateBacklog,
+      shadowCount: watermark.shadowOutbox.count,
+      shadowProcessed: watermark.shadowOutbox.processed,
+      shadowPending: watermark.shadowOutbox.pending,
+      shadowProcessing: watermark.shadowOutbox.processing,
+      shadowError: watermark.shadowOutbox.error,
+      shadowBacklog,
+      unresolvedGaps: watermark.unresolvedGaps,
+      synchronizedThroughEvents: Math.min(
+        watermark.source.processed,
+        watermark.decision.count,
+        watermark.candidateOutbox.processed,
+        watermark.shadowOutbox.processed,
+      ),
+      latestUpstreamCreatedAt: watermark.latestUpstreamCreatedAt?.toISOString() ?? null,
+    },
     generatedAt: (input.generatedAt ?? new Date()).toISOString(),
     runtimeBuild: identity.runtimeBuildIdentifier,
     fixedSourceHash: identity.sourceTreeHash,
@@ -407,12 +509,15 @@ export function buildRtSignalCandidateLedger(input: {
 
 export async function getRtSignalCandidateLedger(tradeDate: string) {
   const candidateVersion = resolveCurrentSignalCandidateVersion(tradeDate);
-  const bundle = await getRtSignalCandidateLedgerBundle({
-    candidateVersion,
-    virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
-    tradeDate,
-    actualReceiptPortfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
-    minuteNormalizedPortfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
-  });
-  return buildRtSignalCandidateLedger({ tradeDate, bundle });
+  const [bundle, watermark] = await Promise.all([
+    getRtSignalCandidateLedgerBundle({
+      candidateVersion,
+      virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+      tradeDate,
+      actualReceiptPortfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
+      minuteNormalizedPortfolioVersion: ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
+    }),
+    getRtAuditTradeDateWatermark(tradeDate),
+  ]);
+  return buildRtSignalCandidateLedger({ tradeDate, bundle, watermark });
 }

@@ -13,6 +13,7 @@ import { candidateVirtualWorkerHandler } from "../candidateVirtualWorkerHandler"
 import { auditMaterializerHandler } from "../auditMaterializerHandler";
 import { restoreBuffersFromDb } from "../realtimeSimEngine";
 import { formatRuntimeIdentityForLog } from "../runtimeIdentity";
+import { scheduleCurrentCandidateVirtualDrain } from "../currentCandidateVirtualSequence";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -86,6 +87,8 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     console.log(`[RuntimeIdentity] ${formatRuntimeIdentityForLog()}`);
+    // 再起動前に残ったcandidate/virtual outboxを、現行売買と分離したworkerで回収する。
+    scheduleCurrentCandidateVirtualDrain(100);
     // 起動時にDBから当日の1分足を読み込んでcandleBuffersを復元する
     // 取引時間中にサーバーが再起動した場合でも、既存の足からシグナル判定を即座に再開できる
     restoreBuffersFromDb().catch((err) =>

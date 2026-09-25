@@ -27,13 +27,14 @@ import {
 
 export const MONITORING_COMPARISON_COMPONENT = "monitoring_comparison_285a";
 export const MONITORING_COMPARISON_MATERIALIZATION_VERSION =
-  "monitoring-comparison-285a-strict-next-depth-materialized-v1";
+  "monitoring-comparison-285a-strict-next-depth-materialized-v2";
 
 type MonitoringComparisonOrigin = "current_baseline" | "forward_shadow";
 
 interface NormalizedSignal extends MonitoringComparisonSignal {
   origin: MonitoringComparisonOrigin;
   evaluationMode: "signal_quality";
+  sourceDisposition: "accepted" | "margin_block" | "shadow_only" | "forward_shadow";
 }
 
 type MaterializedResolution = MonitoringComparisonEntryResolution | {
@@ -49,6 +50,7 @@ export interface MonitoringComparisonMaterializedEntry {
   comparisonGeneration: string;
   strategyVersion: string;
   evaluationMode: "signal_quality";
+  sourceDisposition: "accepted" | "margin_block" | "shadow_only" | "forward_shadow";
   signalSourceEventId: string;
   signalEngineSequence: number;
   tradeDate: string;
@@ -159,6 +161,7 @@ function currentSignals(
     result.push({
       origin: "current_baseline",
       evaluationMode: "signal_quality",
+      sourceDisposition: candidate.realtimeDecision,
       comparisonGeneration: MONITORING_COMPARISON_CONTRACT.comparisonGeneration,
       strategyVersion: `baseline:${candidate.candidateVersion}`,
       routeId: candidate.routeId,
@@ -199,6 +202,7 @@ function shadowSignals(
     result.push({
       origin: "forward_shadow",
       evaluationMode: "signal_quality",
+      sourceDisposition: "forward_shadow",
       comparisonGeneration: MONITORING_COMPARISON_CONTRACT.comparisonGeneration,
       strategyVersion: event.strategyVersion,
       routeId: route,
@@ -264,6 +268,7 @@ export function buildMonitoringComparisonForDateData(input: {
       comparisonGeneration: signal.comparisonGeneration,
       strategyVersion: signal.strategyVersion,
       evaluationMode: signal.evaluationMode,
+      sourceDisposition: signal.sourceDisposition,
       signalSourceEventId: signal.signalSourceEventId,
       signalEngineSequence: signal.signalEngineSequence,
       tradeDate: signal.signalTradeDate,

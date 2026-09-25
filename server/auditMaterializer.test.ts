@@ -70,7 +70,7 @@ vi.mock("./discoOpeningShortPortfolioComparison", () => ({
 }));
 vi.mock("./monitoringComparisonMaterializer", () => ({
   MONITORING_COMPARISON_COMPONENT: "monitoring_comparison_285a",
-  MONITORING_COMPARISON_MATERIALIZATION_VERSION: "monitoring-comparison-285a-strict-next-depth-materialized-v1",
+  MONITORING_COMPARISON_MATERIALIZATION_VERSION: "monitoring-comparison-285a-strict-next-depth-materialized-v2",
   materializeMonitoringComparisonForDate: monitoringComparisonMock.materializeMonitoringComparisonForDate,
 }));
 

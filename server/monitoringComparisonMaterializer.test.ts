@@ -121,6 +121,7 @@ describe("285A monitoring comparison materializer", () => {
         symbol: "285A",
         routeId: "confirmed_morning_long",
         side: "long",
+        realtimeDecision: "accepted",
         signalReason: "test",
         theoreticalEntryPrice: "1000",
       } as any],
@@ -140,6 +141,7 @@ describe("285A monitoring comparison materializer", () => {
     expect(result.entries.every(item => item.resolution.status === "filled"
       && item.resolution.entrySourceEventId === "s3"
       && item.resolution.entryPrice === 1_003.4)).toBe(true);
+    expect(result.entries.map(item => item.sourceDisposition).sort()).toEqual(["accepted", "forward_shadow"]);
     expect(result.scope).toMatchObject({
       existingCurrentAndShadowExecutionChanged: false,
       pnlComparisonStatus: "not_started_until_entry_contract_is_accepted",
@@ -165,6 +167,7 @@ describe("285A monitoring comparison materializer", () => {
         symbol: "285A",
         routeId: "trend_short",
         side: "short",
+        realtimeDecision: "accepted",
         signalReason: "test",
         theoreticalEntryPrice: "1001",
       } as any],

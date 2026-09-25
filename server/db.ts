@@ -3005,6 +3005,24 @@ export async function getRtAuditTradeDateFinality(tradeDate: string): Promise<Rt
     .where(eq(rtAuditTradeDateFinality.tradeDate, tradeDate)).limit(1))[0] ?? null;
 }
 
+/** 比較ダッシュボードが利用できる、監査確定済み営業日だけを時系列で返す。 */
+export async function getClosedRtAuditTradeDates(input: {
+  fromDate: string;
+  toDate: string;
+}): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ tradeDate: rtAuditTradeDateFinality.tradeDate })
+    .from(rtAuditTradeDateFinality)
+    .where(and(
+      eq(rtAuditTradeDateFinality.status, "closed"),
+      gte(rtAuditTradeDateFinality.tradeDate, input.fromDate),
+      lte(rtAuditTradeDateFinality.tradeDate, input.toDate),
+    ))
+    .orderBy(rtAuditTradeDateFinality.tradeDate);
+  return rows.map(row => row.tradeDate);
+}
+
 export async function upsertRtAuditTradeDateFinality(
   data: Omit<InsertRtAuditTradeDateFinality, "id" | "createdAt" | "updatedAt">,
 ): Promise<RtAuditTradeDateFinality> {
@@ -3117,6 +3135,23 @@ export async function getRtDailyAuditMaterializationsForComponent(input: {
     eq(rtDailyAuditMaterializations.component, input.component),
     eq(rtDailyAuditMaterializations.tradeDate, input.tradeDate),
   )).orderBy(rtDailyAuditMaterializations.id);
+}
+
+/** 期間推移を読むためのread-only取得。日次監査の再生成や状態更新は行わない。 */
+export async function getRtDailyAuditMaterializationsForRange(input: {
+  component: string;
+  version: string;
+  fromDate: string;
+  toDate: string;
+}): Promise<RtDailyAuditMaterialization[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtDailyAuditMaterializations).where(and(
+    eq(rtDailyAuditMaterializations.component, input.component),
+    eq(rtDailyAuditMaterializations.version, input.version),
+    gte(rtDailyAuditMaterializations.tradeDate, input.fromDate),
+    lte(rtDailyAuditMaterializations.tradeDate, input.toDate),
+  )).orderBy(rtDailyAuditMaterializations.tradeDate, rtDailyAuditMaterializations.id);
 }
 
 export async function upsertRtDailyAuditMaterialization(

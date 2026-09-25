@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import SignalCandidateLedgerSection from "@/components/SignalCandidateLedgerSection";
 import PausedCurrentRouteShadowSection from "@/components/PausedCurrentRouteShadowSection";
+import KioxiaMonitoringTrendSection from "@/components/KioxiaMonitoringTrendSection";
 import {
   Table,
   TableBody,
@@ -478,6 +479,9 @@ export default function RealtimeTradingLog() {
 
         {/* ===== 全シグナル監査台帳（認証後のみ） ===== */}
         <SignalCandidateLedgerSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
+
+        {/* ===== 285A 現行・A案・B案のローリング比較 ===== */}
+        <KioxiaMonitoringTrendSection asOfDate={selectedDate} autoRefresh={autoRefresh} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

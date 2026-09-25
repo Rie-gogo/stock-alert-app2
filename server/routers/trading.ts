@@ -79,6 +79,24 @@ export const tradingRouter = router({
       }
     }),
 
+  /** 285A現行・A案・B案の確定営業日ローリング比較。売買や正式Gateは更新しない。 */
+  getKioxiaMonitoringTrend: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getKioxiaMonitoringTrend } = await import("../monitoringComparisonTrend");
+        return await getKioxiaMonitoringTrend(input.asOfDate);
+      } catch {
+        console.error("[KioxiaMonitoringTrend] read failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "285A現行・シャドー比較を取得できませんでした",
+        });
+      }
+    }),
+
   /** strategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))

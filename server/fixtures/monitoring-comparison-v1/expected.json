@@ -1,0 +1,45 @@
+{
+  "datasetId": "monitoring-comparison-v1-fixture-20260925",
+  "results": [
+    {
+      "id": "long_fill_two_ask_levels",
+      "resolution": {
+        "status": "filled",
+        "entrySourceEventId": "source-101",
+        "entryEngineSequence": 101,
+        "entryTime": "09:46",
+        "entryPrice": 1003.4,
+        "priceSource": "ask_depth_vwap_100",
+        "shares": 100,
+        "availableShares": 160,
+        "levelsUsed": 2,
+        "boardAgeMs": 300
+      }
+    },
+    {
+      "id": "short_fill_two_bid_levels",
+      "resolution": {
+        "status": "filled",
+        "entrySourceEventId": "source-201",
+        "entryEngineSequence": 201,
+        "entryTime": "10:01",
+        "entryPrice": 998.7,
+        "priceSource": "bid_depth_vwap_100",
+        "shares": 100,
+        "availableShares": 170,
+        "levelsUsed": 2,
+        "boardAgeMs": 300
+      }
+    },
+    {
+      "id": "insufficient_depth_is_unfillable",
+      "resolution": {
+        "status": "unfillable",
+        "reason": "board_depth_insufficient",
+        "entrySourceEventId": "source-301",
+        "entryEngineSequence": 301,
+        "boardAgeMs": 300
+      }
+    }
+  ]
+}

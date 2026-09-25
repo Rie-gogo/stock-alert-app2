@@ -1,0 +1,158 @@
+{
+  "datasetId": "monitoring-comparison-v1-fixture-20260925",
+  "scenarios": [
+    {
+      "id": "long_fill_two_ask_levels",
+      "signal": {
+        "comparisonGeneration": "monitoring-comparison-strict-next-depth-v1",
+        "strategyVersion": "candidate-285a-a-v1",
+        "routeId": "kioxia-confirmed-morning-long",
+        "symbol": "285A",
+        "side": "long",
+        "signalSourceEventId": "source-100",
+        "signalEngineSequence": 100,
+        "signalTradeDate": "2026-09-25",
+        "signalTime": "09:45",
+        "theoreticalSignalPrice": 1000,
+        "signalDecisionCompletedAtMs": 20000,
+        "signalBoardObservedAtMs": 10000
+      },
+      "event": {
+        "sourceEventId": "source-101",
+        "candle": {
+          "symbol": "285A",
+          "tradeDate": "2026-09-25",
+          "candleTime": "09:46",
+          "open": 1001,
+          "high": 1003,
+          "low": 1000,
+          "close": 1002,
+          "volume": 1000
+        },
+        "board": {
+          "asks": [{ "price": 1003, "qty": 60 }, { "price": 1004, "qty": 100 }],
+          "bids": [{ "price": 1001, "qty": 70 }, { "price": 1000, "qty": 100 }]
+        },
+        "currentAudit": {
+          "engineSequence": 101,
+          "resultType": "none",
+          "routeId": null,
+          "marginUsedBefore": 0,
+          "marginUsedAfter": 0,
+          "stateHashBefore": "before",
+          "stateHashAfter": "after",
+          "causalityStatus": "pass",
+          "causalityReason": "available_before_decision",
+          "boardObservedAtMs": 30000,
+          "relayAssembledAtMs": 30100,
+          "relaySentAtMs": 30200,
+          "cloudReceivedAtMs": 30300,
+          "decisionStartedAtMs": 30350,
+          "decisionCompletedAtMs": 30400
+        }
+      }
+    },
+    {
+      "id": "short_fill_two_bid_levels",
+      "signal": {
+        "comparisonGeneration": "monitoring-comparison-strict-next-depth-v1",
+        "strategyVersion": "candidate-285a-b-v1",
+        "routeId": "kioxia-morning-breakdown-short",
+        "symbol": "285A",
+        "side": "short",
+        "signalSourceEventId": "source-200",
+        "signalEngineSequence": 200,
+        "signalTradeDate": "2026-09-25",
+        "signalTime": "10:00",
+        "theoreticalSignalPrice": 1000,
+        "signalDecisionCompletedAtMs": 40000,
+        "signalBoardObservedAtMs": 35000
+      },
+      "event": {
+        "sourceEventId": "source-201",
+        "candle": {
+          "symbol": "285A",
+          "tradeDate": "2026-09-25",
+          "candleTime": "10:01",
+          "open": 999,
+          "high": 1000,
+          "low": 997,
+          "close": 998,
+          "volume": 1000
+        },
+        "board": {
+          "asks": [{ "price": 1000, "qty": 100 }],
+          "bids": [{ "price": 999, "qty": 70 }, { "price": 998, "qty": 100 }]
+        },
+        "currentAudit": {
+          "engineSequence": 201,
+          "resultType": "none",
+          "routeId": null,
+          "marginUsedBefore": 0,
+          "marginUsedAfter": 0,
+          "stateHashBefore": "before",
+          "stateHashAfter": "after",
+          "causalityStatus": "pass",
+          "causalityReason": "available_before_decision",
+          "boardObservedAtMs": 50000,
+          "relayAssembledAtMs": 50100,
+          "relaySentAtMs": 50200,
+          "cloudReceivedAtMs": 50300,
+          "decisionStartedAtMs": 50350,
+          "decisionCompletedAtMs": 50400
+        }
+      }
+    },
+    {
+      "id": "insufficient_depth_is_unfillable",
+      "signal": {
+        "comparisonGeneration": "monitoring-comparison-strict-next-depth-v1",
+        "strategyVersion": "candidate-285a-a-v1",
+        "routeId": null,
+        "symbol": "285A",
+        "side": "long",
+        "signalSourceEventId": "source-300",
+        "signalEngineSequence": 300,
+        "signalTradeDate": "2026-09-25",
+        "signalTime": "10:15",
+        "theoreticalSignalPrice": 1000,
+        "signalDecisionCompletedAtMs": 60000,
+        "signalBoardObservedAtMs": 55000
+      },
+      "event": {
+        "sourceEventId": "source-301",
+        "candle": {
+          "symbol": "285A",
+          "tradeDate": "2026-09-25",
+          "candleTime": "10:16",
+          "open": 1000,
+          "high": 1002,
+          "low": 999,
+          "close": 1001,
+          "volume": 1000
+        },
+        "board": {
+          "asks": [{ "price": 1002, "qty": 99 }],
+          "bids": [{ "price": 1000, "qty": 100 }]
+        },
+        "currentAudit": {
+          "engineSequence": 301,
+          "resultType": "none",
+          "routeId": null,
+          "marginUsedBefore": 0,
+          "marginUsedAfter": 0,
+          "stateHashBefore": "before",
+          "stateHashAfter": "after",
+          "causalityStatus": "pass",
+          "causalityReason": "available_before_decision",
+          "boardObservedAtMs": 70000,
+          "relayAssembledAtMs": 70100,
+          "relaySentAtMs": 70200,
+          "cloudReceivedAtMs": 70300,
+          "decisionStartedAtMs": 70350,
+          "decisionCompletedAtMs": 70400
+        }
+      }
+    }
+  ]
+}

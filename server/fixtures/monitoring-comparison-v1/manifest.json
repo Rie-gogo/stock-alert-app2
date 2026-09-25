@@ -1,0 +1,13 @@
+{
+  "packageVersion": 1,
+  "datasetId": "monitoring-comparison-v1-fixture-20260925",
+  "contractVersion": "monitoring-comparison-strict-next-depth-v1",
+  "informationCutoff": "2026-09-25T00:00:00+09:00",
+  "purpose": "contract_reproducibility_only_not_strategy_performance",
+  "shares": 100,
+  "capitalLimitYen": 8910000,
+  "files": {
+    "input.json": "69adb9d2764dff99343779ab85a54edea1b45a8569c3a8eccdd113b7f08b59d1",
+    "expected.json": "523039d16fc9b3c169b2160a170a9243ea833e457e285b6eefa5cc64c427c359"
+  }
+}

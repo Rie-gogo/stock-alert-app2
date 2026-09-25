@@ -32,6 +32,11 @@ import {
   buildDiscoShortPortfolioComparisonForDate,
 } from "./discoOpeningShortPortfolioComparison";
 import { sha256Stable } from "./runtimeIdentity";
+import {
+  MONITORING_COMPARISON_COMPONENT,
+  MONITORING_COMPARISON_MATERIALIZATION_VERSION,
+  materializeMonitoringComparisonForDate,
+} from "./monitoringComparisonMaterializer";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -260,6 +265,25 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: DISCO_SHORT_PORTFOLIO_COMPONENT, result };
   }
 
+  const monitoringComparison = await getRtDailyAuditMaterialization({
+    component: MONITORING_COMPARISON_COMPONENT,
+    version: MONITORING_COMPARISON_MATERIALIZATION_VERSION,
+    tradeDate,
+  });
+  if (monitoringComparison?.status !== "complete"
+    || monitoringComparison.sourceDecisionCount !== sourceDecisionCount) {
+    const result = await materializeMonitoringComparisonForDate(tradeDate);
+    await persistComponent({
+      component: MONITORING_COMPARISON_COMPONENT,
+      version: MONITORING_COMPARISON_MATERIALIZATION_VERSION,
+      tradeDate,
+      result,
+      processedThroughEngineSequence: processedThrough,
+      sourceDecisionCount,
+    });
+    return { status: "processing" as const, component: MONITORING_COMPARISON_COMPONENT, result };
+  }
+
   const labels = await getRtDailyAuditMaterialization({
     component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
     version: OUTCOME_LABELS_MATERIALIZATION_VERSION,
@@ -323,11 +347,12 @@ export async function materializeNextAuditComponentForDate(
 }
 
 export async function readAuditMaterializationsForReport(tradeDate: string) {
-  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, outcomeLabels, divergence, finality, watermark] = await Promise.all([
+  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, outcomeLabels, divergence, finality, watermark] = await Promise.all([
     getRtDailyAuditMaterialization({ component: PORTFOLIO_BUNDLE_COMPONENT, version: PORTFOLIO_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: TEL_PARITY_MATERIALIZATION_COMPONENT, version: TEL_PARITY_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DISCO_SHORT_PORTFOLIO_COMPONENT, version: DISCO_SHORT_PORTFOLIO_VERSION, tradeDate }),
+    getRtDailyAuditMaterialization({ component: MONITORING_COMPARISON_COMPONENT, version: MONITORING_COMPARISON_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, version: OUTCOME_LABELS_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DIVERGENCE_MATERIALIZATION_COMPONENT, version: DIVERGENCE_MATERIALIZATION_VERSION, tradeDate }),
     getRtAuditTradeDateFinality(tradeDate),
@@ -336,7 +361,7 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
   const valid = finality?.status === "closed"
     && finality.watermarkHash === watermarkHash(watermark)
     && watermarkReady(watermark);
-  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, outcomeLabels, divergence, finality };
+  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, outcomeLabels, divergence, finality };
   const invalidate = <T extends { status: string; lastError?: string | null } | null>(row: T): T => row
     ? { ...row, status: "processing", lastError: "audit_watermark_not_closed_or_changed" } as T
     : row;
@@ -345,6 +370,7 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
     telParity: invalidate(telParity),
     candidateOutcomeParity: invalidate(candidateOutcomeParity),
     discoShortPortfolio: invalidate(discoShortPortfolio),
+    monitoringComparison: invalidate(monitoringComparison),
     outcomeLabels: invalidate(outcomeLabels),
     divergence: invalidate(divergence),
     finality,

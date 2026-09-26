@@ -5,12 +5,16 @@ const mocks = vi.hoisted(() => ({
   drain: vi.fn(),
   drainForwardShadow: vi.fn(async () => ({ processedEngineSequences: [], stoppedReason: "empty_or_claimed" })),
   materialize: vi.fn(async () => ({ status: "processing", component: "portfolio_bundle" })),
+  backfill: vi.fn(async () => ({ status: "complete" })),
 }));
 
 vi.mock("./_core/sdk", () => ({ sdk: { authenticateRequest: mocks.authenticateRequest } }));
 vi.mock("./realtimeDecisionAudit", () => ({ drainCurrentCandidateVirtualQueue: mocks.drain }));
 vi.mock("./forwardShadowSequence", () => ({ drainForwardShadowDispatchQueue: mocks.drainForwardShadow }));
 vi.mock("./auditMaterializer", () => ({ materializeNextAuditComponentForDate: mocks.materialize }));
+vi.mock("./multiSymbolMonitoringMaterializer", () => ({
+  materializeNextMissingMultiSymbolMonitoringDate: mocks.backfill,
+}));
 
 import { candidateVirtualWorkerHandler } from "./candidateVirtualWorkerHandler";
 
@@ -24,7 +28,10 @@ function response() {
 }
 
 describe("candidate virtual worker comparison-platform handoff", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.materialize.mockResolvedValue({ status: "processing", component: "portfolio_bundle" });
+  });
 
   it("queueが空まで追い付いた時だけ同日のportfolio materializationを前進させる", async () => {
     mocks.drain.mockResolvedValue({ processedEngineSequences: [1], terminalizedRows: 0, stoppedReason: "empty_or_claimed" });
@@ -56,6 +63,17 @@ describe("candidate virtual worker comparison-platform handoff", () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       forwardShadow: expect.objectContaining({ stoppedReason: "max_batch" }),
       materialization: expect.objectContaining({ status: "deferred_until_candidate_queue_caught_up" }),
+    }));
+  });
+
+  it("当日の全監査完了後だけ過去snapshotを高々1日backfillする", async () => {
+    mocks.drain.mockResolvedValue({ processedEngineSequences: [], terminalizedRows: 0, stoppedReason: "empty_or_claimed" });
+    mocks.materialize.mockResolvedValueOnce({ status: "complete", component: "all" });
+    const res = response();
+    await candidateVirtualWorkerHandler({} as any, res);
+    expect(mocks.backfill).toHaveBeenCalledTimes(1);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      monitoringBackfill: expect.objectContaining({ status: "complete" }),
     }));
   });
 });

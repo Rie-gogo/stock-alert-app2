@@ -46,6 +46,13 @@ const monitoringComparisonMock = vi.hoisted(() => ({
     summary: { signals: 3, filled: 2, unfillable: 1 },
   })),
 }));
+const multiSymbolMonitoringMock = vi.hoisted(() => ({
+  materializeMultiSymbolMonitoringForDate: vi.fn(async () => ({
+    ready: true,
+    incompleteReason: null,
+    summary: { plans: 33, signals: 10, completedTrades: 10, openTrades: 0, missingTrades: 0 },
+  })),
+}));
 
 vi.mock("./db", () => dbMock);
 vi.mock("./portfolioAudit", () => ({
@@ -73,6 +80,11 @@ vi.mock("./monitoringComparisonMaterializer", () => ({
   MONITORING_COMPARISON_MATERIALIZATION_VERSION: "monitoring-comparison-285a-strict-next-depth-materialized-v2",
   materializeMonitoringComparisonForDate: monitoringComparisonMock.materializeMonitoringComparisonForDate,
 }));
+vi.mock("./multiSymbolMonitoringMaterializer", () => ({
+  MULTI_SYMBOL_MONITORING_COMPONENT: "monitoring_trend_10_symbols",
+  MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION: "monitoring-trend-10-symbols-daily-v1",
+  materializeMultiSymbolMonitoringForDate: multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate,
+}));
 
 import {
   DIVERGENCE_MATERIALIZATION_COMPONENT,
@@ -95,6 +107,10 @@ import {
   MONITORING_COMPARISON_COMPONENT,
   MONITORING_COMPARISON_MATERIALIZATION_VERSION,
 } from "./monitoringComparisonMaterializer";
+import {
+  MULTI_SYMBOL_MONITORING_COMPONENT,
+  MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+} from "./multiSymbolMonitoringMaterializer";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -207,6 +223,7 @@ describe("P0 audit materializer", () => {
       if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
       if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
       if (component === MONITORING_COMPARISON_COMPONENT) return snapshot(component, MONITORING_COMPARISON_MATERIALIZATION_VERSION);
+      if (component === MULTI_SYMBOL_MONITORING_COMPONENT) return snapshot(component, MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION);
       if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
       if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
       return null;
@@ -220,6 +237,25 @@ describe("P0 audit materializer", () => {
     expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildDivergenceHypotheses).not.toHaveBeenCalled();
+  });
+
+  it("既存の全監査完了後にだけ10銘柄の日次snapshotを追加し、日中経路は呼ばない", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
+      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
+      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
+      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
+      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
+      if (component === MONITORING_COMPARISON_COMPONENT) return snapshot(component, MONITORING_COMPARISON_MATERIALIZATION_VERSION);
+      if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
+      if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
+      return null;
+    });
+    const result = await materializeNextAuditComponentForDate("2026-09-07", {
+      now: new Date("2026-09-08T00:00:00Z"),
+    });
+    expect(result).toMatchObject({ status: "processing", component: MULTI_SYMBOL_MONITORING_COMPONENT });
+    expect(multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate).toHaveBeenCalledWith("2026-09-07");
+    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
   });
 
   it("closed後にwatermarkが変化した場合は全snapshotをreopenedへ戻す", async () => {

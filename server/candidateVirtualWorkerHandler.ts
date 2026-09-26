@@ -3,6 +3,7 @@ import { sdk } from "./_core/sdk";
 import { drainCurrentCandidateVirtualQueue } from "./realtimeDecisionAudit";
 import { materializeNextAuditComponentForDate } from "./auditMaterializer";
 import { drainForwardShadowDispatchQueue } from "./forwardShadowSequence";
+import { materializeNextMissingMultiSymbolMonitoringDate } from "./multiSymbolMonitoringMaterializer";
 
 export const CANDIDATE_VIRTUAL_WORKER_LIMITS = Object.freeze({
   maxRows: 100,
@@ -41,7 +42,12 @@ export async function candidateVirtualWorkerHandler(req: Request, res: Response)
           maxMinutes: 30,
         })
       : { status: "deferred_until_candidate_queue_caught_up" as const, component: "none" as const };
-    console.log("[candidate-virtual-worker] completed", { forwardShadow, ...result, materialization });
+    // 10銘柄の過去snapshot backfillは、当日の全監査が閉場後に完了した時だけ高々1日進める。
+    // 日中・queue残留中・当日監査途中では一切実行しない。
+    const monitoringBackfill = materialization.status === "complete"
+      ? await materializeNextMissingMultiSymbolMonitoringDate(currentJstTradeDate())
+      : { status: "deferred_until_daily_audit_complete" as const };
+    console.log("[candidate-virtual-worker] completed", { forwardShadow, ...result, materialization, monitoringBackfill });
     return res.json({
       ok: true,
       limits: CANDIDATE_VIRTUAL_WORKER_LIMITS,
@@ -49,6 +55,7 @@ export async function candidateVirtualWorkerHandler(req: Request, res: Response)
       forwardShadow,
       ...result,
       materialization,
+      monitoringBackfill,
     });
   } catch (error) {
     console.error("[candidate-virtual-worker] Handler error:", error);

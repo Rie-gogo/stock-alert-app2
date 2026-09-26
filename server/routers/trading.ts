@@ -97,6 +97,24 @@ export const tradingRouter = router({
       }
     }),
 
+  /** 閉場後snapshotだけを読む、現行10銘柄・全シャドーの最近傾向。 */
+  getMultiSymbolMonitoringTrend: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getMultiSymbolMonitoringTrend } = await import("../multiSymbolMonitoringTrend");
+        return await getMultiSymbolMonitoringTrend(input.asOfDate);
+      } catch {
+        console.error("[MultiSymbolMonitoringTrend] snapshot read failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "10銘柄の最近傾向を取得できませんでした",
+        });
+      }
+    }),
+
   /** strategyVersion別未見成績と、現行再現・因果性・共有資金の監査情報。 */
   getForwardShadowSummary: publicProcedure
     .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))

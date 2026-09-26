@@ -37,6 +37,11 @@ import {
   MONITORING_COMPARISON_MATERIALIZATION_VERSION,
   materializeMonitoringComparisonForDate,
 } from "./monitoringComparisonMaterializer";
+import {
+  MULTI_SYMBOL_MONITORING_COMPONENT,
+  MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+  materializeMultiSymbolMonitoringForDate,
+} from "./multiSymbolMonitoringMaterializer";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -320,6 +325,30 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: DIVERGENCE_MATERIALIZATION_COMPONENT, result };
   }
 
+  // 最近傾向は翌日以降に使う表示専用情報なので、既存の全監査component完了後に最後に生成する。
+  // これにより16時報告・既存監査の完了順序を遅らせない。
+  const multiSymbolMonitoring = await getRtDailyAuditMaterialization({
+    component: MULTI_SYMBOL_MONITORING_COMPONENT,
+    version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+    tradeDate,
+  });
+  if (multiSymbolMonitoring?.status !== "complete"
+    || multiSymbolMonitoring.sourceDecisionCount !== sourceDecisionCount) {
+    const result = await materializeMultiSymbolMonitoringForDate(tradeDate);
+    await upsertRtDailyAuditMaterialization({
+      component: MULTI_SYMBOL_MONITORING_COMPONENT,
+      version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+      tradeDate,
+      status: result.ready ? "complete" : "incomplete_source",
+      processedThroughEngineSequence: processedThrough,
+      sourceDecisionCount,
+      resultJson: result,
+      lastError: result.incompleteReason,
+      generatedAt: result.ready ? new Date() : null,
+    });
+    return { status: "processing" as const, component: MULTI_SYMBOL_MONITORING_COMPONENT, result };
+  }
+
   return {
     status: "complete" as const,
     component: "all",
@@ -347,12 +376,13 @@ export async function materializeNextAuditComponentForDate(
 }
 
 export async function readAuditMaterializationsForReport(tradeDate: string) {
-  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, outcomeLabels, divergence, finality, watermark] = await Promise.all([
+  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, multiSymbolMonitoring, outcomeLabels, divergence, finality, watermark] = await Promise.all([
     getRtDailyAuditMaterialization({ component: PORTFOLIO_BUNDLE_COMPONENT, version: PORTFOLIO_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: TEL_PARITY_MATERIALIZATION_COMPONENT, version: TEL_PARITY_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DISCO_SHORT_PORTFOLIO_COMPONENT, version: DISCO_SHORT_PORTFOLIO_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: MONITORING_COMPARISON_COMPONENT, version: MONITORING_COMPARISON_MATERIALIZATION_VERSION, tradeDate }),
+    getRtDailyAuditMaterialization({ component: MULTI_SYMBOL_MONITORING_COMPONENT, version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, version: OUTCOME_LABELS_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DIVERGENCE_MATERIALIZATION_COMPONENT, version: DIVERGENCE_MATERIALIZATION_VERSION, tradeDate }),
     getRtAuditTradeDateFinality(tradeDate),
@@ -361,7 +391,7 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
   const valid = finality?.status === "closed"
     && finality.watermarkHash === watermarkHash(watermark)
     && watermarkReady(watermark);
-  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, outcomeLabels, divergence, finality };
+  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, multiSymbolMonitoring, outcomeLabels, divergence, finality };
   const invalidate = <T extends { status: string; lastError?: string | null } | null>(row: T): T => row
     ? { ...row, status: "processing", lastError: "audit_watermark_not_closed_or_changed" } as T
     : row;
@@ -371,6 +401,7 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
     candidateOutcomeParity: invalidate(candidateOutcomeParity),
     discoShortPortfolio: invalidate(discoShortPortfolio),
     monitoringComparison: invalidate(monitoringComparison),
+    multiSymbolMonitoring: invalidate(multiSymbolMonitoring),
     outcomeLabels: invalidate(outcomeLabels),
     divergence: invalidate(divergence),
     finality,

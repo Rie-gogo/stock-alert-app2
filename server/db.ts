@@ -1913,6 +1913,21 @@ export async function getRtForwardShadowTrades(
     .orderBy(rtForwardShadowTrades.id);
 }
 
+/**
+ * 閉場後の日次監視snapshot専用。
+ * 日中のsource ingestionからは呼ばず、確定した1営業日分のsignal-quality取引だけを読む。
+ */
+export async function getRtForwardShadowTradesForEntryDate(
+  entryTradeDate: string,
+): Promise<RtForwardShadowTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtForwardShadowTrades).where(and(
+    eq(rtForwardShadowTrades.entryTradeDate, entryTradeDate),
+    eq(rtForwardShadowTrades.evaluationMode, "signal_quality"),
+  )).orderBy(rtForwardShadowTrades.strategyVersion, rtForwardShadowTrades.id);
+}
+
 // ============================================================
 // 現行実時・固定版再生・因果性・共有資金 監査 helpers
 // ============================================================

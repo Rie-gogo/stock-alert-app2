@@ -107,4 +107,18 @@ describe("285A monitoring trend", () => {
     expect(source).not.toContain("updateRtStrategyVersionStatus");
     expect(source).not.toContain("upsertRtForwardEvaluationControl");
   });
+
+  it("285Aのprotected readerは閉場後snapshot readerへ委譲し、raw台帳を再集計しない", () => {
+    const source = readFileSync(new URL("./monitoringComparisonTrend.ts", import.meta.url), "utf8");
+    expect(source).toContain('import { getMultiSymbolMonitoringTrend } from "./multiSymbolMonitoringTrend";');
+    expect(source).toContain("const snapshotTrend = await getMultiSymbolMonitoringTrend(asOfDate);");
+    expect(source).not.toContain("getRtSignalCandidatesForDateRange");
+    expect(source).not.toContain("getRtForwardShadowTrades(");
+  });
+
+  it("285A legacy panel disables automatic polling", () => {
+    const source = readFileSync(new URL("../client/src/components/KioxiaMonitoringTrendSection.tsx", import.meta.url), "utf8");
+    expect(source).toContain("refetchInterval: false");
+    expect(source).not.toContain("autoRefresh");
+  });
 });

@@ -5,13 +5,6 @@ import type {
   RtSignalCandidateTrade,
 } from "../drizzle/schema";
 import {
-  getClosedRtAuditTradeDates,
-  getRtDailyAuditMaterializationsForRange,
-  getRtForwardShadowTrades,
-  getRtSignalCandidatesForDateRange,
-  getRtSignalCandidateTradesForDateRange,
-} from "./db";
-import {
   CURRENT_SIGNAL_CANDIDATE_VERSION,
   CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
 } from "./currentSignalCandidateRegistry";
@@ -24,6 +17,7 @@ import {
   MONITORING_COMPARISON_COMPONENT,
   MONITORING_COMPARISON_MATERIALIZATION_VERSION,
 } from "./monitoringComparisonMaterializer";
+import { getMultiSymbolMonitoringTrend } from "./multiSymbolMonitoringTrend";
 
 export const KIOXIA_MONITORING_TREND_VERSION = "285a-current-shadow-rolling-trend-v1";
 export const KIOXIA_MONITORING_START_DATE = PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE;
@@ -300,42 +294,17 @@ export function buildKioxiaMonitoringTrend(input: {
 }
 
 export async function getKioxiaMonitoringTrend(asOfDate: string) {
-  const fromDate = KIOXIA_MONITORING_START_DATE;
-  const [
-    eligibleTradeDates,
-    candidates,
-    candidateTrades,
-    shadowATrades,
-    shadowBTrades,
-    comparisonMaterializations,
-  ] = await Promise.all([
-    getClosedRtAuditTradeDates({ fromDate, toDate: asOfDate }),
-    getRtSignalCandidatesForDateRange({
-      candidateVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
-      fromDate,
-      toDate: asOfDate,
-    }),
-    getRtSignalCandidateTradesForDateRange({
-      virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
-      fromDate,
-      toDate: asOfDate,
-    }),
-    getRtForwardShadowTrades(KIOXIA_FORWARD_STRATEGY_VERSION),
-    getRtForwardShadowTrades(KIOXIA_ATR_FORWARD_STRATEGY_VERSION),
-    getRtDailyAuditMaterializationsForRange({
-      component: MONITORING_COMPARISON_COMPONENT,
-      version: MONITORING_COMPARISON_MATERIALIZATION_VERSION,
-      fromDate,
-      toDate: asOfDate,
-    }),
-  ]);
-  return buildKioxiaMonitoringTrend({
-    asOfDate,
-    eligibleTradeDates,
-    candidates,
-    candidateTrades,
-    shadowATrades,
-    shadowBTrades,
-    comparisonMaterializations,
-  });
+  const snapshotTrend = await getMultiSymbolMonitoringTrend(asOfDate);
+  const kioxia = snapshotTrend.symbols.find(item => item.symbol === "285A");
+  return {
+    managementVersion: `${KIOXIA_MONITORING_TREND_VERSION}-snapshot-adapter-v1`,
+    asOfDate: snapshotTrend.asOfDate,
+    monitoringStartDate: snapshotTrend.monitoringStartDate,
+    eligibleTradeDates: snapshotTrend.eligibleTradeDates,
+    pendingClosedTradeDates: snapshotTrend.pendingClosedTradeDates,
+    automaticAdoption: false,
+    existingTradingAndShadowExecutionChanged: false,
+    dataSource: "closed_daily_materializations_only" as const,
+    plans: kioxia?.plans ?? [],
+  };
 }

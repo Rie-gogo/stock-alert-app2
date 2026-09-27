@@ -22,10 +22,8 @@ function pct(value: number | null) {
 
 export default function KioxiaMonitoringTrendSection({
   asOfDate,
-  autoRefresh,
 }: {
   asOfDate: string;
-  autoRefresh: boolean;
 }) {
   const { loading: authLoading, isAuthenticated } = useAuth();
   const enabled = !authLoading && isAuthenticated;
@@ -34,8 +32,10 @@ export default function KioxiaMonitoringTrendSection({
     {
       enabled,
       retry: false,
-      refetchInterval: enabled && autoRefresh ? 60_000 : false,
-      staleTime: 30_000,
+      // 閉場後snapshotのみを読むため、日中の自動pollingは行わない。
+      refetchInterval: false,
+      staleTime: 5 * 60_000,
+      refetchOnWindowFocus: true,
     },
   );
 
@@ -94,15 +94,10 @@ export default function KioxiaMonitoringTrendSection({
                     </div>
                     <div className="mt-3 border-t border-border/60 pt-2 text-xs text-muted-foreground space-y-1">
                       <div>
-                        実行可能板・直近5日：{plan.strictExecution.recent5.signals}件中
-                        {plan.strictExecution.recent5.filled}件約定可能
-                        （{pct(plan.strictExecution.recent5.fillRatePct)}）
-                      </div>
-                      <div>
                         直近5日 vs 前5日：勝率差 {plan.trend.recentWinRateDeltaPt === null ? "—" : `${plan.trend.recentWinRateDeltaPt >= 0 ? "+" : ""}${plan.trend.recentWinRateDeltaPt.toFixed(1)}pt`}
                         ／平均損益差 {plan.trend.recentAveragePnlDelta === null ? "—" : yen(plan.trend.recentAveragePnlDelta)}
                       </div>
-                      <div>標本判定：{plan.windows.all.sampleStatus === "ten_or_more" ? "10件以上" : plan.windows.all.sampleStatus === "preliminary" ? "暫定（10件未満）" : "決済なし"}</div>
+                      <div>標本判定：{plan.reviewStatus === "four_weeks_ten_trades_manual_review" ? "4週・10件以上（人が審査）" : "暫定"}</div>
                     </div>
                   </div>
                 );

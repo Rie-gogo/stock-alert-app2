@@ -31,6 +31,44 @@ export const MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION = "monitoring-trend
 export const MULTI_SYMBOL_MONITORING_START_DATE = "2026-09-07";
 const MULTI_SYMBOL_MONITORING_BACKFILL_LOCK = "monitoring-trend-10-symbol-backfill-v1";
 
+// 監視snapshotだけは、過去に保存済みのcandidate/virtual世代を同じ組で読む。
+// 現行v2 virtual engineだけで読むと、v1だった9/7〜9/10の現行候補が
+// missing tradeとして除外され、保存済み監査と監視表示が不整合になる。
+// 現行候補worker・通常取引・既存の世代解決には影響させない。
+export const MONITORING_LEGACY_V1_LAST_TRADE_DATE = "2026-09-10";
+export const MONITORING_LEGACY_V1_CANDIDATE_VERSION = "current-10-symbol-candidates-v1";
+export const MONITORING_LEGACY_V1_VIRTUAL_ENGINE_VERSION = "current-10-symbol-signal-quality-v1";
+
+export function resolveMonitoringCandidateVirtualGeneration(tradeDate: string) {
+  if (tradeDate <= MONITORING_LEGACY_V1_LAST_TRADE_DATE) {
+    return {
+      candidateVersion: MONITORING_LEGACY_V1_CANDIDATE_VERSION,
+      virtualEngineVersion: MONITORING_LEGACY_V1_VIRTUAL_ENGINE_VERSION,
+    } as const;
+  }
+  return {
+    candidateVersion: resolveCurrentSignalCandidateVersion(tradeDate),
+    virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+  } as const;
+}
+
+/**
+ * incomplete_sourceは水位が変わるまで安定した不完全状態として保存する。
+ * 同じ最新日を無限に再試行せず、未処理またはwatermark変更でprocessingへ戻った
+ * 過去日を優先して1日だけ処理する。watermark変更時は既存のreopen処理が
+ * 全componentをprocessingへ戻すため、再試行可能性は維持される。
+ */
+export function selectNextPendingMultiSymbolMonitoringDate(
+  closedDates: readonly string[],
+  existingRows: ReadonlyArray<{ tradeDate: string; status: string }>,
+): string | null {
+  const statusByDate = new Map(existingRows.map(row => [row.tradeDate, row.status]));
+  return closedDates.slice().sort().reverse().find(tradeDate => {
+    const status = statusByDate.get(tradeDate);
+    return status !== "complete" && status !== "incomplete_source";
+  }) ?? null;
+}
+
 export interface DailyMonitoringPlanSnapshot extends MonitoringPlanDefinition {
   signals: number;
   openedTrades: number;
@@ -166,11 +204,11 @@ export function buildMultiSymbolMonitoringDailySnapshot(input: {
 }
 
 export async function materializeMultiSymbolMonitoringForDate(tradeDate: string) {
-  const candidateVersion = resolveCurrentSignalCandidateVersion(tradeDate);
+  const generation = resolveMonitoringCandidateVirtualGeneration(tradeDate);
   const [candidates, candidateTrades, shadowTrades] = await Promise.all([
-    getRtSignalCandidatesForDate({ candidateVersion, tradeDate }),
+    getRtSignalCandidatesForDate({ candidateVersion: generation.candidateVersion, tradeDate }),
     getRtSignalCandidateTradesForDate({
-      virtualEngineVersion: CURRENT_SIGNAL_VIRTUAL_ENGINE_VERSION,
+      virtualEngineVersion: generation.virtualEngineVersion,
       tradeDate,
     }),
     getRtForwardShadowTradesForEntryDate(tradeDate),
@@ -209,8 +247,7 @@ export async function materializeNextMissingMultiSymbolMonitoringDate(asOfDate: 
         toDate: asOfDate,
       }),
     ]);
-    const completeDates = new Set(existingRows.filter(row => row.status === "complete").map(row => row.tradeDate));
-    const tradeDate = closedDates.slice().sort().reverse().find(date => !completeDates.has(date));
+    const tradeDate = selectNextPendingMultiSymbolMonitoringDate(closedDates, existingRows);
     if (!tradeDate) return { status: "complete" as const };
 
     const finality = await getRtAuditTradeDateFinality(tradeDate);

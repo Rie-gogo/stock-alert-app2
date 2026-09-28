@@ -16,4 +16,12 @@ describe("trading.getForwardShadowSummary 5803前場SHORT公開登録", () => {
     expect(routerSource).toContain("automaticAdoption: false");
     expect(routerSource).toContain("orderInstructionConnection: false");
   });
+
+  it("未発火でアーカイブした8035因果性監査版は、理由・時刻を監査出力へ残す", () => {
+    expect(routerSource).toContain("isArchivedNoSignalStrategyVersion");
+    expect(routerSource).toContain("telCausalityAuditLifecycle");
+    expect(routerSource).toContain('? "archived_no_signal"');
+    expect(routerSource).toContain("lifecycleReason");
+    expect(routerSource).toContain("archivedAt");
+  });
 });

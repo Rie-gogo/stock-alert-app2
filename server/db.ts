@@ -1585,10 +1585,9 @@ export async function upsertRtStrategyVersion(
       sourceTreeHash: data.sourceTreeHash,
       evaluationPurpose: data.evaluationPurpose,
       eligibleForAdoption: data.eligibleForAdoption,
-      ...(data.eligibleForAdoption === false ? {
-        status: data.status,
-        statusReason: data.statusReason,
-      } : {}),
+      // 既存versionのlifecycleは更新しない。起動時の再登録でstopped/
+      // archived_no_signalをmonitoringへ戻すと、意図的に停止したshadowが再開する。
+      // lifecycle変更はupdateRtStrategyVersionStatusの明示操作だけに限定する。
     },
   });
 }

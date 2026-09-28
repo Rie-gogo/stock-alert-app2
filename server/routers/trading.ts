@@ -32,6 +32,7 @@ import {
   isValidRtSignalCandidateLedgerDate,
   RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN,
 } from "../signalCandidateLedger";
+import { isArchivedNoSignalStrategyVersion } from "../shadowArchiveLifecycle";
 
 const rtSignalCandidateLedgerInput = z.object({
   tradeDate: z.string()
@@ -204,6 +205,7 @@ export const tradingRouter = router({
         getRtPortfolioAuditEventsForDate,
         getRtRealtimeDecisionEventsForDate,
         getRtReplayComparisonsForDate,
+        getRtStrategyVersion,
       } = await import("../db");
       const {
         ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION,
@@ -226,6 +228,8 @@ export const tradingRouter = router({
         outcomeLabels,
         divergenceHypotheses,
         pausedCurrentRoutes,
+        telCurrentParityLifecycle,
+        telCausalityAuditLifecycle,
       ] = await Promise.all([
         getRtRealtimeDecisionEventsForDate(input.asOfDate),
         getRtReplayComparisonsForDate({ tradeDate: input.asOfDate, baselineVersion: TEL_CURRENT_PARITY_VERSION }),
@@ -241,6 +245,8 @@ export const tradingRouter = router({
         getRtOutcomeLabelsForDate({ baselineVersion: "current-realtime-outcome-label-v1", tradeDate: input.asOfDate }),
         getRtDivergenceHypotheses(input.asOfDate),
         getAllPausedCurrentRouteShadowSummary(input.asOfDate),
+        getRtStrategyVersion(TEL_CURRENT_PARITY_VERSION),
+        getRtStrategyVersion(TEL_CAUSALITY_AUDIT_VERSION),
       ]);
       const countBy = (values: Array<string | null | undefined>) => Object.fromEntries(
         Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
@@ -490,6 +496,11 @@ export const tradingRouter = router({
             purpose: "parity_only" as const,
             eligibleForAdoption: false,
             evaluationStartDate: TEL_AUDIT_EVALUATION_START_DATE,
+            lifecycle: telCurrentParityLifecycle?.status ?? "unregistered",
+            lifecycleReason: telCurrentParityLifecycle?.statusReason ?? null,
+            archivedAt: telCurrentParityLifecycle && isArchivedNoSignalStrategyVersion(telCurrentParityLifecycle)
+              ? telCurrentParityLifecycle.updatedAt.toISOString()
+              : null,
           },
           {
             strategyVersion: TEL_CAUSALITY_AUDIT_VERSION,
@@ -497,6 +508,13 @@ export const tradingRouter = router({
             purpose: "causality_audit" as const,
             eligibleForAdoption: false,
             evaluationStartDate: TEL_AUDIT_EVALUATION_START_DATE,
+            lifecycle: isArchivedNoSignalStrategyVersion(telCausalityAuditLifecycle)
+              ? "archived_no_signal"
+              : telCausalityAuditLifecycle?.status ?? "unregistered",
+            lifecycleReason: telCausalityAuditLifecycle?.statusReason ?? null,
+            archivedAt: telCausalityAuditLifecycle && isArchivedNoSignalStrategyVersion(telCausalityAuditLifecycle)
+              ? telCausalityAuditLifecycle.updatedAt.toISOString()
+              : null,
           },
         ],
         pausedCurrentRoutes,

@@ -2284,3 +2284,12 @@
 - [x] 検証成功時だけcheckpoint保存による自動公開を行い、失敗時は公開を停止する
 - [x] 公開runtime／forward summary／本番DB／production logsでsource hash・DRY_RUN/LIVE・formal Gate・既存経路稼働・通常取引非作成を読取確認する
 - [x] 同期・テスト・公開と翌営業日の実イベント受入を分離して報告する
+
+## 285A provenance manifest v2・翌日選択器監視版（2026-09-30）
+- [x] Phase 1のread-only candle_time契約監査を実施し、旧rawがbar start/end/observedを証明できないため推測によるbackfillを禁止する判断を記録した
+- [x] relay provenanceを後方互換で受け、raw candle_time不変・WS集約/fallback/unknownを別保存する実装を追加した
+- [x] session class、325本continuous grid、欠損・duplicate/correction・watermark・latencyを保存するmanifest v2を追加した
+- [x] 既存全audit component完了後だけ動く固定next-day snapshot、翌日結果、保存snapshot API/UIを追加した
+- [x] 20完全feature日・route別10完了trade・正の不利後期待Rを満たさなければhard no_tradeにする監視専用gateを追加した
+- [x] schema/migrationなし、現行engine/TP/SL/証拠金/OrderBridge/schedule/formal Gate非干渉、DRY_RUN/LIVE未承認を確認した
+- [x] 対象テスト、型検査、production build、全回帰（既知3失敗を除く）、GitHub main、checkpoint、既存公開URLのruntime安全確認を完了した

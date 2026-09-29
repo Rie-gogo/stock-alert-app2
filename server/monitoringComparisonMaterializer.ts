@@ -43,7 +43,7 @@ import { collectRouteAttributionMappingVersions } from "./kioxiaRouteAttribution
  */
 export const MONITORING_COMPARISON_COMPONENT = "monitoring_comparison_285a";
 export const MONITORING_COMPARISON_MATERIALIZATION_VERSION =
-  "monitoring-comparison-285a-route-normalized-v3";
+  "monitoring-comparison-285a-route-normalized-v4";
 
 export type MonitoringComparisonOrigin = "current_baseline" | "forward_shadow";
 export type MonitoringComparisonDisposition =
@@ -200,7 +200,12 @@ function per100(pnl: unknown, shares: unknown): number | null {
   return value === null || quantity === null || quantity <= 0 ? null : Math.round(value / quantity * 100);
 }
 
-function currentActualOutcome(candidate: RtSignalCandidate, virtual: RtSignalCandidateTrade | undefined, trades: RtTrade[]): IntrinsicOutcome {
+function currentActualOutcome(
+  candidate: RtSignalCandidate,
+  virtual: RtSignalCandidateTrade | undefined,
+  trades: RtTrade[],
+  sourceById: Map<string, RtSourceEvent>,
+): IntrinsicOutcome {
   if (candidate.realtimeDecision === "shadow_only") {
     return { status: "not_applicable", priceSource: null, entryPrice: null, exitPrice: null, pnlPer100: null, completed: false, exitReason: null, entrySourceEventId: null, exitSourceEventId: null };
   }
@@ -212,10 +217,17 @@ function currentActualOutcome(candidate: RtSignalCandidate, virtual: RtSignalCan
       return { status: "not_linked", priceSource: null, entryPrice: null, exitPrice: null, pnlPer100: null, completed: false, exitReason: null, entrySourceEventId: null, exitSourceEventId: null };
     }
     const exitAction = candidate.side === "long" ? "sell" : "cover";
-    const exit = virtual?.exitCandleTime
-      ? trades.find(trade => trade.symbol === candidate.symbol && trade.side === candidate.side && trade.action === exitAction && trade.tradeTime === virtual.exitCandleTime) ?? null
-      : null;
+    // acceptedはrt_tradesが唯一の実取引結果であり、candidate 100株virtualの
+    // 独立したexit（同じsignalでも時刻が異なり得る）で置き換えない。現行は
+    // 同一銘柄・sideを同時に複数保有しないため、entry後の最初の決済が対応するexit。
+    const exit = trades.find(trade => trade.symbol === candidate.symbol
+      && trade.side === candidate.side
+      && trade.action === exitAction
+      && trade.tradeTime > entry.tradeTime) ?? null;
     const completed = Boolean(exit && exit.pnl !== null);
+    const exitSourceEventId = exit
+      ? Array.from(sourceById.values()).find(source => source.symbol === candidate.symbol && source.candleTime === exit.tradeTime)?.sourceEventId ?? null
+      : null;
     return {
       status: completed ? "completed" : "open",
       priceSource: "rt_trades",
@@ -225,7 +237,7 @@ function currentActualOutcome(candidate: RtSignalCandidate, virtual: RtSignalCan
       completed,
       exitReason: exit?.reason ?? null,
       entrySourceEventId: candidate.sourceEventId,
-      exitSourceEventId: virtual?.exitSourceEventId ?? null,
+      exitSourceEventId,
     };
   }
   if (!virtual) {
@@ -275,7 +287,7 @@ function currentSignals(input: {
     const source = input.sourceById.get(candidate.sourceEventId);
     if (!decision || !source) continue;
     const virtual = candidateTradeById.get(candidate.id);
-    const intrinsic = currentActualOutcome(candidate, virtual, input.trades);
+    const intrinsic = currentActualOutcome(candidate, virtual, input.trades, input.sourceById);
     result.push({
       origin: "current_baseline",
       sourceDisposition: candidate.realtimeDecision === "accepted" ? "accepted" : candidate.realtimeDecision === "margin_block" ? "margin_block" : "shadow_only",

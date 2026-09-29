@@ -134,6 +134,38 @@ describe("285A monitoring comparison materializer", () => {
     expect(blocked.normalized).toMatchObject({ status: "filled" });
   });
 
+  it("現行acceptedはcandidate virtualの別exitではなくrt_tradesの実際の決済と後続source eventを使う", () => {
+    const s1 = source(1, "s1", "285A", "09:59", board);
+    const s2 = source(2, "s2", "285A", "10:42", board);
+    const s3 = source(3, "s3", "285A", "11:08", board);
+    const s4 = source(4, "s4", "285A", "11:09", board);
+    const result = buildMonitoringComparisonForDateData({
+      tradeDate: "2026-09-29",
+      sourceEvents: [s1, s2, s3, s4],
+      decisionEvents: [
+        decision(1, "s1", "285A", "09:59"),
+        decision(2, "s2", "285A", "10:42"),
+        decision(3, "s3", "285A", "11:08"),
+        decision(4, "s4", "285A", "11:09"),
+      ],
+      candidates: [{ id: 19, candidateVersion: "current-v1", sourceEventId: "s1", sourceEventDbId: 1, engineSequence: 1, tradeDate: "2026-09-29", candleTime: "09:59", symbol: "285A", routeId: "kioxiaSafeCbShort", side: "short", realtimeDecision: "accepted", signalReason: "test", theoreticalEntryPrice: "1000" }] as any,
+      candidateTrades: [{ candidateId: 19, entrySourceEventId: "s1", exitSourceEventId: "s2", exitCandleTime: "10:42", entryPrice: "1000", exitPrice: "995", pnl: 500, shares: 100, completed: true, exitReason: "signal_reversal" }] as any,
+      normalTrades: [
+        { symbol: "285A", side: "short", action: "short", tradeTime: "09:59", price: "1000", shares: 100 },
+        { symbol: "285A", side: "short", action: "cover", tradeTime: "11:08", price: "1010", shares: 100, pnl: -1000, reason: "sl" },
+      ] as any,
+      shadowEvents: [],
+      shadowTrades: [],
+    });
+    expect(result.entries[0]?.intrinsic).toMatchObject({
+      status: "completed",
+      priceSource: "rt_trades",
+      exitPrice: 1010,
+      pnlPer100: -1000,
+      exitSourceEventId: "s3",
+    });
+  });
+
   it("Plan Bを5経路別に記録し、entry_rejectedを候補と誤って約定させない", () => {
     const s1 = source(1, "s1", "285A", "09:45", board);
     const s2 = source(2, "s2", "285A", "09:46", board);

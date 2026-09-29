@@ -1,9 +1,14 @@
 import type { RtDailyAuditMaterialization } from "../drizzle/schema";
 import { getClosedRtAuditTradeDates, getRtDailyAuditMaterializationsForRange } from "./db";
+import { CURRENT_SIGNAL_CANDIDATE_VERSION } from "./currentSignalCandidateRegistry";
 import {
   KIOXIA_MONITORING_START_DATE,
   type MonitoringWindowMetrics,
 } from "./monitoringComparisonTrend";
+import {
+  KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
+  KIOXIA_FORWARD_STRATEGY_VERSION,
+} from "./runtimeIdentity";
 import {
   MONITORING_COMPARISON_COMPONENT,
   MONITORING_COMPARISON_MATERIALIZATION_VERSION,
@@ -13,6 +18,24 @@ import {
 export const KIOXIA_NORMALIZED_COMPARISON_TREND_VERSION = "285a-route-normalized-snapshot-trend-v1";
 
 type TableKind = "intrinsic" | "normalized" | "entryQuality";
+
+/**
+ * 未発火の案も比較母集団から消さないための固定表示registry。
+ * 現行v3 / 現行A / 現行Bのみを明示し、停止・旧版・診断専用版は混ぜない。
+ */
+export const KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS = Object.freeze([
+  { origin: "current_baseline" as const, strategyVersion: `baseline:${CURRENT_SIGNAL_CANDIDATE_VERSION}`, routeId: "trendLong", side: "long" as const, label: "Current：確認型前場LONG" },
+  { origin: "current_baseline" as const, strategyVersion: `baseline:${CURRENT_SIGNAL_CANDIDATE_VERSION}`, routeId: "reversalLong", side: "long" as const, label: "Current：反転LONG" },
+  { origin: "current_baseline" as const, strategyVersion: `baseline:${CURRENT_SIGNAL_CANDIDATE_VERSION}`, routeId: "reversalShort", side: "short" as const, label: "Current：反転SHORT" },
+  { origin: "current_baseline" as const, strategyVersion: `baseline:${CURRENT_SIGNAL_CANDIDATE_VERSION}`, routeId: "trendShort", side: "short" as const, label: "Current：順張りSHORT" },
+  { origin: "current_baseline" as const, strategyVersion: `baseline:${CURRENT_SIGNAL_CANDIDATE_VERSION}`, routeId: "kioxiaSafeCbShort", side: "short" as const, label: "Current：安全CB SHORT" },
+  { origin: "forward_shadow" as const, strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION, routeId: "confirmed_morning_long", side: "long" as const, label: "Plan A：確認型前場LONG" },
+  { origin: "forward_shadow" as const, strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, routeId: "confirmed_morning_long", side: "long" as const, label: "Plan B：確認型前場LONG" },
+  { origin: "forward_shadow" as const, strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, routeId: "reversal_long", side: "long" as const, label: "Plan B：反転LONG" },
+  { origin: "forward_shadow" as const, strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, routeId: "reversal_short", side: "short" as const, label: "Plan B：反転SHORT" },
+  { origin: "forward_shadow" as const, strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, routeId: "trend_short", side: "short" as const, label: "Plan B：順張りSHORT" },
+  { origin: "forward_shadow" as const, strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, routeId: "safe_cb_short", side: "short" as const, label: "Plan B：安全CB SHORT" },
+]);
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -128,8 +151,11 @@ export function buildKioxiaNormalizedComparisonTrend(input: {
   const pendingClosedTradeDates = closedDates.filter(date => !entriesByDate.has(date));
   const rows = eligibleTradeDates.flatMap(date => entriesByDate.get(date) ?? [])
     .filter(row => row.symbol === "285A" && row.includeInRouteComparison);
-  const plans = Array.from(new Set(rows.map(row => `${row.origin}:${row.strategyVersion}:${row.routeId}:${row.side}`))).sort().map(key => {
-    const planRows = rows.filter(row => `${row.origin}:${row.strategyVersion}:${row.routeId}:${row.side}` === key);
+  const plans = KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.map(spec => {
+    const planRows = rows.filter(row => row.origin === spec.origin
+      && row.strategyVersion === spec.strategyVersion
+      && row.routeId === spec.routeId
+      && row.side === spec.side);
     const lastDates = (count: number) => eligibleTradeDates.slice(-count);
     const windows = (kind: TableKind) => ({
       recent5: metricsFor({ rows: planRows, dates: lastDates(5), kind, requestedTradingDays: 5 }),
@@ -138,10 +164,11 @@ export function buildKioxiaNormalizedComparisonTrend(input: {
       all: metricsFor({ rows: planRows, dates: eligibleTradeDates, kind, requestedTradingDays: "all" }),
     });
     return {
-      origin: planRows[0]!.origin,
-      strategyVersion: planRows[0]!.strategyVersion,
-      routeId: planRows[0]!.routeId,
-      side: planRows[0]!.side,
+      origin: spec.origin,
+      strategyVersion: spec.strategyVersion,
+      routeId: spec.routeId,
+      side: spec.side,
+      label: spec.label,
       sourceDispositionTotals: {
         accepted: planRows.filter(row => row.sourceDisposition === "accepted").length,
         marginBlock: planRows.filter(row => row.sourceDisposition === "margin_block").length,

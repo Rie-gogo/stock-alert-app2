@@ -233,6 +233,54 @@ describe("現行実時判断監査", () => {
     }));
   });
 
+  it("285A安全CB SHORTをacceptedとmargin_blockの双方で同じcanonical routeへ保存する", async () => {
+    engineMock.resolveSpecializedFiredStateKeys.mockReturnValueOnce([]).mockReturnValueOnce([]);
+    const safeCbReason = "大台確認(2本維持): 大台割れ (54900円割り込み)｜[信頼度：強] (押し目なし・強トレンド)";
+    dbMock.getLatestRtTradeAt.mockResolvedValue({
+      action: "short", side: "short", price: 54_900, shares: 100, amount: 5_490_000, reason: safeCbReason,
+    });
+    await processCurrentEngineAudited({
+      sourceEvent: {
+        id: 14, sourceEventId: "relay:14", relaySessionId: "relay", eventSeq: 14,
+        symbol: "285A", tradeDate: "2026-09-24", candleTime: "13:22",
+        relayReceivedAtMs: 4_000, relaySentAtMs: 4_010, cloudReceivedAtMs: 4_020,
+      } as never,
+      candle: { symbol: "285A", tradeDate: "2026-09-24", candleTime: "13:22", open: 54_950, high: 55_000, low: 54_850, close: 54_900, volume: 100 },
+      board: { currentPrice: 54_900, currentPriceTime: "13:22:01" } as never,
+      inputHash: "safe-cb-accepted",
+      run: async () => ({ symbol: "285A", tradeDate: "2026-09-24", candleTime: "13:22", action: "entry" as const }),
+    });
+    expect(dbMock.insertRtRealtimeDecisionEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      candidateDescriptorJson: expect.objectContaining({
+        routeId: "kioxiaSafeCbShort",
+        routeAttribution: expect.objectContaining({ canonicalRouteId: "kioxiaSafeCbShort" }),
+      }),
+    }));
+
+    dbMock.getLatestRtTradeAt.mockResolvedValue(null);
+    engineMock.getSignalHistory
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([{
+        time: "10:45", symbol: "285A", symbolName: "キオクシア", action: "margin_block", price: 54_400,
+        shares: 0, pnl: null,
+        reason: `証拠金使用率制限: 使用中0円 + 候補5440000円 > 上限8910000円 (${safeCbReason})`,
+      }]);
+    await processCurrentEngineAudited({
+      sourceEvent: {
+        id: 15, sourceEventId: "relay:15", relaySessionId: "relay", eventSeq: 15,
+        symbol: "285A", tradeDate: "2026-09-28", candleTime: "10:45",
+        relayReceivedAtMs: 5_000, relaySentAtMs: 5_010, cloudReceivedAtMs: 5_020,
+      } as never,
+      candle: { symbol: "285A", tradeDate: "2026-09-28", candleTime: "10:45", open: 54_450, high: 54_500, low: 54_350, close: 54_400, volume: 100 },
+      board: { currentPrice: 54_400, currentPriceTime: "10:45:01" } as never,
+      inputHash: "safe-cb-margin-block",
+      run: async () => ({ symbol: "285A", tradeDate: "2026-09-28", candleTime: "10:45", action: "none" as const, reason: "margin_block" }),
+    });
+    expect(dbMock.insertRtRealtimeDecisionEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      candidateDescriptorJson: expect.objectContaining({ routeId: "kioxiaSafeCbShort", realtimeDecision: "margin_block" }),
+    }));
+  });
+
   it("depth約定のsource event ID不一致は因果性違反にする", async () => {
     dbMock.getLatestRtTradeAt.mockResolvedValue({
       action: "buy", side: "long", price: 100.2, shares: 100, amount: 10_020,

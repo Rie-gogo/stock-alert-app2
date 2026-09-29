@@ -16,6 +16,12 @@ import {
   type KabuPlanSettings,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import {
+  attachRouteAttributionAudit,
+  buildRouteAttributionAudit,
+  KIOXIA_SAFE_CB_ROUTE_BACKFILL_CANDIDATE_IDS,
+  KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
+} from "./kioxiaRouteAttribution";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -2712,6 +2718,161 @@ export async function getRtSignalCandidateById(candidateId: number): Promise<RtS
   if (!db) return null;
   return (await db.select().from(rtSignalCandidates)
     .where(eq(rtSignalCandidates.id, candidateId)).limit(1))[0] ?? null;
+}
+
+export type KioxiaSafeCbRouteBackfillResult = {
+  mappingVersion: string;
+  candidateIds: number[];
+  tradeDates: string[];
+  candidateRowsUpdated: number;
+  virtualTradeRowsUpdated: number;
+  portfolioAuditRowsUpdated: number;
+  materializationsMarkedForRefresh: number;
+  idempotent: boolean;
+};
+
+/**
+ * 285A安全CB SHORTの監査route欠落だけを非破壊で補正する。
+ * decision/source/通常rt_trades、価格、数量、損益は更新しない。
+ * closed finalityかつ対象100株virtualが全決済済みの場合だけ実行する。
+ */
+export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
+  candidateIds?: readonly number[];
+  now?: Date;
+} = {}): Promise<KioxiaSafeCbRouteBackfillResult> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const candidateIds = Array.from(input.candidateIds ?? KIOXIA_SAFE_CB_ROUTE_BACKFILL_CANDIDATE_IDS).sort((a, b) => a - b);
+  if (candidateIds.length === 0) throw new Error("kioxia_safe_cb_backfill_candidate_ids_missing");
+
+  const candidates = await db.select().from(rtSignalCandidates)
+    .where(inArray(rtSignalCandidates.id, candidateIds)).orderBy(rtSignalCandidates.id);
+  if (candidates.length !== candidateIds.length || candidates.some(candidate => !candidateIds.includes(candidate.id))) {
+    throw new Error(`kioxia_safe_cb_backfill_candidates_missing:${candidateIds.join(",")}`);
+  }
+  for (const candidate of candidates) {
+    if (candidate.symbol !== "285A" || candidate.side !== "short") {
+      throw new Error(`kioxia_safe_cb_backfill_candidate_scope_invalid:${candidate.id}`);
+    }
+    if (candidate.routeId !== "285A:short:unclassified" && candidate.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID) {
+      throw new Error(`kioxia_safe_cb_backfill_candidate_route_conflict:${candidate.id}:${candidate.routeId}`);
+    }
+  }
+
+  const tradeDates = Array.from(new Set(candidates.map(candidate => candidate.tradeDate))).sort();
+  const sourceEventIds = candidates.map(candidate => candidate.sourceEventId);
+  const [finalities, virtualTrades, decisions, portfolioEvents, materializationRows] = await Promise.all([
+    db.select().from(rtAuditTradeDateFinality).where(inArray(rtAuditTradeDateFinality.tradeDate, tradeDates)),
+    db.select().from(rtSignalCandidateTrades).where(inArray(rtSignalCandidateTrades.candidateId, candidateIds)),
+    db.select().from(rtRealtimeDecisionEvents).where(inArray(rtRealtimeDecisionEvents.sourceEventId, sourceEventIds)),
+    db.select().from(rtPortfolioAuditEvents).where(inArray(rtPortfolioAuditEvents.sourceEventId, sourceEventIds)),
+    db.select().from(rtDailyAuditMaterializations).where(and(
+      inArray(rtDailyAuditMaterializations.tradeDate, tradeDates),
+      inArray(rtDailyAuditMaterializations.component, ["monitoring_comparison_285a", "monitoring_trend_10_symbols"]),
+    )),
+  ]);
+  const finalityByDate = new Map(finalities.map(finality => [finality.tradeDate, finality]));
+  for (const tradeDate of tradeDates) {
+    if (finalityByDate.get(tradeDate)?.status !== "closed") {
+      throw new Error(`kioxia_safe_cb_backfill_trade_date_not_closed:${tradeDate}`);
+    }
+  }
+  const tradeByCandidate = new Map(virtualTrades.map(trade => [trade.candidateId, trade]));
+  for (const candidate of candidates) {
+    const trade = tradeByCandidate.get(candidate.id);
+    if (!trade || !trade.completed) {
+      throw new Error(`kioxia_safe_cb_backfill_virtual_not_complete:${candidate.id}`);
+    }
+    if (trade.routeId !== "285A:short:unclassified" && trade.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID) {
+      throw new Error(`kioxia_safe_cb_backfill_virtual_route_conflict:${candidate.id}:${trade.routeId}`);
+    }
+  }
+  const decisionBySourceEventId = new Map(decisions.map(decision => [decision.sourceEventId, decision]));
+  if (decisionBySourceEventId.size !== sourceEventIds.length) {
+    throw new Error("kioxia_safe_cb_backfill_decision_provenance_missing");
+  }
+  const now = (input.now ?? new Date()).toISOString();
+  const metadataByCandidateId = new Map(candidates.map(candidate => {
+    const decision = decisionBySourceEventId.get(candidate.sourceEventId)!;
+    const candidateInput = candidate.inputJson && typeof candidate.inputJson === "object"
+      ? candidate.inputJson as Record<string, unknown>
+      : {};
+    const audit = buildRouteAttributionAudit({
+      previousRouteId: candidate.routeId,
+      originalAuditRouteId: decision.routeId ?? null,
+      originalReason: decision.reason ?? candidate.signalReason,
+      canonicalRouteId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
+      candidateRouteIds: [KIOXIA_SAFE_CB_SHORT_ROUTE_ID],
+      reason: "285A_safe_cb_short_route_backfill",
+      existing: candidateInput.routeAttribution,
+      classifiedAt: now,
+    });
+    return [candidate.id, audit] as const;
+  }));
+  const metadataBySourceEventId = new Map(candidates.map(candidate => [
+    candidate.sourceEventId,
+    metadataByCandidateId.get(candidate.id)!,
+  ]));
+  const rowsNeedingCandidateUpdate = candidates.filter(candidate =>
+    candidate.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID
+    || (candidate.inputJson as Record<string, unknown> | null)?.routeAttribution === undefined,
+  );
+  const rowsNeedingTradeUpdate = virtualTrades.filter(trade => trade.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID);
+  const scopedPortfolioEvents = portfolioEvents.filter(event => event.symbol === "285A");
+  const rowsNeedingPortfolioUpdate = scopedPortfolioEvents.filter(event => event.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID);
+  const requiresBackfill = rowsNeedingCandidateUpdate.length > 0
+    || rowsNeedingTradeUpdate.length > 0
+    || rowsNeedingPortfolioUpdate.length > 0;
+
+  if (requiresBackfill) await db.transaction(async tx => {
+    for (const candidate of candidates) {
+      const routeAttribution = metadataByCandidateId.get(candidate.id)!;
+      await tx.update(rtSignalCandidates).set({
+        routeId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
+        inputJson: attachRouteAttributionAudit(candidate.inputJson, routeAttribution),
+      }).where(eq(rtSignalCandidates.id, candidate.id));
+    }
+    for (const trade of virtualTrades) {
+      const routeAttribution = metadataByCandidateId.get(trade.candidateId)!;
+      const stateJson = trade.stateJson && typeof trade.stateJson === "object"
+        ? trade.stateJson as Record<string, unknown>
+        : {};
+      await tx.update(rtSignalCandidateTrades).set({
+        routeId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
+        stateJson: attachRouteAttributionAudit({ ...stateJson, routeId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID }, routeAttribution),
+      }).where(eq(rtSignalCandidateTrades.id, trade.id));
+    }
+    for (const event of scopedPortfolioEvents) {
+      const routeAttribution = metadataBySourceEventId.get(event.sourceEventId);
+      if (!routeAttribution) continue;
+      const detailJson = event.detailJson && typeof event.detailJson === "object"
+        ? event.detailJson as Record<string, unknown>
+        : {};
+      await tx.update(rtPortfolioAuditEvents).set({
+        routeId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
+        detailJson: attachRouteAttributionAudit({ ...detailJson, routeId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID }, routeAttribution),
+      }).where(eq(rtPortfolioAuditEvents.id, event.id));
+    }
+    // routeを参照する比較snapshotだけを閉場後の既存audit workerで再生成する。
+    await tx.update(rtDailyAuditMaterializations).set({
+      status: "processing",
+      generatedAt: null,
+    }).where(and(
+      inArray(rtDailyAuditMaterializations.tradeDate, tradeDates),
+    inArray(rtDailyAuditMaterializations.component, ["monitoring_comparison_285a", "monitoring_trend_10_symbols"]),
+    ));
+  });
+
+  return {
+    mappingVersion: metadataByCandidateId.get(candidateIds[0])!.mappingVersion,
+    candidateIds,
+    tradeDates,
+    candidateRowsUpdated: rowsNeedingCandidateUpdate.length,
+    virtualTradeRowsUpdated: rowsNeedingTradeUpdate.length,
+    portfolioAuditRowsUpdated: rowsNeedingPortfolioUpdate.length,
+    materializationsMarkedForRefresh: requiresBackfill ? materializationRows.length : 0,
+    idempotent: !requiresBackfill,
+  };
 }
 
 export async function upsertRtSignalCandidateTrade(

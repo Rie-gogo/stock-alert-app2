@@ -39,6 +39,10 @@ import {
   isPausedCurrentRouteReason,
   pausedCurrentRouteOriginalReason,
 } from "./pausedCurrentRouteShadow";
+import {
+  buildRouteAttributionAudit,
+  type RouteAttributionAudit,
+} from "./kioxiaRouteAttribution";
 import { processSignalQualityVirtualTradesForEvent } from "./signalCandidateVirtualEngine";
 import type { RtRealtimeDecisionEvent, RtSignalCandidate } from "../drizzle/schema";
 import {
@@ -106,6 +110,7 @@ type CandidateDescriptor = {
   requiredMargin: number;
   realtimeDecision: "accepted" | "margin_block" | "shadow_only";
   routeSpec: ReturnType<typeof resolveCurrentRouteSpec>;
+  routeAttribution: RouteAttributionAudit;
 };
 
 export type AuditedCurrentEngineResult = {
@@ -363,12 +368,14 @@ function candidateSignalReason(input: {
   const values = [
     pausedCurrentRouteOriginalReason(input.candidateReason),
     pausedCurrentRouteOriginalReason(input.auditReason),
-    parseMarginCandidateReason(input.candidateReason),
+    // acceptedは通常rt_trades、margin blockはsignal historyに保存された完全reasonが正本。
+    // 画面用に短縮・加工されたcandidate/audit reasonは最後の補助候補に留める。
     input.latestTrade?.reason,
-    parseMarginCandidateReason(input.decisionSignal?.reason),
     input.decisionSignal?.action === "buy" || input.decisionSignal?.action === "short"
       ? input.decisionSignal.reason
       : null,
+    parseMarginCandidateReason(input.decisionSignal?.reason),
+    parseMarginCandidateReason(input.candidateReason),
     input.rawSignal?.reason,
     parseMarginCandidateReason(input.auditReason),
     input.candidateReason,
@@ -435,6 +442,14 @@ function buildCandidateDescriptor(input: {
     requiredMargin,
     realtimeDecision: isAccepted ? "accepted" : isMarginBlock ? "margin_block" : "shadow_only",
     routeSpec,
+    routeAttribution: buildRouteAttributionAudit({
+      previousRouteId: input.auditRouteId ?? null,
+      originalAuditRouteId: input.auditRouteId ?? null,
+      originalReason: signalReason,
+      canonicalRouteId: routeSpec.routeId,
+      candidateRouteIds: [routeSpec.routeId],
+      reason: "runtime_candidate_descriptor",
+    }),
   };
 }
 
@@ -491,6 +506,7 @@ async function saveStructuredCandidate(input: {
           : "reconstructed_for_shadow_only",
       eligibleNominalRiskReward: descriptor.routeSpec.eligibleNominalRiskReward,
       routeSpec: descriptor.routeSpec,
+      routeAttribution: descriptor.routeAttribution,
     },
   });
   await markRtPortfolioMaterializationsDirtyFrom({
@@ -524,6 +540,14 @@ function descriptorForPayload(
       ...descriptor,
       entryPrice: accepted ? acceptedPrice : payload.candle.close,
       entryPriceSource: accepted ? "accepted_rt_trade" : "signal_candle_close",
+      routeAttribution: descriptor.routeAttribution ?? buildRouteAttributionAudit({
+        previousRouteId: payload.auditRouteId ?? null,
+        originalAuditRouteId: payload.auditRouteId ?? null,
+        originalReason: descriptor.signalReason,
+        canonicalRouteId: descriptor.routeId,
+        candidateRouteIds: [descriptor.routeId],
+        reason: "legacy_candidate_descriptor_upgrade",
+      }),
     };
   };
   const status = persistedStatus ?? payload.candidateDescriptorStatus;
@@ -912,6 +936,16 @@ export async function processCurrentEngineAudited(input: {
           candidateReason,
           rawSignal,
           boardSignal,
+          routeAttribution: candidateDescriptor?.routeAttribution ?? (inferredCandidateSignalReason
+            ? buildRouteAttributionAudit({
+                previousRouteId: routeId,
+                originalAuditRouteId: routeId,
+                originalReason: inferredCandidateSignalReason,
+                canonicalRouteId: candidateDescriptor?.routeId ?? `${input.candle.symbol}:${inferredCandidateSide ?? "unknown"}:unclassified`,
+                candidateRouteIds: candidateDescriptor ? [candidateDescriptor.routeId] : [],
+                reason: "runtime_audit_route_resolution",
+              })
+            : null),
           marketContextError,
           stateCoverage: stateAfter.coverage,
           availabilityTimeline,

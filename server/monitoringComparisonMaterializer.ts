@@ -24,6 +24,7 @@ import {
   type MonitoringComparisonSignal,
   type MonitoringComparisonSourceEvent,
 } from "./monitoringComparisonContract";
+import { collectRouteAttributionMappingVersions } from "./kioxiaRouteAttribution";
 
 export const MONITORING_COMPARISON_COMPONENT = "monitoring_comparison_285a";
 export const MONITORING_COMPARISON_MATERIALIZATION_VERSION =
@@ -306,6 +307,7 @@ export function buildMonitoringComparisonForDateData(input: {
       entryContract: MONITORING_COMPARISON_CONTRACT,
       existingCurrentAndShadowExecutionChanged: false,
       pnlComparisonStatus: "not_started_until_entry_contract_is_accepted",
+      routeAttributionMappingVersions: collectRouteAttributionMappingVersions(input.candidates),
     },
     summary: {
       signals: entries.length,

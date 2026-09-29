@@ -145,6 +145,7 @@ describe("285A monitoring comparison materializer", () => {
     expect(result.scope).toMatchObject({
       existingCurrentAndShadowExecutionChanged: false,
       pnlComparisonStatus: "not_started_until_entry_contract_is_accepted",
+      routeAttributionMappingVersions: [],
     });
   });
 

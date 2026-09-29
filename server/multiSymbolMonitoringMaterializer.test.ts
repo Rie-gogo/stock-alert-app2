@@ -91,6 +91,19 @@ describe("10-symbol daily monitoring snapshot", () => {
     expect(result.ready).toBe(true);
   });
 
+  it("候補に保存されたroute mapping versionをsnapshot scopeへ残す", () => {
+    const result = buildMultiSymbolMonitoringDailySnapshot({
+      tradeDate: "2026-09-25",
+      candidates: [{
+        ...candidate(1, "285A", "accepted"),
+        inputJson: { routeAttribution: { mappingVersion: "candidate-route-attribution-v2" } },
+      }],
+      candidateTrades: [currentTrade(1, "285A", 100)],
+      shadowTrades: [],
+    });
+    expect(result.scope.routeAttributionMappingVersions).toEqual(["candidate-route-attribution-v2"]);
+  });
+
   it("未追跡の現行候補や未決済shadowがある日はcompleteにしない", () => {
     const result = buildMultiSymbolMonitoringDailySnapshot({
       tradeDate: "2026-09-25",

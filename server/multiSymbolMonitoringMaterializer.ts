@@ -25,6 +25,7 @@ import {
   TEN_MONITORED_SYMBOLS,
   type MonitoringPlanDefinition,
 } from "./multiSymbolMonitoringRegistry";
+import { collectRouteAttributionMappingVersions } from "./kioxiaRouteAttribution";
 
 export const MULTI_SYMBOL_MONITORING_COMPONENT = "monitoring_trend_10_symbols";
 export const MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION = "monitoring-trend-10-symbols-daily-v1";
@@ -93,6 +94,7 @@ export interface MultiSymbolMonitoringDailySnapshot {
     shadowOutcome: "signal_quality_100_share";
     automaticAdoption: false;
     intradayExecutionChanged: false;
+    routeAttributionMappingVersions: readonly string[];
   };
   ready: boolean;
   incompleteReason: string | null;
@@ -189,6 +191,7 @@ export function buildMultiSymbolMonitoringDailySnapshot(input: {
       shadowOutcome: "signal_quality_100_share",
       automaticAdoption: false,
       intradayExecutionChanged: false,
+      routeAttributionMappingVersions: collectRouteAttributionMappingVersions(input.candidates),
     },
     ready,
     incompleteReason: ready ? null : `open_trades=${openTrades},missing_current_trades=${missingTrades}`,

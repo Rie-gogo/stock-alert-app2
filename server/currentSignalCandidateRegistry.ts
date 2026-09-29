@@ -202,8 +202,15 @@ export function resolveCurrentRouteSpec(input: {
 
 export function parseMarginCandidateReason(reason: string | null | undefined): string | null {
   if (!reason) return null;
-  const match = reason.match(/\(([\s\S]+)\)\s*$/);
-  return match?.[1]?.trim() || null;
+  // 一般的なシグナル理由にも「大台確認(2本維持)」等の括弧が含まれる。
+  // それらを証拠金wrapperと誤認して末尾だけを採ると、先頭のroute判定情報を失う。
+  // 既知のmargin wrapperだけを明示的に展開し、それ以外は呼出元が完全reasonを優先する。
+  if (!/^\s*(?:margin_block|証拠金(?:ブロック|不足|使用率制限))(?:\s*[:：]|\s)/i.test(reason)) {
+    return null;
+  }
+  const ascii = reason.match(/\(([\s\S]+)\)\s*$/);
+  const fullWidth = reason.match(/（([\s\S]+)）\s*$/);
+  return ascii?.[1]?.trim() || fullWidth?.[1]?.trim() || null;
 }
 
 export function parseRequiredMarginFromReason(reason: string | null | undefined): number | null {

@@ -28,6 +28,23 @@ describe("現行10銘柄candidate routeレジストリ", () => {
     expect(parseRequiredMarginFromReason(reason)).toBe(4_000_000);
   });
 
+  it.each([
+    "大台確認(2本維持): 大台割れ (54900円割り込み)｜[信頼度：強] (押し目なし・強トレンド)",
+    "大台割れ (54400円割り込み)｜[信頼度：中] (即エントリー: 前足近接)",
+    "大台割れ (54400円割り込み)｜[信頼度：強] (即エントリー: vol)",
+  ])("既知の証拠金wrapperだけを展開し、完全reason %s を安全CB SHORTへ残す", complete => {
+    expect(parseMarginCandidateReason(complete)).toBeNull();
+    expect(parseMarginCandidateReason(`証拠金使用率制限: 使用中0円 + 候補5490000円 > 上限8910000円 (${complete})`))
+      .toBe(complete);
+    expect(parseMarginCandidateReason(`margin_block：（${complete}）`)).toBe(complete);
+    expect(resolveCurrentRouteSpec({
+      symbol: "285A",
+      side: "short",
+      reason: complete,
+      entryCandleTime: "10:00",
+    }).routeId).toBe("kioxiaSafeCbShort");
+  });
+
   it("固定済みaudit routeから日本語理由に依存せずsideを復元し、別銘柄への誤用を拒否する", () => {
     expect(resolveCandidateSideFromAuditRoute({
       symbol: "6146",

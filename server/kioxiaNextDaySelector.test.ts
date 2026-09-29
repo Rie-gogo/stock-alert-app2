@@ -55,5 +55,7 @@ describe("285A selector fire-rate posterior", () => {
     expect(score.signalDays).toBe(1);
     expect(score.posteriorFireRate).toBeCloseTo(2 / 22, 8);
     expect(score.expectedDailyR).toBeLessThan(score.regimePosteriorR);
+    expect(score.selectable).toBe(false);
+    expect(score.exclusionReasons).toContain("fewer_than_10_completed_trades");
   });
 });

@@ -40,6 +40,8 @@ export const KIOXIA_SELECTOR_CONFIG = Object.freeze({
     disallowedValueSources: ["buffer_reuse", "rest_fallback", "unknown"],
   },
   scoring: {
+    minimumCompleteFeatureDays: 20,
+    minimumCompletedTradesPerRoute: 10,
     posteriorFireRate: "(signalDays + 1) / (eligibleObservedDays + 2)",
     globalShrinkageK: 20,
     routeShrinkageK: 10,
@@ -278,6 +280,8 @@ export function scoreKioxiaSelectorRoute(input: { spec: PlanSpec; history: Array
   const adverseExpectedDailyR = fireRate * adversePosterior;
   const confidence = allTrades.length === 0 ? "insufficient" : allTrades.length < 10 ? "reference_low_confidence" : observed.length >= 20 ? "review_candidate" : "reference_low_confidence";
   const exclusionReasons = [
+    ...(observed.length < 20 ? ["fewer_than_20_complete_feature_days"] : []),
+    ...(allTrades.length < 10 ? ["fewer_than_10_completed_trades"] : []),
     ...(allTrades.length === 0 ? ["no_completed_trade"] : []),
     ...(expectedDailyR <= 0 ? ["non_positive_expected_daily_r"] : []),
     ...(adverseExpectedDailyR <= 0 ? ["non_positive_adverse_expected_daily_r"] : []),

@@ -1933,6 +1933,19 @@ export async function getRtForwardShadowTradesForEntryDate(
   )).orderBy(rtForwardShadowTrades.strategyVersion, rtForwardShadowTrades.id);
 }
 
+/** 閉場後の監視snapshotが、891万円制約modeをsignal-qualityと混ぜずに読むための限定取得。 */
+export async function getRtForwardShadowTradesForEntryDateAndMode(input: {
+  entryTradeDate: string;
+  evaluationMode: RtForwardShadowTrade["evaluationMode"];
+}): Promise<RtForwardShadowTrade[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(rtForwardShadowTrades).where(and(
+    eq(rtForwardShadowTrades.entryTradeDate, input.entryTradeDate),
+    eq(rtForwardShadowTrades.evaluationMode, input.evaluationMode),
+  )).orderBy(rtForwardShadowTrades.strategyVersion, rtForwardShadowTrades.id);
+}
+
 // ============================================================
 // 現行実時・固定版再生・因果性・共有資金 監査 helpers
 // ============================================================

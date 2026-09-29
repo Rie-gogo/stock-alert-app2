@@ -40,6 +40,29 @@ const rtSignalCandidateLedgerInput = z.object({
     .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください"),
 });
 
+/** Optional, audit-only relay provenance. Old Windows payloads remain valid. */
+const relayCandleProvenanceInput = z.object({
+  relayVersion: z.string().max(128).optional(),
+  relaySourceTreeHash: z.string().max(128).optional(),
+  rawCandleTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  barStartJst: z.string().max(32).optional(),
+  barEndJst: z.string().max(32).optional(),
+  valueSource: z.enum(["ws_aggregated", "buffer_reuse", "rest_fallback", "unknown"]).optional(),
+  tickCount: z.number().int().nonnegative().nullable().optional(),
+  firstTickAtMs: z.number().int().nonnegative().nullable().optional(),
+  lastTickAtMs: z.number().int().nonnegative().nullable().optional(),
+  fallbackReason: z.string().max(512).nullable().optional(),
+  isNoTrade: z.union([z.boolean(), z.literal("unknown")]).optional(),
+  clockHealth: z.object({
+    timezone: z.enum(["JST", "unknown"]).optional(),
+    ntpOffsetMs: z.number().finite().nullable().optional(),
+    monotonicAnomaly: z.boolean().optional(),
+    websocketConnected: z.boolean().nullable().optional(),
+    websocketLastReceivedAtMs: z.number().int().nonnegative().nullable().optional(),
+  }).optional(),
+  relayAssembledAtMs: z.number().int().nonnegative().nullable().optional(),
+}).optional();
+
 export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
@@ -113,6 +136,21 @@ export const tradingRouter = router({
           code: "INTERNAL_SERVER_ERROR",
           message: "285A route別の保存済み比較を取得できませんでした",
         });
+      }
+    }),
+
+  /** 285A翌日選択器の閉場後固定snapshot。売買・自動採用・注文接続は行わない。 */
+  getKioxiaNextDaySelector: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getKioxiaNextDaySelectorDashboard } = await import("../kioxiaNextDaySelector");
+        return await getKioxiaNextDaySelectorDashboard(input.asOfDate);
+      } catch {
+        console.error("[KioxiaNextDaySelector] snapshot read failed");
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "285A翌日選択器snapshotを取得できませんでした" });
       }
     }),
 
@@ -970,6 +1008,7 @@ export const tradingRouter = router({
         relayReceivedAtMs: z.number().int().nonnegative().optional(),
         relaySentAtMs: z.number().int().nonnegative().optional(),
         correctedEventId: z.string().min(1).max(128).optional(),
+        provenance: relayCandleProvenanceInput,
       })
     )
     .mutation(async ({ input }) => {
@@ -1001,6 +1040,7 @@ export const tradingRouter = router({
         relayReceivedAtMs: z.number().int().nonnegative().optional(),
         relaySentAtMs: z.number().int().nonnegative().optional(),
         correctedEventId: z.string().min(1).max(128).optional(),
+        provenance: relayCandleProvenanceInput,
         // 板情報データ（オプション：取得できなかった場合はnull）
         board: z
           .object({

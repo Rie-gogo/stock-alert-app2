@@ -36,6 +36,7 @@ import SignalCandidateLedgerSection from "@/components/SignalCandidateLedgerSect
 import PausedCurrentRouteShadowSection from "@/components/PausedCurrentRouteShadowSection";
 import MultiSymbolMonitoringTrendSection from "@/components/MultiSymbolMonitoringTrendSection";
 import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComparisonSection";
+import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSection";
 import {
   Table,
   TableBody,
@@ -488,6 +489,9 @@ export default function RealtimeTradingLog() {
 
         {/* ===== 285A route別の保存済み比較。日中のraw再集計は行わない ===== */}
         <KioxiaNormalizedComparisonSection asOfDate={selectedDate} />
+
+        {/* ===== 285Aの翌日選択器。閉場後に固定した監視snapshotだけを表示 ===== */}
+        <KioxiaNextDaySelectorSection asOfDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

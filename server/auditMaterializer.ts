@@ -42,6 +42,16 @@ import {
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
   materializeMultiSymbolMonitoringForDate,
 } from "./multiSymbolMonitoringMaterializer";
+import {
+  KIOXIA_MANIFEST_V2_COMPONENT,
+  KIOXIA_MANIFEST_V2_VERSION,
+  KIOXIA_SELECTOR_RESULT_COMPONENT,
+  KIOXIA_SELECTOR_SNAPSHOT_COMPONENT,
+  KIOXIA_SELECTOR_VERSION,
+  materializeKioxiaManifestV2ForDate,
+  materializeKioxiaNextDaySelectorForSourceDate,
+  materializeKioxiaNextDaySelectorResultForDate,
+} from "./kioxiaNextDaySelector";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -347,6 +357,47 @@ async function materializeNextAuditComponentUnlocked(
       generatedAt: result.ready ? new Date() : null,
     });
     return { status: "processing" as const, component: MULTI_SYMBOL_MONITORING_COMPONENT, result };
+  }
+
+  // 285A selector is strictly downstream of all existing audit components. It only
+  // writes immutable monitoring snapshots and never calls the engine, queues, or orders.
+  const manifest = await getRtDailyAuditMaterialization({
+    component: KIOXIA_MANIFEST_V2_COMPONENT,
+    version: KIOXIA_MANIFEST_V2_VERSION,
+    tradeDate,
+  });
+  if (!manifest) {
+    const result = await materializeKioxiaManifestV2ForDate({
+      tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+      watermark: finality.row.watermarkJson,
+    });
+    return { status: "processing" as const, component: KIOXIA_MANIFEST_V2_COMPONENT, result };
+  }
+
+  const selectorResult = await getRtDailyAuditMaterialization({
+    component: KIOXIA_SELECTOR_RESULT_COMPONENT,
+    version: KIOXIA_SELECTOR_VERSION,
+    tradeDate,
+  });
+  if (!selectorResult) {
+    const result = await materializeKioxiaNextDaySelectorResultForDate({
+      tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+    });
+    return { status: "processing" as const, component: KIOXIA_SELECTOR_RESULT_COMPONENT, result };
+  }
+
+  const selectorSnapshot = await materializeKioxiaNextDaySelectorForSourceDate({
+    sourceTradeDate: tradeDate,
+    sourceDecisionCount,
+    processedThroughEngineSequence: processedThrough,
+  });
+  if (selectorSnapshot.created) {
+    const result = selectorSnapshot;
+    return { status: "processing" as const, component: KIOXIA_SELECTOR_SNAPSHOT_COMPONENT, result };
   }
 
   return {

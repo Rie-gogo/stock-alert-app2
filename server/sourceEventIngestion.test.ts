@@ -109,6 +109,18 @@ describe("受信イベントの一度きり処理", () => {
     expect(result.sourceEventDuplicate).toBe(false);
   });
 
+  it("optional provenance is persisted for audit without changing the live candle passed to the engine", async () => {
+    dbMock.claimRtSourceEvent.mockResolvedValue(true);
+    await ingestSourceCandle({
+      ...input,
+      provenance: { valueSource: "ws_aggregated", rawCandleTime: "10:00", barStartJst: "2026-09-03T10:00:00+09:00" },
+    });
+    expect(dbMock.claimRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payloadJson: expect.objectContaining({ provenance: expect.objectContaining({ valueSource: "ws_aggregated" }) }),
+    }));
+    expect(processCandleMock).toHaveBeenCalledWith(expect.not.objectContaining({ provenance: expect.anything() }), expect.anything());
+  });
+
   it("同じイベントIDの再送は現行エンジンを再実行せず、candidateは独立workerに任せてシャドーerrorだけを冪等再試行する", async () => {
     dbMock.claimRtSourceEvent.mockResolvedValue(false);
     dbMock.getRtSourceEvent.mockResolvedValue({ status: "processed", payloadHash: "a".repeat(64), resultJson: { action: "entry" } });

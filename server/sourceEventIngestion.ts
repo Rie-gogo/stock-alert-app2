@@ -14,6 +14,7 @@ import { scheduleCurrentCandidateVirtualDrain } from "./currentCandidateVirtualS
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
 import { parseBoardObservedAtMs, processCurrentEngineAudited } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
+import { parseRelayCandleProvenance, type RelayCandleProvenance } from "./relayProvenance";
 
 export interface SourceEventMetadata {
   sourceEventId?: string;
@@ -23,6 +24,8 @@ export interface SourceEventMetadata {
   relayReceivedAtMs?: number;
   relaySentAtMs?: number;
   correctedEventId?: string;
+  /** Optional relay-side provenance. It is persisted but never changes the live engine input. */
+  provenance?: RelayCandleProvenance | null;
 }
 
 export interface IngestCandleInput extends RtCandle1Min, SourceEventMetadata {
@@ -32,6 +35,7 @@ export interface IngestCandleInput extends RtCandle1Min, SourceEventMetadata {
 const SOURCE_EVENT_LEASE_MS = 60_000;
 
 function normalizeMetadata(input: IngestCandleInput) {
+  const provenance = parseRelayCandleProvenance(input.provenance);
   const canonicalPayload = {
     symbol: input.symbol,
     tradeDate: input.tradeDate,
@@ -42,6 +46,7 @@ function normalizeMetadata(input: IngestCandleInput) {
     close: input.close,
     volume: input.volume,
     board: input.board ?? null,
+    ...(provenance ? { provenance } : {}),
   };
   const serverPayloadHash = sha256Stable(canonicalPayload);
   const relaySessionId = input.relaySessionId ?? "server-derived-legacy";

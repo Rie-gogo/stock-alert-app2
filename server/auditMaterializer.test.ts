@@ -53,6 +53,11 @@ const multiSymbolMonitoringMock = vi.hoisted(() => ({
     summary: { plans: 33, signals: 10, completedTrades: 10, openTrades: 0, missingTrades: 0 },
   })),
 }));
+const selectorMock = vi.hoisted(() => ({
+  materializeKioxiaManifestV2ForDate: vi.fn(async () => ({ created: false, result: {} })),
+  materializeKioxiaNextDaySelectorResultForDate: vi.fn(async () => ({ created: false, result: {} })),
+  materializeKioxiaNextDaySelectorForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
+}));
 
 vi.mock("./db", () => dbMock);
 vi.mock("./portfolioAudit", () => ({
@@ -85,6 +90,16 @@ vi.mock("./multiSymbolMonitoringMaterializer", () => ({
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION: "monitoring-trend-10-symbols-daily-v1",
   materializeMultiSymbolMonitoringForDate: multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate,
 }));
+vi.mock("./kioxiaNextDaySelector", () => ({
+  KIOXIA_MANIFEST_V2_COMPONENT: "kioxia_manifest_v2",
+  KIOXIA_MANIFEST_V2_VERSION: "285a-session-manifest-v2",
+  KIOXIA_SELECTOR_RESULT_COMPONENT: "kioxia_next_day_selector_result",
+  KIOXIA_SELECTOR_SNAPSHOT_COMPONENT: "kioxia_next_day_selector",
+  KIOXIA_SELECTOR_VERSION: "285a-next-day-selector-v1",
+  materializeKioxiaManifestV2ForDate: selectorMock.materializeKioxiaManifestV2ForDate,
+  materializeKioxiaNextDaySelectorResultForDate: selectorMock.materializeKioxiaNextDaySelectorResultForDate,
+  materializeKioxiaNextDaySelectorForSourceDate: selectorMock.materializeKioxiaNextDaySelectorForSourceDate,
+}));
 
 import {
   DIVERGENCE_MATERIALIZATION_COMPONENT,
@@ -111,6 +126,12 @@ import {
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
 } from "./multiSymbolMonitoringMaterializer";
+import {
+  KIOXIA_MANIFEST_V2_COMPONENT,
+  KIOXIA_MANIFEST_V2_VERSION,
+  KIOXIA_SELECTOR_RESULT_COMPONENT,
+  KIOXIA_SELECTOR_VERSION,
+} from "./kioxiaNextDaySelector";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -226,6 +247,8 @@ describe("P0 audit materializer", () => {
       if (component === MULTI_SYMBOL_MONITORING_COMPONENT) return snapshot(component, MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION);
       if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
       if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
+      if (component === KIOXIA_MANIFEST_V2_COMPONENT) return snapshot(component, KIOXIA_MANIFEST_V2_VERSION);
+      if (component === KIOXIA_SELECTOR_RESULT_COMPONENT) return snapshot(component, KIOXIA_SELECTOR_VERSION);
       return null;
     });
     const result = await materializeNextAuditComponentForDate("2026-09-07", {
@@ -237,6 +260,9 @@ describe("P0 audit materializer", () => {
     expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
     expect(outcomeMock.buildDivergenceHypotheses).not.toHaveBeenCalled();
+    expect(selectorMock.materializeKioxiaManifestV2ForDate).not.toHaveBeenCalled();
+    expect(selectorMock.materializeKioxiaNextDaySelectorResultForDate).not.toHaveBeenCalled();
+    expect(selectorMock.materializeKioxiaNextDaySelectorForSourceDate).toHaveBeenCalledTimes(1);
   });
 
   it("既存の全監査完了後にだけ10銘柄の日次snapshotを追加し、日中経路は呼ばない", async () => {

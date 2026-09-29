@@ -73,6 +73,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import socket
+import os
 import threading
 import time
 import uuid
@@ -85,6 +86,11 @@ from datetime import datetime, timezone, timedelta
 KABU_API_PORT = 18080
 KABU_API_BASE = "http://localhost:" + str(KABU_API_PORT) + "/kabusapi"
 KABU_API_PASSWORD = "1MabqUug47"
+
+# v5.10 provenance extension. Set STOCK_ALERT_RELAY_SOURCE_TREE_HASH on the
+# Windows host after verifying the deployed file; never fabricate this value.
+RELAY_VERSION = "kabu-board-relay-v5.10-provenance"
+RELAY_SOURCE_TREE_HASH = os.environ.get("STOCK_ALERT_RELAY_SOURCE_TREE_HASH", "unavailable")
 
 WATCH_SYMBOLS = [
     {"Symbol": "6526", "Exchange": 1},
@@ -265,6 +271,7 @@ ws_msg_count = 0       # WS受信メッセージ数（1分ごとリセット）
 ws_msg_count_lock = threading.Lock()
 fallback_count = 0     # RESTフォールバック回数（1分ごとリセット）
 ws_accum_used_count = 0  # WS蓄積データ使用回数（1分ごとリセット）
+ws_last_received_at_ms = None
 
 # ★v5.7: 自動復旧用
 consecutive_zero_accum = 0  # WS蓄積使用=0の連続回数
@@ -349,6 +356,45 @@ def current_minute_jst():
 def is_market_open():
     t = current_minute_jst()
     return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
+
+
+def candle_provenance(candle_time, value_source, tick_count=None,
+                      first_tick_at_ms=None, last_tick_at_ms=None,
+                      fallback_reason=None):
+    """監査専用の生成元記録。OHLC/送信周期/シグナル判断は変更しない。"""
+    assembled_at_ms = int(time.time() * 1000)
+    try:
+        start = datetime.strptime(today_jst_str() + " " + candle_time, "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+        end = start + timedelta(minutes=1)
+        bar_start = start.isoformat()
+        bar_end = end.isoformat()
+    except Exception:
+        bar_start = None
+        bar_end = None
+    with ws_connected_lock:
+        connected = ws_connected
+    return {
+        "relayVersion": RELAY_VERSION,
+        "relaySourceTreeHash": RELAY_SOURCE_TREE_HASH,
+        "rawCandleTime": candle_time,
+        "barStartJst": bar_start,
+        "barEndJst": bar_end,
+        "valueSource": value_source,
+        "tickCount": tick_count,
+        "firstTickAtMs": first_tick_at_ms,
+        "lastTickAtMs": last_tick_at_ms,
+        "fallbackReason": fallback_reason,
+        # REST/buffer values must never be represented as a proven no-trade minute.
+        "isNoTrade": False if value_source == "ws_aggregated" else "unknown",
+        "clockHealth": {
+            "timezone": "JST",
+            "ntpOffsetMs": None,
+            "monotonicAnomaly": False,
+            "websocketConnected": connected,
+            "websocketLastReceivedAtMs": ws_last_received_at_ms,
+        },
+        "relayAssembledAtMs": assembled_at_ms,
+    }
 
 
 # ★v5.7: 翌朝08:44までの待機秒数を計算
@@ -789,10 +835,12 @@ def update_candle_accum(symbol, price, trading_volume=0):
     
     with accum_lock:
         if symbol not in candle_accum:
+            tick_at_ms = int(time.time() * 1000)
             candle_accum[symbol] = {
                 "open": price, "high": price, "low": price,
                 "close": price, "volume": 0, "minute": current_minute,
                 "last_trading_volume": trading_volume,
+                "tick_count": 1, "first_tick_at_ms": tick_at_ms, "last_tick_at_ms": tick_at_ms,
             }
             return
         
@@ -815,18 +863,25 @@ def update_candle_accum(symbol, price, trading_volume=0):
                 "close":  accum["close"],
                 "volume": accum["volume"],
                 "minute": accum["minute"],
+                "tick_count": accum.get("tick_count", 0),
+                "first_tick_at_ms": accum.get("first_tick_at_ms"),
+                "last_tick_at_ms": accum.get("last_tick_at_ms"),
             }
+            tick_at_ms = int(time.time() * 1000)
             # 新しい分を開始
             candle_accum[symbol] = {
                 "open": price, "high": price, "low": price,
                 "close": price, "volume": 0, "minute": current_minute,
                 "last_trading_volume": trading_volume,
+                "tick_count": 1, "first_tick_at_ms": tick_at_ms, "last_tick_at_ms": tick_at_ms,
             }
         else:
             # 同じ分内: OHLCを更新
             accum["high"]  = max(accum["high"], price)
             accum["low"]   = min(accum["low"], price)
             accum["close"] = price
+            accum["tick_count"] = accum.get("tick_count", 0) + 1
+            accum["last_tick_at_ms"] = int(time.time() * 1000)
 
 
 # ============================================================
@@ -954,6 +1009,10 @@ def candle_polling_loop():
                         "close":  prev_accum["close"],
                         "volume": prev_accum["volume"],
                     }
+                    candle["provenance"] = candle_provenance(
+                        prev_minute, "ws_aggregated", prev_accum.get("tick_count"),
+                        prev_accum.get("first_tick_at_ms"), prev_accum.get("last_tick_at_ms"),
+                    )
                     board_data = fetch_board_from_api(symbol, token)
                     ws_accum_used_count += 1
                 elif curr_accum and curr_accum.get("minute") == prev_minute:
@@ -968,6 +1027,11 @@ def candle_polling_loop():
                         "close":  curr_accum["close"],
                         "volume": curr_accum["volume"],
                     }
+                    candle["provenance"] = candle_provenance(
+                        prev_minute, "buffer_reuse", curr_accum.get("tick_count"),
+                        curr_accum.get("first_tick_at_ms"), curr_accum.get("last_tick_at_ms"),
+                        "previous_minute_buffer_not_rotated",
+                    )
                     board_data = fetch_board_from_api(symbol, token)
                     ws_accum_used_count += 1
                 else:
@@ -984,6 +1048,9 @@ def candle_polling_loop():
                             "low":  price, "close": price,
                             "volume": estimated_vol,
                         }
+                        candle["provenance"] = candle_provenance(
+                            prev_minute, "rest_fallback", None, None, None, "websocket_minute_buffer_missing",
+                        )
                         board_data = board_raw
                         fallback_count += 1
                     else:
@@ -1015,6 +1082,7 @@ except ImportError:
     logger.warning("websocket-client 未インストール。WebSocket ティック蓄積は無効。")
 
 def on_message(ws, message):
+    global ws_last_received_at_ms
     try:
         raw = json.loads(message)
         symbol = str(raw.get("Symbol", ""))
@@ -1027,6 +1095,7 @@ def on_message(ws, message):
             price = float(price_raw)
             trading_volume = int(raw.get("TradingVolume") or 0)
             if price > 0:
+                ws_last_received_at_ms = int(time.time() * 1000)
                 update_candle_accum(symbol, price, trading_volume)
     except json.JSONDecodeError:
         pass

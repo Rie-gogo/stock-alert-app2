@@ -1,0 +1,9 @@
+{
+  "manifestVersion": "monitoring-comparison-replay-v3",
+  "comparisonGeneration": "monitoring-comparison-strict-next-depth-v1",
+  "priceConvention": "strict-next-same-symbol-causal-100-share-depth-vwap-entry-and-exit",
+  "files": {
+    "input.json": "f07a905f5640942aba77d5eaf3f3b0a268df150ee7d16324265a9a9689635efb",
+    "expected.json": "60c6d4cf8141401a857ed27f338a023ed0a7ce814cc8a257780fce873ce83d8a"
+  }
+}

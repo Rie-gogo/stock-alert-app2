@@ -46,6 +46,8 @@ export interface MonitoringComparisonSourceEvent extends ForwardSourceEventInput
 }
 
 export type MonitoringComparisonUnfillableReason =
+  | "signal_source_event_missing"
+  | "no_later_same_symbol_source_event"
   | "missing_engine_sequence"
   | "trade_date_mismatch"
   | "source_event_arrived_before_signal_decision_completed"
@@ -64,7 +66,7 @@ export type MonitoringComparisonEntryResolution =
   | {
       status: "unfillable";
       reason: MonitoringComparisonUnfillableReason;
-      entrySourceEventId: string;
+      entrySourceEventId: string | null;
       entryEngineSequence: number | null;
       boardAgeMs: number | null;
     }
@@ -75,6 +77,31 @@ export type MonitoringComparisonEntryResolution =
       entryTime: string;
       entryPrice: number;
       priceSource: "ask_depth_vwap_100" | "bid_depth_vwap_100";
+      shares: 100;
+      availableShares: number;
+      levelsUsed: number;
+      boardAgeMs: number;
+    };
+
+/**
+ * 出口意図の次eventを、入口と同じ因果・鮮度規約で100株約定可能価格へ正規化する。
+ * LONGの出口はbid、SHORTの買戻しはaskを使うため、入口側のsideを反転して解決する。
+ */
+export type MonitoringComparisonExitResolution =
+  | {
+      status: "unfillable";
+      reason: MonitoringComparisonUnfillableReason | "exit_intent_source_missing" | "no_later_same_symbol_source_event";
+      exitSourceEventId: string | null;
+      exitEngineSequence: number | null;
+      boardAgeMs: number | null;
+    }
+  | {
+      status: "filled";
+      exitSourceEventId: string;
+      exitEngineSequence: number;
+      exitTime: string;
+      exitPrice: number;
+      priceSource: "bid_depth_vwap_100" | "ask_depth_vwap_100";
       shares: 100;
       availableShares: number;
       levelsUsed: number;
@@ -174,6 +201,48 @@ export function resolveMonitoringComparisonEntry(
     availableShares: depth.availableShares,
     levelsUsed: depth.levelsUsed,
     boardAgeMs: age.boardAgeMs,
+  };
+}
+
+export function resolveMonitoringComparisonExit(
+  exitIntent: MonitoringComparisonSignal,
+  originalPositionSide: MonitoringComparisonSide,
+  event: MonitoringComparisonSourceEvent,
+): MonitoringComparisonExitResolution {
+  const liquidationSide: MonitoringComparisonSide = originalPositionSide === "long" ? "short" : "long";
+  const resolution = resolveMonitoringComparisonEntry({
+    ...exitIntent,
+    side: liquidationSide,
+  }, event);
+  if (resolution.status === "waiting") {
+    return {
+      status: "unfillable",
+      reason: "no_later_same_symbol_source_event",
+      exitSourceEventId: null,
+      exitEngineSequence: null,
+      boardAgeMs: null,
+    };
+  }
+  if (resolution.status === "unfillable") {
+    return {
+      status: "unfillable",
+      reason: resolution.reason,
+      exitSourceEventId: resolution.entrySourceEventId,
+      exitEngineSequence: resolution.entryEngineSequence,
+      boardAgeMs: resolution.boardAgeMs,
+    };
+  }
+  return {
+    status: "filled",
+    exitSourceEventId: resolution.entrySourceEventId,
+    exitEngineSequence: resolution.entryEngineSequence,
+    exitTime: resolution.entryTime,
+    exitPrice: resolution.entryPrice,
+    priceSource: resolution.priceSource,
+    shares: resolution.shares,
+    availableShares: resolution.availableShares,
+    levelsUsed: resolution.levelsUsed,
+    boardAgeMs: resolution.boardAgeMs,
   };
 }
 

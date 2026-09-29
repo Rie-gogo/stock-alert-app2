@@ -98,6 +98,24 @@ export const tradingRouter = router({
       }
     }),
 
+  /** 285Aのroute別A/B/C比較。閉場後に保存されたsnapshotだけを読む。 */
+  getKioxiaNormalizedComparisonTrend: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getKioxiaNormalizedComparisonTrend } = await import("../monitoringComparisonNormalizedTrend");
+        return await getKioxiaNormalizedComparisonTrend(input.asOfDate);
+      } catch {
+        console.error("[KioxiaNormalizedComparisonTrend] snapshot read failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "285A route別の保存済み比較を取得できませんでした",
+        });
+      }
+    }),
+
   /** 閉場後snapshotだけを読む、現行10銘柄・全シャドーの最近傾向。 */
   getMultiSymbolMonitoringTrend: protectedProcedure
     .input(z.object({ asOfDate: z.string()

@@ -1,0 +1,34 @@
+{
+  "datasetId": "285a-route-normalized-entry-exit-v1",
+  "results": [
+    {
+      "id": "short-entry-exit",
+      "strategyVersion": "candidate-285a-atr-routes-v1",
+      "routeId": "safe_cb_short",
+      "entry": {
+        "status": "filled",
+        "entrySourceEventId": "s-101",
+        "entryEngineSequence": 101,
+        "entryTime": "09:46",
+        "entryPrice": 1001,
+        "priceSource": "bid_depth_vwap_100",
+        "shares": 100,
+        "availableShares": 100,
+        "levelsUsed": 1,
+        "boardAgeMs": 300
+      },
+      "exit": {
+        "status": "filled",
+        "exitSourceEventId": "s-103",
+        "exitEngineSequence": 103,
+        "exitTime": "09:48",
+        "exitPrice": 1002,
+        "priceSource": "ask_depth_vwap_100",
+        "shares": 100,
+        "availableShares": 100,
+        "levelsUsed": 1,
+        "boardAgeMs": 300
+      }
+    }
+  ]
+}

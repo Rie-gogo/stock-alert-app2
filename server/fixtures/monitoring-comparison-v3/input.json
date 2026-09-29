@@ -1,0 +1,52 @@
+{
+  "datasetId": "285a-route-normalized-entry-exit-v1",
+  "manifestVersion": "monitoring-comparison-replay-v3",
+  "rows": [
+    {
+      "id": "short-entry-exit",
+      "strategyVersion": "candidate-285a-atr-routes-v1",
+      "routeId": "safe_cb_short",
+      "side": "short",
+      "entryIntent": {
+        "comparisonGeneration": "monitoring-comparison-strict-next-depth-v1",
+        "strategyVersion": "candidate-285a-atr-routes-v1",
+        "routeId": "safe_cb_short",
+        "symbol": "285A",
+        "side": "short",
+        "signalSourceEventId": "s-100",
+        "signalEngineSequence": 100,
+        "signalTradeDate": "2026-09-25",
+        "signalTime": "09:45",
+        "theoreticalSignalPrice": 1000,
+        "signalDecisionCompletedAtMs": 100400,
+        "signalBoardObservedAtMs": 100000
+      },
+      "entryBoardEvent": {
+        "sourceEventId": "s-101",
+        "candle": { "symbol": "285A", "tradeDate": "2026-09-25", "candleTime": "09:46", "open": 1000, "high": 1002, "low": 999, "close": 1001, "volume": 1000 },
+        "board": { "asks": [{ "price": 1003, "qty": 100 }], "bids": [{ "price": 1001, "qty": 100 }] },
+        "currentAudit": { "engineSequence": 101, "resultType": "none", "routeId": null, "marginUsedBefore": 0, "marginUsedAfter": 0, "stateHashBefore": "a", "stateHashAfter": "b", "causalityStatus": "pass", "causalityReason": "available_before_decision", "boardObservedAtMs": 101000, "relayAssembledAtMs": 101100, "relaySentAtMs": 101200, "cloudReceivedAtMs": 101300, "decisionStartedAtMs": 101350, "decisionCompletedAtMs": 101400 }
+      },
+      "exitIntent": {
+        "comparisonGeneration": "monitoring-comparison-strict-next-depth-v1",
+        "strategyVersion": "candidate-285a-atr-routes-v1",
+        "routeId": "safe_cb_short",
+        "symbol": "285A",
+        "side": "short",
+        "signalSourceEventId": "s-102",
+        "signalEngineSequence": 102,
+        "signalTradeDate": "2026-09-25",
+        "signalTime": "09:47",
+        "theoreticalSignalPrice": 1001,
+        "signalDecisionCompletedAtMs": 102400,
+        "signalBoardObservedAtMs": 102000
+      },
+      "exitBoardEvent": {
+        "sourceEventId": "s-103",
+        "candle": { "symbol": "285A", "tradeDate": "2026-09-25", "candleTime": "09:48", "open": 1001, "high": 1004, "low": 1000, "close": 1002, "volume": 1000 },
+        "board": { "asks": [{ "price": 1002, "qty": 100 }], "bids": [{ "price": 1000, "qty": 100 }] },
+        "currentAudit": { "engineSequence": 103, "resultType": "none", "routeId": null, "marginUsedBefore": 0, "marginUsedAfter": 0, "stateHashBefore": "b", "stateHashAfter": "c", "causalityStatus": "pass", "causalityReason": "available_before_decision", "boardObservedAtMs": 103000, "relayAssembledAtMs": 103100, "relaySentAtMs": 103200, "cloudReceivedAtMs": 103300, "decisionStartedAtMs": 103350, "decisionCompletedAtMs": 103400 }
+      }
+    }
+  ]
+}

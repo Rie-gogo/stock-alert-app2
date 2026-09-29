@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import SignalCandidateLedgerSection from "@/components/SignalCandidateLedgerSection";
 import PausedCurrentRouteShadowSection from "@/components/PausedCurrentRouteShadowSection";
 import MultiSymbolMonitoringTrendSection from "@/components/MultiSymbolMonitoringTrendSection";
+import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComparisonSection";
 import {
   Table,
   TableBody,
@@ -121,6 +122,7 @@ export default function RealtimeTradingLog() {
       utils.trading.getRtDailySummaries.invalidate(),
       utils.trading.getRtSignalCandidateLedger.invalidate({ tradeDate: selectedDate }),
       utils.trading.getMultiSymbolMonitoringTrend.invalidate({ asOfDate: selectedDate }),
+      utils.trading.getKioxiaNormalizedComparisonTrend.invalidate({ asOfDate: selectedDate }),
     ]);
     setLastRefreshed(new Date());
   }, [utils, selectedDate]);
@@ -483,6 +485,9 @@ export default function RealtimeTradingLog() {
 
         {/* ===== 閉場後snapshotによる10銘柄の最近傾向 ===== */}
         <MultiSymbolMonitoringTrendSection asOfDate={selectedDate} />
+
+        {/* ===== 285A route別の保存済み比較。日中のraw再集計は行わない ===== */}
+        <KioxiaNormalizedComparisonSection asOfDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

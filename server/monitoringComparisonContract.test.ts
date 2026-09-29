@@ -5,6 +5,7 @@ import {
   canUseMonitoringOutcomeLabel,
   classifyMonitoringAttribution,
   resolveMonitoringComparisonEntry,
+  resolveMonitoringComparisonExit,
   type MonitoringComparisonSignal,
   type MonitoringComparisonSourceEvent,
 } from "./monitoringComparisonContract";
@@ -82,6 +83,19 @@ describe("monitoring comparison entry contract v1", () => {
       priceSource: "bid_depth_vwap_100",
       shares: 100,
       levelsUsed: 2,
+    });
+  });
+
+  it("出口も同じstrict-next board規約を使い、LONGはbid・SHORTはaskへ反転する", () => {
+    expect(resolveMonitoringComparisonExit(signal("long"), "long", source())).toMatchObject({
+      status: "filled",
+      exitPrice: 1_000.7,
+      priceSource: "bid_depth_vwap_100",
+    });
+    expect(resolveMonitoringComparisonExit(signal("short"), "short", source())).toMatchObject({
+      status: "filled",
+      exitPrice: 1_003.4,
+      priceSource: "ask_depth_vwap_100",
     });
   });
 

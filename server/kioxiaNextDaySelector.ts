@@ -5,7 +5,8 @@ import { KIOXIA_CONFIRMED_MORNING_LONG_SPEC } from "./kioxiaConfirmedMorningLong
 import { KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS } from "./monitoringComparisonNormalizedTrend";
 import { MONITORING_COMPARISON_COMPONENT, MONITORING_COMPARISON_MATERIALIZATION_VERSION } from "./monitoringComparisonMaterializer";
 import { parseRelayCandleProvenance, type RelayValueSource } from "./relayProvenance";
-import { sha256Stable } from "./runtimeIdentity";
+import { KIOXIA_ATR_FORWARD_STRATEGY_VERSION, KIOXIA_FORWARD_STRATEGY_VERSION, sha256Stable } from "./runtimeIdentity";
+import { buildKioxiaSelectorPerformanceComparison } from "./kioxiaSelectorPerformanceComparison";
 
 export const KIOXIA_MANIFEST_V2_COMPONENT = "kioxia_manifest_v2";
 export const KIOXIA_MANIFEST_V2_VERSION = "285a-session-manifest-v3-selector-correctness";
@@ -316,6 +317,77 @@ function adverseR(entry: Record<string, unknown>) {
   return r === null || sl === null ? null : r - 0.1 / sl;
 }
 
+const KIOXIA_FIXED_PLAN_SPECS = Object.freeze([
+  { key: "plan:current", label: "Current固定運用", matches: (spec: PlanSpec) => spec.origin === "current_baseline" },
+  { key: "plan:a", label: "Plan A固定運用", matches: (spec: PlanSpec) => spec.origin === "forward_shadow" && spec.strategyVersion === KIOXIA_FORWARD_STRATEGY_VERSION },
+  { key: "plan:b", label: "Plan B固定運用", matches: (spec: PlanSpec) => spec.origin === "forward_shadow" && spec.strategyVersion === KIOXIA_ATR_FORWARD_STRATEGY_VERSION },
+]);
+
+function rMetrics(input: { values: number[]; signalCount: number; openTrades: number; marginBlockCount?: number }) {
+  const wins = input.values.filter(value => value > 0);
+  const losses = input.values.filter(value => value < 0);
+  const draws = input.values.filter(value => value === 0);
+  return {
+    signalCount: input.signalCount,
+    openTrades: input.openTrades,
+    completedTrades: input.values.length,
+    wins: wins.length,
+    losses: losses.length,
+    draws: draws.length,
+    totalR: input.values.reduce((sum, value) => sum + value, 0),
+    grossProfitR: wins.reduce((sum, value) => sum + value, 0),
+    grossLossR: Math.abs(losses.reduce((sum, value) => sum + value, 0)),
+    marginBlockCount: input.marginBlockCount ?? 0,
+    outcome: input.values.length ? "observed" : input.signalCount === 0 ? "no_signal" : input.openTrades > 0 ? "open_trade" : "no_completed_trade",
+  };
+}
+
+function signalQualityOutcome(entries: Record<string, unknown>[]) {
+  const signals = entries.filter(entrySignal);
+  const values = signals.filter(completed).map(intrinsicR).filter((value): value is number => value !== null);
+  return rMetrics({
+    values,
+    signalCount: signals.length,
+    openTrades: signals.filter(entry => object(entry.intrinsic).completed !== true).length,
+    marginBlockCount: signals.filter(entry => entry.sourceDisposition === "margin_block").length,
+  });
+}
+
+function capitalConstrainedOutcome(entries: Record<string, unknown>[], capitalByEntry: Map<string, { realizedR: unknown }>) {
+  const currentSignals = entries.filter(entry => entry.origin === "current_baseline" && entry.sourceDisposition === "accepted");
+  const currentValues = currentSignals.filter(completed).map(intrinsicR).filter((value): value is number => value !== null);
+  const shadowSignals = entries.filter(entry => entry.origin === "forward_shadow" && entry.sourceDisposition === "entry");
+  const shadowTrades = shadowSignals.map(entry => capitalByEntry.get(`${String(entry.strategyVersion)}:${String(object(entry.intrinsic).entrySourceEventId ?? entry.signalSourceEventId)}`)).filter((trade): trade is { realizedR: unknown } => Boolean(trade));
+  const shadowValues = shadowTrades.map(trade => finite(trade.realizedR)).filter((value): value is number => value !== null);
+  const outcome = rMetrics({
+    values: [...currentValues, ...shadowValues],
+    signalCount: currentSignals.length + shadowTrades.length,
+    openTrades: currentSignals.filter(entry => object(entry.intrinsic).completed !== true).length + shadowTrades.filter(trade => finite(trade.realizedR) === null).length,
+    marginBlockCount: entries.filter(entry => entry.sourceDisposition === "margin_block").length,
+  });
+  return {
+    mode: "separate_existing_891m_ledger",
+    acceptedOrCapitalTradeCount: outcome.signalCount,
+    ...outcome,
+  };
+}
+
+function fixedOutcome(input: {
+  key: string;
+  label: string;
+  entries: Record<string, unknown>[];
+  capitalByEntry: Map<string, { realizedR: unknown }>;
+  extra?: Record<string, unknown>;
+}) {
+  return {
+    key: input.key,
+    label: input.label,
+    ...input.extra,
+    signalQuality: signalQualityOutcome(input.entries),
+    capitalConstrained: capitalConstrainedOutcome(input.entries, input.capitalByEntry),
+  };
+}
+
 function posterior(values: number[], prior: number, weight: number) {
   const raw = average(values);
   return raw === null ? null : (values.length * raw + weight * prior) / (values.length + weight);
@@ -468,20 +540,58 @@ export async function materializeKioxiaNextDaySelectorResultForDate(input: { tra
   const comparison = await getRtDailyAuditMaterialization({ component: MONITORING_COMPARISON_COMPONENT, version: MONITORING_COMPARISON_MATERIALIZATION_VERSION, tradeDate: input.tradeDate });
   const entries = parseComparisonEntries(comparison ? [comparison] : []);
   const selected: Array<Record<string, unknown> & { tradeDate: string }> = primary.routeId ? entries.filter(entry => planKey(entry as any) === planKey(primary as any)) : [];
-  const closed = selected.filter(completed); const r = closed.map(intrinsicR).filter((value): value is number => value !== null);
-  const signalCount = selected.filter(entrySignal).length;
-  const intrinsicOpenCount = selected.filter(entry => entrySignal(entry) && object(entry.intrinsic).completed !== true).length;
   const capitalForwardTrades = await getRtForwardShadowTradesForEntryDateAndMode({ entryTradeDate: input.tradeDate, evaluationMode: "capital_constrained" });
   const capitalByEntry = new Map(capitalForwardTrades.map(trade => [`${trade.strategyVersion}:${trade.entrySourceEventId}`, trade]));
-  const currentCapital = selected.filter(entry => entry.origin === "current_baseline" && entry.sourceDisposition === "accepted" && completed(entry));
-  const shadowCapital = selected.filter(entry => entry.origin === "forward_shadow" && entry.sourceDisposition === "entry")
-    .map(entry => capitalByEntry.get(`${String(entry.strategyVersion)}:${String(object(entry.intrinsic).entrySourceEventId ?? entry.signalSourceEventId)}`))
-    .filter((trade): trade is NonNullable<typeof trade> => Boolean(trade));
-  const capitalR = [
-    ...currentCapital.map(intrinsicR).filter((value): value is number => value !== null),
-    ...shadowCapital.map(trade => finite(trade.realizedR)).filter((value): value is number => value !== null),
-  ];
-  const result = { selectorVersion: KIOXIA_SELECTOR_VERSION, tradeDate: input.tradeDate, snapshotFound: Boolean(snapshot), selectedRoute: primary.routeId ? primary : null, signalQuality: { signalCount, openTrades: intrinsicOpenCount, completedTrades: r.length, wins: r.filter(x => x > 0).length, losses: r.filter(x => x < 0).length, totalR: r.reduce((a, b) => a + b, 0), outcome: r.length ? "observed" : signalCount === 0 ? "no_signal" : intrinsicOpenCount > 0 ? "open_trade" : "no_completed_trade" }, capitalConstrained: { mode: "separate_existing_891m_ledger", acceptedOrCapitalTradeCount: capitalR.length, marginBlockCount: selected.filter(entry => entry.sourceDisposition === "margin_block").length, completedTrades: capitalR.length, wins: capitalR.filter(x => x > 0).length, losses: capitalR.filter(x => x < 0).length, totalR: capitalR.reduce((a, b) => a + b, 0), outcome: capitalR.length ? "observed" : signalCount === 0 ? "no_signal" : "no_capital_constrained_completion" }, formalPerformanceUse: false, automaticAdoption: false, orderInstructionConnection: false };
+  const selectorOutcome = fixedOutcome({
+    key: primary.routeId ? `selector:${planKey(primary as any)}` : "selector:no_trade",
+    label: primary.label ? `選択器：${String(primary.label)}` : "選択器：no_trade",
+    entries: selected,
+    capitalByEntry,
+    extra: { selectedRoute: primary.routeId ? primary : null },
+  });
+  const fixedRouteOutcomes = KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.map(spec => fixedOutcome({
+    key: planKey(spec),
+    label: spec.label,
+    entries: entries.filter(entry => planKey(entry as any) === planKey(spec)),
+    capitalByEntry,
+    extra: { origin: spec.origin, strategyVersion: spec.strategyVersion, routeId: spec.routeId, side: spec.side },
+  }));
+  const fixedPlanOutcomes = KIOXIA_FIXED_PLAN_SPECS.map(plan => {
+    const specs = KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.filter(plan.matches);
+    const keys = new Set(specs.map(planKey));
+    return fixedOutcome({
+      key: plan.key,
+      label: plan.label,
+      entries: entries.filter(entry => keys.has(planKey(entry as any))),
+      capitalByEntry,
+      extra: { routeCount: specs.length, routeKeys: Array.from(keys) },
+    });
+  });
+  const scores = Array.isArray(selection.scores) ? selection.scores.map(object) : [];
+  const evaluationReady = object(selection.featureSource).eligible === true
+    && scores.some(score => (finite(score.eligibleDays) ?? 0) >= KIOXIA_SELECTOR_CONFIG.scoring.minimumCompleteFeatureDays
+      && (finite(score.completedTrades) ?? 0) >= KIOXIA_SELECTOR_CONFIG.scoring.minimumCompletedTradesPerRoute);
+  const result = {
+    selectorVersion: KIOXIA_SELECTOR_VERSION,
+    tradeDate: input.tradeDate,
+    snapshotFound: Boolean(snapshot),
+    evaluationReady,
+    selectionDecision: {
+      recommendation: selection.recommendation ?? "no_snapshot",
+      noTradeReason: selection.noTradeReason ?? (snapshot ? null : "snapshot_missing"),
+      sourceTradeDate: selection.sourceTradeDate ?? null,
+    },
+    selectedRoute: primary.routeId ? primary : null,
+    selectorOutcome,
+    // Backward-compatible aliases for the existing dashboard.
+    signalQuality: selectorOutcome.signalQuality,
+    capitalConstrained: selectorOutcome.capitalConstrained,
+    fixedRouteOutcomes,
+    fixedPlanOutcomes,
+    formalPerformanceUse: false,
+    automaticAdoption: false,
+    orderInstructionConnection: false,
+  };
   await upsertRtDailyAuditMaterialization({ component: KIOXIA_SELECTOR_RESULT_COMPONENT, version: KIOXIA_SELECTOR_VERSION, tradeDate: input.tradeDate, status: "complete", processedThroughEngineSequence: input.processedThroughEngineSequence, sourceDecisionCount: input.sourceDecisionCount, resultJson: result, lastError: null, generatedAt: new Date() });
   return { created: true, result };
 }
@@ -492,5 +602,16 @@ export async function getKioxiaNextDaySelectorDashboard(asOfDate: string) {
     getRtDailyAuditMaterializationsForRange({ component: KIOXIA_SELECTOR_RESULT_COMPONENT, version: KIOXIA_SELECTOR_VERSION, fromDate: KIOXIA_SELECTOR_START_DATE, toDate: asOfDate }),
     getRtDailyAuditMaterializationsForRange({ component: KIOXIA_MANIFEST_V2_COMPONENT, version: KIOXIA_MANIFEST_V2_VERSION, fromDate: KIOXIA_SELECTOR_START_DATE, toDate: asOfDate }),
   ]);
-  return { selectorVersion: KIOXIA_SELECTOR_VERSION, configHash: KIOXIA_SELECTOR_CONFIG_HASH, automaticAdoption: false, automaticSelection: false, orderInstructionConnection: false, snapshots: snapshots.map(row => row.resultJson), results: results.map(row => row.resultJson), manifests: manifests.map(row => row.resultJson) };
+  const resultJson = results.map(row => row.resultJson);
+  return {
+    selectorVersion: KIOXIA_SELECTOR_VERSION,
+    configHash: KIOXIA_SELECTOR_CONFIG_HASH,
+    automaticAdoption: false,
+    automaticSelection: false,
+    orderInstructionConnection: false,
+    snapshots: snapshots.map(row => row.resultJson),
+    results: resultJson,
+    manifests: manifests.map(row => row.resultJson),
+    performanceComparison: buildKioxiaSelectorPerformanceComparison(resultJson),
+  };
 }

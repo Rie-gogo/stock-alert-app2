@@ -1,29 +1,47 @@
 import type { RtDailyAuditMaterialization, RtSourceEvent } from "../drizzle/schema";
-import { getRtDailyAuditMaterialization, getRtDailyAuditMaterializationsForRange, getRtForwardShadowTradesForEntryDateAndMode, getRtSourceEventsForDateAndSymbol, upsertRtDailyAuditMaterialization } from "./db";
+import { getRtDailyAuditMaterialization, getRtDailyAuditMaterializationsForRange, getRtForwardShadowTradesForEntryDateAndMode, getRtRealtimeDecisionStatsForDate, getRtSourceEventsForDateAndSymbol, upsertRtDailyAuditMaterialization } from "./db";
+import { KIOXIA_ATR_FORWARD_SHADOW_SPEC } from "./kioxiaAtrForwardShadow";
+import { KIOXIA_CONFIRMED_MORNING_LONG_SPEC } from "./kioxiaConfirmedMorningLong";
 import { KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS } from "./monitoringComparisonNormalizedTrend";
 import { MONITORING_COMPARISON_COMPONENT, MONITORING_COMPARISON_MATERIALIZATION_VERSION } from "./monitoringComparisonMaterializer";
 import { parseRelayCandleProvenance, type RelayValueSource } from "./relayProvenance";
 import { sha256Stable } from "./runtimeIdentity";
 
 export const KIOXIA_MANIFEST_V2_COMPONENT = "kioxia_manifest_v2";
-export const KIOXIA_MANIFEST_V2_VERSION = "285a-session-manifest-v2";
+export const KIOXIA_MANIFEST_V2_VERSION = "285a-session-manifest-v3-selector-correctness";
 export const KIOXIA_SELECTOR_SNAPSHOT_COMPONENT = "kioxia_next_day_selector";
 export const KIOXIA_SELECTOR_RESULT_COMPONENT = "kioxia_next_day_selector_result";
-export const KIOXIA_SELECTOR_VERSION = "285a-next-day-selector-v1";
+export const KIOXIA_SELECTOR_VERSION = "285a-next-day-selector-v2-correctness";
 export const KIOXIA_SELECTOR_START_DATE = "2026-10-01";
 const FEATURE_COVERAGE_MINIMUM = 0.98;
 const MAX_CONSECUTIVE_MISSING = 2;
 
 export type KioxiaSessionClass = "pre_open" | "morning_continuous" | "lunch" | "afternoon_continuous" | "closing_auction_acceptance" | "close_observation" | "after_close" | "unknown";
 
-type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; valueSource: RelayValueSource | "unknown"; sourceEventId: string };
+type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; valueSource: RelayValueSource | "unknown"; isNoTrade: boolean; sourceEventId: string };
 type MaterializationRow = Pick<RtDailyAuditMaterialization, "tradeDate" | "status" | "resultJson">;
 type PlanSpec = typeof KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS[number];
+const LOCATION_UPPER_PERCENT_B = 65;
+const LOCATION_LOWER_PERCENT_B = 35;
+
+function configuredSelectorSlPct(origin: PlanSpec["origin"], routeId: PlanSpec["routeId"]) {
+  if (origin === "current_baseline") {
+    if (routeId === "trendLong") return KIOXIA_CONFIRMED_MORNING_LONG_SPEC.primary.slPct;
+    if (routeId === "reversalLong") return KIOXIA_ATR_FORWARD_SHADOW_SPEC.routes.reversal_long.slPct;
+    if (routeId === "reversalShort") return KIOXIA_ATR_FORWARD_SHADOW_SPEC.routes.reversal_short.slPct;
+    if (routeId === "trendShort") return KIOXIA_ATR_FORWARD_SHADOW_SPEC.routes.trend_short.slPct;
+    if (routeId === "kioxiaSafeCbShort") return KIOXIA_ATR_FORWARD_SHADOW_SPEC.routes.safe_cb_short.slPct;
+    return null;
+  }
+  if (routeId === "confirmed_morning_long") return KIOXIA_CONFIRMED_MORNING_LONG_SPEC.primary.slPct;
+  const route = routeId as keyof typeof KIOXIA_ATR_FORWARD_SHADOW_SPEC.routes;
+  return KIOXIA_ATR_FORWARD_SHADOW_SPEC.routes[route]?.slPct ?? null;
+}
 
 export const KIOXIA_SELECTOR_CONFIG = Object.freeze({
   version: KIOXIA_SELECTOR_VERSION,
   routeRegistry: KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.map(item => ({
-    origin: item.origin, strategyVersion: item.strategyVersion, routeId: item.routeId, side: item.side, label: item.label,
+    origin: item.origin, strategyVersion: item.strategyVersion, routeId: item.routeId, side: item.side, label: item.label, slPct: configuredSelectorSlPct(item.origin, item.routeId),
   })),
   sessionContract: {
     candleTime: "JST previous-one-minute start label; raw value remains immutable",
@@ -48,6 +66,12 @@ export const KIOXIA_SELECTOR_CONFIG = Object.freeze({
     regimeShrinkageK: 10,
     score: "posteriorFireRate * posteriorTradeR",
     noTradeWhen: ["expectedDailyR<=0", "adverseExpectedDailyR<=0", "posteriorTradeR<=0", "feature_input_missing"],
+  },
+  regime: {
+    trend: "close_vs_ma20_and_ma20_slope_and_closing_60m_slope",
+    volatility: "atr14_pct_vs_prior_eligible_feature_day_median",
+    location: { percentBUpperInclusive: LOCATION_UPPER_PERCENT_B, percentBLowerInclusive: LOCATION_LOWER_PERCENT_B },
+    fallback: ["full", "trend_volatility", "trend", "route_overall", "unavailable"],
   },
   automaticSelection: false,
   automaticAdoption: false,
@@ -77,6 +101,12 @@ export function classifyKioxiaSession(time: string): KioxiaSessionClass {
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function finite(value: unknown): number | null { const n = Number(value); return Number.isFinite(n) ? n : null; }
 function average(values: number[]) { return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null; }
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
 function pct(value: number, denominator: number) { return denominator > 0 ? value / denominator * 100 : null; }
 
 function sourceCandle(event: RtSourceEvent): Candle | null {
@@ -84,7 +114,7 @@ function sourceCandle(event: RtSourceEvent): Candle | null {
   const open = finite(raw.open), high = finite(raw.high), low = finite(raw.low), close = finite(raw.close), volume = finite(raw.volume);
   if (open === null || high === null || low === null || close === null || volume === null) return null;
   const provenance = parseRelayCandleProvenance(raw.provenance);
-  return { time: event.candleTime, open, high, low, close, volume, valueSource: provenance?.valueSource ?? "unknown", sourceEventId: event.sourceEventId };
+  return { time: event.candleTime, open, high, low, close, volume, valueSource: provenance?.valueSource ?? "unknown", isNoTrade: provenance?.isNoTrade === true, sourceEventId: event.sourceEventId };
 }
 
 function longestConsecutive(values: string[], expected: string[]) {
@@ -94,27 +124,37 @@ function longestConsecutive(values: string[], expected: string[]) {
 }
 function rollingMissing(values: string[], expected: string[]) { return expected.filter(label => !new Set(values).has(label)); }
 function sessionCount(candles: Candle[], session: KioxiaSessionClass) { return candles.filter(candle => classifyKioxiaSession(candle.time) === session).length; }
-function valuesBySource(candles: Candle[]) { const counts: Record<string, number> = {}; for (const candle of candles) counts[candle.valueSource] = (counts[candle.valueSource] ?? 0) + 1; return counts; }
-
-function aggregateBars(candles: Candle[], size: number) {
-  const sessions = [candles.filter(c => classifyKioxiaSession(c.time) === "morning_continuous"), candles.filter(c => classifyKioxiaSession(c.time) === "afternoon_continuous")];
-  const groups = sessions.flatMap(session => Array.from({ length: Math.ceil(session.length / size) }, (_, index) => session.slice(index * size, index * size + size)).filter(group => group.length));
-  return groups.map(group => {
-    const first = group[0], last = group.at(-1)!;
-    const volume = group.reduce((sum, bar) => sum + bar.volume, 0);
-    return { open: first.open, close: last.close, high: Math.max(...group.map(x => x.high)), low: Math.min(...group.map(x => x.low)), volume, vwap: volume > 0 ? group.reduce((sum, bar) => sum + bar.close * bar.volume, 0) / volume : null };
-  });
+function sourceLabel(candle: Candle) { return candle.isNoTrade ? "true_no_trade" : candle.valueSource; }
+function acceptedFeatureSource(candle: Candle) {
+  const provenNoTrade = candle.isNoTrade && candle.volume === 0 && candle.open === candle.high && candle.high === candle.low && candle.low === candle.close;
+  return candle.valueSource === "ws_aggregated" || provenNoTrade;
 }
-function timeframeFeatures(candles: Candle[], size: number) {
-  const bars = aggregateBars(candles, size);
-  if (!bars.length) return null;
-  const first = bars[0], last = bars.at(-1)!;
-  const high = Math.max(...bars.map(x => x.high)), low = Math.min(...bars.map(x => x.low));
-  const volume = bars.reduce((sum, bar) => sum + bar.volume, 0);
-  return { bars: bars.length, close: last.close, slopePct: pct(last.close - first.open, first.open), high, low, rangePct: pct(high - low, first.open), vwap: volume > 0 ? bars.reduce((sum, bar) => sum + (bar.vwap ?? bar.close) * bar.volume, 0) / volume : null, endPositionPct: high > low ? (last.close - low) / (high - low) * 100 : null };
+function valuesBySource(candles: Candle[]) { const counts: Record<string, number> = {}; for (const candle of candles) { const label = sourceLabel(candle); counts[label] = (counts[label] ?? 0) + 1; } return counts; }
+function typicalPrice(candle: Pick<Candle, "high" | "low" | "close">) { return (candle.high + candle.low + candle.close) / 3; }
+
+/** The sealed reference contract uses the final 30/60 continuous minutes, not day-wide chunks. */
+function closingTimeframeFeatures(candles: Candle[], size: number) {
+  if (candles.length < size) return null;
+  const window = candles.slice(-size);
+  const first = window[0], last = window.at(-1)!;
+  const high = Math.max(...window.map(x => x.high)), low = Math.min(...window.map(x => x.low));
+  const volume = window.reduce((sum, bar) => sum + bar.volume, 0);
+  return {
+    minutes: size,
+    startTime: first.time,
+    endTime: last.time,
+    open: first.open,
+    close: last.close,
+    slopePct: pct(last.close - first.open, first.open),
+    high,
+    low,
+    rangePct: pct(high - low, first.open),
+    vwap: volume > 0 ? window.reduce((sum, bar) => sum + typicalPrice(bar) * bar.volume, 0) / volume : null,
+    endPositionPct: high > low ? (last.close - low) / (high - low) * 100 : null,
+  };
 }
 
-export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSourceEvent[]; sourceDecisionCount: number; processedThroughEngineSequence: number; watermark: unknown; }): Record<string, unknown> {
+export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSourceEvent[]; sourceDecisionCount: number; processedThroughEngineSequence: number; watermark: unknown; causalityViolationCount: number; }): Record<string, unknown> {
   const candles = input.events.map(sourceCandle).filter((item): item is Candle => item !== null).sort((a, b) => a.time.localeCompare(b.time));
   const continuous = candles.filter(candle => classifyKioxiaSession(candle.time) === "morning_continuous" || classifyKioxiaSession(candle.time) === "afternoon_continuous");
   const unique = new Map<string, Candle>();
@@ -125,12 +165,12 @@ export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSour
   const missing = rollingMissing(actual, CONTINUOUS_LABELS);
   const closingExpected = rangeLabels("14:25", "15:24");
   const closingMissing = rollingMissing(actual, closingExpected);
-  const invalidSource = uniqueContinuous.filter(candle => candle.valueSource !== "ws_aggregated");
+  const invalidSource = uniqueContinuous.filter(candle => !acceptedFeatureSource(candle));
   const anomalies = {
     duplicateTimes: duplicates,
     correctionCount: input.events.filter(event => event.correctedEventId !== null).length,
     timeReversalCount: input.events.reduce((count, event, index) => index > 0 && event.eventSeq < input.events[index - 1].eventSeq ? count + 1 : count, 0),
-    causalityViolationCount: 0,
+    causalityViolationCount: input.causalityViolationCount,
   };
   const latencyValues = input.events.map(event => {
     const audit = object(object(event.resultJson).realtimeAudit);
@@ -159,6 +199,7 @@ export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSour
   if (closingMissing.length > 0) reasons.push("closing_60min_missing");
   if (duplicates.length > 0 || anomalies.correctionCount > 0) reasons.push("unresolved_duplicate_or_correction");
   if (anomalies.timeReversalCount > 0) reasons.push("relay_event_sequence_reversal");
+  if (anomalies.causalityViolationCount > 0) reasons.push("causality_violation");
   const featureEligible = reasons.length === 0;
   return {
     manifestVersion: KIOXIA_MANIFEST_V2_VERSION,
@@ -171,7 +212,7 @@ export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSour
     expected: { morning: MORNING_LABELS.length, afternoon: AFTERNOON_LABELS.length, continuous: CONTINUOUS_LABELS.length, closingAuctionAcceptance: 5, closeObservation: 1 },
     actual: { continuousUnique: uniqueContinuous.length, coverage, missing, maximumConsecutiveMissing: longestConsecutive(actual, CONTINUOUS_LABELS), closing60MinuteMissing: closingMissing },
     valueSources: valuesBySource(candles),
-    fallbackOrUnknownTimes: candles.filter(c => c.valueSource !== "ws_aggregated").map(c => ({ time: c.time, valueSource: c.valueSource })),
+    fallbackOrUnknownTimes: candles.filter(c => !acceptedFeatureSource(c)).map(c => ({ time: c.time, valueSource: sourceLabel(c) })),
     latency,
     anomalies,
     watermark: input.watermark,
@@ -184,7 +225,7 @@ export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSour
   };
 }
 
-function dailyFeature(input: { manifest: Record<string, unknown>; events: RtSourceEvent[]; history: Record<string, unknown>[] }) {
+export function calculateKioxiaSelectorDailyFeature(input: { manifest: Record<string, unknown>; events: RtSourceEvent[]; history: Record<string, unknown>[] }) {
   const manifest = input.manifest;
   if (manifest.featureEligible !== true) return { featureEligible: false, missingReasons: manifest.reasonCodes ?? ["insufficient_feature_source"] };
   const continuous = input.events.map(sourceCandle).filter((item): item is Candle => item !== null).filter(c => classifyKioxiaSession(c.time) === "morning_continuous" || classifyKioxiaSession(c.time) === "afternoon_continuous").sort((a, b) => a.time.localeCompare(b.time));
@@ -211,7 +252,7 @@ function dailyFeature(input: { manifest: Record<string, unknown>; events: RtSour
     return h === null || l === null || prev === null ? null : Math.max(h - l, Math.abs(h - prev), Math.abs(l - prev));
   }).filter((x): x is number => x !== null);
   const atr14 = trueRanges.length >= 14 ? average(trueRanges.slice(-14)) : null;
-  const intradayVwap = continuous.reduce((sum, c) => sum + c.close * c.volume, 0) / Math.max(1, continuous.reduce((sum, c) => sum + c.volume, 0));
+  const intradayVwap = continuous.reduce((sum, c) => sum + typicalPrice(c) * c.volume, 0) / Math.max(1, continuous.reduce((sum, c) => sum + c.volume, 0));
   return {
     featureEligible: true,
     sourceDate: manifest.tradeDate,
@@ -223,22 +264,30 @@ function dailyFeature(input: { manifest: Record<string, unknown>; events: RtSour
     movingAverages: Object.fromEntries([5, 10, 20, 25, 50].map(period => [String(period), { value: ma(period), slopePct: maSlope(period), positionPct: ma(period) ? pct(last.close - ma(period)!, ma(period)!) : null }])),
     bollinger20: bbMean === null || std === null ? null : { middle: bbMean, plus1: bbMean + std, minus1: bbMean - std, plus2: bbMean + 2 * std, minus2: bbMean - 2 * std, bandwidthPct: pct(4 * std, bbMean), percentB: std > 0 ? (last.close - (bbMean - 2 * std)) / (4 * std) * 100 : null },
     volumeRatio: { to5: typicalVolume.length >= 6 ? pct(typicalVolume.at(-1)! - average(typicalVolume.slice(-6, -1))!, average(typicalVolume.slice(-6, -1))!) : null, to20: typicalVolume.length >= 21 ? pct(typicalVolume.at(-1)! - average(typicalVolume.slice(-21, -1))!, average(typicalVolume.slice(-21, -1))!) : null },
-    intraday: { vwap: intradayVwap, distanceFromVwapPct: pct(last.close - intradayVwap, intradayVwap), thirtyMinute: timeframeFeatures(continuous, 30), sixtyMinute: timeframeFeatures(continuous, 60), closingPositionPct: range > 0 ? (last.close - low) / range * 100 : null },
+    intraday: { vwap: intradayVwap, distanceFromVwapPct: pct(last.close - intradayVwap, intradayVwap), thirtyMinute: closingTimeframeFeatures(continuous, 30), sixtyMinute: closingTimeframeFeatures(continuous, 60), closingPositionPct: range > 0 ? (last.close - low) / range * 100 : null },
     recentHighLow: { high, low, distanceFromHighPct: pct(last.close - high, high), distanceFromLowPct: pct(last.close - low, low) },
     missingReasons: [],
   };
 }
 
-function regimeFor(features: Record<string, unknown>) {
-  const ma5 = object(object(features.movingAverages)["5"]), ma20 = object(object(features.movingAverages)["20"]);
-  const slope = finite(object(object(features.intraday).thirtyMinute).slopePct);
-  const ma5Value = finite(ma5.value), ma20Value = finite(ma20.value);
-  const trend = ma5Value !== null && ma20Value !== null && slope !== null && ma5Value > ma20Value && slope >= 0 ? "up" : ma5Value !== null && ma20Value !== null && slope !== null && ma5Value < ma20Value && slope <= 0 ? "down" : "range";
+export function classifyKioxiaSelectorRegime(features: Record<string, unknown>, priorFeatureRows: Record<string, unknown>[]) {
+  const ma20 = object(object(features.movingAverages)["20"]);
+  const close = finite(features.close), ma20Value = finite(ma20.value), ma20Slope = finite(ma20.slopePct);
+  const closingSixtySlope = finite(object(object(features.intraday).sixtyMinute).slopePct);
+  const trend = close !== null && ma20Value !== null && ma20Slope !== null && closingSixtySlope !== null
+    && close > ma20Value && ma20Slope > 0 && closingSixtySlope >= 0
+    ? "up"
+    : close !== null && ma20Value !== null && ma20Slope !== null && closingSixtySlope !== null
+      && close < ma20Value && ma20Slope < 0 && closingSixtySlope <= 0
+      ? "down"
+      : "range";
   const atr = finite(features.atr14Pct);
-  const volatility = atr !== null && atr >= 2 ? "high" : "normal";
+  const priorAtr = priorFeatureRows.map(item => finite(item.atr14Pct)).filter((value): value is number => value !== null);
+  const atrMedian = median(priorAtr);
+  const volatility = atr === null || atrMedian === null ? "unknown" : atr > atrMedian ? "high" : "normal";
   const percentB = finite(object(features.bollinger20).percentB);
-  const location = percentB === null ? "middle" : percentB >= 66.6667 ? "upper" : percentB <= 33.3333 ? "lower" : "middle";
-  return { trend, volatility, location, full: `${trend}|${volatility}|${location}` };
+  const location = percentB === null ? "unknown" : percentB >= LOCATION_UPPER_PERCENT_B ? "upper" : percentB <= LOCATION_LOWER_PERCENT_B ? "lower" : "middle";
+  return { trend, volatility, location, atr14MedianPct: atrMedian, full: `${trend}|${volatility}|${location}` };
 }
 
 function parseComparisonEntries(rows: MaterializationRow[]): Array<Record<string, unknown> & { tradeDate: string }> {
@@ -248,60 +297,123 @@ function parseComparisonEntries(rows: MaterializationRow[]): Array<Record<string
   });
 }
 function planKey(item: Pick<PlanSpec, "origin" | "strategyVersion" | "routeId" | "side">) { return `${item.origin}|${item.strategyVersion}|${item.routeId}|${item.side}`; }
+function selectorSlPct(spec: PlanSpec | undefined) {
+  return spec ? configuredSelectorSlPct(spec.origin, spec.routeId) : null;
+}
 function intrinsicR(entry: Record<string, unknown>) {
   const intrinsic = object(entry.intrinsic); const pnl = finite(intrinsic.pnlPer100), entryPrice = finite(intrinsic.entryPrice);
   const strategy = String(entry.strategyVersion ?? ""); const route = String(entry.routeId ?? "");
   const spec = KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.find(item => planKey(item) === `${entry.origin}|${strategy}|${route}|${entry.side}`);
-  const sl = spec?.origin === "forward_shadow" ? (route === "safe_cb_short" ? 0.6 : route === "reversal_long" ? 0.6 : 0.8) : route === "kioxiaSafeCbShort" ? 0.6 : null;
+  const sl = selectorSlPct(spec);
   return pnl === null || entryPrice === null || !sl || sl <= 0 ? null : pnl / (entryPrice * sl / 100 * 100);
 }
 function entrySignal(entry: Record<string, unknown>) { return entry.sourceDisposition === "accepted" || entry.sourceDisposition === "margin_block" || entry.sourceDisposition === "entry"; }
 function completed(entry: Record<string, unknown>) { return object(entry.intrinsic).completed === true && intrinsicR(entry) !== null; }
-function adverseR(entry: Record<string, unknown>) { const r = intrinsicR(entry); return r === null ? null : r - 0.1 / (String(entry.side) === "long" || String(entry.side) === "short" ? (String(entry.routeId).includes("SafeCb") || String(entry.routeId) === "safe_cb_short" ? 0.6 : String(entry.routeId) === "reversal_long" ? 0.6 : 0.8) : 0.8); }
+function adverseR(entry: Record<string, unknown>) {
+  const r = intrinsicR(entry);
+  const spec = KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.find(item => planKey(item) === `${entry.origin}|${entry.strategyVersion}|${entry.routeId}|${entry.side}`);
+  const sl = selectorSlPct(spec);
+  return r === null || sl === null ? null : r - 0.1 / sl;
+}
+
+function posterior(values: number[], prior: number, weight: number) {
+  const raw = average(values);
+  return raw === null ? null : (values.length * raw + weight * prior) / (values.length + weight);
+}
+
+function regimeFallbackEntries(input: {
+  observed: Array<{ regime: Record<string, string>; entries: Record<string, unknown>[] }>;
+  key: string;
+  target: Record<string, string>;
+}) {
+  const routeEntries = (days: typeof input.observed) => days.flatMap(day => day.entries.filter(entry => planKey(entry as any) === input.key && completed(entry)));
+  const levels = [
+    { level: "full", days: input.observed.filter(day => day.regime.full === input.target.full) },
+    { level: "trend_volatility", days: input.observed.filter(day => day.regime.trend === input.target.trend && day.regime.volatility === input.target.volatility) },
+    { level: "trend", days: input.observed.filter(day => day.regime.trend === input.target.trend) },
+  ] as const;
+  for (const item of levels) {
+    const entries = routeEntries(item.days);
+    if (entries.length) return { level: item.level, entries };
+  }
+  const entries = routeEntries(input.observed);
+  return entries.length ? { level: "route_overall" as const, entries } : { level: "unavailable" as const, entries: [] };
+}
 
 export function scoreKioxiaSelectorRoute(input: { spec: PlanSpec; history: Array<{ tradeDate: string; featureEligible: boolean; regime: Record<string, string>; entries: Record<string, unknown>[] }> }) {
   const key = planKey(input.spec);
   const eligible = input.history.filter(day => day.featureEligible);
-  const observed = eligible.filter(day => day.tradeDate >= (input.spec.origin === "current_baseline" ? "2026-09-16" : "2026-09-07"));
+  // history is already bounded by KIOXIA_SELECTOR_START_DATE and the frozen strategy versions.
+  const observed = eligible;
   const signals = observed.filter(day => day.entries.some(entry => planKey(entry as any) === key && entrySignal(entry))).length;
-  const allTrades = observed.flatMap(day => day.entries.filter(entry => planKey(entry as any) === key && completed(entry)).map(intrinsicR).filter((value): value is number => value !== null));
-  const globalTrades = eligible.flatMap(day => day.entries.filter(completed).map(intrinsicR).filter((value): value is number => value !== null));
+  const allTradeEntries = observed.flatMap(day => day.entries.filter(entry => planKey(entry as any) === key && completed(entry)));
+  const allTrades = allTradeEntries.map(intrinsicR).filter((value): value is number => value !== null);
+  const globalTradeEntries = eligible.flatMap(day => day.entries.filter(completed));
+  const globalTrades = globalTradeEntries.map(intrinsicR).filter((value): value is number => value !== null);
   const globalMean = average(globalTrades) ?? 0;
-  const routeRaw = average(allTrades);
-  const routePosterior = routeRaw === null ? globalMean : (allTrades.length * routeRaw + 10 * globalMean) / (allTrades.length + 10);
+  const globalPosterior = globalTrades.length * globalMean / (globalTrades.length + KIOXIA_SELECTOR_CONFIG.scoring.globalShrinkageK);
+  const routePosterior = posterior(allTrades, globalPosterior, KIOXIA_SELECTOR_CONFIG.scoring.routeShrinkageK);
   const targetRegime = input.history.at(-1)?.regime ?? { full: "unknown", trend: "unknown", volatility: "unknown" };
-  const cellTrades = observed.filter(day => day.regime.full === targetRegime.full).flatMap(day => day.entries.filter(entry => planKey(entry as any) === key && completed(entry)).map(intrinsicR).filter((value): value is number => value !== null));
-  const cellMean = average(cellTrades);
-  const posteriorTradeR = cellMean === null ? routePosterior : (cellTrades.length * cellMean + 10 * routePosterior) / (cellTrades.length + 10);
+  const fallback = regimeFallbackEntries({ observed, key, target: targetRegime });
+  const cellTrades = fallback.entries.map(intrinsicR).filter((value): value is number => value !== null);
+  const posteriorTradeR = routePosterior === null
+    ? null
+    : fallback.level === "route_overall"
+      ? routePosterior
+      : posterior(cellTrades, routePosterior, KIOXIA_SELECTOR_CONFIG.scoring.regimeShrinkageK);
   const fireRate = (signals + 1) / (observed.length + 2);
-  const expectedDailyR = fireRate * posteriorTradeR;
-  const adverseValues = allTrades.map((_, i) => adverseR(observed.flatMap(day => day.entries).filter(entry => planKey(entry as any) === key && completed(entry))[i])).filter((value): value is number => value !== null);
-  const adversePosterior = adverseValues.length ? (adverseValues.length * (average(adverseValues) ?? 0) + 10 * globalMean) / (adverseValues.length + 10) : routePosterior;
-  const adverseExpectedDailyR = fireRate * adversePosterior;
+  const expectedDailyR = posteriorTradeR === null ? null : fireRate * posteriorTradeR;
+  const globalAdverse = globalTradeEntries.map(adverseR).filter((value): value is number => value !== null);
+  const globalAdverseMean = average(globalAdverse) ?? 0;
+  const globalAdversePosterior = globalAdverse.length * globalAdverseMean / (globalAdverse.length + KIOXIA_SELECTOR_CONFIG.scoring.globalShrinkageK);
+  const allAdverse = allTradeEntries.map(adverseR).filter((value): value is number => value !== null);
+  const routeAdversePosterior = posterior(allAdverse, globalAdversePosterior, KIOXIA_SELECTOR_CONFIG.scoring.routeShrinkageK);
+  const cellAdverse = fallback.entries.map(adverseR).filter((value): value is number => value !== null);
+  const adversePosterior = routeAdversePosterior === null
+    ? null
+    : fallback.level === "route_overall"
+      ? routeAdversePosterior
+      : posterior(cellAdverse, routeAdversePosterior, KIOXIA_SELECTOR_CONFIG.scoring.regimeShrinkageK);
+  const adverseExpectedDailyR = adversePosterior === null ? null : fireRate * adversePosterior;
   const confidence = allTrades.length === 0 ? "insufficient" : allTrades.length < 10 ? "reference_low_confidence" : observed.length >= 20 ? "review_candidate" : "reference_low_confidence";
   const exclusionReasons = [
     ...(observed.length < 20 ? ["fewer_than_20_complete_feature_days"] : []),
     ...(allTrades.length < 10 ? ["fewer_than_10_completed_trades"] : []),
     ...(allTrades.length === 0 ? ["no_completed_trade"] : []),
-    ...(expectedDailyR <= 0 ? ["non_positive_expected_daily_r"] : []),
-    ...(adverseExpectedDailyR <= 0 ? ["non_positive_adverse_expected_daily_r"] : []),
-    ...(posteriorTradeR <= 0 ? ["non_positive_posterior_trade_r"] : []),
+    ...(expectedDailyR === null || expectedDailyR <= 0 ? ["non_positive_expected_daily_r"] : []),
+    ...(adverseExpectedDailyR === null || adverseExpectedDailyR <= 0 ? ["non_positive_adverse_expected_daily_r"] : []),
+    ...(posteriorTradeR === null || posteriorTradeR <= 0 ? ["non_positive_posterior_trade_r"] : []),
   ];
-  return { ...input.spec, eligibleDays: observed.length, signalDays: signals, rawFireRate: observed.length ? signals / observed.length : null, posteriorFireRate: fireRate, completedTrades: allTrades.length, globalPosteriorR: globalMean, routePosteriorR: routePosterior, regimePosteriorR: posteriorTradeR, expectedDailyR, adverseExpectedDailyR, confidence, exclusionReasons, selectable: exclusionReasons.length === 0 };
+  return { ...input.spec, eligibleDays: observed.length, signalDays: signals, rawFireRate: observed.length ? signals / observed.length : null, posteriorFireRate: fireRate, completedTrades: allTrades.length, globalRawMeanR: globalMean, globalPosteriorR: globalPosterior, routePosteriorR: routePosterior, regimePosteriorR: posteriorTradeR, fallbackLevel: fallback.level, fallbackSampleSize: cellTrades.length, expectedDailyR, adverseExpectedDailyR, confidence, exclusionReasons, selectable: exclusionReasons.length === 0 };
 }
 
-function nextTokyoEquityTradeDate(date: string) {
-  const closed = new Set(["2026-10-12", "2026-11-03", "2026-11-23", "2026-12-31"]); // remaining 2026 JPX non-trading holidays
+const JPX_EQUITY_CALENDAR_VERSION = "jpx-market-holidays-2026-2027-v1";
+const JPX_EQUITY_MARKET_HOLIDAYS = new Set([
+  "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-12", "2026-02-11", "2026-02-23", "2026-03-20", "2026-04-29", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06", "2026-07-20", "2026-08-11", "2026-09-21", "2026-09-22", "2026-09-23", "2026-10-12", "2026-11-03", "2026-11-23", "2026-12-31",
+  "2027-01-01", "2027-01-02", "2027-01-03", "2027-01-11", "2027-02-11", "2027-02-23", "2027-03-21", "2027-03-22", "2027-04-29", "2027-05-03", "2027-05-04", "2027-05-05", "2027-07-19", "2027-08-11", "2027-09-20", "2027-09-23", "2027-10-11", "2027-11-03", "2027-11-23", "2027-12-31",
+]);
+
+export function nextTokyoEquityTradeDate(date: string) {
   const next = new Date(`${date}T00:00:00Z`);
-  do { next.setUTCDate(next.getUTCDate() + 1); } while (next.getUTCDay() === 0 || next.getUTCDay() === 6 || closed.has(next.toISOString().slice(0, 10)));
+  do {
+    next.setUTCDate(next.getUTCDate() + 1);
+    const year = next.getUTCFullYear();
+    if (year < 2026 || year > 2027) throw new Error(`jpx_equity_calendar_not_configured:${year}`);
+  } while (next.getUTCDay() === 0 || next.getUTCDay() === 6 || JPX_EQUITY_MARKET_HOLIDAYS.has(next.toISOString().slice(0, 10)));
   return next.toISOString().slice(0, 10);
 }
 
 export async function materializeKioxiaManifestV2ForDate(input: { tradeDate: string; sourceDecisionCount: number; processedThroughEngineSequence: number; watermark: unknown }) {
   const existing = await getRtDailyAuditMaterialization({ component: KIOXIA_MANIFEST_V2_COMPONENT, version: KIOXIA_MANIFEST_V2_VERSION, tradeDate: input.tradeDate });
   if (existing) return { created: false, result: existing.resultJson };
-  const events = await getRtSourceEventsForDateAndSymbol({ tradeDate: input.tradeDate, symbol: "285A" });
-  const result = buildKioxiaManifestV2({ ...input, events });
+  const [events, decisionStats] = await Promise.all([
+    getRtSourceEventsForDateAndSymbol({ tradeDate: input.tradeDate, symbol: "285A" }),
+    getRtRealtimeDecisionStatsForDate(input.tradeDate),
+  ]);
+  const causalityViolationCount = decisionStats
+    .filter(item => item.symbol === "285A" && item.causalityStatus === "violation")
+    .reduce((sum, item) => sum + item.eventCount, 0);
+  const result = buildKioxiaManifestV2({ ...input, events, causalityViolationCount });
   await upsertRtDailyAuditMaterialization({ component: KIOXIA_MANIFEST_V2_COMPONENT, version: KIOXIA_MANIFEST_V2_VERSION, tradeDate: input.tradeDate, status: "complete", processedThroughEngineSequence: input.processedThroughEngineSequence, sourceDecisionCount: input.sourceDecisionCount, resultJson: result, lastError: null, generatedAt: new Date() });
   return { created: true, result };
 }
@@ -319,11 +431,14 @@ export async function materializeKioxiaNextDaySelectorForSourceDate(input: { sou
   for (const row of historyRows) {
     const rowManifest = object(row.resultJson);
     const events = row.tradeDate === input.sourceTradeDate ? sourceEvents : await getRtSourceEventsForDateAndSymbol({ tradeDate: row.tradeDate, symbol: "285A" });
-    const features = dailyFeature({ manifest: rowManifest, events, history: featureHistory });
-    featureHistory.push({ tradeDate: row.tradeDate, features, featureEligible: features.featureEligible === true, regime: features.featureEligible === true ? regimeFor(features) : { full: "unknown", trend: "unknown", volatility: "unknown", location: "unknown" } });
+    const features = calculateKioxiaSelectorDailyFeature({ manifest: rowManifest, events, history: featureHistory });
+    const priorFeatures = featureHistory.filter(day => day.featureEligible === true).map(day => object(day.features));
+    featureHistory.push({ tradeDate: row.tradeDate, features, featureEligible: features.featureEligible === true, regime: features.featureEligible === true ? classifyKioxiaSelectorRegime(features, priorFeatures) : { full: "unknown", trend: "unknown", volatility: "unknown", location: "unknown" } });
   }
-  const currentFeature = dailyFeature({ manifest, events: sourceEvents, history: featureHistory.slice(0, -1) });
-  const regime = currentFeature.featureEligible === true ? regimeFor(currentFeature) : { full: "unknown", trend: "unknown", volatility: "unknown", location: "unknown" };
+  const priorHistory = featureHistory.slice(0, -1);
+  const currentFeature = calculateKioxiaSelectorDailyFeature({ manifest, events: sourceEvents, history: priorHistory });
+  const priorFeatures = priorHistory.filter(day => day.featureEligible === true).map(day => object(day.features));
+  const regime = currentFeature.featureEligible === true ? classifyKioxiaSelectorRegime(currentFeature, priorFeatures) : { full: "unknown", trend: "unknown", volatility: "unknown", location: "unknown" };
   const entries = parseComparisonEntries(comparisonRows);
   const history = featureHistory.map(day => ({
     tradeDate: String(day.tradeDate),
@@ -332,12 +447,13 @@ export async function materializeKioxiaNextDaySelectorForSourceDate(input: { sou
     entries: entries.filter(entry => entry.tradeDate === day.tradeDate),
   }));
   const scores = KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS.map(spec => scoreKioxiaSelectorRoute({ spec, history }));
-  const selectable = currentFeature.featureEligible === true ? scores.filter(score => score.selectable).sort((a, b) => b.expectedDailyR - a.expectedDailyR) : [];
+  const selectable = currentFeature.featureEligible === true ? scores.filter(score => score.selectable).sort((a, b) => Number(b.expectedDailyR) - Number(a.expectedDailyR)) : [];
+  const references = currentFeature.featureEligible === true ? scores.filter(score => score.expectedDailyR !== null && score.expectedDailyR > 0).sort((a, b) => Number(b.expectedDailyR) - Number(a.expectedDailyR)) : [];
   const first = selectable[0] ?? null, second = selectable[1] ?? null;
   const result = {
-    selectorVersion: KIOXIA_SELECTOR_VERSION, configHash: KIOXIA_SELECTOR_CONFIG_HASH, codeHash: sha256Stable({ selector: KIOXIA_SELECTOR_VERSION, config: KIOXIA_SELECTOR_CONFIG }), generatedAt: new Date().toISOString(), sourceTradeDate: input.sourceTradeDate, targetDate, immutable: true,
+    selectorVersion: KIOXIA_SELECTOR_VERSION, calendarVersion: JPX_EQUITY_CALENDAR_VERSION, configHash: KIOXIA_SELECTOR_CONFIG_HASH, codeHash: sha256Stable({ selector: KIOXIA_SELECTOR_VERSION, config: KIOXIA_SELECTOR_CONFIG }), generatedAt: new Date().toISOString(), sourceTradeDate: input.sourceTradeDate, targetDate, immutable: true,
     featureSource: { manifestVersion: KIOXIA_MANIFEST_V2_VERSION, manifestHash: sha256Stable(manifest), eligible: currentFeature.featureEligible === true, features: currentFeature, regime },
-    scores, primary: first, secondary: second, recommendation: first ? "reference_only" : "no_trade", noTradeReason: first ? null : currentFeature.featureEligible === true ? "all_routes_non_positive_or_insufficient" : "insufficient_feature_source",
+    scores, referencePrimary: references[0] ?? null, referenceSecondary: references[1] ?? null, primary: first, secondary: second, recommendation: first ? "reference_only" : "no_trade", noTradeReason: first ? null : currentFeature.featureEligible === true ? "all_routes_non_positive_or_insufficient" : "insufficient_feature_source",
     formalPerformanceUse: false, retrospectiveDiagnosticOnly: input.sourceTradeDate < KIOXIA_SELECTOR_START_DATE,
   };
   await upsertRtDailyAuditMaterialization({ component: KIOXIA_SELECTOR_SNAPSHOT_COMPONENT, version: KIOXIA_SELECTOR_VERSION, tradeDate: targetDate, status: "complete", processedThroughEngineSequence: input.processedThroughEngineSequence, sourceDecisionCount: input.sourceDecisionCount, resultJson: result, lastError: null, generatedAt: new Date() });
@@ -353,6 +469,8 @@ export async function materializeKioxiaNextDaySelectorResultForDate(input: { tra
   const entries = parseComparisonEntries(comparison ? [comparison] : []);
   const selected: Array<Record<string, unknown> & { tradeDate: string }> = primary.routeId ? entries.filter(entry => planKey(entry as any) === planKey(primary as any)) : [];
   const closed = selected.filter(completed); const r = closed.map(intrinsicR).filter((value): value is number => value !== null);
+  const signalCount = selected.filter(entrySignal).length;
+  const intrinsicOpenCount = selected.filter(entry => entrySignal(entry) && object(entry.intrinsic).completed !== true).length;
   const capitalForwardTrades = await getRtForwardShadowTradesForEntryDateAndMode({ entryTradeDate: input.tradeDate, evaluationMode: "capital_constrained" });
   const capitalByEntry = new Map(capitalForwardTrades.map(trade => [`${trade.strategyVersion}:${trade.entrySourceEventId}`, trade]));
   const currentCapital = selected.filter(entry => entry.origin === "current_baseline" && entry.sourceDisposition === "accepted" && completed(entry));
@@ -363,7 +481,7 @@ export async function materializeKioxiaNextDaySelectorResultForDate(input: { tra
     ...currentCapital.map(intrinsicR).filter((value): value is number => value !== null),
     ...shadowCapital.map(trade => finite(trade.realizedR)).filter((value): value is number => value !== null),
   ];
-  const result = { selectorVersion: KIOXIA_SELECTOR_VERSION, tradeDate: input.tradeDate, snapshotFound: Boolean(snapshot), selectedRoute: primary.routeId ? primary : null, signalQuality: { signalCount: selected.filter(entrySignal).length, completedTrades: r.length, wins: r.filter(x => x > 0).length, losses: r.filter(x => x < 0).length, totalR: r.reduce((a, b) => a + b, 0), outcome: r.length ? "observed" : "no_signal_or_open" }, capitalConstrained: { mode: "separate_existing_891m_ledger", acceptedOrCapitalTradeCount: capitalR.length, marginBlockCount: selected.filter(entry => entry.sourceDisposition === "margin_block").length, completedTrades: capitalR.length, wins: capitalR.filter(x => x > 0).length, losses: capitalR.filter(x => x < 0).length, totalR: capitalR.reduce((a, b) => a + b, 0), outcome: capitalR.length ? "observed" : "no_capital_constrained_completion" }, formalPerformanceUse: false, automaticAdoption: false, orderInstructionConnection: false };
+  const result = { selectorVersion: KIOXIA_SELECTOR_VERSION, tradeDate: input.tradeDate, snapshotFound: Boolean(snapshot), selectedRoute: primary.routeId ? primary : null, signalQuality: { signalCount, openTrades: intrinsicOpenCount, completedTrades: r.length, wins: r.filter(x => x > 0).length, losses: r.filter(x => x < 0).length, totalR: r.reduce((a, b) => a + b, 0), outcome: r.length ? "observed" : signalCount === 0 ? "no_signal" : intrinsicOpenCount > 0 ? "open_trade" : "no_completed_trade" }, capitalConstrained: { mode: "separate_existing_891m_ledger", acceptedOrCapitalTradeCount: capitalR.length, marginBlockCount: selected.filter(entry => entry.sourceDisposition === "margin_block").length, completedTrades: capitalR.length, wins: capitalR.filter(x => x > 0).length, losses: capitalR.filter(x => x < 0).length, totalR: capitalR.reduce((a, b) => a + b, 0), outcome: capitalR.length ? "observed" : signalCount === 0 ? "no_signal" : "no_capital_constrained_completion" }, formalPerformanceUse: false, automaticAdoption: false, orderInstructionConnection: false };
   await upsertRtDailyAuditMaterialization({ component: KIOXIA_SELECTOR_RESULT_COMPONENT, version: KIOXIA_SELECTOR_VERSION, tradeDate: input.tradeDate, status: "complete", processedThroughEngineSequence: input.processedThroughEngineSequence, sourceDecisionCount: input.sourceDecisionCount, resultJson: result, lastError: null, generatedAt: new Date() });
   return { created: true, result };
 }

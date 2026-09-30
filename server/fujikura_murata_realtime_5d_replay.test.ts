@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+/** Current-route replay must not invoke persistent 3-peak diagnostics. */
+const threePeakMock = vi.hoisted(() => ({
+  processThreePeakCandle: vi.fn().mockResolvedValue(null),
+  resetThreePeakState: vi.fn(),
+  forceCloseThreePeakPosition: vi.fn().mockResolvedValue(undefined),
+}));
+
 type Snapshot = {
   buyPressureRatio?: number;
   marketOrderRatio?: number;
@@ -45,6 +52,8 @@ vi.mock("./kabuStation", () => ({
   getAggregatedBoardStats: vi.fn().mockReturnValue(null),
   clearBoardRingBuffer: vi.fn(),
 }));
+
+vi.mock("./threePeakDetector", () => threePeakMock);
 
 vi.mock("../shared/stocks", () => ({
   getStockName: vi.fn((symbol: string) => symbol === "5803" ? "フジクラ" : "村田製作所"),
@@ -114,6 +123,7 @@ describe("5803・6981専用経路 保存KABU 5営業日・未来情報なし再�
   }, 60_000);
 
   it("6981は安値反転LONG＋寄り付きSHORTだけを発火する", async () => {
+    threePeakMock.processThreePeakCandle.mockClear();
     const result = await replay("6981");
     console.log("6981_5D_CAUSAL_REPLAY", JSON.stringify(result));
     expect(result.processedRows).toBeGreaterThan(1_500);
@@ -123,6 +133,7 @@ describe("5803・6981専用経路 保存KABU 5営業日・未来情報なし再�
     expect(result.losses).toBe(0);
     expect(result.pnl).toBe(73_246);
     expect(result.entries.every(event => /安値反転ブレイクLONG|寄り付きブレイクSHORT/.test(event.reason ?? ""))).toBe(true);
+    expect(threePeakMock.processThreePeakCandle).toHaveBeenCalledTimes(result.processedRows);
   }, 60_000);
 
   it("6981寄り付きSHORTは09:55開始とMA8二本傾きで既存3損失日のSHORTを停止する", async () => {

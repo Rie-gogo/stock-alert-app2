@@ -43,6 +43,9 @@ export const DISCO_SHORT_EXECUTABLE_A_VERSION = "candidate-6146-opening-short-ex
 export const DISCO_SHORT_RETEST_B_VERSION = "candidate-6146-opening-short-retest-b-v3-parity-reset";
 export const DISCO_LONG_PROFIT_PROTECTION_A_VERSION = "candidate-6146-confirmed-long-profit-protection-a-v1";
 export const DISCO_LONG_PRIOR_THREE_B_VERSION = "candidate-6146-confirmed-long-prior-three-b-v1";
+/** 6981の現行経路とは独立した、手動審査専用の前向きshadow 2案。 */
+export const MURATA_DEEP_REVERSAL_LONG_VERSION = "candidate-6981-deep-reversal-long-v1";
+export const MURATA_MORNING_BREAKDOWN_SHORT_VERSION = "candidate-6981-morning-20bar-breakdown-short-v1";
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -71,6 +74,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   DISCO_SHORT_RETEST_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
+  MURATA_DEEP_REVERSAL_LONG_VERSION,
+  MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

@@ -46,6 +46,8 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  MURATA_DEEP_REVERSAL_LONG_VERSION,
+  MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
@@ -705,6 +707,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     if (errors.length > 0) throw new Error(`fujikura_forward_shadow_partial_failure:${errors.join(" | ")}`);
     return { skipped: false as const, symbol: "5803", evaluations };
   }
+  if (input.candle.symbol === "6981") {
+    const { processMurataIndependentShadowSourceEvent } = await import("./murataIndependentShadowEngine");
+    return processMurataIndependentShadowSourceEvent(input);
+  }
   if (input.candle.symbol === "9984") {
     const { processSoftbankForwardShadowSourceEvent } = await import("./softbankForwardShadowEngine");
     return processSoftbankForwardShadowSourceEvent(input);
@@ -1174,6 +1180,24 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       cutoffDate: KIOXIA_ATR_FORWARD_LEARNING_CUTOFF_DATE,
       adoptionEligible: true,
       lifecycle: "active_candidate",
+    },
+    {
+      versionId: MURATA_DEEP_REVERSAL_LONG_VERSION,
+      symbol: "6981",
+      title: "6981 私案A・深い下落後の確認型反発LONG（独立100株shadow）",
+      startDate: "2026-10-01",
+      cutoffDate: "2026-09-30",
+      adoptionEligible: false,
+      lifecycle: "manual_review_only_monitoring",
+    },
+    {
+      versionId: MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
+      symbol: "6981",
+      title: "6981 私案B・前場20本安値更新の確認型SHORT（独立100株shadow）",
+      startDate: "2026-10-01",
+      cutoffDate: "2026-09-30",
+      adoptionEligible: false,
+      lifecycle: "manual_review_only_monitoring",
     },
     {
       versionId: TEL_EXECUTABLE_CONFIRM_VERSION,

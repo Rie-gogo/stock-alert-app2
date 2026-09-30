@@ -16,6 +16,8 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  MURATA_DEEP_REVERSAL_LONG_VERSION,
+  MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
@@ -46,6 +48,7 @@ import { auditSocionextForwardShadowDay } from "./socionextForwardShadowEngine";
 import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
 import { auditDiscoOpeningShortForwardShadowDay } from "./discoOpeningShortForwardShadowEngine";
 import { auditDiscoConfirmedLongForwardShadowDay } from "./discoConfirmedLongForwardShadowEngine";
+import { auditMurataIndependentShadowDay } from "./murataIndependentShadowEngine";
 
 export const FORWARD_REPLAY_MATERIALIZATION_COMPONENT = "forward_strategy_replay";
 
@@ -61,6 +64,8 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: FUJIKURA_MORNING_SHORT_VERSION, symbol: "5803", run: (source, shadow, realtime) => auditFujikuraMorningShortShadowDay(source, shadow, realtime) },
   { version: KIOXIA_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaForwardShadowDay(source, shadow) },
   { version: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaAtrForwardShadowDay(source, shadow) },
+  { version: MURATA_DEEP_REVERSAL_LONG_VERSION, symbol: "6981", run: (source, shadow, realtime) => auditMurataIndependentShadowDay(source, shadow, realtime, "deep_reversal_long") },
+  { version: MURATA_MORNING_BREAKDOWN_SHORT_VERSION, symbol: "6981", run: (source, shadow, realtime) => auditMurataIndependentShadowDay(source, shadow, realtime, "morning_breakdown_short") },
   { version: TEL_EXECUTABLE_CONFIRM_VERSION, symbol: "8035", run: (source, shadow) => auditTelExecutableConfirmDay(source, shadow) },
   { version: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", run: (source, shadow, realtime) => auditTelExecutableConfirmDepthDay(source, shadow, realtime) },
   { version: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", run: (source, shadow, realtime) => auditSoftbankForwardShadowDay(source, shadow, realtime, "depth_confirm") },

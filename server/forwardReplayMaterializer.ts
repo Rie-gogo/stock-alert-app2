@@ -16,12 +16,14 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION,
   KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
@@ -39,6 +41,7 @@ import { auditFujikuraMorningShortShadowDay } from "./fujikuraMorningBreakdownSh
 import { replayKioxiaForwardShadowDay } from "./kioxiaForwardShadowEngine";
 import { replayKioxiaAtrForwardShadowDay } from "./kioxiaAtrForwardShadowEngine";
 import { auditKioxiaReversalLongReopenDay } from "./kioxiaReversalLongReopenEngine";
+import { auditKioxiaCurrentReversalLongExactDay } from "./kioxiaCurrentReversalLongExactEngine";
 import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
 import { auditTelExecutableConfirmDay } from "./telExecutableConfirmEngine";
 import { TEL_EXECUTABLE_DEPTH_VERSION } from "./telExecutableConfirmDepth";
@@ -57,7 +60,7 @@ export const FORWARD_REPLAY_MATERIALIZATION_COMPONENT = "forward_strategy_replay
 
 type ReplayRunner = (sourceEvents: any[], shadowEvents: any[], realtimeDecisionEvents: any[]) => unknown;
 
-const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
+export const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   version: string;
   symbol: string;
   run: ReplayRunner;
@@ -68,6 +71,7 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: KIOXIA_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaForwardShadowDay(source, shadow) },
   { version: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, symbol: "285A", run: (source, shadow) => replayKioxiaAtrForwardShadowDay(source, shadow) },
   { version: KIOXIA_REVERSAL_LONG_REOPEN_VERSION, symbol: "285A", run: (source, shadow) => auditKioxiaReversalLongReopenDay(source, shadow) },
+  { version: KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION, symbol: "285A", run: (source, shadow) => auditKioxiaCurrentReversalLongExactDay(source, shadow) },
   { version: MURATA_DEEP_REVERSAL_LONG_VERSION, symbol: "6981", run: (source, shadow, realtime) => auditMurataIndependentShadowDay(source, shadow, realtime, "deep_reversal_long") },
   { version: MURATA_MORNING_BREAKDOWN_SHORT_VERSION, symbol: "6981", run: (source, shadow, realtime) => auditMurataIndependentShadowDay(source, shadow, realtime, "morning_breakdown_short") },
   { version: TEL_EXECUTABLE_CONFIRM_VERSION, symbol: "8035", run: (source, shadow) => auditTelExecutableConfirmDay(source, shadow) },
@@ -82,6 +86,7 @@ const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonLongForwardShadowDay(source, shadow, realtime, "recovery_winrate") },
   { version: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "initial_strength") },
   { version: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "initial_strength_reopen") },
+  { version: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "confirmed_long_exact_reopen") },
   { version: SOCIONEXT_CONFIRM_STRENGTH_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "confirmation_strength") },
   { version: SUMCO_VOLUME_110_VERSION, symbol: "3436", run: (source, shadow) => auditSumcoForwardShadowDay(source, shadow, "volume_110") },
   { version: SUMCO_TIME_15_VERSION, symbol: "3436", run: (source, shadow) => auditSumcoForwardShadowDay(source, shadow, "time_15") },

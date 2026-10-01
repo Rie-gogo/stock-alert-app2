@@ -36,10 +36,12 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION,
   KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
@@ -68,6 +70,7 @@ describe("trading.getForwardShadowSummary", () => {
       [KIOXIA_FORWARD_STRATEGY_VERSION, "285A"],
       [KIOXIA_ATR_FORWARD_STRATEGY_VERSION, "285A"],
       [KIOXIA_REVERSAL_LONG_REOPEN_VERSION, "285A"],
+      [KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION, "285A"],
       [TEL_EXECUTABLE_CONFIRM_VERSION, "8035"],
       [TEL_EXECUTABLE_DEPTH_LEGACY_VERSION, "8035"],
       [TEL_EXECUTABLE_DEPTH_VERSION, "8035"],
@@ -81,6 +84,7 @@ describe("trading.getForwardShadowSummary", () => {
       [TAIYO_AFTERNOON_LONG_WINRATE_VERSION, "6976"],
       [SOCIONEXT_INITIAL_STRENGTH_VERSION, "6526"],
       [SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION, "6526"],
+      [SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION, "6526"],
       [SOCIONEXT_CONFIRM_STRENGTH_VERSION, "6526"],
       [SUMCO_VOLUME_110_VERSION, "3436"],
       [SUMCO_TIME_15_VERSION, "3436"],
@@ -113,6 +117,9 @@ describe("trading.getForwardShadowSummary", () => {
     });
     expect(byVersion.get(TAIYO_AFTERNOON_LONG_RR2_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "diagnostic_candidate" });
     for (const version of [KIOXIA_REVERSAL_LONG_REOPEN_VERSION, SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION]) {
+      expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "invalid_mapping_quarantined", automaticAdoption: false, orderInstructionConnection: false, collectionStartDate: "2026-10-02" });
+    }
+    for (const version of [KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION, SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION]) {
       expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "candidate", automaticAdoption: false, orderInstructionConnection: false, collectionStartDate: "2026-10-02" });
     }
     expect(byVersion.get(DISCO_SHORT_BASELINE_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "paused_current_route_comparison_only" });

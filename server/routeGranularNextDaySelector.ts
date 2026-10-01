@@ -49,7 +49,8 @@ function planSummary(item: RouteGranularDailyPlan | null) {
   return { completed, signals, pnl: finite(item?.pnlPer100) ?? 0, wins: finite(item?.wins) ?? 0, losses: finite(item?.losses) ?? 0, draws: finite(item?.draws) ?? 0, grossProfit: finite(item?.grossProfitPer100) ?? 0, grossLoss: finite(item?.grossLossPer100) ?? 0, openTrades: finite(item?.openTrades) ?? 0 };
 }
 
-function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: string; cutoffFeature: Value; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle> }) {
+function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: string; cutoffFeature: Value; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle>; catalogComplete: boolean }) {
+  if (!input.catalogComplete) return { ...input.variant, lifecycle: "unavailable", selectable: false, exclusionReasons: ["route_catalog_incomplete_or_unresolved"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
   const lifecycle = isLifecycleEligible(input.variant, input.lifecycles);
   if (!lifecycle.eligible) return { ...input.variant, lifecycle: "unavailable", selectable: false, exclusionReasons: [lifecycle.reason], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
   if (input.cutoffFeature.featureEligible !== true || input.cutoffFeature.provenanceStatus !== "verified") return { ...input.variant, lifecycle: "eligible", selectable: false, exclusionReasons: ["feature_or_provenance_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
@@ -89,7 +90,10 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
 export function buildRouteGranularSelectorSnapshot(input: { sourceTradeDate: string; feature: Row; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle>; watermark: unknown }) {
   const featureRows = input.featureRows.filter(row => row.tradeDate <= input.sourceTradeDate);
   const dailyRows = input.dailyRows.filter(row => row.tradeDate <= input.sourceTradeDate);
-  const scores = ROUTE_GRANULAR_VARIANTS.map(variant => scoreVariant({ variant, sourceTradeDate: input.sourceTradeDate, cutoffFeature: feature(input.feature, variant.symbol), featureRows, dailyRows, lifecycles: input.lifecycles }));
+  const cutoffDaily = dailyRows.find(row => row.tradeDate === input.sourceTradeDate);
+  const catalogAudit = object(cutoffDaily ? object(cutoffDaily.resultJson).catalogAudit : null);
+  const catalogComplete = catalogAudit.complete === true;
+  const scores = ROUTE_GRANULAR_VARIANTS.map(variant => scoreVariant({ variant, sourceTradeDate: input.sourceTradeDate, cutoffFeature: feature(input.feature, variant.symbol), featureRows, dailyRows, lifecycles: input.lifecycles, catalogComplete }));
   const routeGroups = Array.from(new Set(ROUTE_GRANULAR_VARIANTS.map(item => `${item.symbol}:${item.routeGroupId}`))).sort();
   const selections = routeGroups.map(key => {
     const [symbol, routeGroupId] = key.split(":");
@@ -105,7 +109,7 @@ export function buildRouteGranularSelectorSnapshot(input: { sourceTradeDate: str
     immutable: true, generatedAt: new Date().toISOString(), dataCutoff: input.sourceTradeDate, sourceTradeDate: input.sourceTradeDate,
     targetDate: nextTokyoEquityTradeDate(input.sourceTradeDate), watermark: input.watermark, featureInputHash: featureResult.inputHash ?? null,
     inputHash: sha256Stable({ configHash: ROUTE_GRANULAR_SELECTOR_CONFIG_HASH, dataCutoff: input.sourceTradeDate, featureHash: featureResult.inputHash, dailyRows: dailyRows.map(row => ({ tradeDate: row.tradeDate, hash: sha256Stable(row.resultJson) })), lifecycles: input.lifecycles, watermark: input.watermark }),
-    variants: ROUTE_GRANULAR_VARIANTS, scores, selections, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false, formalPerformanceUse: false,
+    variants: ROUTE_GRANULAR_VARIANTS, scores, selections, catalogAudit: catalogAudit.complete === true ? catalogAudit : { complete: false, ...catalogAudit }, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false, formalPerformanceUse: false,
   };
 }
 

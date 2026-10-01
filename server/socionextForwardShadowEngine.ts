@@ -18,6 +18,7 @@ import {
   BASELINE_STRATEGY_GIT_SHA,
   FORWARD_EVALUATION_POLICY,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   getRuntimeIdentity,
@@ -25,12 +26,15 @@ import {
 } from "./runtimeIdentity";
 import {
   SOCIONEXT_CONFIRM_STRENGTH_SPEC,
+  SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_COLLECTION_START_DATE,
+  SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_SPEC,
   SOCIONEXT_FORWARD_COLLECTION_START_DATE,
   SOCIONEXT_FORWARD_FORMAL_START_DATE,
   SOCIONEXT_FORWARD_LEARNING_CUTOFF_DATE,
   SOCIONEXT_INITIAL_STRENGTH_SPEC,
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_COLLECTION_START_DATE,
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_SPEC,
+  applySocionextConfirmedLongExactReopenTransition,
   applySocionextInitialStrengthReopenTransition,
   applySocionextConfirmationStrengthTransition,
   applySocionextInitialStrengthTransition,
@@ -71,6 +75,16 @@ const DEFINITIONS = {
     statusReason: "formal_evaluation_gate_pending_and_route_parity_required",
     collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
   },
+  confirmed_long_exact_reopen: {
+    strategyVersion: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION,
+    strategyId: "candidate-6526-confirmed-long-exact-monitoring-reopen",
+    spec: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_SPEC,
+    transition: applySocionextConfirmedLongExactReopenTransition,
+    eligibleForAdoption: false,
+    evaluationPurpose: "causality_audit" as const,
+    statusReason: "exact_copy_of_stopped_current_confirmed_long_monitoring_only_manual_review_required",
+    collectionStartDate: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_COLLECTION_START_DATE,
+  },
 } as const;
 
 const ensuredVersions = new Set<string>();
@@ -99,7 +113,7 @@ async function ensureVersion(variant: Variant) {
     configJson: config,
     learningCutoffDate: SOCIONEXT_FORWARD_LEARNING_CUTOFF_DATE,
     evaluationStartDate: SOCIONEXT_FORWARD_FORMAL_START_DATE,
-    evaluationPurpose: "candidate",
+    evaluationPurpose: "evaluationPurpose" in definition ? definition.evaluationPurpose : "candidate",
     eligibleForAdoption: definition.eligibleForAdoption,
     status: "monitoring",
     statusReason: definition.statusReason,
@@ -270,7 +284,7 @@ export async function processSocionextForwardShadowSourceEvent(source: ForwardSo
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) return { skipped: "baseline_trading_logic_mismatch" as const };
   const evaluations: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
-  for (const variant of ["initial_strength", "initial_strength_reopen", "confirmation_strength"] as const) {
+  for (const variant of ["initial_strength", "confirmation_strength", "confirmed_long_exact_reopen"] as const) {
     try {
       evaluations.push(await processVariant(source, variant));
     } catch (error) {

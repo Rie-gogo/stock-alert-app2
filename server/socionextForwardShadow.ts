@@ -66,7 +66,38 @@ export const SOCIONEXT_INITIAL_STRENGTH_REOPEN_SPEC = Object.freeze({
 });
 export const SOCIONEXT_INITIAL_STRENGTH_REOPEN_COLLECTION_START_DATE = "2026-10-02";
 
-export type SocionextForwardVariant = "initial_strength" | "initial_strength_reopen" | "confirmation_strength";
+/**
+ * 旧現行「確認型LONG」と同一の再開監視版。初動/確認足の強度フィルターを
+ * 追加せず、元の確定足終値entry、SL 0.8%、TP 0.5%、20分境界を保持する。
+ */
+export const SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_SPEC = Object.freeze({
+  symbol: "6526",
+  routeId: "socionextConfirmedLong",
+  candidateKey: "6526_confirmed_long_exact_monitoring_reopen",
+  historicalRole: "exact_copy_of_stopped_current_confirmed_long_monitoring_only",
+  entry: Object.freeze({
+    sharedDetectionCore: "calculateSocionextConfirmedLongMetrics_and_evaluateSocionextConfirmedLongConfirmation",
+    initialTrigger: "bullish_close_breaks_prior_10_high_ma8_slope_ge_005_volume_ge_12_close_ge_day_open",
+    confirmation: "next_completed_candle_close_gt_trigger_close",
+    confirmationFailureTransition: "same_candle_fall_through_and_redetect",
+    rejectionTransition: "continue_search_without_consuming_daily_slot",
+    entryPrice: "completed_confirmation_candle_close",
+  }),
+  exit: Object.freeze({
+    slPct: 0.8,
+    tpPct: 0.5,
+    maxHoldingMinutes: 20,
+    sameBarPriority: ["am_session_exit_at_1127", "stop_loss", "take_profit", "time_exit"],
+    stopFill: "stop_line",
+    timeExit: "elapsed_boundary_completed_candle_close",
+    boardEarlyExit: false,
+    signalReversalExit: false,
+  }),
+  orderInstructionConnection: false,
+});
+export const SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_COLLECTION_START_DATE = "2026-10-02";
+
+export type SocionextForwardVariant = "initial_strength" | "initial_strength_reopen" | "confirmation_strength" | "confirmed_long_exact_reopen";
 export type SocionextForwardResultType = "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
 
 export type SocionextForwardPosition = {
@@ -235,6 +266,24 @@ function calculateExit(position: SocionextForwardPosition, input: ForwardSourceE
   if (input.candle.high >= targetLine) return closePosition(position, targetLine, "take_profit");
   if (input.candle.candleTime >= "11:27") return closePosition(position, input.candle.close, "session_exit");
   if (minutesBetween(position.entryTime, input.candle.candleTime) >= SOCIONEXT_INITIAL_STRENGTH_SPEC.exit.maxHoldingMinutes) {
+    return closePosition(position, input.candle.close, "time_exit");
+  }
+  return null;
+}
+
+/** Current 6526 confirmed-long exit order, deliberately distinct from older strength variants. */
+function calculateExactConfirmedLongReopenExit(position: SocionextForwardPosition, input: ForwardSourceEventInput): SocionextClosedPosition | null {
+  // realtimeSimEngine force-closes AM positions before SL/TP for the 11:27 candle.
+  if (position.entryTime < "11:30" && input.candle.candleTime >= "11:27" && input.candle.candleTime < "11:30") {
+    return closePosition(position, input.candle.close, "session_exit");
+  }
+  if (input.candle.candleTime >= "15:25") return closePosition(position, input.candle.close, "session_exit");
+  const stopLine = position.entryPrice * (1 - position.slPct / 100);
+  const targetLine = position.entryPrice * (1 + position.tpPct / 100);
+  // Current engine resolves simultaneous SL/TP to SL first.
+  if (input.candle.low <= stopLine) return closePosition(position, stopLine, "stop_loss");
+  if (input.candle.high >= targetLine) return closePosition(position, targetLine, "take_profit");
+  if (minutesBetween(position.entryTime, input.candle.candleTime) >= SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_SPEC.exit.maxHoldingMinutes) {
     return closePosition(position, input.candle.close, "time_exit");
   }
   return null;
@@ -456,5 +505,70 @@ export function applySocionextConfirmationStrengthTransition(
     }
   }
 
+  return finalize(state, input, resultType, actions, openedPosition, closedPosition);
+}
+
+/**
+ * P0 reopening: state-isolated exact copy of the old current confirmed-long route.
+ * It intentionally has no initial/confirmation-strength gate and never shares the
+ * current engine's position, daily slot, candidate, or capital state.
+ */
+export function applySocionextConfirmedLongExactReopenTransition(
+  stateBefore: SocionextForwardState,
+  input: ForwardSourceEventInput,
+  mode: ForwardEvaluationMode,
+): SocionextForwardTransition {
+  const state = normalizeSocionextForwardState(stateBefore, "confirmed_long_exact_reopen", input.candle.tradeDate);
+  const actions: Array<Record<string, unknown>> = [];
+  let resultType: SocionextForwardResultType = "no_signal";
+  let openedPosition: SocionextForwardPosition | null = null;
+  let closedPosition: SocionextClosedPosition | null = null;
+  appendCandle(state, input);
+
+  if (state.position) {
+    closedPosition = calculateExactConfirmedLongReopenExit(state.position, input);
+    if (closedPosition) {
+      state.position = null;
+      resultType = "exit";
+      actions.push({ type: "exit", route: "socionext_confirmed_long", reason: closedPosition.exitReason, exitPrice: closedPosition.exitPrice, pnl: closedPosition.pnl, pnlAfterAdverseExit: closedPosition.pnlAfterAdverseExit, realizedR: closedPosition.realizedR });
+    } else {
+      resultType = "hold";
+      actions.push({ type: "hold", route: "socionext_confirmed_long" });
+    }
+  } else if (state.pending && !state.dailySlotConsumed) {
+    const pending = state.pending;
+    state.pending = null;
+    if (!isSocionextConfirmedLongConfirmationTime(input.candle.candleTime)) {
+      resultType = "rejected";
+      actions.push({ type: "confirmation_rejected", route: "socionext_confirmed_long", reason: "confirmation_time_expired", originalSignalSourceEventId: pending.signalSourceEventId });
+    } else {
+      const confirmation = evaluateSocionextConfirmedLongConfirmation({ pending, candle: state.candles[state.candles.length - 1] });
+      if (!confirmation.allowed) {
+        resultType = "rejected";
+        actions.push({ type: "confirmation_rejected", route: "socionext_confirmed_long", reason: "confirmation_failed", codes: confirmation.codes, originalSignalSourceEventId: pending.signalSourceEventId, sameCandleRedetectionAllowed: true });
+      } else {
+        openedPosition = openPosition({
+          state,
+          source: input,
+          mode,
+          pending,
+          slPct: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_SPEC.exit.slPct,
+          tpPct: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_SPEC.exit.tpPct,
+        });
+        resultType = "entry";
+        actions.push({ type: "entry", route: "socionext_confirmed_long", side: "long", entryPrice: openedPosition.entryPrice, priceSource: "completed_confirmation_candle_close", shares: openedPosition.shares });
+      }
+    }
+  }
+
+  // Failed confirmation falls through to the original same-candle re-detection rule.
+  if (!state.position && !state.pending && !state.dailySlotConsumed) {
+    const detected = createPending(state, input);
+    if (detected.pending) {
+      state.pending = detected.pending;
+      resultType = "pending";
+      actions.push({ type: "pending", route: "socionext_confirmed_long", side: "long", triggerClose: detected.pending.triggerClose, metrics: detected.pending });
+    }
+  }
   return finalize(state, input, resultType, actions, openedPosition, closedPosition);
 }

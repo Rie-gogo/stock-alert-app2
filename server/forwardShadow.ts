@@ -46,12 +46,14 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION,
   KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
@@ -680,10 +682,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   }
   if (input.candle.symbol === "285A") {
     const { processKioxiaForwardShadowSourceEvent } = await import("./kioxiaForwardShadowEngine");
-    const { processKioxiaReversalLongReopenSourceEvent } = await import("./kioxiaReversalLongReopenEngine");
+    const { processKioxiaCurrentReversalLongExactReopenSourceEvent } = await import("./kioxiaCurrentReversalLongExactEngine");
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
-    for (const evaluate of [processKioxiaForwardShadowSourceEvent, processKioxiaAtrForwardShadowSourceEvent, processKioxiaReversalLongReopenSourceEvent]) {
+    for (const evaluate of [processKioxiaForwardShadowSourceEvent, processKioxiaAtrForwardShadowSourceEvent, processKioxiaCurrentReversalLongExactReopenSourceEvent]) {
       try {
         evaluations.push(await evaluate(input));
       } catch (error) {
@@ -1187,11 +1189,20 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
     {
       versionId: KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
       symbol: "285A",
-      title: "285A 反転LONG・別stateの再開監視shadow",
+      title: "285A 反転LONG・誤mapping隔離（履歴のみ）",
       startDate: "2026-10-02",
       cutoffDate: "2026-10-01",
       adoptionEligible: false,
-      lifecycle: "manual_review_only_monitoring_reopen",
+      lifecycle: "invalid_mapping_quarantined",
+    },
+    {
+      versionId: KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION,
+      symbol: "285A",
+      title: "285A 旧Current反転LONG・完全一致の独立再開監視shadow",
+      startDate: "2026-10-02",
+      cutoffDate: "2026-10-01",
+      adoptionEligible: false,
+      lifecycle: "manual_review_only_exact_current_reopen",
     },
     {
       versionId: MURATA_DEEP_REVERSAL_LONG_VERSION,
@@ -1323,11 +1334,20 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
     {
       versionId: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
       symbol: "6526",
-      title: "6526 確認型LONG A・別stateの再開監視shadow",
+      title: "6526 初動強度LONG・誤mapping隔離（履歴のみ）",
       startDate: "2026-10-02",
       cutoffDate: "2026-10-01",
       adoptionEligible: false,
-      lifecycle: "manual_review_only_monitoring_reopen",
+      lifecycle: "invalid_mapping_quarantined",
+    },
+    {
+      versionId: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION,
+      symbol: "6526",
+      title: "6526 旧Current確認型LONG・完全一致の独立再開監視shadow",
+      startDate: "2026-10-02",
+      cutoffDate: "2026-10-01",
+      adoptionEligible: false,
+      lifecycle: "manual_review_only_exact_current_reopen",
     },
     {
       versionId: SOCIONEXT_CONFIRM_STRENGTH_VERSION,

@@ -17,7 +17,7 @@ vi.mock("./kioxiaAtrForwardShadowEngine", () => ({
   processKioxiaAtrForwardShadowSourceEvent: secondShadow,
   replayKioxiaAtrForwardShadowDay: vi.fn(() => ({ replayedEvents: 0, mismatches: 0, invalidPayloads: 0 })),
 }));
-vi.mock("./kioxiaReversalLongReopenEngine", () => ({ processKioxiaReversalLongReopenSourceEvent: reopenShadow }));
+vi.mock("./kioxiaCurrentReversalLongExactEngine", () => ({ processKioxiaCurrentReversalLongExactReopenSourceEvent: reopenShadow }));
 
 import { processForwardShadowSourceEvent } from "./forwardShadow";
 

@@ -1606,6 +1606,21 @@ export async function getRtStrategyVersion(versionId: string): Promise<RtStrateg
   return rows[0] ?? null;
 }
 
+/** Bounded closed-day audit inventory; never called from source ingestion or UI requests. */
+export async function listRtStrategyVersionsForCatalogAudit(limit = 256): Promise<Array<Pick<RtStrategyVersion, "versionId" | "strategyId" | "evaluationPurpose" | "eligibleForAdoption" | "status" | "statusReason" | "configJson">>> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    versionId: rtStrategyVersions.versionId,
+    strategyId: rtStrategyVersions.strategyId,
+    evaluationPurpose: rtStrategyVersions.evaluationPurpose,
+    eligibleForAdoption: rtStrategyVersions.eligibleForAdoption,
+    status: rtStrategyVersions.status,
+    statusReason: rtStrategyVersions.statusReason,
+    configJson: rtStrategyVersions.configJson,
+  }).from(rtStrategyVersions).orderBy(desc(rtStrategyVersions.updatedAt)).limit(Math.max(1, Math.min(256, limit)));
+}
+
 export async function updateRtStrategyVersionStatus(input: {
   versionId: string;
   status: RtStrategyVersion["status"];

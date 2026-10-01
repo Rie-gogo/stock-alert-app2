@@ -4,9 +4,10 @@ import {
   getRtForwardShadowTradesForEntryDate,
   getRtSignalCandidateTradesForDate,
   getRtSignalCandidatesForDate,
+  listRtStrategyVersionsForCatalogAudit,
 } from "./db";
 import { resolveMonitoringCandidateVirtualGeneration } from "./multiSymbolMonitoringMaterializer";
-import { ROUTE_GRANULAR_VARIANTS, type RouteGranularVariant } from "./routeGranularMonitoringRegistry";
+import { ROUTE_GRANULAR_VARIANTS, auditRouteGranularCatalog, type RouteGranularVariant } from "./routeGranularMonitoringRegistry";
 
 export const ROUTE_GRANULAR_MONITORING_COMPONENT = "monitoring_route_granular_10_symbols";
 export const ROUTE_GRANULAR_MONITORING_VERSION = "monitoring-route-granular-10-symbols-v1";
@@ -21,10 +22,15 @@ function routeForForwardEvent(event: RtForwardShadowEvent): string | null {
   const action = actions(event).find(item => typeof item.route === "string" && ["entry", "entry_rejected", "pending", "route_ended"].includes(String(item.type)));
   return typeof action?.route === "string" ? action.route : null;
 }
+function sideForForwardEvent(event: RtForwardShadowEvent): "long" | "short" | null {
+  const action = actions(event).find(item => ["entry", "entry_rejected", "pending", "route_ended"].includes(String(item.type)) && (item.side === "long" || item.side === "short"));
+  return action?.side === "long" || action?.side === "short" ? action.side : null;
+}
 function isRoutedEvent(event: RtForwardShadowEvent, variant: RouteGranularVariant) {
   if (event.strategyVersion !== variant.strategyVersion || event.evaluationMode !== "signal_quality") return false;
-  if (!variant.shadowRouteId) return true;
-  return routeForForwardEvent(event) === variant.shadowRouteId;
+  if (variant.shadowRouteId && routeForForwardEvent(event) !== variant.shadowRouteId) return false;
+  if (variant.shadowSide && sideForForwardEvent(event) !== variant.shadowSide) return false;
+  return true;
 }
 
 export type RouteGranularDailyPlan = RouteGranularVariant & {
@@ -48,6 +54,7 @@ export type RouteGranularDailySnapshot = {
   tradeDate: string;
   ready: boolean;
   incompleteReason: string | null;
+  catalogAudit: ReturnType<typeof auditRouteGranularCatalog>;
   scope: { compositePlansSelectable: false; unclassifiedSelectable: false; source: "closed_daily_ledger_only"; automaticAdoption: false };
   summary: { variants: number; signals: number; completedTrades: number; openTrades: number; missingTrades: number };
   plans: RouteGranularDailyPlan[];
@@ -84,6 +91,7 @@ export function buildRouteGranularDailySnapshot(input: {
   candidateTrades: RtSignalCandidateTrade[];
   shadowEvents: RtForwardShadowEvent[];
   shadowTrades: RtForwardShadowTrade[];
+  lifecycleRows?: Parameters<typeof auditRouteGranularCatalog>[1];
 }): RouteGranularDailySnapshot {
   const tradeByCandidate = new Map(input.candidateTrades.map(trade => [trade.candidateId, trade]));
   const shadowEventByEntryKey = new Map(input.shadowEvents.map(event => [`${event.strategyVersion}:${event.sourceEventId}`, event]));
@@ -104,7 +112,11 @@ export function buildRouteGranularDailySnapshot(input: {
     const trades = input.shadowTrades.filter(trade => trade.symbol === variant.symbol
       && trade.strategyVersion === variant.strategyVersion
       && trade.evaluationMode === "signal_quality"
-      && (!variant.shadowRouteId || routeForForwardEvent(shadowEventByEntryKey.get(`${trade.strategyVersion}:${trade.entrySourceEventId}`) ?? {} as RtForwardShadowEvent) === variant.shadowRouteId));
+      && (() => {
+        const event = shadowEventByEntryKey.get(`${trade.strategyVersion}:${trade.entrySourceEventId}`) ?? {} as RtForwardShadowEvent;
+        return (!variant.shadowRouteId || routeForForwardEvent(event) === variant.shadowRouteId)
+          && (!variant.shadowSide || sideForForwardEvent(event) === variant.shadowSide);
+      })());
     return summarize({
       variant,
       signals: events.length,
@@ -114,13 +126,15 @@ export function buildRouteGranularDailySnapshot(input: {
   });
   const openTrades = plans.reduce((sum, item) => sum + item.openTrades, 0);
   const missingTrades = plans.reduce((sum, item) => sum + item.missingTrades, 0);
-  const ready = openTrades === 0 && missingTrades === 0;
+  const catalogAudit = auditRouteGranularCatalog(ROUTE_GRANULAR_VARIANTS, input.lifecycleRows ?? []);
+  const ready = openTrades === 0 && missingTrades === 0 && catalogAudit.complete;
   return {
     component: ROUTE_GRANULAR_MONITORING_COMPONENT,
     materializationVersion: ROUTE_GRANULAR_MONITORING_VERSION,
     tradeDate: input.tradeDate,
     ready,
-    incompleteReason: ready ? null : `open_trades=${openTrades},missing_current_trades=${missingTrades}`,
+    incompleteReason: ready ? null : `open_trades=${openTrades},missing_current_trades=${missingTrades},catalog_complete=${catalogAudit.complete}`,
+    catalogAudit,
     scope: { compositePlansSelectable: false, unclassifiedSelectable: false, source: "closed_daily_ledger_only", automaticAdoption: false },
     summary: { variants: plans.length, signals: plans.reduce((sum, item) => sum + item.signals, 0), completedTrades: plans.reduce((sum, item) => sum + item.completedTrades, 0), openTrades, missingTrades },
     plans,
@@ -130,11 +144,12 @@ export function buildRouteGranularDailySnapshot(input: {
 /** Called only by the closed-date audit materializer; never by source ingestion or a UI request. */
 export async function materializeRouteGranularMonitoringForDate(tradeDate: string) {
   const generation = resolveMonitoringCandidateVirtualGeneration(tradeDate);
-  const [candidates, candidateTrades, shadowEvents, shadowTrades] = await Promise.all([
+  const [candidates, candidateTrades, shadowEvents, shadowTrades, lifecycleRows] = await Promise.all([
     getRtSignalCandidatesForDate({ candidateVersion: generation.candidateVersion, tradeDate }),
     getRtSignalCandidateTradesForDate({ virtualEngineVersion: generation.virtualEngineVersion, tradeDate }),
     getRtForwardShadowEventsForDate(tradeDate),
     getRtForwardShadowTradesForEntryDate(tradeDate),
+    listRtStrategyVersionsForCatalogAudit(),
   ]);
-  return buildRouteGranularDailySnapshot({ tradeDate, candidates, candidateTrades, shadowEvents, shadowTrades });
+  return buildRouteGranularDailySnapshot({ tradeDate, candidates, candidateTrades, shadowEvents, shadowTrades, lifecycleRows });
 }

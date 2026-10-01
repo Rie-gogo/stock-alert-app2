@@ -23,6 +23,8 @@ import {
   CURRENT_SIGNAL_CANDIDATE_VERSION,
 } from "./currentSignalCandidateRegistry";
 import {
+  ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
+  ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -83,8 +85,8 @@ const candidateSlots: SelectorSlot[] = [
   { symbol: "6146", slot: "B", planId: `shadow:${DISCO_SHORT_RETEST_B_VERSION}`, label: "B：SHORT再安値リテスト", origin: "forward_shadow", canonicalLogic: "candidate-6146-opening-short-retest-b", strategyVersion: DISCO_SHORT_RETEST_B_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "6526", slot: "A", planId: "unavailable:6526:A", label: "A：未登録", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "initial-strength diagnostic version is stopped and excluded" },
   { symbol: "6526", slot: "B", planId: `shadow:${SOCIONEXT_CONFIRM_STRENGTH_VERSION}`, label: "B：確認足強度", origin: "forward_shadow", canonicalLogic: "candidate-6526-confirm-strength-daily-stop", strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
-  { symbol: "6857", slot: "A", planId: "unavailable:6857:A", label: "A：未登録", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "no active monitoring strategy version is registered" },
-  { symbol: "6857", slot: "B", planId: "unavailable:6857:B", label: "B：未登録", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "no active monitoring strategy version is registered" },
+  { symbol: "6857", slot: "A", planId: `shadow:${ADVANTEST_SHORT_BODY008_DEPTH_VERSION}`, label: "A：高値失速SHORT・陰線実体0.08%＋次イベント板", origin: "forward_shadow", canonicalLogic: "candidate-6857-short-body008-depth", strategyVersion: ADVANTEST_SHORT_BODY008_DEPTH_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
+  { symbol: "6857", slot: "B", planId: `shadow:${ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION}`, label: "B：確認型継続LONG・二段階高値更新＋次イベント板", origin: "forward_shadow", canonicalLogic: "candidate-6857-confirmed-continuation-depth", strategyVersion: ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "6976", slot: "A", planId: `shadow:${TAIYO_BOARD_DEMAND_VERSION}`, label: "A：板需要確認", origin: "forward_shadow", canonicalLogic: "candidate-6976-board-demand-bpr130", strategyVersion: TAIYO_BOARD_DEMAND_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "6976", slot: "B", planId: `shadow:${TAIYO_RR2_PROTECT_VERSION}`, label: "B：2R利益保護", origin: "forward_shadow", canonicalLogic: "candidate-6976-rr2-protect", strategyVersion: TAIYO_RR2_PROTECT_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "6981", slot: "A", planId: `shadow:${MURATA_DEEP_REVERSAL_LONG_VERSION}`, label: "A：深い下落後の確認反発LONG", origin: "forward_shadow", canonicalLogic: "candidate-6981-deep-reversal-long", strategyVersion: MURATA_DEEP_REVERSAL_LONG_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },

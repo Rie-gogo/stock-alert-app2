@@ -720,6 +720,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const { processSoftbankForwardShadowSourceEvent } = await import("./softbankForwardShadowEngine");
     return processSoftbankForwardShadowSourceEvent(input);
   }
+  if (input.candle.symbol === "6857") {
+    const { processAdvantestForwardShadowSourceEvent } = await import("./advantestForwardShadowEngine");
+    return processAdvantestForwardShadowSourceEvent(input);
+  }
   if (input.candle.symbol === "6976") {
     const { processTaiyoForwardShadowSourceEvent } = await import("./taiyoForwardShadowEngine");
     const { processTaiyoAfternoonForwardShadowSourceEvent } = await import("./taiyoAfternoonForwardShadowEngine");

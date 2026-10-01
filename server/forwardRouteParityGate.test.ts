@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
+  ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   DISCO_SHORT_BASELINE_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
@@ -26,6 +28,19 @@ import {
 import { applyForwardRouteParityGate, resolveForwardRouteParityGate } from "./forwardRouteParityGate";
 
 describe("候補経路別parity Gate", () => {
+  it("6857 A/Bは対応する現行SHORT/LONG経路のparity証拠を必須にする", () => {
+    expect(resolveForwardRouteParityGate(ADVANTEST_SHORT_BODY008_DEPTH_VERSION)).toMatchObject({
+      status: "required",
+      requiredRoutes: ["advantestHighFadeShort"],
+      evidence: { kind: "missing_route_parity" },
+    });
+    expect(resolveForwardRouteParityGate(ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION)).toMatchObject({
+      status: "required",
+      requiredRoutes: ["advantestConfirmedBreakLong"],
+      evidence: { kind: "missing_route_parity" },
+    });
+  });
+
   it("9984 A/Bは現行softbankBreakoutLong経路のparity証拠を必須にする", () => {
     for (const version of [SOFTBANK_DEPTH_CONFIRM_VERSION, SOFTBANK_RR2_PROTECT_VERSION]) {
       expect(resolveForwardRouteParityGate(version)).toMatchObject({

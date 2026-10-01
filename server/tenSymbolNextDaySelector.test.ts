@@ -38,7 +38,9 @@ describe("10銘柄翌日選択器の固定運用契約", () => {
   it("Current/A/Bを10銘柄×3行で固定し、停止版や診断版を候補に混ぜない", () => {
     expect(TEN_SYMBOL_SELECTOR_SLOTS).toHaveLength(30);
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.slot === "Current")).toHaveLength(10);
-    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.origin === "unavailable").map(slot => `${slot.symbol}:${slot.slot}`)).toEqual(["5803:B", "6526:A", "6857:A", "6857:B"]);
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.origin === "unavailable").map(slot => `${slot.symbol}:${slot.slot}`)).toEqual(["5803:B", "6526:A"]);
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.symbol === "6857").map(slot => slot.origin)).toEqual(["current", "forward_shadow", "forward_shadow"]);
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.symbol === "6981").map(slot => slot.origin)).toEqual(["current", "forward_shadow", "forward_shadow"]);
     const versions = TEN_SYMBOL_SELECTOR_SLOTS.map(slot => slot.strategyVersion).filter(Boolean).join("\n");
     expect(versions).not.toContain("candidate-5803-morning-20bar-breakdown-short-depth-v1");
     expect(versions).not.toContain("candidate-8035-executable-depth-v2");

@@ -78,6 +78,10 @@ describe("route-granular next-day monitoring selector", () => {
       "candidate-6526-initial-strength-monitoring-reopen-v1",
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(true);
+    expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
+      "candidate-6857-confirmed-continuation-depth",
+      "candidate-6857-short-body008-depth",
+    ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "6981" && item.candidateRouteId === "openingBreakShort")).toBe(true);
   });
 

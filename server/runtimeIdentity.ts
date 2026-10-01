@@ -25,6 +25,9 @@ export const TEL_EXECUTABLE_DEPTH_LEGACY_VERSION = "candidate-8035-executable-de
 export const TEL_EXECUTABLE_DEPTH_VERSION = "candidate-8035-executable-depth-v3-parity-reset";
 export const SOFTBANK_DEPTH_CONFIRM_VERSION = "forward-shadow-9984-breakout-depth-confirm-v1";
 export const SOFTBANK_RR2_PROTECT_VERSION = "forward-shadow-9984-breakout-rr2-protect-v1";
+/** 6857の現行経路とは独立した、手動審査専用の前向きshadow 2案。 */
+export const ADVANTEST_SHORT_BODY008_DEPTH_VERSION = "candidate-6857-short-body008-depth-v1";
+export const ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION = "candidate-6857-confirmed-continuation-depth-v1";
 export const TAIYO_BOARD_DEMAND_VERSION = "candidate-6976-board-demand-bpr130-v1";
 export const TAIYO_RR2_PROTECT_VERSION = "candidate-6976-rr2-protect-v1";
 export const SOCIONEXT_INITIAL_STRENGTH_VERSION = "candidate-6526-initial-strength-daily-stop-v1";
@@ -65,6 +68,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   TEL_EXECUTABLE_DEPTH_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
+  ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
+  ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,

@@ -1,6 +1,8 @@
 import { NAME_BY_SYMBOL } from "../shared/stocks";
 import { CURRENT_SIGNAL_CANDIDATE_VERSION } from "./currentSignalCandidateRegistry";
 import {
+  ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
+  ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -141,9 +143,9 @@ const variants: RouteGranularVariant[] = [
   invalidMapping({ symbol: "6526", routeGroupId: "confirmed_long", direction: "long", label: "隔離：初動強度LONG（要求対象外）", canonicalLogic: "candidate-6526-initial-strength-monitoring-reopen", strategyVersion: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION }),
 
   current({ symbol: "6857", routeGroupId: "confirmed_break_long", direction: "long", label: "Current：確認ブレイクLONG", canonicalLogic: "current-6857-confirmed-break-long", candidateRouteId: "advantestConfirmedBreakLong" }),
-  unavailable({ symbol: "6857", routeGroupId: "confirmed_break_long", direction: "long", label: "A：未登録", unavailableReason: "no_exact_active_monitoring_version" }),
-  unavailable({ symbol: "6857", routeGroupId: "confirmed_break_long", direction: "long", label: "B：未登録", unavailableReason: "no_exact_active_monitoring_version" }),
+  shadow({ symbol: "6857", routeGroupId: "confirmed_break_long", direction: "long", label: "B：確認型継続LONG・次イベント板", canonicalLogic: "candidate-6857-confirmed-continuation-depth", strategyVersion: ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION }),
   current({ symbol: "6857", routeGroupId: "high_fade_short", direction: "short", label: "Current：高値失速SHORT", canonicalLogic: "current-6857-high-fade-short", candidateRouteId: "advantestHighFadeShort" }),
+  shadow({ symbol: "6857", routeGroupId: "high_fade_short", direction: "short", label: "A：陰線実体0.08%＋次イベント板", canonicalLogic: "candidate-6857-short-body008-depth", strategyVersion: ADVANTEST_SHORT_BODY008_DEPTH_VERSION }),
 
   current({ symbol: "6976", routeGroupId: "candidate_b_long", direction: "long", label: "Current：候補B LONG", canonicalLogic: "current-6976-candidate-b-long", candidateRouteId: "taiyoCandidateB" }),
   shadow({ symbol: "6976", routeGroupId: "candidate_b_long", direction: "long", label: "A：板需要確認", canonicalLogic: "candidate-6976-board-demand-bpr130", strategyVersion: TAIYO_BOARD_DEMAND_VERSION }),

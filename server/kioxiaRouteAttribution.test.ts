@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   attachRouteAttributionAudit,
   buildRouteAttributionAudit,
+  candidateIdFromPortfolioAuditDetail,
   collectRouteAttributionMappingVersions,
+  isPortfolioAuditEventLinkedToCandidates,
   KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
   KIOXIA_SAFE_CB_ROUTE_MAPPING_VERSION,
 } from "./kioxiaRouteAttribution";
@@ -53,5 +55,29 @@ describe("285A安全CB SHORT route attribution", () => {
       { inputJson: { routeAttribution: { mappingVersion: "candidate-route-attribution-v2" } } },
       { inputJson: { routeAttribution: { mappingVersion: "other-v1" } } },
     ])).toEqual(["candidate-route-attribution-v2", "other-v1"]);
+  });
+
+  it("候補receiptとvirtual-exitの両方を同一候補へ非破壊で結ぶ", () => {
+    const scope = {
+      candidateIds: [570001, 630001],
+      candidateSourceEventIds: ["candidate-receipt-570001", "candidate-receipt-630001"],
+    };
+    expect(candidateIdFromPortfolioAuditDetail({ candidateId: 570001 })).toBe(570001);
+    expect(candidateIdFromPortfolioAuditDetail({ candidateId: "570001" })).toBeNull();
+    expect(isPortfolioAuditEventLinkedToCandidates({
+      ...scope,
+      sourceEventId: "candidate-receipt-570001",
+      detailJson: {},
+    })).toBe(true);
+    expect(isPortfolioAuditEventLinkedToCandidates({
+      ...scope,
+      sourceEventId: "virtual-exit:opaque-id",
+      detailJson: { candidateId: 630001 },
+    })).toBe(true);
+    expect(isPortfolioAuditEventLinkedToCandidates({
+      ...scope,
+      sourceEventId: "virtual-exit:other",
+      detailJson: { candidateId: 999999 },
+    })).toBe(false);
   });
 });

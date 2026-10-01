@@ -88,3 +88,28 @@ export function collectRouteAttributionMappingVersions(
     return text(record(inputJson.routeAttribution).mappingVersion);
   }).filter((value): value is string => value !== null))).sort();
 }
+
+/**
+ * Portfolio audit rows are emitted both at candidate receipt and at the
+ * synthetic `virtual-exit:*` source event.  The latter is linked to the
+ * candidate through immutable `detailJson.candidateId`, not its source ID.
+ * Keep this relationship explicit so an attribution repair cannot leave a
+ * closed portfolio row under the old route.
+ */
+export function candidateIdFromPortfolioAuditDetail(detailJson: unknown): number | null {
+  const candidateId = record(detailJson).candidateId;
+  return typeof candidateId === "number" && Number.isInteger(candidateId) && candidateId > 0
+    ? candidateId
+    : null;
+}
+
+export function isPortfolioAuditEventLinkedToCandidates(input: {
+  sourceEventId: string;
+  detailJson: unknown;
+  candidateIds: readonly number[];
+  candidateSourceEventIds: readonly string[];
+}): boolean {
+  if (input.candidateSourceEventIds.includes(input.sourceEventId)) return true;
+  const candidateId = candidateIdFromPortfolioAuditDetail(input.detailJson);
+  return candidateId !== null && input.candidateIds.includes(candidateId);
+}

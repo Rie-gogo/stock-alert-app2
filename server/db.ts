@@ -19,6 +19,8 @@ import { ENV } from "./_core/env";
 import {
   attachRouteAttributionAudit,
   buildRouteAttributionAudit,
+  candidateIdFromPortfolioAuditDetail,
+  isPortfolioAuditEventLinkedToCandidates,
   KIOXIA_SAFE_CB_ROUTE_BACKFILL_CANDIDATE_IDS,
   KIOXIA_SAFE_CB_SHORT_ROUTE_ID,
 } from "./kioxiaRouteAttribution";
@@ -2756,8 +2758,23 @@ export type KioxiaSafeCbRouteBackfillResult = {
   virtualTradeRowsUpdated: number;
   portfolioAuditRowsUpdated: number;
   materializationsMarkedForRefresh: number;
+  legacyMaterializationsQuarantined: number;
   idempotent: boolean;
 };
+
+// This repair touches only the active dashboard snapshots. Older comparison
+// versions are retained for audit, but must never be re-opened as if they were
+// current selector inputs.
+const KIOXIA_SAFE_CB_ACTIVE_SNAPSHOT_VERSIONS = Object.freeze([
+  { component: "monitoring_comparison_285a", version: "monitoring-comparison-285a-route-normalized-v4" },
+  { component: "monitoring_trend_10_symbols", version: "monitoring-trend-10-symbols-daily-v1" },
+]);
+
+function isActiveKioxiaSafeCbSnapshot(row: { component: string; version: string }): boolean {
+  return KIOXIA_SAFE_CB_ACTIVE_SNAPSHOT_VERSIONS.some(spec =>
+    row.component === spec.component && row.version === spec.version,
+  );
+}
 
 /**
  * 285A安全CB SHORTの監査route欠落だけを非破壊で補正する。
@@ -2793,7 +2810,17 @@ export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
     db.select().from(rtAuditTradeDateFinality).where(inArray(rtAuditTradeDateFinality.tradeDate, tradeDates)),
     db.select().from(rtSignalCandidateTrades).where(inArray(rtSignalCandidateTrades.candidateId, candidateIds)),
     db.select().from(rtRealtimeDecisionEvents).where(inArray(rtRealtimeDecisionEvents.sourceEventId, sourceEventIds)),
-    db.select().from(rtPortfolioAuditEvents).where(inArray(rtPortfolioAuditEvents.sourceEventId, sourceEventIds)),
+    // Receipt events join on source_event_id.  Portfolio close events use a
+    // synthetic virtual-exit source ID, so inspect only remaining old-route
+    // rows on the same closed dates and then bound them by candidateId.
+    db.select().from(rtPortfolioAuditEvents).where(and(
+      inArray(rtPortfolioAuditEvents.tradeDate, tradeDates),
+      eq(rtPortfolioAuditEvents.symbol, "285A"),
+      or(
+        inArray(rtPortfolioAuditEvents.sourceEventId, sourceEventIds),
+        eq(rtPortfolioAuditEvents.routeId, "285A:short:unclassified"),
+      ),
+    )),
     db.select().from(rtDailyAuditMaterializations).where(and(
       inArray(rtDailyAuditMaterializations.tradeDate, tradeDates),
       inArray(rtDailyAuditMaterializations.component, ["monitoring_comparison_285a", "monitoring_trend_10_symbols"]),
@@ -2846,11 +2873,24 @@ export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
     || (candidate.inputJson as Record<string, unknown> | null)?.routeAttribution === undefined,
   );
   const rowsNeedingTradeUpdate = virtualTrades.filter(trade => trade.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID);
-  const scopedPortfolioEvents = portfolioEvents.filter(event => event.symbol === "285A");
+  const scopedPortfolioEvents = portfolioEvents.filter(event => isPortfolioAuditEventLinkedToCandidates({
+    sourceEventId: event.sourceEventId,
+    detailJson: event.detailJson,
+    candidateIds,
+    candidateSourceEventIds: sourceEventIds,
+  }));
   const rowsNeedingPortfolioUpdate = scopedPortfolioEvents.filter(event => event.routeId !== KIOXIA_SAFE_CB_SHORT_ROUTE_ID);
+  const activeMaterializations = materializationRows.filter(isActiveKioxiaSafeCbSnapshot);
+  // A previous broad refresh could leave retired versions in `processing` even
+  // though no active reader consumes them. Preserve their JSON but quarantine
+  // the stale version fail-closed rather than showing it as a current result.
+  const legacyMaterializationsToQuarantine = materializationRows.filter(row =>
+    !isActiveKioxiaSafeCbSnapshot(row) && row.status === "processing",
+  );
   const requiresBackfill = rowsNeedingCandidateUpdate.length > 0
     || rowsNeedingTradeUpdate.length > 0
-    || rowsNeedingPortfolioUpdate.length > 0;
+    || rowsNeedingPortfolioUpdate.length > 0
+    || legacyMaterializationsToQuarantine.length > 0;
 
   if (requiresBackfill) await db.transaction(async tx => {
     for (const candidate of candidates) {
@@ -2871,8 +2911,10 @@ export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
       }).where(eq(rtSignalCandidateTrades.id, trade.id));
     }
     for (const event of scopedPortfolioEvents) {
-      const routeAttribution = metadataBySourceEventId.get(event.sourceEventId);
-      if (!routeAttribution) continue;
+      const detailCandidateId = candidateIdFromPortfolioAuditDetail(event.detailJson);
+      const routeAttribution = metadataBySourceEventId.get(event.sourceEventId)
+        ?? (detailCandidateId === null ? undefined : metadataByCandidateId.get(detailCandidateId));
+      if (!routeAttribution) throw new Error(`kioxia_safe_cb_backfill_portfolio_lineage_missing:${event.id}`);
       const detailJson = event.detailJson && typeof event.detailJson === "object"
         ? event.detailJson as Record<string, unknown>
         : {};
@@ -2881,14 +2923,22 @@ export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
         detailJson: attachRouteAttributionAudit({ ...detailJson, routeId: KIOXIA_SAFE_CB_SHORT_ROUTE_ID }, routeAttribution),
       }).where(eq(rtPortfolioAuditEvents.id, event.id));
     }
-    // routeを参照する比較snapshotだけを閉場後の既存audit workerで再生成する。
-    await tx.update(rtDailyAuditMaterializations).set({
-      status: "processing",
-      generatedAt: null,
-    }).where(and(
-      inArray(rtDailyAuditMaterializations.tradeDate, tradeDates),
-    inArray(rtDailyAuditMaterializations.component, ["monitoring_comparison_285a", "monitoring_trend_10_symbols"]),
-    ));
+    if (rowsNeedingCandidateUpdate.length > 0 || rowsNeedingTradeUpdate.length > 0 || rowsNeedingPortfolioUpdate.length > 0) {
+      // Routeを参照する現行snapshotだけを、閉場後の既存audit workerで再生成する。
+      for (const row of activeMaterializations) {
+        await tx.update(rtDailyAuditMaterializations).set({
+          status: "processing",
+          generatedAt: null,
+        }).where(eq(rtDailyAuditMaterializations.id, row.id));
+      }
+    }
+    for (const row of legacyMaterializationsToQuarantine) {
+      await tx.update(rtDailyAuditMaterializations).set({
+        status: "incomplete_source",
+        lastError: "safe_cb_attribution_legacy_snapshot_version_quarantined",
+        generatedAt: null,
+      }).where(eq(rtDailyAuditMaterializations.id, row.id));
+    }
   });
 
   return {
@@ -2898,7 +2948,10 @@ export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
     candidateRowsUpdated: rowsNeedingCandidateUpdate.length,
     virtualTradeRowsUpdated: rowsNeedingTradeUpdate.length,
     portfolioAuditRowsUpdated: rowsNeedingPortfolioUpdate.length,
-    materializationsMarkedForRefresh: requiresBackfill ? materializationRows.length : 0,
+    materializationsMarkedForRefresh: rowsNeedingCandidateUpdate.length > 0 || rowsNeedingTradeUpdate.length > 0 || rowsNeedingPortfolioUpdate.length > 0
+      ? activeMaterializations.length
+      : 0,
+    legacyMaterializationsQuarantined: legacyMaterializationsToQuarantine.length,
     idempotent: !requiresBackfill,
   };
 }

@@ -61,6 +61,19 @@ import {
   materializeTenSymbolNextDaySelectorResultForDate,
   materializeTenSymbolSelectorFeatureForDate,
 } from "./tenSymbolNextDaySelector";
+import {
+  ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+  ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
+  ROUTE_GRANULAR_SELECTOR_VERSION,
+  materializeRouteGranularSelectorForSourceDate,
+  materializeRouteGranularSelectorResultForDate,
+} from "./routeGranularNextDaySelector";
+import {
+  ROUTE_GRANULAR_MONITORING_COMPONENT,
+  ROUTE_GRANULAR_MONITORING_START_DATE,
+  ROUTE_GRANULAR_MONITORING_VERSION,
+  materializeRouteGranularMonitoringForDate,
+} from "./routeGranularMonitoringMaterializer";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -449,6 +462,40 @@ async function materializeNextAuditComponentUnlocked(
   if (tenSymbolSnapshot.created) {
     return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT, result: tenSymbolSnapshot };
   }
+
+  if (tradeDate < ROUTE_GRANULAR_MONITORING_START_DATE) {
+    return { status: "complete" as const, component: "all", processedThroughEngineSequence: processedThrough, sourceDecisionCount };
+  }
+
+  // Route-granular replacement is strictly downstream from the legacy 3-row display.
+  // It remains bounded to one audited trade date and never enters a source/worker hot path.
+  const granularMonitoring = await getRtDailyAuditMaterialization({
+    component: ROUTE_GRANULAR_MONITORING_COMPONENT,
+    version: ROUTE_GRANULAR_MONITORING_VERSION,
+    tradeDate,
+  });
+  if (!granularMonitoring) {
+    const result = await materializeRouteGranularMonitoringForDate(tradeDate);
+    await upsertRtDailyAuditMaterialization({
+      component: ROUTE_GRANULAR_MONITORING_COMPONENT,
+      version: ROUTE_GRANULAR_MONITORING_VERSION,
+      tradeDate,
+      status: result.ready ? "complete" : "incomplete_source",
+      processedThroughEngineSequence: processedThrough,
+      sourceDecisionCount,
+      resultJson: result,
+      lastError: result.incompleteReason,
+      generatedAt: result.ready ? new Date() : null,
+    });
+    return { status: "processing" as const, component: ROUTE_GRANULAR_MONITORING_COMPONENT, result };
+  }
+  const granularResult = await getRtDailyAuditMaterialization({ component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, tradeDate });
+  if (!granularResult) {
+    const result = await materializeRouteGranularSelectorResultForDate({ tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough });
+    return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, result };
+  }
+  const granularSnapshot = await materializeRouteGranularSelectorForSourceDate({ sourceTradeDate: tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough, watermark: finality.row.watermarkJson });
+  if (granularSnapshot.created) return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, result: granularSnapshot };
 
   return {
     status: "complete" as const,

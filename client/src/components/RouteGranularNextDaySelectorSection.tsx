@@ -1,0 +1,28 @@
+import { AlertCircle, Eye, ShieldCheck } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+function yen(value: unknown) { const number = Number(value); return Number.isFinite(number) ? `${number >= 0 ? "+" : ""}${Math.round(number).toLocaleString("ja-JP")}円` : "—"; }
+
+/** Immutable routeGroup selector view. This query has no polling and cannot trigger materialization. */
+export default function RouteGranularNextDaySelectorSection({ asOfDate }: { asOfDate: string }) {
+  const query = trpc.trading.getRouteGranularNextDaySelector.useQuery({ asOfDate }, { refetchInterval: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 });
+  if (query.isLoading) return <Card><CardContent className="p-4 text-sm text-muted-foreground">経路別翌日選択器の保存済みsnapshotを読み込み中…</CardContent></Card>;
+  if (query.isError || !query.data) return <Card><CardContent className="p-4 text-sm text-amber-300">経路別翌日選択器snapshotはまだありません。</CardContent></Card>;
+  const snapshot = (query.data.snapshots as any[]).at(-1) as any | undefined;
+  const result = snapshot ? (query.data.results as any[]).find(item => item?.tradeDate === snapshot.targetDate) : undefined;
+  const scores = snapshot?.scores ?? [];
+  const selections = snapshot?.selections ?? [];
+  const resultByGroup = new Map((result?.results ?? []).map((item: any) => [`${item.symbol}:${item.routeGroupId}`, item]));
+  return <Card className="border-violet-500/40 bg-card" data-testid="route-granular-next-day-selector-section">
+    <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Eye className="h-4 w-4 text-violet-300" />10銘柄 経路別・翌日固定比較（監視専用）</CardTitle>
+      <p className="text-xs text-muted-foreground">同一経路内のcanonical logic × strategyVersionだけを比較します。複合Plan・未分類・停止版は選択対象外で、日中raw再集計・自動採用・注文接続はありません。</p>
+    </CardHeader>
+    <CardContent className="space-y-3">{!snapshot ? <div className="rounded border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">公開後の最初のclosed完全営業日を待機しています。旧3行Plan表示は履歴参照専用です。</div> : <>
+      <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4"><div><span className="text-muted-foreground">data cutoff</span><div className="font-mono">{snapshot.dataCutoff}</div></div><div><span className="text-muted-foreground">対象日</span><div className="font-mono">{snapshot.targetDate}</div></div><div><span className="text-muted-foreground">入力hash</span><div className="font-mono">{String(snapshot.inputHash).slice(0, 12)}</div></div><div><span className="text-muted-foreground">設定</span><div className="font-mono">{snapshot.selectorVersion}</div></div></div>
+      <div className="space-y-2">{selections.map((selection: any) => { const key = `${selection.symbol}:${selection.routeGroupId}`; const rows = scores.filter((item: any) => item.symbol === selection.symbol && item.routeGroupId === selection.routeGroupId); const outcome: any = resultByGroup.get(key); return <details key={key} className="rounded-lg border border-border/70" open={selection.symbol === "285A"}><summary className="cursor-pointer px-3 py-2 text-sm font-semibold">{selection.symbol} / {selection.routeGroupId} — {selection.selectedCanonicalLogic ?? "no_selection"}<Badge variant="outline" className="ml-2 text-[10px]">{selection.regime?.full ?? "unknown"}</Badge></summary><div className="overflow-x-auto border-t border-border/60"><table className="w-full min-w-[920px] text-xs"><thead className="bg-muted/30 text-muted-foreground"><tr><th className="px-3 py-2 text-left">variant</th><th className="px-2 py-2 text-left">version / lifecycle</th><th className="px-2 py-2 text-right">完全日 / 決済</th><th className="px-2 py-2 text-right">期待日次</th><th className="px-2 py-2 text-left">選択可否 / 除外理由</th><th className="px-2 py-2 text-left">D結果</th></tr></thead><tbody>{rows.map((row: any) => { const actual = outcome?.variants?.find((item: any) => item.rowId === row.rowId); return <tr key={row.rowId} className="border-t border-border/50"><td className="px-3 py-2"><div className="font-medium">{row.label}</div><div className="font-mono text-[10px] text-muted-foreground">{row.canonicalLogic ?? "unclassified"}</div></td><td className="px-2 py-2"><Badge variant={row.selectable ? "default" : "outline"} className="text-[10px]">{row.selectable ? "reference_only" : row.lifecycle}</Badge><div className="font-mono text-[10px] text-muted-foreground">{row.strategyVersion ?? "—"}</div></td><td className="px-2 py-2 text-right font-mono">{row.eligibleDays ?? 0} / {row.completedTrades ?? 0}</td><td className="px-2 py-2 text-right font-mono">{yen(row.expectedDailyPnlPer100)}</td><td className="px-2 py-2">{row.fallbackLevel}<div className="text-[10px] text-muted-foreground">{(row.exclusionReasons ?? []).join("、") || "監視候補"}</div></td><td className="px-2 py-2">{actual ? `${actual.outcome} / ${actual.completed}件 / ${yen(actual.pnl)}` : "未観測"}</td></tr>; })}</tbody></table></div>{selection.decision !== "reference_only" && <div className="m-2 flex gap-1 text-xs text-amber-200"><AlertCircle className="mt-0.5 h-3 w-3" />{selection.reason}</div>}</details>; })}</div>
+      <div className="rounded bg-muted/30 p-2 text-xs"><ShieldCheck className="mr-1 inline h-3 w-3 text-violet-300" />D-1閉場後にimmutable保存した経路別choiceだけをD結果へ結合します。結果後の再選択・過去snapshot上書きはしません。</div>
+    </>}</CardContent>
+  </Card>;
+}

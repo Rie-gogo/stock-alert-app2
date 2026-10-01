@@ -36,10 +36,12 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
@@ -65,6 +67,7 @@ describe("trading.getForwardShadowSummary", () => {
       [FUJIKURA_MORNING_SHORT_VERSION, "5803"],
       [KIOXIA_FORWARD_STRATEGY_VERSION, "285A"],
       [KIOXIA_ATR_FORWARD_STRATEGY_VERSION, "285A"],
+      [KIOXIA_REVERSAL_LONG_REOPEN_VERSION, "285A"],
       [TEL_EXECUTABLE_CONFIRM_VERSION, "8035"],
       [TEL_EXECUTABLE_DEPTH_LEGACY_VERSION, "8035"],
       [TEL_EXECUTABLE_DEPTH_VERSION, "8035"],
@@ -77,6 +80,7 @@ describe("trading.getForwardShadowSummary", () => {
       [TAIYO_AFTERNOON_LONG_RR2_VERSION, "6976"],
       [TAIYO_AFTERNOON_LONG_WINRATE_VERSION, "6976"],
       [SOCIONEXT_INITIAL_STRENGTH_VERSION, "6526"],
+      [SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION, "6526"],
       [SOCIONEXT_CONFIRM_STRENGTH_VERSION, "6526"],
       [SUMCO_VOLUME_110_VERSION, "3436"],
       [SUMCO_TIME_15_VERSION, "3436"],
@@ -108,6 +112,9 @@ describe("trading.getForwardShadowSummary", () => {
       evaluationStartDate: "2026-09-18",
     });
     expect(byVersion.get(TAIYO_AFTERNOON_LONG_RR2_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "diagnostic_candidate" });
+    for (const version of [KIOXIA_REVERSAL_LONG_REOPEN_VERSION, SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION]) {
+      expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "candidate", automaticAdoption: false, orderInstructionConnection: false, collectionStartDate: "2026-10-02" });
+    }
     expect(byVersion.get(DISCO_SHORT_BASELINE_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "paused_current_route_comparison_only" });
     for (const version of [DISCO_SHORT_EXECUTABLE_A_LEGACY_VERSION, DISCO_SHORT_RETEST_B_LEGACY_VERSION]) {
       expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });

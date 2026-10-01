@@ -29,6 +29,10 @@ export const TAIYO_BOARD_DEMAND_VERSION = "candidate-6976-board-demand-bpr130-v1
 export const TAIYO_RR2_PROTECT_VERSION = "candidate-6976-rr2-protect-v1";
 export const SOCIONEXT_INITIAL_STRENGTH_VERSION = "candidate-6526-initial-strength-daily-stop-v1";
 export const SOCIONEXT_CONFIRM_STRENGTH_VERSION = "candidate-6526-confirm-strength-daily-stop-v1";
+/** Stopped v1 is retained intact; this is a separately-stateful monitoring-only reopening. */
+export const SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION = "candidate-6526-initial-strength-monitoring-reopen-v1";
+/** The 285A Plan-B child is copied into a separate monitoring state, never altering the composite version. */
+export const KIOXIA_REVERSAL_LONG_REOPEN_VERSION = "candidate-285a-reversal-long-monitoring-reopen-v1";
 export const SUMCO_VOLUME_110_VERSION = "candidate-3436-volume110-time15-v1";
 export const SUMCO_TIME_15_VERSION = "candidate-3436-current-entry-time15-v1";
 export const TAIYO_AFTERNOON_RR2_VERSION = "candidate-6976-afternoon-short-rr2-45-v1";
@@ -61,6 +65,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   TAIYO_RR2_PROTECT_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
+  KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
   SUMCO_VOLUME_110_VERSION,
   SUMCO_TIME_15_VERSION,
   TAIYO_AFTERNOON_RR2_VERSION,

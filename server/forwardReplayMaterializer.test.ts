@@ -15,6 +15,7 @@ vi.mock("./fujikuraForwardShadowEngine", () => ({ replayFujikuraForwardShadowDay
 vi.mock("./fujikuraMorningBreakdownShortShadowEngine", () => ({ auditFujikuraMorningShortShadowDay: replayMock }));
 vi.mock("./kioxiaForwardShadowEngine", () => ({ replayKioxiaForwardShadowDay: replayMock }));
 vi.mock("./kioxiaAtrForwardShadowEngine", () => ({ replayKioxiaAtrForwardShadowDay: replayMock }));
+vi.mock("./kioxiaReversalLongReopenEngine", () => ({ auditKioxiaReversalLongReopenDay: replayMock }));
 vi.mock("./telExecutableConfirmEngine", () => ({ auditTelExecutableConfirmDay: replayMock }));
 vi.mock("./telExecutableConfirmDepthEngine", () => ({ auditTelExecutableConfirmDepthDay: replayMock }));
 vi.mock("./softbankForwardShadowEngine", () => ({ auditSoftbankForwardShadowDay: replayMock }));
@@ -50,7 +51,7 @@ describe("forward strategy replay materializer", () => {
       status: "processing",
       version: FORWARD_STRATEGY_VERSION,
       completedVersions: 1,
-      totalVersions: 26,
+      totalVersions: 28,
     });
     expect(replayMock).toHaveBeenCalledTimes(1);
     expect(dbMock.getRtSourceEventsForDateAndSymbol).toHaveBeenCalledWith({ tradeDate: "2026-09-07", symbol: "8035" });
@@ -62,20 +63,20 @@ describe("forward strategy replay materializer", () => {
     }));
   });
 
-  it("26 versionが同じ元件数で完了済みなら重い入力を読まずcompleteを返す", async () => {
+  it("28 versionが同じ元件数で完了済みなら重い入力を読まずcompleteを返す", async () => {
     const first = await materializeNextForwardReplayForDate({
       tradeDate: "2026-09-07",
       processedThroughEngineSequence: 6454,
       sourceDecisionCount: 6454,
     });
     const firstVersion = first.status === "processing" ? first.version : "";
-    const rows = Array.from({ length: 26 }, (_, index) => ({
+    const rows = Array.from({ length: 28 }, (_, index) => ({
       version: index === 0 ? firstVersion : `complete-${index}`,
       status: "complete",
       sourceDecisionCount: 6454,
     }));
-    // 実際のversion名26件を得るため、各回で返されたversionを既存一覧へ蓄積する。
-    for (let index = 1; index < 26; index += 1) {
+    // 実際のversion名28件を得るため、各回で返されたversionを既存一覧へ蓄積する。
+    for (let index = 1; index < 28; index += 1) {
       dbMock.getRtDailyAuditMaterializationsForComponent.mockResolvedValue(rows.slice(0, index));
       const next = await materializeNextForwardReplayForDate({
         tradeDate: "2026-09-07",
@@ -93,7 +94,7 @@ describe("forward strategy replay materializer", () => {
       sourceDecisionCount: 6454,
     });
 
-    expect(complete).toEqual({ status: "complete", completedVersions: 26 });
+    expect(complete).toEqual({ status: "complete", completedVersions: 28 });
     expect(dbMock.getRtSourceEventsForDateAndSymbol).not.toHaveBeenCalled();
     expect(replayMock).not.toHaveBeenCalled();
   });

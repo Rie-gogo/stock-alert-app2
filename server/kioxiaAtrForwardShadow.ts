@@ -968,3 +968,25 @@ export function applyKioxiaAtrForwardTransition(
   });
   return finalize(state, input, "entry", actions, openedPosition, null);
 }
+
+/**
+ * Monitoring reopening only: retain the exact Plan-B reversal-LONG transition while
+ * marking every sibling route ended in this *new* state before each transition.
+ * The composite Plan-B state/version is never read or updated.
+ */
+export function applyKioxiaReversalLongReopenTransition(
+  stateBefore: KioxiaAtrForwardShadowState,
+  input: KioxiaAtrForwardSourceEventInput,
+  mode: KioxiaAtrForwardEvaluationMode,
+): KioxiaAtrForwardTransition {
+  let isolated = parseKioxiaAtrForwardState(stateBefore);
+  if (isolated.tradeDate !== input.candle.tradeDate) {
+    isolated = emptyKioxiaAtrForwardState();
+    isolated.tradeDate = input.candle.tradeDate;
+  }
+  isolated.routeEnded.confirmed_morning_long = true;
+  isolated.routeEnded.reversal_short = true;
+  isolated.routeEnded.trend_short = true;
+  isolated.routeEnded.safe_cb_short = true;
+  return applyKioxiaAtrForwardTransition(isolated, input, mode);
+}

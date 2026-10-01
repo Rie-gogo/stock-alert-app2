@@ -38,6 +38,7 @@ import MultiSymbolMonitoringTrendSection from "@/components/MultiSymbolMonitorin
 import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComparisonSection";
 import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSection";
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
+import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
 import {
   Table,
   TableBody,
@@ -494,8 +495,11 @@ export default function RealtimeTradingLog() {
         {/* ===== 285Aの翌日選択器。閉場後に固定した監視snapshotだけを表示 ===== */}
         <KioxiaNextDaySelectorSection asOfDate={selectedDate} />
 
-        {/* ===== 10銘柄の固定Current/A/B翌日比較。保存snapshotのみを読む ===== */}
+        {/* ===== 旧3行Plan表示は履歴参照専用。新規選択には使用しない。 ===== */}
         <TenSymbolNextDaySelectorSection asOfDate={selectedDate} />
+
+        {/* ===== current/variantをrouteGroupId単位で固定比較。保存snapshotのみを読む ===== */}
+        <RouteGranularNextDaySelectorSection asOfDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

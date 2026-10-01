@@ -46,12 +46,14 @@ import {
   FUJIKURA_MORNING_SHORT_VERSION,
   KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
   KIOXIA_FORWARD_STRATEGY_VERSION,
+  KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
   TAIYO_AFTERNOON_DEPTH_VERSION,
@@ -678,9 +680,10 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   }
   if (input.candle.symbol === "285A") {
     const { processKioxiaForwardShadowSourceEvent } = await import("./kioxiaForwardShadowEngine");
+    const { processKioxiaReversalLongReopenSourceEvent } = await import("./kioxiaReversalLongReopenEngine");
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
-    for (const evaluate of [processKioxiaForwardShadowSourceEvent, processKioxiaAtrForwardShadowSourceEvent]) {
+    for (const evaluate of [processKioxiaForwardShadowSourceEvent, processKioxiaAtrForwardShadowSourceEvent, processKioxiaReversalLongReopenSourceEvent]) {
       try {
         evaluations.push(await evaluate(input));
       } catch (error) {
@@ -1182,6 +1185,15 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       lifecycle: "active_candidate",
     },
     {
+      versionId: KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
+      symbol: "285A",
+      title: "285A 反転LONG・別stateの再開監視shadow",
+      startDate: "2026-10-02",
+      cutoffDate: "2026-10-01",
+      adoptionEligible: false,
+      lifecycle: "manual_review_only_monitoring_reopen",
+    },
+    {
       versionId: MURATA_DEEP_REVERSAL_LONG_VERSION,
       symbol: "6981",
       title: "6981 私案A・深い下落後の確認型反発LONG（独立100株shadow）",
@@ -1307,6 +1319,15 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       cutoffDate: SOCIONEXT_FORWARD_LEARNING_CUTOFF_DATE,
       adoptionEligible: false,
       lifecycle: "active_diagnostic_candidate",
+    },
+    {
+      versionId: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
+      symbol: "6526",
+      title: "6526 確認型LONG A・別stateの再開監視shadow",
+      startDate: "2026-10-02",
+      cutoffDate: "2026-10-01",
+      adoptionEligible: false,
+      lifecycle: "manual_review_only_monitoring_reopen",
     },
     {
       versionId: SOCIONEXT_CONFIRM_STRENGTH_VERSION,

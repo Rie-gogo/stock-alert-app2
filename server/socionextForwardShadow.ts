@@ -58,7 +58,15 @@ export const SOCIONEXT_CONFIRM_STRENGTH_SPEC = Object.freeze({
   orderInstructionConnection: false,
 });
 
-export type SocionextForwardVariant = "initial_strength" | "confirmation_strength";
+/** v1 remains stopped and unmodified. This separately-versioned copy starts only after publication. */
+export const SOCIONEXT_INITIAL_STRENGTH_REOPEN_SPEC = Object.freeze({
+  ...SOCIONEXT_INITIAL_STRENGTH_SPEC,
+  candidateKey: "6526_confirmed_long_initial_strength_monitoring_reopen",
+  historicalRole: "monitoring_reopen_not_a_reactivation_of_stopped_v1",
+});
+export const SOCIONEXT_INITIAL_STRENGTH_REOPEN_COLLECTION_START_DATE = "2026-10-02";
+
+export type SocionextForwardVariant = "initial_strength" | "initial_strength_reopen" | "confirmation_strength";
 export type SocionextForwardResultType = "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
 
 export type SocionextForwardPosition = {
@@ -357,6 +365,17 @@ export function applySocionextInitialStrengthTransition(
   }
 
   return finalize(state, input, resultType, actions, openedPosition, closedPosition);
+}
+
+/** Uses the same condition as initial-strength while preserving an entirely new state/trade lineage. */
+export function applySocionextInitialStrengthReopenTransition(
+  stateBefore: SocionextForwardState,
+  input: ForwardSourceEventInput,
+  mode: ForwardEvaluationMode,
+): SocionextForwardTransition {
+  const transition = applySocionextInitialStrengthTransition(stateBefore, input, mode);
+  transition.nextState.variant = "initial_strength_reopen";
+  return transition;
 }
 
 /** B案: 確認足が初動終値を上回っても+0.075%未満なら、その日の探索を終了する。 */

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const firstShadow = vi.hoisted(() => vi.fn());
 const secondShadow = vi.hoisted(() => vi.fn());
+const reopenShadow = vi.hoisted(() => vi.fn());
 
 vi.mock("./kioxiaForwardShadowEngine", () => ({
   KIOXIA_FORWARD_EVALUATION_START_DATE: "2026-09-04",
@@ -16,35 +17,39 @@ vi.mock("./kioxiaAtrForwardShadowEngine", () => ({
   processKioxiaAtrForwardShadowSourceEvent: secondShadow,
   replayKioxiaAtrForwardShadowDay: vi.fn(() => ({ replayedEvents: 0, mismatches: 0, invalidPayloads: 0 })),
 }));
+vi.mock("./kioxiaReversalLongReopenEngine", () => ({ processKioxiaReversalLongReopenSourceEvent: reopenShadow }));
 
 import { processForwardShadowSourceEvent } from "./forwardShadow";
 
 const input = {
   sourceEventId: "kioxia-dispatch:1",
   candle: {
-    symbol: "285A", tradeDate: "2026-09-07", candleTime: "10:00",
+    symbol: "285A", tradeDate: "2026-10-02", candleTime: "10:00",
     open: 1_000, high: 1_001, low: 999, close: 1_000, volume: 100,
   },
   board: { currentPrice: 1_000 },
 };
 
-describe("285A第1・第2シャドー独立ディスパッチ", () => {
+describe("285A第1・第2・再開監視シャドー独立ディスパッチ", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     firstShadow.mockResolvedValue({ strategyVersion: "first" });
     secondShadow.mockResolvedValue({ strategyVersion: "second" });
+    reopenShadow.mockResolvedValue({ strategyVersion: "reopen" });
   });
 
-  it("同一受信を第1・第2へ各1回渡し、別結果として返す", async () => {
+  it("同一受信を第1・第2・再開監視へ各1回渡し、別結果として返す", async () => {
     const result = await processForwardShadowSourceEvent(input);
     expect(firstShadow).toHaveBeenCalledOnce();
     expect(secondShadow).toHaveBeenCalledOnce();
+    expect(reopenShadow).toHaveBeenCalledOnce();
     expect(firstShadow).toHaveBeenCalledWith(input);
     expect(secondShadow).toHaveBeenCalledWith(input);
+    expect(reopenShadow).toHaveBeenCalledWith(input);
     expect(result).toMatchObject({
       skipped: false,
       symbol: "285A",
-      evaluations: [{ strategyVersion: "first" }, { strategyVersion: "second" }],
+      evaluations: [{ strategyVersion: "first" }, { strategyVersion: "second" }, { strategyVersion: "reopen" }],
     });
   });
 
@@ -53,5 +58,6 @@ describe("285A第1・第2シャドー独立ディスパッチ", () => {
     await expect(processForwardShadowSourceEvent(input)).rejects.toThrow("kioxia_forward_shadow_partial_failure");
     expect(firstShadow).toHaveBeenCalledOnce();
     expect(secondShadow).toHaveBeenCalledOnce();
+    expect(reopenShadow).toHaveBeenCalledOnce();
   });
 });

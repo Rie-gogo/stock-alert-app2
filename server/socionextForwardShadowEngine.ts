@@ -19,6 +19,7 @@ import {
   FORWARD_EVALUATION_POLICY,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
+  SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -28,6 +29,9 @@ import {
   SOCIONEXT_FORWARD_FORMAL_START_DATE,
   SOCIONEXT_FORWARD_LEARNING_CUTOFF_DATE,
   SOCIONEXT_INITIAL_STRENGTH_SPEC,
+  SOCIONEXT_INITIAL_STRENGTH_REOPEN_COLLECTION_START_DATE,
+  SOCIONEXT_INITIAL_STRENGTH_REOPEN_SPEC,
+  applySocionextInitialStrengthReopenTransition,
   applySocionextConfirmationStrengthTransition,
   applySocionextInitialStrengthTransition,
   createEmptySocionextForwardState,
@@ -47,6 +51,16 @@ const DEFINITIONS = {
     transition: applySocionextInitialStrengthTransition,
     eligibleForAdoption: false,
     statusReason: "diagnostic_forward_only_latest_51d_win_rate_below_70",
+    collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
+  },
+  initial_strength_reopen: {
+    strategyVersion: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
+    strategyId: "candidate-6526-initial-strength-monitoring-reopen",
+    spec: SOCIONEXT_INITIAL_STRENGTH_REOPEN_SPEC,
+    transition: applySocionextInitialStrengthReopenTransition,
+    eligibleForAdoption: false,
+    statusReason: "monitoring_reopen_formal_evaluation_gate_pending_manual_review_only",
+    collectionStartDate: SOCIONEXT_INITIAL_STRENGTH_REOPEN_COLLECTION_START_DATE,
   },
   confirmation_strength: {
     strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION,
@@ -55,6 +69,7 @@ const DEFINITIONS = {
     transition: applySocionextConfirmationStrengthTransition,
     eligibleForAdoption: true,
     statusReason: "formal_evaluation_gate_pending_and_route_parity_required",
+    collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
   },
 } as const;
 
@@ -66,7 +81,7 @@ async function ensureVersion(variant: Variant) {
   const identity = getRuntimeIdentity();
   const config = {
     ...definition.spec,
-    collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
+    collectionStartDate: definition.collectionStartDate,
     formalEvaluationStartDate: SOCIONEXT_FORWARD_FORMAL_START_DATE,
     evaluationPolicy: FORWARD_EVALUATION_POLICY,
     evaluationModes: MODES,
@@ -236,6 +251,9 @@ async function processMode(source: ForwardSourceEventInput, variant: Variant, mo
 
 async function processVariant(source: ForwardSourceEventInput, variant: Variant) {
   const definition = DEFINITIONS[variant];
+  if (source.candle.tradeDate < definition.collectionStartDate) {
+    return { skipped: "before_collection_start" as const, strategyVersion: definition.strategyVersion };
+  }
   await ensureVersion(variant);
   const version = await getRtStrategyVersion(definition.strategyVersion);
   if (version?.status === "stopped" || version?.status === "insufficient") {
@@ -252,7 +270,7 @@ export async function processSocionextForwardShadowSourceEvent(source: ForwardSo
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) return { skipped: "baseline_trading_logic_mismatch" as const };
   const evaluations: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
-  for (const variant of ["initial_strength", "confirmation_strength"] as const) {
+  for (const variant of ["initial_strength", "initial_strength_reopen", "confirmation_strength"] as const) {
     try {
       evaluations.push(await processVariant(source, variant));
     } catch (error) {

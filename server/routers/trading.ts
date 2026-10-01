@@ -169,6 +169,21 @@ export const tradingRouter = router({
       }
     }),
 
+  /** routeGroupId単位の可変行selector。immutableな閉場後snapshotだけを読む。 */
+  getRouteGranularNextDaySelector: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getRouteGranularSelectorDashboard } = await import("../routeGranularNextDaySelector");
+        return await getRouteGranularSelectorDashboard(input.asOfDate);
+      } catch {
+        console.error("[RouteGranularNextDaySelector] snapshot read failed");
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "経路別翌日選択器snapshotを取得できませんでした" });
+      }
+    }),
+
   /** 閉場後snapshotだけを読む、現行10銘柄・全シャドーの最近傾向。 */
   getMultiSymbolMonitoringTrend: protectedProcedure
     .input(z.object({ asOfDate: z.string()
@@ -206,10 +221,12 @@ export const tradingRouter = router({
         FUJIKURA_MORNING_SHORT_VERSION,
         KIOXIA_ATR_FORWARD_STRATEGY_VERSION,
         KIOXIA_FORWARD_STRATEGY_VERSION,
+        KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
         SOFTBANK_DEPTH_CONFIRM_VERSION,
         SOFTBANK_RR2_PROTECT_VERSION,
         SOCIONEXT_CONFIRM_STRENGTH_VERSION,
         SOCIONEXT_INITIAL_STRENGTH_VERSION,
+        SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
         SUMCO_TIME_15_VERSION,
         SUMCO_VOLUME_110_VERSION,
         TAIYO_AFTERNOON_DEPTH_VERSION,
@@ -362,6 +379,17 @@ export const tradingRouter = router({
             summaries: await getForwardShadowSummary(input.asOfDate, KIOXIA_ATR_FORWARD_STRATEGY_VERSION),
           },
           {
+            strategyVersion: KIOXIA_REVERSAL_LONG_REOPEN_VERSION,
+            symbol: "285A",
+            summaries: await getForwardShadowSummary(input.asOfDate, KIOXIA_REVERSAL_LONG_REOPEN_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: false,
+            automaticAdoption: false,
+            orderInstructionConnection: false,
+            collectionStartDate: "2026-10-02",
+            evaluationStartDate: "2026-10-02",
+          },
+          {
             strategyVersion: TEL_EXECUTABLE_CONFIRM_VERSION,
             symbol: "8035",
             summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_CONFIRM_VERSION),
@@ -466,6 +494,17 @@ export const tradingRouter = router({
             eligibleForAdoption: false,
             collectionStartDate: SOCIONEXT_FORWARD_COLLECTION_START_DATE,
             evaluationStartDate: SOCIONEXT_FORWARD_FORMAL_START_DATE,
+          },
+          {
+            strategyVersion: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
+            symbol: "6526",
+            summaries: await getForwardShadowSummary(input.asOfDate, SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION),
+            purpose: "candidate" as const,
+            eligibleForAdoption: false,
+            automaticAdoption: false,
+            orderInstructionConnection: false,
+            collectionStartDate: "2026-10-02",
+            evaluationStartDate: "2026-10-02",
           },
           {
             strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION,

@@ -52,6 +52,15 @@ import {
   materializeKioxiaNextDaySelectorForSourceDate,
   materializeKioxiaNextDaySelectorResultForDate,
 } from "./kioxiaNextDaySelector";
+import {
+  TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+  TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+  TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT,
+  TEN_SYMBOL_SELECTOR_VERSION,
+  materializeTenSymbolNextDaySelectorForSourceDate,
+  materializeTenSymbolNextDaySelectorResultForDate,
+  materializeTenSymbolSelectorFeatureForDate,
+} from "./tenSymbolNextDaySelector";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -398,6 +407,47 @@ async function materializeNextAuditComponentUnlocked(
   if (selectorSnapshot.created) {
     const result = selectorSnapshot;
     return { status: "processing" as const, component: KIOXIA_SELECTOR_SNAPSHOT_COMPONENT, result };
+  }
+
+  // 10銘柄版も既存監査・285A選択器の後に一日一componentずつだけ進める。
+  // source / candidate / shadow hot pathには接続せず、closed watermarkの保存値だけを入力にする。
+  const tenSymbolFeature = await getRtDailyAuditMaterialization({
+    component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+    version: TEN_SYMBOL_SELECTOR_VERSION,
+    tradeDate,
+  });
+  if (!tenSymbolFeature) {
+    const result = await materializeTenSymbolSelectorFeatureForDate({
+      tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+      watermark: finality.row.watermarkJson,
+    });
+    return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, result };
+  }
+
+  const tenSymbolResult = await getRtDailyAuditMaterialization({
+    component: TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+    version: TEN_SYMBOL_SELECTOR_VERSION,
+    tradeDate,
+  });
+  if (!tenSymbolResult) {
+    const result = await materializeTenSymbolNextDaySelectorResultForDate({
+      tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+    });
+    return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_RESULT_COMPONENT, result };
+  }
+
+  const tenSymbolSnapshot = await materializeTenSymbolNextDaySelectorForSourceDate({
+    sourceTradeDate: tradeDate,
+    sourceDecisionCount,
+    processedThroughEngineSequence: processedThrough,
+    watermark: finality.row.watermarkJson,
+  });
+  if (tenSymbolSnapshot.created) {
+    return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT, result: tenSymbolSnapshot };
   }
 
   return {

@@ -58,6 +58,11 @@ const selectorMock = vi.hoisted(() => ({
   materializeKioxiaNextDaySelectorResultForDate: vi.fn(async () => ({ created: false, result: {} })),
   materializeKioxiaNextDaySelectorForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
 }));
+const tenSymbolSelectorMock = vi.hoisted(() => ({
+  materializeTenSymbolSelectorFeatureForDate: vi.fn(async () => ({ created: false, result: {} })),
+  materializeTenSymbolNextDaySelectorResultForDate: vi.fn(async () => ({ created: false, result: {} })),
+  materializeTenSymbolNextDaySelectorForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
+}));
 
 vi.mock("./db", () => dbMock);
 vi.mock("./portfolioAudit", () => ({
@@ -100,6 +105,15 @@ vi.mock("./kioxiaNextDaySelector", () => ({
   materializeKioxiaNextDaySelectorResultForDate: selectorMock.materializeKioxiaNextDaySelectorResultForDate,
   materializeKioxiaNextDaySelectorForSourceDate: selectorMock.materializeKioxiaNextDaySelectorForSourceDate,
 }));
+vi.mock("./tenSymbolNextDaySelector", () => ({
+  TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT: "ten_symbol_selector_feature",
+  TEN_SYMBOL_SELECTOR_RESULT_COMPONENT: "ten_symbol_next_day_selector_result",
+  TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT: "ten_symbol_next_day_selector",
+  TEN_SYMBOL_SELECTOR_VERSION: "ten-symbol-fixed-current-a-b-v1",
+  materializeTenSymbolSelectorFeatureForDate: tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate,
+  materializeTenSymbolNextDaySelectorResultForDate: tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate,
+  materializeTenSymbolNextDaySelectorForSourceDate: tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate,
+}));
 
 import {
   DIVERGENCE_MATERIALIZATION_COMPONENT,
@@ -132,6 +146,11 @@ import {
   KIOXIA_SELECTOR_RESULT_COMPONENT,
   KIOXIA_SELECTOR_VERSION,
 } from "./kioxiaNextDaySelector";
+import {
+  TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+  TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+  TEN_SYMBOL_SELECTOR_VERSION,
+} from "./tenSymbolNextDaySelector";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -249,6 +268,8 @@ describe("P0 audit materializer", () => {
       if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
       if (component === KIOXIA_MANIFEST_V2_COMPONENT) return snapshot(component, KIOXIA_MANIFEST_V2_VERSION);
       if (component === KIOXIA_SELECTOR_RESULT_COMPONENT) return snapshot(component, KIOXIA_SELECTOR_VERSION);
+      if (component === TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
+      if (component === TEN_SYMBOL_SELECTOR_RESULT_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
       return null;
     });
     const result = await materializeNextAuditComponentForDate("2026-09-07", {
@@ -263,6 +284,9 @@ describe("P0 audit materializer", () => {
     expect(selectorMock.materializeKioxiaManifestV2ForDate).not.toHaveBeenCalled();
     expect(selectorMock.materializeKioxiaNextDaySelectorResultForDate).not.toHaveBeenCalled();
     expect(selectorMock.materializeKioxiaNextDaySelectorForSourceDate).toHaveBeenCalledTimes(1);
+    expect(tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate).not.toHaveBeenCalled();
+    expect(tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate).not.toHaveBeenCalled();
+    expect(tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate).toHaveBeenCalledTimes(1);
   });
 
   it("既存の全監査完了後にだけ10銘柄の日次snapshotを追加し、日中経路は呼ばない", async () => {
@@ -282,6 +306,27 @@ describe("P0 audit materializer", () => {
     expect(result).toMatchObject({ status: "processing", component: MULTI_SYMBOL_MONITORING_COMPONENT });
     expect(multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate).toHaveBeenCalledWith("2026-09-07");
     expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
+  });
+
+  it("285A選択器まで完了後にだけ10銘柄feature snapshotを一つ進める", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
+      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
+      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
+      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
+      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
+      if (component === MONITORING_COMPARISON_COMPONENT) return snapshot(component, MONITORING_COMPARISON_MATERIALIZATION_VERSION);
+      if (component === MULTI_SYMBOL_MONITORING_COMPONENT) return snapshot(component, MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION);
+      if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
+      if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
+      if (component === KIOXIA_MANIFEST_V2_COMPONENT) return snapshot(component, KIOXIA_MANIFEST_V2_VERSION);
+      if (component === KIOXIA_SELECTOR_RESULT_COMPONENT) return snapshot(component, KIOXIA_SELECTOR_VERSION);
+      return null;
+    });
+    const result = await materializeNextAuditComponentForDate("2026-09-07", {
+      now: new Date("2026-09-08T00:00:00Z"),
+    });
+    expect(result).toMatchObject({ status: "processing", component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT });
+    expect(tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate).toHaveBeenCalledWith(expect.objectContaining({ tradeDate: "2026-09-07" }));
   });
 
   it("closed後にwatermarkが変化した場合は全snapshotをreopenedへ戻す", async () => {

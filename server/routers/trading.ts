@@ -154,6 +154,21 @@ export const tradingRouter = router({
       }
     }),
 
+  /** 10銘柄の翌日固定選択器。closed日次snapshotだけを読む監視専用API。 */
+  getTenSymbolNextDaySelector: protectedProcedure
+    .input(z.object({ asOfDate: z.string()
+      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
+    .query(async ({ input }) => {
+      try {
+        const { getTenSymbolNextDaySelectorDashboard } = await import("../tenSymbolNextDaySelector");
+        return await getTenSymbolNextDaySelectorDashboard(input.asOfDate);
+      } catch {
+        console.error("[TenSymbolNextDaySelector] snapshot read failed");
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "10銘柄翌日選択器snapshotを取得できませんでした" });
+      }
+    }),
+
   /** 閉場後snapshotだけを読む、現行10銘柄・全シャドーの最近傾向。 */
   getMultiSymbolMonitoringTrend: protectedProcedure
     .input(z.object({ asOfDate: z.string()

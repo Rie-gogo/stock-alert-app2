@@ -28,6 +28,7 @@ import {
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
+  TECHNICAL_REGIME_SHADOW_A_VERSIONS,
   TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./runtimeIdentity";
 
@@ -178,6 +179,30 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "A：次イベント板確認", canonicalLogic: "candidate-9984-breakout-depth-confirm", strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION }),
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
+
+// 相場状態対応型Aは、同じversion内のLONG/SHORTを保存action sideで分離集計する。
+for (const [symbol, strategyVersion] of Object.entries(TECHNICAL_REGIME_SHADOW_A_VERSIONS)) {
+  variants.push(
+    shadow({
+      symbol,
+      routeGroupId: "technical_regime_a_long",
+      direction: "long",
+      label: "テクニカルA：相場状態対応LONG",
+      canonicalLogic: `${symbol.toLowerCase()}_technical_regime_a`,
+      strategyVersion,
+      shadowSide: "long",
+    }),
+    shadow({
+      symbol,
+      routeGroupId: "technical_regime_a_short",
+      direction: "short",
+      label: "テクニカルA：相場状態対応SHORT",
+      canonicalLogic: `${symbol.toLowerCase()}_technical_regime_a`,
+      strategyVersion,
+      shadowSide: "short",
+    }),
+  );
+}
 
 export const ROUTE_GRANULAR_VARIANTS = Object.freeze(variants);
 export const ROUTE_GRANULAR_SYMBOLS = Object.freeze(Array.from(new Set(variants.map(item => item.symbol))).sort());

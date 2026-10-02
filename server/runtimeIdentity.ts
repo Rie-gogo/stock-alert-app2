@@ -57,6 +57,19 @@ export const DISCO_LONG_PRIOR_THREE_B_VERSION = "candidate-6146-confirmed-long-p
 /** 6981の現行経路とは独立した、手動審査専用の前向きshadow 2案。 */
 export const MURATA_DEEP_REVERSAL_LONG_VERSION = "candidate-6981-deep-reversal-long-v1";
 export const MURATA_MORNING_BREAKDOWN_SHORT_VERSION = "candidate-6981-morning-20bar-breakdown-short-v1";
+/** D-1で固定した日足・時間足レジームを、当日の確定1分足で評価する10銘柄共通shadow A。 */
+export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-technical-regime-a-v1",
+  "3436": "candidate-3436-technical-regime-a-v1",
+  "5803": "candidate-5803-technical-regime-a-v1",
+  "6146": "candidate-6146-technical-regime-a-v1",
+  "6526": "candidate-6526-technical-regime-a-v1",
+  "6857": "candidate-6857-technical-regime-a-v1",
+  "6976": "candidate-6976-technical-regime-a-v1",
+  "6981": "candidate-6981-technical-regime-a-v1",
+  "8035": "candidate-8035-technical-regime-a-v1",
+  "9984": "candidate-9984-technical-regime-a-v1",
+} as const);
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -93,6 +106,7 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
+  ...Object.values(TECHNICAL_REGIME_SHADOW_A_VERSIONS),
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

@@ -203,6 +203,8 @@ export interface ForwardSourceEventInput {
   };
   /** 8035既存シャドーを内部再帰で一度だけ呼ぶための非永続フラグ。 */
   internalSkipTelParity?: boolean;
+  /** 10銘柄テクニカルAを内部再帰で一度だけ呼ぶための非永続フラグ。 */
+  internalSkipTechnicalRegimeA?: boolean;
 }
 
 interface PendingEntry {
@@ -656,7 +658,22 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
   }
 }
 
-export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput) {
+export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput): Promise<Record<string, unknown>> {
+  if (!input.internalSkipTechnicalRegimeA && ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].includes(input.candle.symbol)) {
+    const base: Record<string, unknown> = await processForwardShadowSourceEvent({ ...input, internalSkipTechnicalRegimeA: true });
+    try {
+      const { processTechnicalRegimeShadowSourceEvent } = await import("./technicalRegimeShadowEngine");
+      const technicalRegimeA = await processTechnicalRegimeShadowSourceEvent(input);
+      return { ...base, technicalRegimeA };
+    } catch (error) {
+      // 新規の監視専用shadowが既存shadow dispatchを停止させない。errorは専用eventにも保存される。
+      console.error("[TechnicalRegimeShadowA] 独立shadow評価に失敗。既存shadowは継続します:", error);
+      return { ...base, technicalRegimeA: { skipped: "isolated_error" as const, error: String(error) } };
+    }
+  }
+  const engineInput: ForwardSourceEventInput = input.internalSkipTechnicalRegimeA
+    ? (({ internalSkipTechnicalRegimeA: _skip, ...rest }) => rest)(input)
+    : input;
   if (input.candle.symbol === "8035" && !input.internalSkipTelParity) {
     const { processTelCurrentParitySourceEvent } = await import("./telCurrentParityEngine");
     const { processTelExecutableConfirmSourceEvent } = await import("./telExecutableConfirmEngine");
@@ -665,9 +682,9 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const errors: string[] = [];
     for (const evaluate of [
       () => processForwardShadowSourceEvent({ ...input, internalSkipTelParity: true }),
-      () => processTelCurrentParitySourceEvent(input, input.currentAudit?.marginUsedBefore ?? 0),
-      () => processTelExecutableConfirmSourceEvent(input),
-      () => processTelExecutableConfirmDepthSourceEvent(input),
+      () => processTelCurrentParitySourceEvent(engineInput, engineInput.currentAudit?.marginUsedBefore ?? 0),
+      () => processTelExecutableConfirmSourceEvent(engineInput),
+      () => processTelExecutableConfirmDepthSourceEvent(engineInput),
     ]) {
       try {
         evaluations.push(await evaluate());
@@ -680,6 +697,7 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     }
     return { skipped: false as const, symbol: "8035", evaluations };
   }
+  input = engineInput;
   if (input.candle.symbol === "285A") {
     const { processKioxiaForwardShadowSourceEvent } = await import("./kioxiaForwardShadowEngine");
     const { processKioxiaCurrentReversalLongExactReopenSourceEvent } = await import("./kioxiaCurrentReversalLongExactEngine");

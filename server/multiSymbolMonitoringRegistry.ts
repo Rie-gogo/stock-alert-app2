@@ -26,6 +26,7 @@ import {
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
+  TECHNICAL_REGIME_SHADOW_A_VERSIONS,
   TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./runtimeIdentity";
 
@@ -74,6 +75,13 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   { strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", label: "実行価格・板確認B", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", label: "A案：次イベント板確認", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", label: "B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
+  ...TEN_MONITORED_SYMBOLS.map(symbol => ({
+    strategyVersion: TECHNICAL_REGIME_SHADOW_A_VERSIONS[symbol as keyof typeof TECHNICAL_REGIME_SHADOW_A_VERSIONS],
+    symbol,
+    label: "テクニカルA：D-1相場状態＋当日1分足",
+    purpose: "candidate" as const,
+    eligibleForAdoption: true,
+  })),
 ];
 
 export const MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS: ReadonlyArray<MonitoringPlanDefinition> = Object.freeze([

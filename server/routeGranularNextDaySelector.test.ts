@@ -75,6 +75,34 @@ describe("route-granular next-day monitoring selector", () => {
     expect(current.completedTrades).toBe(1);
   });
 
+  it("partitions technical-regime A outcomes by persisted LONG/SHORT action side", () => {
+    const strategyVersion = "candidate-285a-technical-regime-a-v1";
+    const daily = buildRouteGranularDailySnapshot({
+      tradeDate: "2026-10-05",
+      candidates: [],
+      candidateTrades: [],
+      shadowEvents: [{
+        strategyVersion,
+        sourceEventId: "technical:long:entry",
+        evaluationMode: "signal_quality",
+        decisionJson: { actions: [{ type: "entry", side: "long", routeId: "technical_breakout_long" }] },
+      }] as any,
+      shadowTrades: [{
+        strategyVersion,
+        evaluationMode: "signal_quality",
+        symbol: "285A",
+        entrySourceEventId: "technical:long:entry",
+        exitTradeDate: "2026-10-05",
+        pnl: 300,
+        shares: 100,
+      }] as any,
+    });
+    const long = daily.plans.find(item => item.strategyVersion === strategyVersion && item.shadowSide === "long")!;
+    const short = daily.plans.find(item => item.strategyVersion === strategyVersion && item.shadowSide === "short")!;
+    expect(long).toMatchObject({ signals: 1, completedTrades: 1, pnlPer100: 300 });
+    expect(short).toMatchObject({ signals: 0, completedTrades: 0, pnlPer100: 0 });
+  });
+
   it("does not use data after the closed cutoff and fails closed for stopped variants", () => {
     const cutoff = "2026-10-30";
     const rows = Array.from({ length: 20 }, (_, index) => dailyRow(`2026-10-${String(index + 1).padStart(2, "0")}`, 100));
@@ -180,6 +208,8 @@ describe("route-granular next-day monitoring selector", () => {
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(true);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
+      "6857_technical_regime_a",
+      "6857_technical_regime_a",
       "candidate-6857-confirmed-continuation-depth",
       "candidate-6857-short-body008-depth",
     ]);

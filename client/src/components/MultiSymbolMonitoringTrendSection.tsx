@@ -38,10 +38,10 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
   return (
     <Card className="bg-card border-cyan-500/30" data-testid="multi-symbol-monitoring-trend-section">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">10銘柄 現行・シャドー 最近傾向</CardTitle>
+        <CardTitle className="text-base">10銘柄 案単位 最近傾向（概要・選択根拠外）</CardTitle>
         <p className="text-xs text-muted-foreground">
           閉場後に監査完了した日次snapshotだけを読みます。日中の1分足受信・現行・シャドー処理は待たせません。
-          表示から自動採用・自動停止・自動切替は行いません。
+          複数経路を含む案があるため、この表は概要表示だけです。選択器は下段の経路別最近傾向を正式な判断材料とし、ここから自動採用・自動停止・自動切替は行いません。
         </p>
       </CardHeader>
       <CardContent>
@@ -126,7 +126,7 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
 
             <p className="text-[11px] text-muted-foreground">
               「最近改善／悪化」は直近5日と前5日の勝率・平均損益を比較し、双方に2件以上ある場合だけ表示します。
-              正式な採否は4週間かつ10件以上の後に、人が別途判断します。
+              この案単位集計は選択に使用しません。正式な採否は経路別に4週間かつ各variant 10件以上を確認した後、人が別途判断します。
             </p>
           </div>
         )}

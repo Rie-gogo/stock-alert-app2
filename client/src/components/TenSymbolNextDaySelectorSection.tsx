@@ -24,8 +24,8 @@ export default function TenSymbolNextDaySelectorSection({ asOfDate }: { asOfDate
 
   return <Card className="bg-card border-violet-500/30" data-testid="ten-symbol-next-day-selector-section">
     <CardHeader className="pb-2">
-      <CardTitle className="flex items-center gap-2 text-base"><Eye className="h-4 w-4 text-violet-300" />10銘柄 翌日固定運用比較（監視専用）</CardTitle>
-      <p className="text-xs text-muted-foreground">D-1閉場後のclosed/finality済みsnapshotを一度だけ凍結して表示します。日中raw再集計・自動採用・自動停止・注文接続はありません。</p>
+      <CardTitle className="flex items-center gap-2 text-base"><Eye className="h-4 w-4 text-violet-300" />旧・案単位 翌日固定比較（参考専用）</CardTitle>
+      <p className="text-xs text-muted-foreground">複数経路を含む案があるため選択根拠には使用しません。履歴比較のため保存表示だけを継続します。正式な判断材料は経路別最近傾向です。日中raw再集計・自動採用・自動停止・注文接続はありません。</p>
     </CardHeader>
     <CardContent className="space-y-3">
       {!snapshot ? <div className="rounded border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">初回closed日後のimmutable snapshotを待機しています。</div> : <>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ROUTE_GRANULAR_VARIANTS, auditRouteGranularCatalog } from "./routeGranularMonitoringRegistry";
 import { buildRouteGranularDailySnapshot } from "./routeGranularMonitoringMaterializer";
-import { buildRouteGranularSelectorSnapshot } from "./routeGranularNextDaySelector";
+import { buildRouteGranularSelectorSnapshot, ROUTE_GRANULAR_SELECTOR_CONFIG, ROUTE_GRANULAR_SELECTOR_VERSION } from "./routeGranularNextDaySelector";
 
 const planB = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
 const currentVersion = "current-10-symbol-candidates-v3-low-win-routes-shadow-only";
@@ -24,6 +24,18 @@ function dailyRow(tradeDate: string, pnl: number) {
 }
 
 describe("route-granular next-day monitoring selector", () => {
+  it("declares route-level recent trend as the only decision authority", () => {
+    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-recent-trend-authority-v2");
+    expect(ROUTE_GRANULAR_SELECTOR_CONFIG).toMatchObject({
+      decisionAuthority: "route_granular_recent_trend_manual_review",
+      aggregatePlanTrendAuthority: false,
+      minimumCompletedTrades: 10,
+      recentTrend: { recentTradingDays: 5, comparisonTradingDays: 5, minimumCompletedTradesPerWindow: 2 },
+      compositePlansSelectable: false,
+      unclassifiedSelectable: false,
+    });
+  });
+
   it("splits all five 285A Plan-B child routes and never registers a composite selectable row", () => {
     const planBChildren = ROUTE_GRANULAR_VARIANTS.filter(item => item.strategyVersion === planB);
     expect(planBChildren.map(item => item.shadowRouteId).sort()).toEqual(["confirmed_morning_long", "reversal_long", "reversal_short", "safe_cb_short", "trend_short"]);
@@ -54,11 +66,61 @@ describe("route-granular next-day monitoring selector", () => {
     const features = Array.from({ length: 20 }, (_, index) => featureRow(`2026-10-${String(index + 1).padStart(2, "0")}`));
     const lifecycles: any = Object.fromEntries(ROUTE_GRANULAR_VARIANTS.filter(item => item.strategyVersion).map(item => [item.strategyVersion!, { lifecycle: "monitoring", purpose: "candidate" }]));
     lifecycles[planB] = { lifecycle: "stopped", purpose: "candidate" };
-    const snapshot = buildRouteGranularSelectorSnapshot({ sourceTradeDate: cutoff, feature: featureRow(cutoff), featureRows: [...features, featureRow("2026-10-31")], dailyRows: [...rows, dailyRow("2026-10-31", -999999)], lifecycles, watermark: { source: { count: 1 } } });
-    const withoutFuture = buildRouteGranularSelectorSnapshot({ sourceTradeDate: cutoff, feature: featureRow(cutoff), featureRows: features, dailyRows: rows, lifecycles, watermark: { source: { count: 1 } } });
+    const cutoffDaily = dailyRow(cutoff, 100);
+    const snapshot = buildRouteGranularSelectorSnapshot({ sourceTradeDate: cutoff, feature: featureRow(cutoff), featureRows: [featureRow("2026-10-31"), ...features].reverse(), dailyRows: [dailyRow("2026-10-31", -999999), cutoffDaily, ...rows].reverse(), lifecycles, watermark: { source: { count: 1 } } });
+    const withoutFuture = buildRouteGranularSelectorSnapshot({ sourceTradeDate: cutoff, feature: featureRow(cutoff), featureRows: features, dailyRows: [...rows, cutoffDaily], lifecycles, watermark: { source: { count: 1 } } });
     expect(snapshot.inputHash).toBe(withoutFuture.inputHash);
     expect(snapshot.scores.filter((item: any) => item.strategyVersion === planB).every((item: any) => item.selectable === false)).toBe(true);
     expect(snapshot.scores.find((item: any) => item.origin === "unclassified")?.selectable).toBe(false);
+    expect(snapshot.aggregatePlanTrendAuthority).toBe(false);
+    const selected = snapshot.selections.find((item: any) => item.decision === "reference_only");
+    expect(selected?.reason).toBe("route_granular_recent_trend_authority_reference_only");
+    const score = snapshot.scores.find((item: any) => item.selectable === true);
+    expect(score?.recentTrend).toMatchObject({
+      status: "stable",
+      windows: {
+        recent5: { includedTradingDays: 5, completedTrades: 5, wins: 5, pnlPer100: 500 },
+        previous5: { includedTradingDays: 5, completedTrades: 5, wins: 5, pnlPer100: 500 },
+        recent10: { includedTradingDays: 10, completedTrades: 10, wins: 10, pnlPer100: 1000 },
+        all: { includedTradingDays: 21, completedTrades: 21, wins: 21, pnlPer100: 2100 },
+      },
+    });
+    expect(score?.recentTrend.windows.recent5.toDate).toBe(cutoff);
+  });
+
+  it("requires ten completed trades for each variant instead of borrowing the route-group total", () => {
+    const cutoff = "2026-10-30";
+    const currentRowId = "current:285A:confirmed_morning_long:trendLong";
+    const planARowId = ROUTE_GRANULAR_VARIANTS.find(item => item.symbol === "285A" && item.routeGroupId === "confirmed_morning_long" && item.origin === "forward_shadow" && item.strategyVersion !== planB)?.rowId;
+    const rows = Array.from({ length: 20 }, (_, index) => {
+      const row = dailyRow(`2026-10-${String(index + 1).padStart(2, "0")}`, 0);
+      row.resultJson.plans = row.resultJson.plans.map((item: any) => {
+        const completed = item.rowId === planARowId ? 1 : item.rowId === currentRowId && index < 5 ? 1 : 0;
+        return { ...item, signals: completed, openedTrades: completed, completedTrades: completed, wins: completed, losses: 0, pnlPer100: completed * 100, grossProfitPer100: completed * 100, grossLossPer100: 0 };
+      });
+      return row;
+    });
+    const features = Array.from({ length: 20 }, (_, index) => featureRow(`2026-10-${String(index + 1).padStart(2, "0")}`));
+    const lifecycles: any = Object.fromEntries(ROUTE_GRANULAR_VARIANTS.filter(item => item.strategyVersion).map(item => [item.strategyVersion!, { lifecycle: "monitoring", purpose: "candidate" }]));
+    const snapshot = buildRouteGranularSelectorSnapshot({ sourceTradeDate: cutoff, feature: featureRow(cutoff), featureRows: features, dailyRows: [...rows, dailyRow(cutoff, 0)], lifecycles, watermark: { source: { count: 1 } } });
+    const current = snapshot.scores.find((item: any) => item.rowId === currentRowId) as any;
+    expect(current.completedTrades).toBe(5);
+    expect(current.routeGroupCompletedTrades).toBeGreaterThan(10);
+    expect(current.selectable).toBe(false);
+    expect(current.exclusionReasons).toContain("fewer_than_10_variant_completed_trades");
+  });
+
+  it("blocks a route variant whose recent five-day trend deteriorated", () => {
+    const cutoff = "2026-10-30";
+    const rows = Array.from({ length: 20 }, (_, index) => dailyRow(`2026-10-${String(index + 1).padStart(2, "0")}`, index < 15 ? 100 : -100));
+    const features = Array.from({ length: 20 }, (_, index) => featureRow(`2026-10-${String(index + 1).padStart(2, "0")}`));
+    const lifecycles: any = Object.fromEntries(ROUTE_GRANULAR_VARIANTS.filter(item => item.strategyVersion).map(item => [item.strategyVersion!, { lifecycle: "monitoring", purpose: "candidate" }]));
+    const snapshot = buildRouteGranularSelectorSnapshot({ sourceTradeDate: cutoff, feature: featureRow(cutoff), featureRows: features, dailyRows: [...rows, dailyRow(cutoff, -100)], lifecycles, watermark: { source: { count: 1 } } });
+    const current = snapshot.scores.find((item: any) => item.rowId === "current:285A:confirmed_morning_long:trendLong") as any;
+    expect(current.recentTrend.status).toBe("deteriorating");
+    expect(current.recentTrend.windows.recent5.pnlPer100).toBe(-500);
+    expect(current.selectable).toBe(false);
+    expect(current.exclusionReasons).toEqual(expect.arrayContaining(["non_positive_recent5_pnl", "route_recent_trend_deteriorating"]));
   });
 
   it("never imports the source hot path, engine, order bridge, or normal trade writer", async () => {

@@ -154,6 +154,44 @@ function closingTimeframeFeatures(candles: Candle[], size: number) {
   };
 }
 
+/**
+ * 前場・後場をまたがない60分ローソク足。最後の端数も独立足として保存する。
+ * 翌日選択器だけが閉場後に読み、日中シグナルには接続しない。
+ */
+function sessionBars60(candles: Candle[]) {
+  const sessions = [
+    candles.filter(candle => classifyKioxiaSession(candle.time) === "morning_continuous"),
+    candles.filter(candle => classifyKioxiaSession(candle.time) === "afternoon_continuous"),
+  ];
+  return sessions.flatMap((session, sessionIndex) => {
+    const bars: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < session.length; offset += 60) {
+      const window = session.slice(offset, offset + 60);
+      if (!window.length) continue;
+      const first = window[0];
+      const last = window.at(-1)!;
+      const high = Math.max(...window.map(item => item.high));
+      const low = Math.min(...window.map(item => item.low));
+      const volume = window.reduce((sum, item) => sum + item.volume, 0);
+      bars.push({
+        session: sessionIndex === 0 ? "morning" : "afternoon",
+        minutes: window.length,
+        startTime: first.time,
+        endTime: last.time,
+        open: first.open,
+        high,
+        low,
+        close: last.close,
+        volume,
+        vwap: volume > 0 ? window.reduce((sum, item) => sum + typicalPrice(item) * item.volume, 0) / volume : null,
+        returnPct: pct(last.close - first.open, first.open),
+        closePositionPct: high > low ? (last.close - low) / (high - low) * 100 : null,
+      });
+    }
+    return bars;
+  });
+}
+
 export function buildKioxiaManifestV2(input: { tradeDate: string; events: RtSourceEvent[]; sourceDecisionCount: number; processedThroughEngineSequence: number; watermark: unknown; causalityViolationCount: number; }): Record<string, unknown> {
   const candles = input.events.map(sourceCandle).filter((item): item is Candle => item !== null).sort((a, b) => a.time.localeCompare(b.time));
   const continuous = candles.filter(candle => classifyKioxiaSession(candle.time) === "morning_continuous" || classifyKioxiaSession(candle.time) === "afternoon_continuous");
@@ -264,7 +302,7 @@ export function calculateKioxiaSelectorDailyFeature(input: { manifest: Record<st
     movingAverages: Object.fromEntries([5, 10, 20, 25, 50].map(period => [String(period), { value: ma(period), slopePct: maSlope(period), positionPct: ma(period) ? pct(last.close - ma(period)!, ma(period)!) : null }])),
     bollinger20: bbMean === null || std === null ? null : { middle: bbMean, plus1: bbMean + std, minus1: bbMean - std, plus2: bbMean + 2 * std, minus2: bbMean - 2 * std, bandwidthPct: pct(4 * std, bbMean), percentB: std > 0 ? (last.close - (bbMean - 2 * std)) / (4 * std) * 100 : null },
     volumeRatio: { to5: typicalVolume.length >= 6 ? pct(typicalVolume.at(-1)! - average(typicalVolume.slice(-6, -1))!, average(typicalVolume.slice(-6, -1))!) : null, to20: typicalVolume.length >= 21 ? pct(typicalVolume.at(-1)! - average(typicalVolume.slice(-21, -1))!, average(typicalVolume.slice(-21, -1))!) : null },
-    intraday: { vwap: intradayVwap, distanceFromVwapPct: pct(last.close - intradayVwap, intradayVwap), thirtyMinute: closingTimeframeFeatures(continuous, 30), sixtyMinute: closingTimeframeFeatures(continuous, 60), closingPositionPct: range > 0 ? (last.close - low) / range * 100 : null },
+    intraday: { vwap: intradayVwap, distanceFromVwapPct: pct(last.close - intradayVwap, intradayVwap), thirtyMinute: closingTimeframeFeatures(continuous, 30), sixtyMinute: closingTimeframeFeatures(continuous, 60), sessionBars60: sessionBars60(continuous), closingPositionPct: range > 0 ? (last.close - low) / range * 100 : null },
     recentHighLow: { high, low, distanceFromHighPct: pct(last.close - high, high), distanceFromLowPct: pct(last.close - low, low) },
     missingReasons: [],
   };

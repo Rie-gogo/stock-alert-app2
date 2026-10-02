@@ -5,11 +5,24 @@ import { buildRouteGranularSelectorSnapshot, ROUTE_GRANULAR_SELECTOR_CONFIG, ROU
 
 const planB = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
 const currentVersion = "current-10-symbol-candidates-v3-low-win-routes-shadow-only";
-function featureRow(tradeDate: string, symbol = "285A") {
+function featureRow(tradeDate: string, symbol = "285A", trend: "up" | "down" = "down") {
+  const up = trend === "up";
+  const technicalFeatures = {
+    open: 100, high: up ? 110 : 102, low: up ? 98 : 90, close: up ? 109 : 91, atr14Pct: 1,
+    movingAverages: {
+      "5": { value: up ? 106 : 94, slopePct: up ? 1 : -1 },
+      "20": { value: 100, slopePct: up ? 0.5 : -0.5 },
+      "25": { value: up ? 98 : 102, slopePct: up ? 0.4 : -0.4 },
+      "50": { value: up ? 95 : 105, slopePct: up ? 0.3 : -0.3 },
+    },
+    bollinger20: { percentB: up ? 90 : 10, bandwidthPct: 8 },
+    volumeRatio: { to20: 20 },
+    intraday: { sixtyMinute: { slopePct: up ? 1 : -1 }, sessionBars60: Array.from({ length: 5 }, (_, index) => ({ close: up ? 100 + index : 96 - index })) },
+  };
   return {
     tradeDate, status: "complete", resultJson: {
       inputHash: `feature:${tradeDate}`,
-      featuresBySymbol: Object.fromEntries(["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].map(item => [item, { featureEligible: item === symbol, provenanceStatus: item === symbol ? "verified" : "unavailable", regime: { full: "down|normal|lower", trend: "down", volatility: "normal" } }])),
+      featuresBySymbol: Object.fromEntries(["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].map(item => [item, { featureEligible: item === symbol, provenanceStatus: item === symbol ? "verified" : "unavailable", features: technicalFeatures, regime: { full: "down|normal|lower", trend: "down", volatility: "normal" } }])),
     },
   } as any;
 }
@@ -24,11 +37,13 @@ function dailyRow(tradeDate: string, pnl: number) {
 }
 
 describe("route-granular next-day monitoring selector", () => {
-  it("declares route-level recent trend as the only decision authority", () => {
-    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-recent-trend-authority-v2");
+  it("declares technical market state as authority and recent trend as a safety gate", () => {
+    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-technical-regime-authority-v3");
     expect(ROUTE_GRANULAR_SELECTOR_CONFIG).toMatchObject({
-      decisionAuthority: "route_granular_recent_trend_manual_review",
+      decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review",
       aggregatePlanTrendAuthority: false,
+      recentTrendAuthority: false,
+      causalAlignment: "D-1_closed_technical_features_to_D_route_outcomes",
       minimumCompletedTrades: 10,
       recentTrend: { recentTradingDays: 5, comparisonTradingDays: 5, minimumCompletedTradesPerWindow: 2 },
       compositePlansSelectable: false,
@@ -74,7 +89,7 @@ describe("route-granular next-day monitoring selector", () => {
     expect(snapshot.scores.find((item: any) => item.origin === "unclassified")?.selectable).toBe(false);
     expect(snapshot.aggregatePlanTrendAuthority).toBe(false);
     const selected = snapshot.selections.find((item: any) => item.decision === "reference_only");
-    expect(selected?.reason).toBe("route_granular_recent_trend_authority_reference_only");
+    expect(selected?.reason).toBe("technical_regime_conditional_expected_value_reference_only");
     const score = snapshot.scores.find((item: any) => item.selectable === true);
     expect(score?.recentTrend).toMatchObject({
       status: "stable",
@@ -86,6 +101,30 @@ describe("route-granular next-day monitoring selector", () => {
       },
     });
     expect(score?.recentTrend.windows.recent5.toDate).toBe(cutoff);
+  });
+
+  it("pairs each closed technical feature only with the following trading day's outcome", () => {
+    const dates = Array.from({ length: 26 }, (_, index) => `2026-10-${String(index + 1).padStart(2, "0")}`);
+    const features = dates.map((date, index) => featureRow(date, "285A", index % 2 === 0 ? "up" : "down"));
+    const rows = dates.map((date, index) => dailyRow(date, index === 0 ? 0 : (index - 1) % 2 === 0 ? 200 : -50));
+    const lifecycles: any = Object.fromEntries(ROUTE_GRANULAR_VARIANTS
+      .filter(item => item.strategyVersion)
+      .map(item => [item.strategyVersion!, { lifecycle: "monitoring", purpose: "candidate" }]));
+    const cutoff = dates.at(-2)!; // even index => up regime; the final row is deliberately future data.
+    const snapshot = buildRouteGranularSelectorSnapshot({
+      sourceTradeDate: cutoff,
+      feature: features.at(-2)!,
+      featureRows: features,
+      dailyRows: rows,
+      lifecycles,
+      watermark: { source: { count: 1 } },
+    });
+    const longScore = snapshot.scores.find((item: any) => item.rowId === "current:285A:confirmed_morning_long:trendLong") as any;
+    expect(longScore.technicalRegime.trend).toBe("up");
+    expect(longScore.technicalRegimeMatch.featureOutcomeAlignment).toBe("D-1_to_D");
+    expect(longScore.technicalRegimeMatch.completedTrades).toBeGreaterThanOrEqual(3);
+    expect(longScore.technicalRegimeMatch.pnlPer100).toBeGreaterThan(0);
+    expect(longScore.posteriorPnlPer100).toBeGreaterThan(0);
   });
 
   it("requires ten completed trades for each variant instead of borrowing the route-group total", () => {

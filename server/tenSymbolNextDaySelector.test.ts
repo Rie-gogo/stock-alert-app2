@@ -3,6 +3,7 @@ import {
   TEN_SYMBOL_SELECTOR_SLOTS,
   buildTenSymbolSelectorResult,
   buildTenSymbolSelectorSnapshot,
+  selectNextPendingTenSymbolFeatureDate,
 } from "./tenSymbolNextDaySelector";
 
 function featureRow(tradeDate: string, symbol = "285A", eligible = true) {
@@ -35,6 +36,22 @@ const activeLifecycle = Object.fromEntries(TEN_SYMBOL_SELECTOR_SLOTS
   .map(slot => [slot.strategyVersion!, { lifecycle: "monitoring", purpose: "candidate" }]));
 
 describe("10銘柄翌日選択器の固定運用契約", () => {
+  it("閉場済みfeatureは最古の未処理日を一日だけ選び、不完全確定済みを再走査しない", () => {
+    expect(selectNextPendingTenSymbolFeatureDate({
+      requestedTradeDate: "2026-10-05",
+      closedDates: ["2026-10-05", "2026-10-02", "2026-10-01"],
+      existingRows: [
+        { tradeDate: "2026-10-01", status: "complete" },
+        { tradeDate: "2026-10-02", status: "incomplete_source" },
+      ],
+    })).toBe("2026-10-05");
+    expect(selectNextPendingTenSymbolFeatureDate({
+      requestedTradeDate: "2026-10-05",
+      closedDates: ["2026-10-05", "2026-10-02", "2026-10-01"],
+      existingRows: [{ tradeDate: "2026-10-01", status: "complete" }],
+    })).toBe("2026-10-02");
+  });
+
   it("Current/A/Bを10銘柄×3行で固定し、停止版や診断版を候補に混ぜない", () => {
     expect(TEN_SYMBOL_SELECTOR_SLOTS).toHaveLength(30);
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.slot === "Current")).toHaveLength(10);

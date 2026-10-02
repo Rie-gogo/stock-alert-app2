@@ -5,19 +5,25 @@ import { ROUTE_GRANULAR_VARIANTS, type RouteGranularVariant } from "./routeGranu
 import { ROUTE_GRANULAR_MONITORING_COMPONENT, ROUTE_GRANULAR_MONITORING_START_DATE, ROUTE_GRANULAR_MONITORING_VERSION, type RouteGranularDailyPlan, type RouteGranularDailySnapshot } from "./routeGranularMonitoringMaterializer";
 import { sha256Stable } from "./runtimeIdentity";
 import { TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, TEN_SYMBOL_SELECTOR_VERSION } from "./tenSymbolNextDaySelector";
+import { buildTechnicalMarketRegimeTimeline, TECHNICAL_MARKET_REGIME_VERSION, type TechnicalMarketRegime } from "./technicalMarketRegime";
 
 export const ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT = "route_granular_next_day_selector";
 export const ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT = "route_granular_next_day_selector_result";
-export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-recent-trend-authority-v2";
+export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v3";
 export const ROUTE_GRANULAR_SELECTOR_CONFIG = Object.freeze({
   version: ROUTE_GRANULAR_SELECTOR_VERSION,
   variants: ROUTE_GRANULAR_VARIANTS,
   performanceInput: "closed_route_granular_daily_snapshots_only",
-  decisionAuthority: "route_granular_recent_trend_manual_review",
+  decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review",
+  technicalRegimeVersion: TECHNICAL_MARKET_REGIME_VERSION,
+  causalAlignment: "D-1_closed_technical_features_to_D_route_outcomes",
   aggregatePlanTrendAuthority: false,
-  fallback: ["full", "trend_volatility", "trend", "route_overall", "unavailable"],
+  recentTrendAuthority: false,
+  recentTrendRole: "safety_gate_and_tiebreak_only",
+  fallback: ["full", "trend_volatility", "trend", "unavailable"],
   minimumCompleteFeatureDays: 20,
   minimumCompletedTrades: 10,
+  minimumRegimeCompletedTrades: 3,
   recentTrend: {
     recentTradingDays: 5,
     comparisonTradingDays: 5,
@@ -25,7 +31,7 @@ export const ROUTE_GRANULAR_SELECTOR_CONFIG = Object.freeze({
     requirePositiveRecent5Pnl: true,
     requirePositiveRecent10Pnl: true,
     blockDeteriorating: true,
-    rankingMetric: "recent10_average_pnl_per_trade_then_expected_daily_pnl",
+    rankingMetric: "technical_regime_expected_daily_pnl_then_recent10_average_pnl",
   },
   shrinkage: { globalK: 20, routeK: 10, regimeK: 10 },
   automaticSelection: false,
@@ -46,6 +52,13 @@ function snapshot(row: Row): RouteGranularDailySnapshot | null { const item = ob
 function feature(row: Row, symbol: string): Value {
   const features = object(object(row.resultJson).featuresBySymbol);
   return object(features[symbol]);
+}
+function featureEligible(value: Value) {
+  const provenance = String(value.provenanceStatus ?? "");
+  return value.featureEligible === true && (provenance === "verified" || provenance === "provenance_present");
+}
+function featuresBySymbol(row: Row): Record<string, unknown> {
+  return object(object(row.resultJson).featuresBySymbol);
 }
 function isLifecycleEligible(item: RouteGranularVariant, lifecycles: Record<string, Lifecycle>) {
   if (item.lifecycleRequirement === "current_candidate_ledger") return { eligible: true, reason: null };
@@ -117,18 +130,33 @@ function buildRouteRecentTrend(history: RouteHistoryRow[]) {
   return { status, winRateDeltaPt, averagePnlDelta, windows: { recent5, previous5, recent10, all } };
 }
 
-function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: string; cutoffFeature: Value; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle>; catalogComplete: boolean }) {
+type TechnicalTimeline = Record<string, Record<string, TechnicalMarketRegime>>;
+
+function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: string; cutoffFeature: Value; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle>; catalogComplete: boolean; technicalTimeline: TechnicalTimeline }) {
   if (!input.catalogComplete) return { ...input.variant, lifecycle: "unavailable", selectable: false, exclusionReasons: ["route_catalog_incomplete_or_unresolved"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
   const lifecycle = isLifecycleEligible(input.variant, input.lifecycles);
   if (!lifecycle.eligible) return { ...input.variant, lifecycle: "unavailable", selectable: false, exclusionReasons: [lifecycle.reason], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
-  if (input.cutoffFeature.featureEligible !== true || input.cutoffFeature.provenanceStatus !== "verified") return { ...input.variant, lifecycle: "eligible", selectable: false, exclusionReasons: ["feature_or_provenance_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
-  const currentRegime = object(input.cutoffFeature.regime);
+  if (!featureEligible(input.cutoffFeature)) return { ...input.variant, lifecycle: "eligible", selectable: false, exclusionReasons: ["feature_or_provenance_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
+  const currentRegime = input.technicalTimeline[input.sourceTradeDate]?.[input.variant.symbol];
+  if (!currentRegime?.eligible) return { ...input.variant, lifecycle: "eligible", selectable: false, exclusionReasons: ["technical_regime_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null, technicalRegime: currentRegime ?? null };
   const dailyByDate = new Map(input.dailyRows.map(row => [row.tradeDate, snapshot(row)]));
+  const featureDates = input.featureRows
+    .filter(row => row.status === "complete" && row.tradeDate <= input.sourceTradeDate)
+    .map(row => row.tradeDate)
+    .sort();
   const eligibleFeatureRows = input.featureRows
-    .filter(row => row.status === "complete" && row.tradeDate < input.sourceTradeDate)
+    .filter(row => row.status === "complete" && row.tradeDate < input.sourceTradeDate && featureEligible(feature(row, input.variant.symbol)))
     .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
-  const history = eligibleFeatureRows.map(row => ({ date: row.tradeDate, feature: feature(row, input.variant.symbol), plan: plan(dailyByDate.get(row.tradeDate) ?? null, input.variant.rowId) }))
-    .filter(item => item.feature.featureEligible === true && item.feature.provenanceStatus === "verified");
+  // D-1閉場後の状態は、必ず次の保存営業日Dの結果と組み合わせる。同日結果を
+  // 同日引け後featureへ結びつける先読みと、欠損日を飛び越えた誤対応を禁止する。
+  const history = eligibleFeatureRows.flatMap(row => {
+    const featureIndex = featureDates.indexOf(row.tradeDate);
+    const outcomeDate = featureIndex >= 0 ? featureDates[featureIndex + 1] : null;
+    const technicalRegime = input.technicalTimeline[row.tradeDate]?.[input.variant.symbol];
+    const outcomeSnapshot = outcomeDate ? dailyByDate.get(outcomeDate) ?? null : null;
+    if (!outcomeDate || !outcomeSnapshot || !technicalRegime?.eligible) return [];
+    return [{ featureDate: row.tradeDate, outcomeDate, technicalRegime, plan: plan(outcomeSnapshot, input.variant.rowId) }];
+  });
   // Recent performance is independent of the end-of-day regime feature. It must
   // include the latest closed sourceTradeDate; otherwise every decision lags by
   // one session. Only immutable, complete route snapshots are admitted here.
@@ -139,12 +167,12 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
   const recentTrend = buildRouteRecentTrend(recentTrendHistory);
   const completedHistory = history.filter(item => planSummary(item.plan).completed > 0);
   const levels = [
-    { name: "full", rows: completedHistory.filter(item => object(item.feature.regime).full === currentRegime.full) },
-    { name: "trend_volatility", rows: completedHistory.filter(item => object(item.feature.regime).trend === currentRegime.trend && object(item.feature.regime).volatility === currentRegime.volatility) },
-    { name: "trend", rows: completedHistory.filter(item => object(item.feature.regime).trend === currentRegime.trend) },
-    { name: "route_overall", rows: completedHistory },
+    { name: "full", rows: completedHistory.filter(item => item.technicalRegime.full === currentRegime.full) },
+    { name: "trend_volatility", rows: completedHistory.filter(item => item.technicalRegime.trend === currentRegime.trend && item.technicalRegime.volatility === currentRegime.volatility) },
+    { name: "trend", rows: completedHistory.filter(item => item.technicalRegime.trend === currentRegime.trend) },
   ];
-  const chosen = levels.find(level => level.rows.length > 0) ?? { name: "unavailable", rows: [] as typeof completedHistory };
+  const chosen = levels.find(level => level.rows.reduce((sum, item) => sum + planSummary(item.plan).completed, 0) >= ROUTE_GRANULAR_SELECTOR_CONFIG.minimumRegimeCompletedTrades)
+    ?? { name: "unavailable", rows: [] as typeof completedHistory };
   const groupHistory = input.dailyRows.flatMap(row => snapshot(row)?.plans ?? []).filter(item => item.routeGroupId === input.variant.routeGroupId && item.symbol === input.variant.symbol).map(planSummary);
   const globalHistory = input.dailyRows.flatMap(row => snapshot(row)?.plans ?? []).map(planSummary);
   const sum = (rows: ReturnType<typeof planSummary>[]) => ({ trades: rows.reduce((n, item) => n + item.completed, 0), pnl: rows.reduce((n, item) => n + item.pnl, 0) });
@@ -152,10 +180,11 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
   const variant = sum(history.map(item => planSummary(item.plan)));
   const globalMean = global.trades ? global.pnl / global.trades : 0;
   const routeMean = route.trades ? (route.pnl + 10 * globalMean) / (route.trades + 10) : null;
-  const posterior = routeMean === null ? null : chosen.name === "route_overall" ? routeMean : (sample.pnl + 10 * routeMean) / (sample.trades + 10);
+  const posterior = routeMean === null || chosen.name === "unavailable" ? null : (sample.pnl + 10 * routeMean) / (sample.trades + 10);
   const signalDays = history.filter(item => planSummary(item.plan).signals > 0).length;
   const fireRate = (signalDays + 1) / (history.length + 2);
   const expected = posterior === null ? null : posterior * fireRate;
+  const directionAllowed = input.variant.direction !== "unknown" && currentRegime.allowedDirections.includes(input.variant.direction);
   const reasons = [
     ...(history.length < 20 ? ["fewer_than_20_complete_feature_days"] : []),
     ...(variant.trades < 10 ? ["fewer_than_10_variant_completed_trades"] : []),
@@ -164,6 +193,8 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
     ...(recentTrend.windows.recent5.pnlPer100 <= 0 ? ["non_positive_recent5_pnl"] : []),
     ...(recentTrend.windows.recent10.pnlPer100 <= 0 ? ["non_positive_recent10_pnl"] : []),
     ...(recentTrend.status === "deteriorating" ? ["route_recent_trend_deteriorating"] : []),
+    ...(chosen.name === "unavailable" ? ["fewer_than_3_technical_regime_completed_trades"] : []),
+    ...(!directionAllowed ? ["direction_conflicts_with_technical_regime"] : []),
     ...(posterior === null || posterior <= 0 ? ["non_positive_posterior_pnl"] : []),
     ...(expected === null || expected <= 0 ? ["non_positive_expected_daily_pnl"] : []),
   ];
@@ -176,6 +207,8 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
     signalDays,
     recentTrend,
     recentTrendRankingPnlPerTrade: recentTrend.windows.recent10.averagePnlPerTrade,
+    technicalRegime: currentRegime,
+    technicalRegimeMatch: { level: chosen.name, completedTrades: sample.trades, pnlPer100: sample.pnl, featureOutcomeAlignment: "D-1_to_D" },
     posteriorPnlPer100: posterior,
     expectedDailyPnlPer100: expected,
     fallbackLevel: chosen.name,
@@ -196,18 +229,46 @@ export function buildRouteGranularSelectorSnapshot(input: { sourceTradeDate: str
   const cutoffDaily = dailyRows.find(row => row.tradeDate === input.sourceTradeDate);
   const catalogAudit = object(cutoffDaily ? object(cutoffDaily.resultJson).catalogAudit : null);
   const catalogComplete = catalogAudit.complete === true;
-  const scores = ROUTE_GRANULAR_VARIANTS.map(variant => scoreVariant({ variant, sourceTradeDate: input.sourceTradeDate, cutoffFeature: feature(input.feature, variant.symbol), featureRows, dailyRows, lifecycles: input.lifecycles, catalogComplete }));
+  const featureByDate = new Map(featureRows.map(row => [row.tradeDate, row]));
+  featureByDate.set(input.feature.tradeDate, input.feature);
+  const timelineFeatureRows = Array.from(featureByDate.values())
+    .filter(row => row.status === "complete" && row.tradeDate <= input.sourceTradeDate)
+    .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  const timelineRows = timelineFeatureRows.map(row => ({ tradeDate: row.tradeDate, featuresBySymbol: featuresBySymbol(row) }));
+  const symbols = Array.from(new Set(ROUTE_GRANULAR_VARIANTS.map(item => item.symbol))).sort();
+  const technicalTimeline = buildTechnicalMarketRegimeTimeline(timelineRows, symbols);
+  const scores = ROUTE_GRANULAR_VARIANTS.map(variant => scoreVariant({ variant, sourceTradeDate: input.sourceTradeDate, cutoffFeature: feature(input.feature, variant.symbol), featureRows: timelineFeatureRows, dailyRows, lifecycles: input.lifecycles, catalogComplete, technicalTimeline }));
   const routeGroups = Array.from(new Set(ROUTE_GRANULAR_VARIANTS.map(item => `${item.symbol}:${item.routeGroupId}`))).sort();
   const selections = routeGroups.map(key => {
     const [symbol, routeGroupId] = key.split(":");
     const currentFeature = feature(input.feature, symbol);
+    const technicalRegime = technicalTimeline[input.sourceTradeDate]?.[symbol] ?? null;
     const candidates = scores.filter(item => item.symbol === symbol && item.routeGroupId === routeGroupId && item.selectable)
       .sort((a, b) => {
-        const recentDifference = Number((b as Value).recentTrendRankingPnlPerTrade) - Number((a as Value).recentTrendRankingPnlPerTrade);
-        return recentDifference !== 0 ? recentDifference : Number(b.expectedDailyPnlPer100) - Number(a.expectedDailyPnlPer100);
+        const technicalDifference = Number(b.expectedDailyPnlPer100) - Number(a.expectedDailyPnlPer100);
+        return technicalDifference !== 0 ? technicalDifference : Number((b as Value).recentTrendRankingPnlPerTrade) - Number((a as Value).recentTrendRankingPnlPerTrade);
       });
     const chosen = candidates[0] ?? null;
-    return { symbol, routeGroupId, featureEligible: currentFeature.featureEligible === true && currentFeature.provenanceStatus === "verified", regime: currentFeature.regime ?? { full: "unknown" }, selectedRowId: chosen?.rowId ?? null, selectedCanonicalLogic: chosen?.canonicalLogic ?? null, selectedStrategyVersion: chosen?.strategyVersion ?? null, decision: chosen ? "reference_only" : "no_selection", reason: chosen ? "route_granular_recent_trend_authority_reference_only" : currentFeature.featureEligible !== true || currentFeature.provenanceStatus !== "verified" ? "feature_or_provenance_unavailable" : "all_route_variants_insufficient_recent_or_non_positive" };
+    return { symbol, routeGroupId, featureEligible: featureEligible(currentFeature), technicalRegime, selectedRowId: chosen?.rowId ?? null, selectedCanonicalLogic: chosen?.canonicalLogic ?? null, selectedStrategyVersion: chosen?.strategyVersion ?? null, decision: chosen ? "reference_only" : "no_selection", reason: chosen ? "technical_regime_conditional_expected_value_reference_only" : !featureEligible(currentFeature) ? "feature_or_provenance_unavailable" : "all_route_variants_insufficient_or_technically_incompatible" };
+  });
+  const symbolSelections = symbols.map(symbol => {
+    const technicalRegime = technicalTimeline[input.sourceTradeDate]?.[symbol] ?? null;
+    const candidates = scores.filter(item => item.symbol === symbol && item.selectable).sort((a, b) => {
+      const technicalDifference = Number(b.expectedDailyPnlPer100) - Number(a.expectedDailyPnlPer100);
+      return technicalDifference !== 0 ? technicalDifference : Number((b as Value).recentTrendRankingPnlPerTrade) - Number((a as Value).recentTrendRankingPnlPerTrade);
+    });
+    const chosen = candidates[0] ?? null;
+    return {
+      symbol,
+      technicalRegime,
+      selectedRowId: chosen?.rowId ?? null,
+      selectedRouteGroupId: chosen?.routeGroupId ?? null,
+      selectedCanonicalLogic: chosen?.canonicalLogic ?? null,
+      selectedStrategyVersion: chosen?.strategyVersion ?? null,
+      expectedDailyPnlPer100: chosen?.expectedDailyPnlPer100 ?? null,
+      decision: chosen ? "reference_only" : "no_selection",
+      reason: chosen ? "best_technical_regime_conditional_route_reference_only" : technicalRegime?.eligible ? "no_eligible_route_for_technical_regime" : "technical_regime_unavailable",
+    };
   });
   const featureResult = object(input.feature.resultJson);
   return {
@@ -215,7 +276,7 @@ export function buildRouteGranularSelectorSnapshot(input: { sourceTradeDate: str
     immutable: true, generatedAt: new Date().toISOString(), dataCutoff: input.sourceTradeDate, sourceTradeDate: input.sourceTradeDate,
     targetDate: nextTokyoEquityTradeDate(input.sourceTradeDate), watermark: input.watermark, featureInputHash: featureResult.inputHash ?? null,
     inputHash: sha256Stable({ configHash: ROUTE_GRANULAR_SELECTOR_CONFIG_HASH, dataCutoff: input.sourceTradeDate, featureHash: featureResult.inputHash, dailyRows: dailyRows.map(row => ({ tradeDate: row.tradeDate, hash: sha256Stable(row.resultJson) })), lifecycles: input.lifecycles, watermark: input.watermark }),
-    variants: ROUTE_GRANULAR_VARIANTS, scores, selections, catalogAudit: catalogAudit.complete === true ? catalogAudit : { complete: false, ...catalogAudit }, decisionAuthority: "route_granular_recent_trend_manual_review", aggregatePlanTrendAuthority: false, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false, formalPerformanceUse: false,
+    variants: ROUTE_GRANULAR_VARIANTS, scores, selections, symbolSelections, technicalRegimeTimelineVersion: TECHNICAL_MARKET_REGIME_VERSION, causalAlignment: "D-1_closed_technical_features_to_D_route_outcomes", catalogAudit: catalogAudit.complete === true ? catalogAudit : { complete: false, ...catalogAudit }, decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review", aggregatePlanTrendAuthority: false, recentTrendAuthority: false, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false, formalPerformanceUse: false,
   };
 }
 
@@ -232,10 +293,17 @@ function boundedHistoryStartDate(tradeDate: string) {
 export function buildRouteGranularSelectorResult(input: { tradeDate: string; selectorSnapshot: Value | null; daily: Row | null }) {
   const daily = input.daily ? snapshot(input.daily) : null;
   const selectionByKey = new Map(Array.isArray(input.selectorSnapshot?.selections) ? input.selectorSnapshot.selections.map(value => { const item = object(value); return [`${item.symbol}:${item.routeGroupId}`, item]; }) : []);
+  const symbolSelectionBySymbol = new Map(Array.isArray(input.selectorSnapshot?.symbolSelections) ? input.selectorSnapshot.symbolSelections.map(value => { const item = object(value); return [String(item.symbol), item]; }) : []);
   const groups = Array.from(new Set(ROUTE_GRANULAR_VARIANTS.map(item => `${item.symbol}:${item.routeGroupId}`))).sort();
+  const symbols = Array.from(new Set(ROUTE_GRANULAR_VARIANTS.map(item => item.symbol))).sort();
   return {
     component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, selectorVersion: ROUTE_GRANULAR_SELECTOR_VERSION, tradeDate: input.tradeDate, immutable: true, snapshotFound: Boolean(input.selectorSnapshot), formalPerformanceUse: false,
     results: groups.map(key => { const [symbol, routeGroupId] = key.split(":"); const choice = selectionByKey.get(key); const rows = (daily?.plans ?? []).filter(item => item.symbol === symbol && item.routeGroupId === routeGroupId).map(outcome); return { symbol, routeGroupId, decision: choice?.decision ?? "no_selection_snapshot", selectedRowId: choice?.selectedRowId ?? null, selected: choice?.selectedRowId ? rows.find(row => row.rowId === choice.selectedRowId) ?? null : null, variants: rows }; }),
+    symbolResults: symbols.map(symbol => {
+      const choice = symbolSelectionBySymbol.get(symbol);
+      const rows = (daily?.plans ?? []).filter(item => item.symbol === symbol).map(outcome);
+      return { symbol, decision: choice?.decision ?? "no_selection_snapshot", selectedRowId: choice?.selectedRowId ?? null, selected: choice?.selectedRowId ? rows.find(row => row.rowId === choice.selectedRowId) ?? null : null, variants: rows };
+    }),
     automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false,
   };
 }
@@ -275,5 +343,5 @@ export async function getRouteGranularSelectorDashboard(asOfDate: string) {
     getRtDailyAuditMaterializationsForRange({ component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, fromDate: ROUTE_GRANULAR_MONITORING_START_DATE, toDate: asOfDate }),
     getRtDailyAuditMaterializationsForRange({ component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, fromDate: ROUTE_GRANULAR_MONITORING_START_DATE, toDate: asOfDate }),
   ]);
-  return { selectorVersion: ROUTE_GRANULAR_SELECTOR_VERSION, configHash: ROUTE_GRANULAR_SELECTOR_CONFIG_HASH, variants: ROUTE_GRANULAR_VARIANTS, snapshots: snapshots.filter(row => row.status === "complete").map(row => row.resultJson), results: results.filter(row => row.status === "complete").map(row => row.resultJson), dataSource: "immutable_closed_route_granular_snapshots_only", decisionAuthority: "route_granular_recent_trend_manual_review", aggregatePlanTrendAuthority: false, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false };
+  return { selectorVersion: ROUTE_GRANULAR_SELECTOR_VERSION, configHash: ROUTE_GRANULAR_SELECTOR_CONFIG_HASH, variants: ROUTE_GRANULAR_VARIANTS, snapshots: snapshots.filter(row => row.status === "complete").map(row => row.resultJson), results: results.filter(row => row.status === "complete").map(row => row.resultJson), dataSource: "immutable_closed_route_granular_snapshots_only", decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review", aggregatePlanTrendAuthority: false, recentTrendAuthority: false, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false };
 }

@@ -1,5 +1,7 @@
 import type { RtDailyAuditMaterialization, RtSourceEvent } from "../drizzle/schema";
 import {
+  getClosedRtAuditTradeDates,
+  getRtAuditTradeDateFinality,
   getRtDailyAuditMaterialization,
   getRtDailyAuditMaterializationsForRange,
   getRtRealtimeDecisionStatsForDate,
@@ -19,6 +21,7 @@ import {
   type MultiSymbolMonitoringDailySnapshot,
 } from "./multiSymbolMonitoringMaterializer";
 import { TEN_MONITORED_SYMBOLS } from "./multiSymbolMonitoringRegistry";
+import { classifyTechnicalMarketRegime, TECHNICAL_MARKET_REGIME_VERSION } from "./technicalMarketRegime";
 import {
   CURRENT_SIGNAL_CANDIDATE_VERSION,
 } from "./currentSignalCandidateRegistry";
@@ -47,8 +50,8 @@ import {
 export const TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT = "ten_symbol_selector_feature";
 export const TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT = "ten_symbol_next_day_selector";
 export const TEN_SYMBOL_SELECTOR_RESULT_COMPONENT = "ten_symbol_next_day_selector_result";
-export const TEN_SYMBOL_SELECTOR_VERSION = "ten-symbol-fixed-current-a-b-v1";
-export const TEN_SYMBOL_SELECTOR_FEATURE_START_DATE = "2026-10-01";
+export const TEN_SYMBOL_SELECTOR_VERSION = "ten-symbol-technical-regime-v2";
+export const TEN_SYMBOL_SELECTOR_FEATURE_START_DATE = "2026-08-26";
 
 export type SelectorSlot = Readonly<{
   symbol: string;
@@ -102,7 +105,8 @@ export const TEN_SYMBOL_SELECTOR_CONFIG = Object.freeze({
   version: TEN_SYMBOL_SELECTOR_VERSION,
   symbols: TEN_MONITORED_SYMBOLS,
   slots: TEN_SYMBOL_SELECTOR_SLOTS,
-  featureContract: "285a-manifest-v2-causal-contract-reused-per-symbol",
+  featureContract: "daily-hourly-technical-regime-causal-v1",
+  technicalRegimeVersion: TECHNICAL_MARKET_REGIME_VERSION,
   performanceInput: "closed_monitoring_trend_10_symbols_daily_snapshots_only",
   fallback: ["full", "trend_volatility", "trend", "route_overall", "unavailable"],
   minimumCompleteFeatureDays: 20,
@@ -113,6 +117,20 @@ export const TEN_SYMBOL_SELECTOR_CONFIG = Object.freeze({
   orderInstructionConnection: false,
 });
 export const TEN_SYMBOL_SELECTOR_CONFIG_HASH = sha256Stable(TEN_SYMBOL_SELECTOR_CONFIG);
+
+export function selectNextPendingTenSymbolFeatureDate(input: {
+  requestedTradeDate: string;
+  closedDates: string[];
+  existingRows: Array<{ tradeDate: string; status: string }>;
+}) {
+  const completedDates = new Set(input.existingRows
+    .filter(row => row.status === "complete" || row.status === "incomplete_source")
+    .map(row => row.tradeDate));
+  return [...input.closedDates]
+    .filter(tradeDate => tradeDate <= input.requestedTradeDate)
+    .sort()
+    .find(tradeDate => !completedDates.has(tradeDate)) ?? input.requestedTradeDate;
+}
 
 type RecordValue = Record<string, unknown>;
 type FeatureRow = { tradeDate: string; status: string; resultJson: unknown };
@@ -187,9 +205,20 @@ export function buildTenSymbolSelectorFeature(input: {
       featureEligible: feature.featureEligible === true,
       features: feature,
       regime,
-      provenanceStatus: manifest.provenanceStatus,
+      provenanceStatus: manifest.featureEligible === true ? "verified" : manifest.provenanceStatus,
       reasonCodes: manifest.reasonCodes,
     };
+  }
+  // 全10銘柄の同日featureが揃った後に地合い（breadth）を計算する。
+  // current日より後のデータや当日の損益は入力に含めない。
+  for (const symbol of TEN_MONITORED_SYMBOLS) {
+    const current = object(featuresBySymbol[symbol]);
+    const history = input.priorFeatures
+      .filter(row => row.status === "complete" && row.tradeDate < input.tradeDate)
+      .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate))
+      .map(row => featureBySymbol(row, symbol))
+      .filter((row): row is RecordValue => row !== null);
+    current.technicalRegime = classifyTechnicalMarketRegime({ current, history, universeCurrent: featuresBySymbol });
   }
   const inputHash = sha256Stable({ tradeDate: input.tradeDate, watermark: input.watermark, sourceDecisionCount: input.sourceDecisionCount, processedThroughEngineSequence: input.processedThroughEngineSequence, featuresBySymbol });
   return {
@@ -415,18 +444,38 @@ function aggregateSelectorOutcomes(rawResults: unknown[]) {
 }
 
 export async function materializeTenSymbolSelectorFeatureForDate(input: { tradeDate: string; sourceDecisionCount: number; processedThroughEngineSequence: number; watermark: unknown }) {
-  const existing = await getRtDailyAuditMaterialization({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, tradeDate: input.tradeDate });
+  // 新versionは最古のclosed日から一日ずつ埋め、移動平均・DMI・時間足を
+  // 未来参照なしで再構築する。呼出し1回につき最大1営業日だけ処理する。
+  const [closedDates, existingRows] = await Promise.all([
+    getClosedRtAuditTradeDates({ fromDate: TEN_SYMBOL_SELECTOR_FEATURE_START_DATE, toDate: input.tradeDate }),
+    getRtDailyAuditMaterializationsForRange({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, fromDate: TEN_SYMBOL_SELECTOR_FEATURE_START_DATE, toDate: input.tradeDate }),
+  ]);
+  const selectedTradeDate = selectNextPendingTenSymbolFeatureDate({
+    requestedTradeDate: input.tradeDate,
+    closedDates,
+    existingRows,
+  });
+  const finality = selectedTradeDate === input.tradeDate ? null : await getRtAuditTradeDateFinality(selectedTradeDate);
+  const watermark = selectedTradeDate === input.tradeDate ? input.watermark : object(finality?.watermarkJson);
+  const decisionWatermark = object(object(watermark).decision);
+  const selectedSourceDecisionCount = selectedTradeDate === input.tradeDate
+    ? input.sourceDecisionCount
+    : Math.max(0, Math.trunc(finite(decisionWatermark.count) ?? 0));
+  const selectedProcessedThrough = selectedTradeDate === input.tradeDate
+    ? input.processedThroughEngineSequence
+    : Math.max(0, Math.trunc(finite(decisionWatermark.maxId) ?? 0));
+  const existing = await getRtDailyAuditMaterialization({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, tradeDate: selectedTradeDate });
   if (existing) return { created: false, result: existing.resultJson };
   const [stats, priorFeatures, ...sourceGroups] = await Promise.all([
-    getRtRealtimeDecisionStatsForDate(input.tradeDate),
-    getRtDailyAuditMaterializationsForRange({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, fromDate: TEN_SYMBOL_SELECTOR_FEATURE_START_DATE, toDate: input.tradeDate }),
-    ...TEN_MONITORED_SYMBOLS.map(symbol => getRtSourceEventsForDateAndSymbol({ tradeDate: input.tradeDate, symbol })),
+    getRtRealtimeDecisionStatsForDate(selectedTradeDate),
+    getRtDailyAuditMaterializationsForRange({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, fromDate: TEN_SYMBOL_SELECTOR_FEATURE_START_DATE, toDate: selectedTradeDate }),
+    ...TEN_MONITORED_SYMBOLS.map(symbol => getRtSourceEventsForDateAndSymbol({ tradeDate: selectedTradeDate, symbol })),
   ]);
   const eventsBySymbol = Object.fromEntries(TEN_MONITORED_SYMBOLS.map((symbol, index) => [symbol, sourceGroups[index] as RtSourceEvent[]]));
   const causalityViolationsBySymbol = Object.fromEntries(TEN_MONITORED_SYMBOLS.map(symbol => [symbol, stats.filter(item => item.symbol === symbol && item.causalityStatus === "violation").reduce((sum, item) => sum + item.eventCount, 0)]));
-  const result = buildTenSymbolSelectorFeature({ ...input, eventsBySymbol, causalityViolationsBySymbol, priorFeatures: priorFeatures as FeatureRow[] });
-  await upsertRtDailyAuditMaterialization({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, tradeDate: input.tradeDate, status: "complete", processedThroughEngineSequence: input.processedThroughEngineSequence, sourceDecisionCount: input.sourceDecisionCount, resultJson: result, lastError: null, generatedAt: new Date() });
-  return { created: true, result };
+  const result = buildTenSymbolSelectorFeature({ tradeDate: selectedTradeDate, sourceDecisionCount: selectedSourceDecisionCount, processedThroughEngineSequence: selectedProcessedThrough, watermark, eventsBySymbol, causalityViolationsBySymbol, priorFeatures: priorFeatures as FeatureRow[] });
+  await upsertRtDailyAuditMaterialization({ component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, tradeDate: selectedTradeDate, status: "complete", processedThroughEngineSequence: selectedProcessedThrough, sourceDecisionCount: selectedSourceDecisionCount, resultJson: result, lastError: null, generatedAt: new Date() });
+  return { created: true, requestedTradeDate: input.tradeDate, materializedTradeDate: selectedTradeDate, result };
 }
 
 export async function materializeTenSymbolNextDaySelectorForSourceDate(input: { sourceTradeDate: string; sourceDecisionCount: number; processedThroughEngineSequence: number; watermark: unknown }) {

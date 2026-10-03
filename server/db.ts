@@ -1540,6 +1540,27 @@ export async function getRtSourceEventsForDateAndSymbol(input: {
   )).orderBy(rtSourceEvents.id);
 }
 
+/**
+ * Bounded historical bootstrap inventory. This is intentionally not used by
+ * ingestion, UI, or forward-shadow dispatch; post-close auditors use it to
+ * advance one saved trade date at a time.
+ */
+export async function getRtSourceEventTradeDates(input: {
+  fromDate: string;
+  toDate: string;
+}): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.selectDistinct({ tradeDate: rtSourceEvents.tradeDate })
+    .from(rtSourceEvents)
+    .where(and(
+      gte(rtSourceEvents.tradeDate, input.fromDate),
+      lte(rtSourceEvents.tradeDate, input.toDate),
+    ))
+    .orderBy(rtSourceEvents.tradeDate);
+  return rows.map(row => row.tradeDate);
+}
+
 export type RtSourceEventStat = {
   symbol: string;
   status: RtSourceEvent["status"];

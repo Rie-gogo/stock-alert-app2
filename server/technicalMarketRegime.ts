@@ -53,10 +53,14 @@ function rawFeature(wrapper: unknown): RecordValue {
   return object(item.features);
 }
 
-function featureEligible(wrapper: unknown): boolean {
+function featureEligible(wrapper: unknown, allowLegacyReferenceBootstrap = false): boolean {
   const item = object(wrapper);
   const provenance = String(item.provenanceStatus ?? "");
-  return item.featureEligible === true && (provenance === "verified" || provenance === "provenance_present");
+  return item.featureEligible === true && (
+    provenance === "verified"
+    || provenance === "provenance_present"
+    || (allowLegacyReferenceBootstrap && provenance === "legacy_reference_bootstrap")
+  );
 }
 
 function percentileRank(value: number | null, history: number[]): number | null {
@@ -95,8 +99,9 @@ function hourlyBars(features: RecordValue[]) {
   }).filter(bar => finite(bar.close) !== null);
 }
 
-function technicalBreadth(universeCurrent: Record<string, unknown>) {
-  const eligible = Object.values(universeCurrent).filter(featureEligible);
+function technicalBreadth(universeCurrent: Record<string, unknown>, allowLegacyReferenceBootstrap = false) {
+  const eligible = Object.values(universeCurrent)
+    .filter(wrapper => featureEligible(wrapper, allowLegacyReferenceBootstrap));
   if (eligible.length < 5) return { label: "unknown" as const, eligible: eligible.length, bullishRatio: null };
   const bullish = eligible.filter(wrapper => {
     const feature = rawFeature(wrapper);
@@ -135,14 +140,16 @@ function unavailable(reasonCodes: string[]): TechnicalMarketRegime {
  * D日の閉場後だけに計算する純粋な相場状態分類。
  * currentより後の足・損益・結果は受け取らず、固定ルールを最適化しない。
  */
-export function classifyTechnicalMarketRegime(input: {
+function classifyTechnicalMarketRegimeInternal(input: {
   current: unknown;
   history: unknown[];
   universeCurrent: Record<string, unknown>;
-}): TechnicalMarketRegime {
-  if (!featureEligible(input.current)) return unavailable(["feature_or_provenance_unavailable"]);
+}, allowLegacyReferenceBootstrap: boolean): TechnicalMarketRegime {
+  if (!featureEligible(input.current, allowLegacyReferenceBootstrap)) return unavailable(["feature_or_provenance_unavailable"]);
   const current = rawFeature(input.current);
-  const history = input.history.filter(featureEligible).map(rawFeature);
+  const history = input.history
+    .filter(wrapper => featureEligible(wrapper, allowLegacyReferenceBootstrap))
+    .map(rawFeature);
   const series = [...history, current];
   const close = finite(current.close);
   const open = finite(current.open);
@@ -212,7 +219,7 @@ export function classifyTechnicalMarketRegime(input: {
             ? "bearish_body"
             : "neutral";
 
-  const breadth = technicalBreadth(input.universeCurrent);
+  const breadth = technicalBreadth(input.universeCurrent, allowLegacyReferenceBootstrap);
   const evidence: TechnicalMarketRegime["evidence"] = [];
   const add = (name: string, direction: "bullish" | "bearish" | "neutral", weight: number, value: unknown) => evidence.push({ name, direction, weight, value });
 
@@ -311,6 +318,28 @@ export function classifyTechnicalMarketRegime(input: {
     },
     evidence,
   };
+}
+
+/** Strict v1 entry point. Legacy source rows remain unavailable here by design. */
+export function classifyTechnicalMarketRegime(input: {
+  current: unknown;
+  history: unknown[];
+  universeCurrent: Record<string, unknown>;
+}): TechnicalMarketRegime {
+  return classifyTechnicalMarketRegimeInternal(input, false);
+}
+
+/**
+ * Technical A v2 observation-only entry point. It accepts a row explicitly
+ * labeled legacy_reference_bootstrap for reference computation, but does not
+ * alter the v1 strict provenance gate or make that row formally eligible.
+ */
+export function classifyTechnicalMarketRegimeReferenceObservationV2(input: {
+  current: unknown;
+  history: unknown[];
+  universeCurrent: Record<string, unknown>;
+}): TechnicalMarketRegime {
+  return classifyTechnicalMarketRegimeInternal(input, true);
 }
 
 /** Builds every day's state with only the rows available through that date. */

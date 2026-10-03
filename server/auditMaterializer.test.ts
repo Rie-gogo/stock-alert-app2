@@ -63,6 +63,11 @@ const tenSymbolSelectorMock = vi.hoisted(() => ({
   materializeTenSymbolNextDaySelectorResultForDate: vi.fn(async () => ({ created: false, result: {} })),
   materializeTenSymbolNextDaySelectorForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
 }));
+const technicalAObservationV2Mock = vi.hoisted(() => ({
+  materializeTechnicalAObservationV2FeatureForDate: vi.fn(async () => ({ created: false, materializedTradeDate: "2026-09-07", result: {} })),
+  materializeTechnicalAObservationV2PlanForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
+  materializeTechnicalAObservationV2ResultForDate: vi.fn(async () => ({ created: false, result: {} })),
+}));
 
 vi.mock("./db", () => dbMock);
 vi.mock("./portfolioAudit", () => ({
@@ -104,6 +109,7 @@ vi.mock("./kioxiaNextDaySelector", () => ({
   materializeKioxiaManifestV2ForDate: selectorMock.materializeKioxiaManifestV2ForDate,
   materializeKioxiaNextDaySelectorResultForDate: selectorMock.materializeKioxiaNextDaySelectorResultForDate,
   materializeKioxiaNextDaySelectorForSourceDate: selectorMock.materializeKioxiaNextDaySelectorForSourceDate,
+  nextTokyoEquityTradeDate: () => "2026-09-08",
 }));
 vi.mock("./tenSymbolNextDaySelector", () => ({
   TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT: "ten_symbol_selector_feature",
@@ -113,6 +119,16 @@ vi.mock("./tenSymbolNextDaySelector", () => ({
   materializeTenSymbolSelectorFeatureForDate: tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate,
   materializeTenSymbolNextDaySelectorResultForDate: tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate,
   materializeTenSymbolNextDaySelectorForSourceDate: tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate,
+}));
+vi.mock("./technicalAObservationV2", () => ({
+  TECHNICAL_A_OBSERVATION_V2_COLLECTION_START_DATE: "2026-10-05",
+  TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT: "technical_a_observation_v2_feature",
+  TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT: "technical_a_observation_v2_plan",
+  TECHNICAL_A_OBSERVATION_V2_RESULT_COMPONENT: "technical_a_observation_v2_result",
+  TECHNICAL_A_OBSERVATION_V2_VERSION: "technical-a-observation-v2",
+  materializeTechnicalAObservationV2FeatureForDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2FeatureForDate,
+  materializeTechnicalAObservationV2PlanForSourceDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2PlanForSourceDate,
+  materializeTechnicalAObservationV2ResultForDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2ResultForDate,
 }));
 
 import {
@@ -151,6 +167,11 @@ import {
   TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
   TEN_SYMBOL_SELECTOR_VERSION,
 } from "./tenSymbolNextDaySelector";
+import {
+  TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT,
+  TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT,
+  TECHNICAL_A_OBSERVATION_V2_VERSION,
+} from "./technicalAObservationV2";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -270,6 +291,8 @@ describe("P0 audit materializer", () => {
       if (component === KIOXIA_SELECTOR_RESULT_COMPONENT) return snapshot(component, KIOXIA_SELECTOR_VERSION);
       if (component === TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
       if (component === TEN_SYMBOL_SELECTOR_RESULT_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
+      if (component === TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT) return snapshot(component, TECHNICAL_A_OBSERVATION_V2_VERSION);
+      if (component === TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT) return snapshot(component, TECHNICAL_A_OBSERVATION_V2_VERSION);
       return null;
     });
     const result = await materializeNextAuditComponentForDate("2026-09-07", {
@@ -287,6 +310,8 @@ describe("P0 audit materializer", () => {
     expect(tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate).not.toHaveBeenCalled();
     expect(tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate).not.toHaveBeenCalled();
     expect(tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate).toHaveBeenCalledTimes(1);
+    expect(technicalAObservationV2Mock.materializeTechnicalAObservationV2FeatureForDate).not.toHaveBeenCalled();
+    expect(technicalAObservationV2Mock.materializeTechnicalAObservationV2PlanForSourceDate).not.toHaveBeenCalled();
   });
 
   it("既存の全監査完了後にだけ10銘柄の日次snapshotを追加し、日中経路は呼ばない", async () => {

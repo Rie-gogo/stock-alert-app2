@@ -2256,8 +2256,10 @@ def executor_polling_loop():
 def main():
     global api_token
     logger.info("=" * 60)
-    logger.info("kabu STATION API 中継スクリプト v5.9.2 起動（executor安全機能強化版）")
+    logger.info(f"kabu STATION API 中継スクリプト {RELAY_VERSION} 起動（provenance拡張・DRY_RUN前提）")
     logger.info("=" * 60)
+    logger.info(f"★provenance: relayVersion={RELAY_VERSION} / relaySourceTreeHash={RELAY_SOURCE_TREE_HASH}")
+    logger.info("★provenance: ws_aggregated / buffer_reuse / rest_fallback を明示送信。旧データはverifiedへ昇格しない")
     logger.info("監視銘柄(" + str(len(SYMBOL_CODES)) + "銘柄): " + str(SYMBOL_CODES))
     logger.info("送信先: " + CLOUD_CANDLE_WITH_BOARD_URL)
     logger.info("銘柄間送信間隔: " + str(SEND_INTERVAL_SEC) + "秒 / 大口壁閾値: " + str(LARGE_WALL_MULTIPLIER) + "倍")

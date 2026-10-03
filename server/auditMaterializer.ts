@@ -51,6 +51,7 @@ import {
   materializeKioxiaManifestV2ForDate,
   materializeKioxiaNextDaySelectorForSourceDate,
   materializeKioxiaNextDaySelectorResultForDate,
+  nextTokyoEquityTradeDate,
 } from "./kioxiaNextDaySelector";
 import {
   TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
@@ -74,6 +75,16 @@ import {
   ROUTE_GRANULAR_MONITORING_VERSION,
   materializeRouteGranularMonitoringForDate,
 } from "./routeGranularMonitoringMaterializer";
+import {
+  TECHNICAL_A_OBSERVATION_V2_COLLECTION_START_DATE,
+  TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT,
+  TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT,
+  TECHNICAL_A_OBSERVATION_V2_RESULT_COMPONENT,
+  TECHNICAL_A_OBSERVATION_V2_VERSION,
+  materializeTechnicalAObservationV2FeatureForDate,
+  materializeTechnicalAObservationV2PlanForSourceDate,
+  materializeTechnicalAObservationV2ResultForDate,
+} from "./technicalAObservationV2";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -463,39 +474,79 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT, result: tenSymbolSnapshot };
   }
 
-  if (tradeDate < ROUTE_GRANULAR_MONITORING_START_DATE) {
-    return { status: "complete" as const, component: "all", processedThroughEngineSequence: processedThrough, sourceDecisionCount };
-  }
-
   // Route-granular replacement is strictly downstream from the legacy 3-row display.
   // It remains bounded to one audited trade date and never enters a source/worker hot path.
-  const granularMonitoring = await getRtDailyAuditMaterialization({
-    component: ROUTE_GRANULAR_MONITORING_COMPONENT,
-    version: ROUTE_GRANULAR_MONITORING_VERSION,
-    tradeDate,
-  });
-  if (!granularMonitoring) {
-    const result = await materializeRouteGranularMonitoringForDate(tradeDate);
-    await upsertRtDailyAuditMaterialization({
+  if (tradeDate >= ROUTE_GRANULAR_MONITORING_START_DATE) {
+    const granularMonitoring = await getRtDailyAuditMaterialization({
       component: ROUTE_GRANULAR_MONITORING_COMPONENT,
       version: ROUTE_GRANULAR_MONITORING_VERSION,
       tradeDate,
-      status: result.ready ? "complete" : "incomplete_source",
-      processedThroughEngineSequence: processedThrough,
-      sourceDecisionCount,
-      resultJson: result,
-      lastError: result.incompleteReason,
-      generatedAt: result.ready ? new Date() : null,
     });
-    return { status: "processing" as const, component: ROUTE_GRANULAR_MONITORING_COMPONENT, result };
+    if (!granularMonitoring) {
+      const result = await materializeRouteGranularMonitoringForDate(tradeDate);
+      await upsertRtDailyAuditMaterialization({
+        component: ROUTE_GRANULAR_MONITORING_COMPONENT,
+        version: ROUTE_GRANULAR_MONITORING_VERSION,
+        tradeDate,
+        status: result.ready ? "complete" : "incomplete_source",
+        processedThroughEngineSequence: processedThrough,
+        sourceDecisionCount,
+        resultJson: result,
+        lastError: result.incompleteReason,
+        generatedAt: result.ready ? new Date() : null,
+      });
+      return { status: "processing" as const, component: ROUTE_GRANULAR_MONITORING_COMPONENT, result };
+    }
+    const granularResult = await getRtDailyAuditMaterialization({ component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, tradeDate });
+    if (!granularResult) {
+      const result = await materializeRouteGranularSelectorResultForDate({ tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough });
+      return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, result };
+    }
+    const granularSnapshot = await materializeRouteGranularSelectorForSourceDate({ sourceTradeDate: tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough, watermark: finality.row.watermarkJson });
+    if (granularSnapshot.created) return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, result: granularSnapshot };
   }
-  const granularResult = await getRtDailyAuditMaterialization({ component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, tradeDate });
-  if (!granularResult) {
-    const result = await materializeRouteGranularSelectorResultForDate({ tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough });
-    return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, result };
+
+  // Technical A v2 is deliberately last: it is a bounded, post-close reference
+  // builder and never runs from ingestion, UI/API queries, or a shadow hot path.
+  const v2Feature = await getRtDailyAuditMaterialization({
+    component: TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT,
+    version: TECHNICAL_A_OBSERVATION_V2_VERSION,
+    tradeDate,
+  });
+  if (!v2Feature) {
+    const result = await materializeTechnicalAObservationV2FeatureForDate({
+      tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+      watermark: finality.row.watermarkJson,
+    });
+    return { status: "processing" as const, component: TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT, result };
   }
-  const granularSnapshot = await materializeRouteGranularSelectorForSourceDate({ sourceTradeDate: tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough, watermark: finality.row.watermarkJson });
-  if (granularSnapshot.created) return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, result: granularSnapshot };
+  const v2Plan = await getRtDailyAuditMaterialization({
+    component: TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT,
+    version: TECHNICAL_A_OBSERVATION_V2_VERSION,
+    tradeDate: nextTokyoEquityTradeDate(tradeDate),
+  });
+  if (!v2Plan) {
+    const result = await materializeTechnicalAObservationV2PlanForSourceDate({
+      sourceTradeDate: tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+      watermark: finality.row.watermarkJson,
+    });
+    return { status: "processing" as const, component: TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT, result };
+  }
+  if (tradeDate >= TECHNICAL_A_OBSERVATION_V2_COLLECTION_START_DATE) {
+    const v2Result = await getRtDailyAuditMaterialization({
+      component: TECHNICAL_A_OBSERVATION_V2_RESULT_COMPONENT,
+      version: TECHNICAL_A_OBSERVATION_V2_VERSION,
+      tradeDate,
+    });
+    if (!v2Result) {
+      const result = await materializeTechnicalAObservationV2ResultForDate({ tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough });
+      return { status: "processing" as const, component: TECHNICAL_A_OBSERVATION_V2_RESULT_COMPONENT, result };
+    }
+  }
 
   return {
     status: "complete" as const,

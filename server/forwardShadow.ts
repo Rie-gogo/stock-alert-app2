@@ -205,6 +205,8 @@ export interface ForwardSourceEventInput {
   internalSkipTelParity?: boolean;
   /** 10銘柄テクニカルAを内部再帰で一度だけ呼ぶための非永続フラグ。 */
   internalSkipTechnicalRegimeA?: boolean;
+  /** Technical A v2 observationを内部再帰で一度だけ呼ぶための非永続フラグ。 */
+  internalSkipTechnicalAObservationV2?: boolean;
 }
 
 interface PendingEntry {
@@ -659,20 +661,37 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
 }
 
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput): Promise<Record<string, unknown>> {
-  if (!input.internalSkipTechnicalRegimeA && ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].includes(input.candle.symbol)) {
-    const base: Record<string, unknown> = await processForwardShadowSourceEvent({ ...input, internalSkipTechnicalRegimeA: true });
-    try {
-      const { processTechnicalRegimeShadowSourceEvent } = await import("./technicalRegimeShadowEngine");
-      const technicalRegimeA = await processTechnicalRegimeShadowSourceEvent(input);
-      return { ...base, technicalRegimeA };
-    } catch (error) {
-      // 新規の監視専用shadowが既存shadow dispatchを停止させない。errorは専用eventにも保存される。
-      console.error("[TechnicalRegimeShadowA] 独立shadow評価に失敗。既存shadowは継続します:", error);
-      return { ...base, technicalRegimeA: { skipped: "isolated_error" as const, error: String(error) } };
+  if ((!input.internalSkipTechnicalRegimeA || !input.internalSkipTechnicalAObservationV2)
+    && ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].includes(input.candle.symbol)) {
+    const base: Record<string, unknown> = await processForwardShadowSourceEvent({
+      ...input,
+      internalSkipTechnicalRegimeA: true,
+      internalSkipTechnicalAObservationV2: true,
+    });
+    const result: Record<string, unknown> = { ...base };
+    if (!input.internalSkipTechnicalRegimeA) {
+      try {
+        const { processTechnicalRegimeShadowSourceEvent } = await import("./technicalRegimeShadowEngine");
+        result.technicalRegimeA = await processTechnicalRegimeShadowSourceEvent(input);
+      } catch (error) {
+        // 新規の監視専用shadowが既存shadow dispatchを停止させない。errorは専用eventにも保存される。
+        console.error("[TechnicalRegimeShadowA] 独立shadow評価に失敗。既存shadowは継続します:", error);
+        result.technicalRegimeA = { skipped: "isolated_error" as const, error: String(error) };
+      }
     }
+    if (!input.internalSkipTechnicalAObservationV2) {
+      try {
+        const { processTechnicalAObservationV2SourceEvent } = await import("./technicalAObservationV2Engine");
+        result.technicalAObservationV2 = await processTechnicalAObservationV2SourceEvent(input);
+      } catch (error) {
+        console.error("[TechnicalAObservationV2] 独立observer評価に失敗。既存shadowは継続します:", error);
+        result.technicalAObservationV2 = { skipped: "isolated_error" as const, error: String(error) };
+      }
+    }
+    return result;
   }
-  const engineInput: ForwardSourceEventInput = input.internalSkipTechnicalRegimeA
-    ? (({ internalSkipTechnicalRegimeA: _skip, ...rest }) => rest)(input)
+  const engineInput: ForwardSourceEventInput = input.internalSkipTechnicalRegimeA || input.internalSkipTechnicalAObservationV2
+    ? (({ internalSkipTechnicalRegimeA: _skipA, internalSkipTechnicalAObservationV2: _skipV2, ...rest }) => rest)(input)
     : input;
   if (input.candle.symbol === "8035" && !input.internalSkipTelParity) {
     const { processTelCurrentParitySourceEvent } = await import("./telCurrentParityEngine");

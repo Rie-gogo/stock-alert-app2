@@ -39,6 +39,7 @@ import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComp
 import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSection";
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
+import TechnicalAObservationV2Section from "@/components/TechnicalAObservationV2Section";
 import {
   Table,
   TableBody,
@@ -500,6 +501,9 @@ export default function RealtimeTradingLog() {
 
         {/* ===== current/variantをrouteGroupId単位で固定比較。保存snapshotのみを読む ===== */}
         <RouteGranularNextDaySelectorSection asOfDate={selectedDate} />
+
+        {/* Technical A v2 は完全に独立した参考監視。保存snapshotだけを表示する。 */}
+        <TechnicalAObservationV2Section asOfDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

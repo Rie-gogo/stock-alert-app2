@@ -18,11 +18,11 @@ import {
 import { sha256Stable } from "./runtimeIdentity";
 
 export type MarketContextInput = {
-  instrumentKey: "nikkei225_cash" | "nikkei225_mini_front";
+  instrumentKey: "nikkei225_mini_front";
   providerSymbol: string;
-  productType: "index" | "future";
+  productType: "future";
   contractMonth?: string | null;
-  marketSession: "cash" | "day" | "night" | "day_night";
+  marketSession: "day_night";
   tradeDate: string;
   candleTime: string;
   open: number;
@@ -32,14 +32,47 @@ export type MarketContextInput = {
   volume?: number | null;
   previousClose?: number | null;
   valueSource: "ws_aggregated" | "rest_fallback";
-  sourceEventId?: string;
-  relaySessionId?: string;
-  eventSeq?: number;
-  payloadHash?: string;
-  observedAtMs?: number | null;
-  relaySentAtMs?: number | null;
+  sourceEventId: string;
+  relaySessionId: string;
+  eventSeq: number;
+  payloadHash: string;
+  observedAtMs: number;
+  relaySentAtMs: number;
   correctedEventId?: string | null;
 };
+
+export const MARKET_CONTEXT_MINI_INSTRUMENT = "nikkei225_mini_front" as const;
+export const MARKET_CONTEXT_DAY_SESSION_START = "08:45";
+export const MARKET_CONTEXT_DAY_SESSION_END = "15:45";
+
+/**
+ * Public relay input is deliberately not OAuth-gated so it can use the existing
+ * Windows pushCandle transport. This is the independent fail-closed boundary:
+ * only the resolved Nikkei 225 mini day/night feed and its immutable relay
+ * identity may reach the market-context-only table.
+ */
+export function marketContextIngressViolation(input: MarketContextInput): string | null {
+  if (input.instrumentKey !== MARKET_CONTEXT_MINI_INSTRUMENT) return "unexpected_market_context_instrument";
+  if (input.productType !== "future") return "market_context_product_must_be_future";
+  if (input.marketSession !== "day_night") return "market_context_session_must_be_day_night";
+  if (!/^\d{2}:\d{2}$/.test(input.candleTime)
+    || input.candleTime < MARKET_CONTEXT_DAY_SESSION_START
+    || input.candleTime > MARKET_CONTEXT_DAY_SESSION_END) return "market_context_candle_time_outside_day_session";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.tradeDate)) return "market_context_trade_date_invalid";
+  if (!input.providerSymbol || input.providerSymbol.length > 32) return "market_context_provider_symbol_invalid";
+  if (!input.sourceEventId || input.sourceEventId.length > 128) return "market_context_source_event_id_invalid";
+  if (!input.relaySessionId || input.relaySessionId.length > 96) return "market_context_relay_session_id_invalid";
+  if (!Number.isInteger(input.eventSeq) || input.eventSeq < 0) return "market_context_event_seq_invalid";
+  if (!/^[a-f0-9]{64}$/.test(input.payloadHash)) return "market_context_payload_hash_invalid";
+  if (!Number.isSafeInteger(input.observedAtMs) || input.observedAtMs < 0) return "market_context_observed_time_invalid";
+  if (!Number.isSafeInteger(input.relaySentAtMs) || input.relaySentAtMs < 0) return "market_context_relay_sent_time_invalid";
+  if (input.correctedEventId) return "market_context_correction_not_accepted";
+  if (![input.open, input.high, input.low, input.close].every(value => Number.isFinite(value) && value > 0)
+    || input.high < Math.max(input.open, input.close)
+    || input.low > Math.min(input.open, input.close)
+    || input.high < input.low) return "market_context_ohlc_invalid";
+  return null;
+}
 
 function number(value: unknown): number {
   const parsed = Number(value);
@@ -92,6 +125,16 @@ function toBar(row: {
  * 市場環境専用の追記保存。通常source ingestionを呼ばないため、売買・shadow・注文は発生しない。
  */
 export async function ingestMarketContext(input: MarketContextInput) {
+  const ingressViolation = marketContextIngressViolation(input);
+  if (ingressViolation) {
+    return {
+      accepted: false,
+      duplicate: false,
+      payloadMismatch: false,
+      sourceEventId: input.sourceEventId,
+      reason: ingressViolation,
+    };
+  }
   const cloudReceivedAtMs = Date.now();
   const canonicalPayload = {
     instrumentKey: input.instrumentKey,
@@ -110,19 +153,55 @@ export async function ingestMarketContext(input: MarketContextInput) {
     valueSource: input.valueSource,
   };
   const payloadHash = sha256Stable(canonicalPayload);
-  const relaySessionId = input.relaySessionId ?? "server-derived-market-context";
-  const sourceEventId = input.sourceEventId
-    ?? `market:${input.instrumentKey}:${input.tradeDate}:${input.candleTime}:${payloadHash.slice(0, 20)}`;
-  const eventSeq = input.eventSeq ?? Number.parseInt(payloadHash.slice(0, 7), 16);
+  const relaySessionId = input.relaySessionId;
+  const sourceEventId = input.sourceEventId;
+  const eventSeq = input.eventSeq;
   const existing = await getRtMarketContextEvent(sourceEventId);
   if (existing) {
+    const payloadMismatch = existing.payloadHash !== payloadHash
+      || existing.relayPayloadHash !== input.payloadHash;
     return {
-      accepted: existing.payloadHash === payloadHash,
+      accepted: !payloadMismatch,
       duplicate: true,
-      payloadMismatch: existing.payloadHash !== payloadHash,
+      payloadMismatch,
       sourceEventId,
       qualityStatus: existing.qualityStatus,
       result: existing.resultJson,
+    };
+  }
+
+  const {
+    getLatestRtMarketContextEventForInstrumentDate,
+    getLatestRtMarketContextEventForRelaySession,
+  } = await import("./db");
+  const [latestAccepted, latestRelaySequence] = await Promise.all([
+    getLatestRtMarketContextEventForInstrumentDate({
+      instrumentKey: input.instrumentKey,
+      tradeDate: input.tradeDate,
+    }),
+    getLatestRtMarketContextEventForRelaySession({
+      relaySessionId,
+      tradeDate: input.tradeDate,
+    }),
+  ]);
+  if (latestAccepted && input.candleTime <= latestAccepted.candleTime) {
+    return {
+      accepted: false,
+      duplicate: false,
+      payloadMismatch: false,
+      sourceEventId,
+      reason: "market_context_candle_time_non_monotonic",
+      latestAcceptedCandleTime: latestAccepted.candleTime,
+    };
+  }
+  if (latestRelaySequence && input.eventSeq <= latestRelaySequence.eventSeq) {
+    return {
+      accepted: false,
+      duplicate: false,
+      payloadMismatch: false,
+      sourceEventId,
+      reason: "market_context_event_sequence_non_monotonic",
+      latestAcceptedEventSeq: latestRelaySequence.eventSeq,
     };
   }
 
@@ -202,13 +281,23 @@ export async function ingestMarketContext(input: MarketContextInput) {
     payloadHash,
     relayPayloadHash: input.payloadHash ?? null,
     payloadJson: canonicalPayload,
-    observedAtMs: input.observedAtMs ?? null,
-    relaySentAtMs: input.relaySentAtMs ?? null,
+    observedAtMs: input.observedAtMs,
+    relaySentAtMs: input.relaySentAtMs,
     cloudReceivedAtMs,
     correctedEventId: input.correctedEventId ?? null,
     qualityStatus: observedQuality.status,
     resultJson,
   });
+  if (row.payloadHash !== payloadHash || row.relayPayloadHash !== input.payloadHash) {
+    return {
+      accepted: false,
+      duplicate: true,
+      payloadMismatch: true,
+      sourceEventId,
+      qualityStatus: row.qualityStatus,
+      result: row.resultJson,
+    };
+  }
   return {
     accepted: row.qualityStatus !== "invalid",
     duplicate: false,

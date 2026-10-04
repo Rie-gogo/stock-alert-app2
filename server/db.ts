@@ -700,6 +700,32 @@ export async function getRtMarketContextEventsForDate(input: {
     .orderBy(rtMarketContextEvents.candleTime, rtMarketContextEvents.id);
 }
 
+/** 市場環境専用feedの時系列逆転をfail-closedで止めるための、同日・同一instrumentの最後の確定行。 */
+export async function getLatestRtMarketContextEventForInstrumentDate(input: {
+  tradeDate: string;
+  instrumentKey: string;
+}): Promise<RtMarketContextEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtMarketContextEvents).where(and(
+    eq(rtMarketContextEvents.tradeDate, input.tradeDate),
+    eq(rtMarketContextEvents.instrumentKey, input.instrumentKey),
+  )).orderBy(desc(rtMarketContextEvents.candleTime), desc(rtMarketContextEvents.id)).limit(1))[0] ?? null;
+}
+
+/** 同一relay session内のeventSeq逆転を検出する。relay再起動後の新sessionは独立に扱う。 */
+export async function getLatestRtMarketContextEventForRelaySession(input: {
+  tradeDate: string;
+  relaySessionId: string;
+}): Promise<RtMarketContextEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtMarketContextEvents).where(and(
+    eq(rtMarketContextEvents.tradeDate, input.tradeDate),
+    eq(rtMarketContextEvents.relaySessionId, input.relaySessionId),
+  )).orderBy(desc(rtMarketContextEvents.eventSeq), desc(rtMarketContextEvents.id)).limit(1))[0] ?? null;
+}
+
 export async function getLatestRtMarketContextEvents(input: {
   tradeDate: string;
   limit?: number;

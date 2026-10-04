@@ -64,13 +64,18 @@ const relayCandleProvenanceInput = z.object({
 }).optional();
 
 const marketContextInput = z.object({
-  instrumentKey: z.enum(["nikkei225_cash", "nikkei225_mini_front"]),
+  // Existing Windows relay transport remains public, but this endpoint accepts
+  // only the dynamically resolved Nikkei 225 mini day/night instrument.
+  instrumentKey: z.literal("nikkei225_mini_front"),
   providerSymbol: z.string().min(1).max(32),
-  productType: z.enum(["index", "future"]),
+  productType: z.literal("future"),
   contractMonth: z.string().regex(/^\d{4}\/\d{2}$/).nullable().optional(),
-  marketSession: z.enum(["cash", "day", "night", "day_night"]),
+  marketSession: z.literal("day_night"),
   tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  candleTime: z.string().regex(/^\d{2}:\d{2}$/),
+  candleTime: z.string().regex(/^\d{2}:\d{2}$/).refine(
+    value => value >= "08:45" && value <= "15:45",
+    "市場環境1分足は日中立会時間（08:45〜15:45 JST）だけ受け付けます",
+  ),
   open: z.number().positive(),
   high: z.number().positive(),
   low: z.number().positive(),
@@ -78,22 +83,19 @@ const marketContextInput = z.object({
   volume: z.number().int().nonnegative().nullable().optional(),
   previousClose: z.number().positive().nullable().optional(),
   valueSource: z.enum(["ws_aggregated", "rest_fallback"]),
-  sourceEventId: z.string().min(1).max(128).optional(),
-  relaySessionId: z.string().min(1).max(96).optional(),
-  eventSeq: z.number().int().nonnegative().optional(),
-  payloadHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-  observedAtMs: z.number().int().nonnegative().nullable().optional(),
-  relaySentAtMs: z.number().int().nonnegative().nullable().optional(),
+  sourceEventId: z.string().min(1).max(128),
+  relaySessionId: z.string().min(1).max(96),
+  eventSeq: z.number().int().nonnegative(),
+  payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+  observedAtMs: z.number().int().nonnegative(),
+  relaySentAtMs: z.number().int().nonnegative(),
   correctedEventId: z.string().min(1).max(128).nullable().optional(),
 }).superRefine((value, context) => {
   if (value.high < Math.max(value.open, value.close) || value.low > Math.min(value.open, value.close) || value.high < value.low) {
     context.addIssue({ code: "custom", message: "OHLCの大小関係が不正です" });
   }
-  if (value.instrumentKey === "nikkei225_cash" && value.productType !== "index") {
-    context.addIssue({ code: "custom", message: "nikkei225_cashはindexとして送信してください" });
-  }
-  if (value.instrumentKey === "nikkei225_mini_front" && value.productType !== "future") {
-    context.addIssue({ code: "custom", message: "nikkei225_mini_frontはfutureとして送信してください" });
+  if (value.correctedEventId) {
+    context.addIssue({ code: "custom", message: "市場環境1分足の訂正上書きは受け付けません" });
   }
 });
 

@@ -76,7 +76,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "現行（証拠金ブロック含む）",
       "A案：高値失速SHORT・陰線実体0.08%＋次イベント板",
       "B案：確認型継続LONG・二段階高値更新＋次イベント板",
-      "テクニカルA：D-1相場状態＋当日1分足",
+      "テクニカルA v2：D-1日足＋当日5分/1分テクニカル",
     ]);
     const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6981");
     expect(murata).toHaveLength(4);
@@ -84,7 +84,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "現行（証拠金ブロック含む）",
       "A案：深い下落後の確認反発LONG",
       "B案：前場20本安値更新SHORT",
-      "テクニカルA：D-1相場状態＋当日1分足",
+      "テクニカルA v2：D-1日足＋当日5分/1分テクニカル",
     ]);
   });
 });

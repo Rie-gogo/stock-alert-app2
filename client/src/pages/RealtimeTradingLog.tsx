@@ -39,7 +39,7 @@ import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComp
 import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSection";
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
-import TechnicalAObservationV2Section from "@/components/TechnicalAObservationV2Section";
+import TechnicalAnalysisShadowSection from "@/components/TechnicalAnalysisShadowSection";
 import {
   Table,
   TableBody,
@@ -127,6 +127,7 @@ export default function RealtimeTradingLog() {
       utils.trading.getRtSignalCandidateLedger.invalidate({ tradeDate: selectedDate }),
       utils.trading.getMultiSymbolMonitoringTrend.invalidate({ asOfDate: selectedDate }),
       utils.trading.getKioxiaNormalizedComparisonTrend.invalidate({ asOfDate: selectedDate }),
+      utils.trading.getTechnicalRegimeShadowDashboard.invalidate({ tradeDate: selectedDate }),
     ]);
     setLastRefreshed(new Date());
   }, [utils, selectedDate]);
@@ -487,6 +488,9 @@ export default function RealtimeTradingLog() {
         {/* ===== 全シグナル監査台帳（認証後のみ） ===== */}
         <SignalCandidateLedgerSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
 
+        {/* ===== 10銘柄テクニカルA v2の最新確定足分析。60秒間隔の表示専用読取 ===== */}
+        <TechnicalAnalysisShadowSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
+
         {/* ===== 閉場後snapshotによる10銘柄の最近傾向 ===== */}
         <MultiSymbolMonitoringTrendSection asOfDate={selectedDate} />
 
@@ -501,9 +505,6 @@ export default function RealtimeTradingLog() {
 
         {/* ===== current/variantをrouteGroupId単位で固定比較。保存snapshotのみを読む ===== */}
         <RouteGranularNextDaySelectorSection asOfDate={selectedDate} />
-
-        {/* Technical A v2 は完全に独立した参考監視。保存snapshotだけを表示する。 */}
-        <TechnicalAObservationV2Section asOfDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

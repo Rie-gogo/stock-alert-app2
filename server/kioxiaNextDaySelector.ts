@@ -6,6 +6,7 @@ import { KIOXIA_NORMALIZED_COMPARISON_PLAN_SPECS } from "./monitoringComparisonN
 import { MONITORING_COMPARISON_COMPONENT, MONITORING_COMPARISON_MATERIALIZATION_VERSION } from "./monitoringComparisonMaterializer";
 import { parseRelayCandleProvenance, type RelayValueSource } from "./relayProvenance";
 import { sha256Stable } from "./runtimeIdentity";
+import { calculateTechnicalIndicators } from "./technicalAnalysisShadowV2";
 
 export const KIOXIA_MANIFEST_V2_COMPONENT = "kioxia_manifest_v2";
 export const KIOXIA_MANIFEST_V2_VERSION = "285a-session-manifest-v3-selector-correctness";
@@ -270,9 +271,17 @@ export function calculateKioxiaSelectorDailyFeature(input: { manifest: Record<st
   if (continuous.length !== CONTINUOUS_LABELS.length) return { featureEligible: false, missingReasons: ["continuous_candle_count_changed"] };
   const first = continuous[0], last = continuous.at(-1)!;
   const high = Math.max(...continuous.map(c => c.high)), low = Math.min(...continuous.map(c => c.low));
-  const previous = input.history.at(-1);
-  const priorClose = previous ? finite(object(previous.features).close) : null;
-  const daily = [...input.history.map(item => object(item.features)).filter(item => finite(item.close) !== null), { close: last.close, high, low, volume: continuous.reduce((sum, c) => sum + c.volume, 0) }];
+  // v1の呼出し元にはwrapper、10銘柄版にはfeatures本体が渡る。どちらも同じ
+  // 因果的な日足系列へ正規化し、二重features参照で履歴が空になることを防ぐ。
+  const normalizedHistory = input.history
+    .map(item => {
+      const nested = object(item.features);
+      return Object.keys(nested).length ? nested : item;
+    })
+    .filter(item => finite(item.close) !== null);
+  const previous = normalizedHistory.at(-1);
+  const priorClose = previous ? finite(previous.close) : null;
+  const daily = [...normalizedHistory, { sourceDate: manifest.tradeDate, open: first.open, close: last.close, high, low, volume: continuous.reduce((sum, c) => sum + c.volume, 0) }];
   const closes = daily.map(item => finite(item.close)!).filter((x): x is number => x !== null);
   const ma = (period: number) => closes.length >= period ? average(closes.slice(-period)) : null;
   const maSlope = (period: number) => closes.length >= period + 1 && ma(period) !== null ? pct(ma(period)! - average(closes.slice(-period - 1, -1))!, average(closes.slice(-period - 1, -1))!) : null;
@@ -291,6 +300,20 @@ export function calculateKioxiaSelectorDailyFeature(input: { manifest: Record<st
   }).filter((x): x is number => x !== null);
   const atr14 = trueRanges.length >= 14 ? average(trueRanges.slice(-14)) : null;
   const intradayVwap = continuous.reduce((sum, c) => sum + typicalPrice(c) * c.volume, 0) / Math.max(1, continuous.reduce((sum, c) => sum + c.volume, 0));
+  const technicalIndicators = calculateTechnicalIndicators(daily.flatMap((item, index) => {
+    const close = finite(item.close);
+    const dailyHigh = finite(item.high);
+    const dailyLow = finite(item.low);
+    if (close === null || dailyHigh === null || dailyLow === null) return [];
+    return [{
+      time: String(item.sourceDate ?? index),
+      open: finite(item.open) ?? close,
+      high: dailyHigh,
+      low: dailyLow,
+      close,
+      volume: finite(item.volume) ?? 0,
+    }];
+  }));
   return {
     featureEligible: true,
     sourceDate: manifest.tradeDate,
@@ -299,11 +322,12 @@ export function calculateKioxiaSelectorDailyFeature(input: { manifest: Record<st
     gapPct: priorClose ? pct(first.open - priorClose, priorClose) : null,
     bodyPct: pct(body, first.open), upperWickPct: pct(upperWick, first.open), lowerWickPct: pct(lowerWick, first.open),
     atr14Pct: atr14 ? pct(atr14, last.close) : null,
-    movingAverages: Object.fromEntries([5, 10, 20, 25, 50].map(period => [String(period), { value: ma(period), slopePct: maSlope(period), positionPct: ma(period) ? pct(last.close - ma(period)!, ma(period)!) : null }])),
+    movingAverages: Object.fromEntries([5, 10, 20, 21, 25, 50].map(period => [String(period), { value: ma(period), slopePct: maSlope(period), positionPct: ma(period) ? pct(last.close - ma(period)!, ma(period)!) : null }])),
     bollinger20: bbMean === null || std === null ? null : { middle: bbMean, plus1: bbMean + std, minus1: bbMean - std, plus2: bbMean + 2 * std, minus2: bbMean - 2 * std, bandwidthPct: pct(4 * std, bbMean), percentB: std > 0 ? (last.close - (bbMean - 2 * std)) / (4 * std) * 100 : null },
     volumeRatio: { to5: typicalVolume.length >= 6 ? pct(typicalVolume.at(-1)! - average(typicalVolume.slice(-6, -1))!, average(typicalVolume.slice(-6, -1))!) : null, to20: typicalVolume.length >= 21 ? pct(typicalVolume.at(-1)! - average(typicalVolume.slice(-21, -1))!, average(typicalVolume.slice(-21, -1))!) : null },
     intraday: { vwap: intradayVwap, distanceFromVwapPct: pct(last.close - intradayVwap, intradayVwap), thirtyMinute: closingTimeframeFeatures(continuous, 30), sixtyMinute: closingTimeframeFeatures(continuous, 60), sessionBars60: sessionBars60(continuous), closingPositionPct: range > 0 ? (last.close - low) / range * 100 : null },
     recentHighLow: { high, low, distanceFromHighPct: pct(last.close - high, high), distanceFromLowPct: pct(last.close - low, low) },
+    technicalIndicators,
     missingReasons: [],
   };
 }

@@ -76,6 +76,17 @@ describe("285A selector causal feature contract", () => {
     expect((feature.intraday as any).thirtyMinute.startTime).toBe("14:55");
   });
 
+  it("accepts both legacy wrapper history and ten-symbol raw feature history", () => {
+    const events = [...labels("09:00", "11:29"), ...labels("12:30", "15:24")]
+      .map((time, index) => event(time, "ws_aggregated", { open: 100 + index * 0.01, high: 101 + index * 0.01, low: 99 + index * 0.01, close: 100.5 + index * 0.01, volume: 100 }));
+    const rawHistory = Array.from({ length: 52 }, (_, index) => ({ sourceDate: `d${index}`, open: 90 + index, high: 91 + index, low: 89 + index, close: 90.5 + index, volume: 1000 }));
+    const raw = calculateKioxiaSelectorDailyFeature({ manifest: { featureEligible: true, tradeDate: "2026-10-01" }, events, history: rawHistory });
+    const wrapped = calculateKioxiaSelectorDailyFeature({ manifest: { featureEligible: true, tradeDate: "2026-10-01" }, events, history: rawHistory.map(features => ({ features })) });
+    expect((raw.movingAverages as any)["21"].value).toBe((wrapped.movingAverages as any)["21"].value);
+    expect((raw.technicalIndicators as any).macd).not.toBeNull();
+    expect((raw.technicalIndicators as any).rciLong).not.toBeNull();
+  });
+
   it("classifies trend, volatility and location with the sealed thresholds", () => {
     const regime = classifyKioxiaSelectorRegime({
       close: 110,

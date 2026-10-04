@@ -57,8 +57,8 @@ export const DISCO_LONG_PRIOR_THREE_B_VERSION = "candidate-6146-confirmed-long-p
 /** 6981の現行経路とは独立した、手動審査専用の前向きshadow 2案。 */
 export const MURATA_DEEP_REVERSAL_LONG_VERSION = "candidate-6981-deep-reversal-long-v1";
 export const MURATA_MORNING_BREAKDOWN_SHORT_VERSION = "candidate-6981-morning-20bar-breakdown-short-v1";
-/** D-1で固定した日足・時間足レジームを、当日の確定1分足で評価する10銘柄共通shadow A。 */
-export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
+/** 旧簡易版。v2公開時に履歴専用へ移し、新規eventを追加しない。 */
+export const TECHNICAL_REGIME_SHADOW_A_LEGACY_VERSIONS = Object.freeze({
   "285A": "candidate-285a-technical-regime-a-v1",
   "3436": "candidate-3436-technical-regime-a-v1",
   "5803": "candidate-5803-technical-regime-a-v1",
@@ -69,6 +69,19 @@ export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
   "6981": "candidate-6981-technical-regime-a-v1",
   "8035": "candidate-8035-technical-regime-a-v1",
   "9984": "candidate-9984-technical-regime-a-v1",
+} as const);
+/** D-1日足＋当日確定5分/1分足の完全テクニカル仕様を評価する10銘柄共通shadow A v2。 */
+export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-technical-regime-a-v2-complete-technical",
+  "3436": "candidate-3436-technical-regime-a-v2-complete-technical",
+  "5803": "candidate-5803-technical-regime-a-v2-complete-technical",
+  "6146": "candidate-6146-technical-regime-a-v2-complete-technical",
+  "6526": "candidate-6526-technical-regime-a-v2-complete-technical",
+  "6857": "candidate-6857-technical-regime-a-v2-complete-technical",
+  "6976": "candidate-6976-technical-regime-a-v2-complete-technical",
+  "6981": "candidate-6981-technical-regime-a-v2-complete-technical",
+  "8035": "candidate-8035-technical-regime-a-v2-complete-technical",
+  "9984": "candidate-9984-technical-regime-a-v2-complete-technical",
 } as const);
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,

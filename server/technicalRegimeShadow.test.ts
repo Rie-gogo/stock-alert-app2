@@ -31,7 +31,7 @@ function upPlan() {
         open: 98, high: 100, low: 96, close: 99, atr14Pct: 2,
         bollinger20: { middle: 99, plus2: 103, minus2: 95 },
       },
-      technicalRegime: { eligible: true, setup: "up_breakout", confidence: "high" },
+      technicalRegime: { eligible: true, setup: "up_breakout", trend: "up", confidence: "high" },
     },
   });
 }
@@ -45,26 +45,28 @@ describe("10-symbol technical-regime shadow A", () => {
 
   it("確定1分足でsignalを作り、同じ足ではなく次eventのfresh ask depthで入る", () => {
     let state = createEmptyTechnicalRegimeShadowState(upPlan(), "2026-10-05");
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 21; index += 1) {
       state = applyTechnicalRegimeShadowTransition(state, source({ id: `warm-${index}`, time: `09:${String(15 + index).padStart(2, "0")}`, open: 98.5, high: 99.2, low: 98.4, close: 99, volume: 100 }), "signal_quality").nextState;
     }
-    const signal = applyTechnicalRegimeShadowTransition(state, source({ id: "signal", time: "09:24", open: 99.8, high: 101.2, low: 99.7, close: 101, volume: 200 }), "signal_quality");
+    const breakout = applyTechnicalRegimeShadowTransition(state, source({ id: "breakout", time: "09:36", open: 99.8, high: 101.2, low: 99.7, close: 101, volume: 200 }), "signal_quality");
+    expect(breakout.resultType).toBe("no_signal");
+    const signal = applyTechnicalRegimeShadowTransition(breakout.nextState, source({ id: "signal", time: "09:37", open: 101, high: 101.3, low: 100.05, close: 101.2, volume: 210 }), "signal_quality");
     expect(signal.resultType).toBe("pending");
     expect(signal.openedPosition).toBeNull();
 
-    const entry = applyTechnicalRegimeShadowTransition(signal.nextState, source({ id: "entry", time: "09:25", open: 101, high: 101.3, low: 100.9, close: 101.2, asks: [{ price: 101.1, qty: 100 }] }), "signal_quality");
+    const entry = applyTechnicalRegimeShadowTransition(signal.nextState, source({ id: "entry", time: "09:38", open: 101.2, high: 101.5, low: 101.1, close: 101.4, asks: [{ price: 101.2, qty: 100 }] }), "signal_quality");
     expect(entry.resultType).toBe("entry");
-    expect(entry.openedPosition).toMatchObject({ side: "long", entrySourceEventId: "entry", entryPrice: 101.1, targetPrice: 103, shares: 100 });
-    expect(entry.openedPosition!.rewardRisk).toBeGreaterThanOrEqual(1.2);
+    expect(entry.openedPosition).toMatchObject({ side: "long", entrySourceEventId: "entry", entryPrice: 101.2, shares: 100, technicalSignalType: "support_resistance_breakout" });
+    expect(entry.openedPosition!.rewardRisk).toBeGreaterThan(0);
 
-    const exit = applyTechnicalRegimeShadowTransition(entry.nextState, source({ id: "exit", time: "09:26", open: 101.2, high: 103.1, low: 101, close: 102.8 }), "signal_quality");
+    const exit = applyTechnicalRegimeShadowTransition(entry.nextState, source({ id: "exit", time: "09:39", open: entry.openedPosition!.targetPrice, high: entry.openedPosition!.targetPrice + 0.1, low: entry.openedPosition!.targetPrice, close: entry.openedPosition!.targetPrice }), "signal_quality");
     expect(exit.resultType).toBe("exit");
-    expect(exit.closedPosition).toMatchObject({ exitPrice: 103, exitReason: "technical_target", pnl: 190 });
+    expect(exit.closedPosition).toMatchObject({ exitPrice: entry.openedPosition!.targetPrice, exitReason: "technical_target" });
   });
 
   it("古い板ではentryせず、日次枠も消費しない", () => {
     let state = createEmptyTechnicalRegimeShadowState(upPlan(), "2026-10-05");
-    state.pending = { side: "long", signalSourceEventId: "signal", signalTime: "10:00", theoreticalSignalPrice: 101, triggerPrice: 100, stopPrice: 99.95, targetCandidates: [103], signalKind: "breakout" };
+    state.pending = { side: "long", signalSourceEventId: "signal", signalTime: "10:00", theoreticalSignalPrice: 101, triggerPrice: 100, stopPrice: 99.95, targetCandidates: [103], signalKind: "breakout", technicalSignalType: "support_resistance_breakout", signalAnalysis: {} };
     const stale = source({ id: "stale", time: "10:01", open: 101, high: 101.2, low: 100.9, close: 101, asks: [{ price: 101.1, qty: 100 }] });
     stale.currentAudit!.relaySentAtMs = 8_000;
     stale.currentAudit!.decisionCompletedAtMs = 8_200;

@@ -13,6 +13,12 @@ describe("technical-regime A registration", () => {
       configJson: { riskRewardPolicy: { mode: "dynamic_technical_levels", minimumRewardRisk: 1.2, exception: "user_approved_dynamic_technical_levels_2026-10-02", automaticAdoption: false } },
     })).not.toThrow();
     expect(() => assertForwardCandidateRiskReward({
+      versionId: TECHNICAL_REGIME_SHADOW_A_VERSIONS["285A"],
+      evaluationPurpose: "candidate",
+      eligibleForAdoption: true,
+      configJson: { riskRewardPolicy: { mode: "dynamic_technical_levels", minimumRewardRisk: 0, exception: "user_approved_no_fixed_1_2r_filter_then_dynamic_technical_levels", automaticAdoption: false } },
+    })).not.toThrow();
+    expect(() => assertForwardCandidateRiskReward({
       versionId: "candidate-other-technical-regime-a-v1",
       evaluationPurpose: "candidate",
       eligibleForAdoption: true,

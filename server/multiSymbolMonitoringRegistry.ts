@@ -78,7 +78,7 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   ...TEN_MONITORED_SYMBOLS.map(symbol => ({
     strategyVersion: TECHNICAL_REGIME_SHADOW_A_VERSIONS[symbol as keyof typeof TECHNICAL_REGIME_SHADOW_A_VERSIONS],
     symbol,
-    label: "テクニカルA：D-1相場状態＋当日1分足",
+    label: "テクニカルA v2：D-1日足＋当日5分/1分テクニカル",
     purpose: "candidate" as const,
     eligibleForAdoption: true,
   })),

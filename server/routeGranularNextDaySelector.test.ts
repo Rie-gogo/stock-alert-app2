@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ROUTE_GRANULAR_VARIANTS, auditRouteGranularCatalog } from "./routeGranularMonitoringRegistry";
 import { buildRouteGranularDailySnapshot } from "./routeGranularMonitoringMaterializer";
 import { buildRouteGranularSelectorSnapshot, ROUTE_GRANULAR_SELECTOR_CONFIG, ROUTE_GRANULAR_SELECTOR_VERSION } from "./routeGranularNextDaySelector";
+import { TECHNICAL_REGIME_SHADOW_A_VERSIONS } from "./runtimeIdentity";
 
 const planB = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
 const currentVersion = "current-10-symbol-candidates-v3-low-win-routes-shadow-only";
@@ -76,7 +77,7 @@ describe("route-granular next-day monitoring selector", () => {
   });
 
   it("partitions technical-regime A outcomes by persisted LONG/SHORT action side", () => {
-    const strategyVersion = "candidate-285a-technical-regime-a-v1";
+    const strategyVersion = TECHNICAL_REGIME_SHADOW_A_VERSIONS["285A"];
     const daily = buildRouteGranularDailySnapshot({
       tradeDate: "2026-10-05",
       candidates: [],

@@ -41,6 +41,7 @@ import {
   type TechnicalRegimeShadowState,
   type TechnicalRegimeTransition,
 } from "./technicalRegimeShadow";
+import { DEFAULT_TECHNICAL_ANALYSIS_CONFIG, TECHNICAL_ANALYSIS_SHADOW_VERSION } from "./technicalAnalysisShadowV2";
 
 const MODES: readonly ForwardEvaluationMode[] = FORWARD_EVALUATION_POLICY.evaluationModes;
 const SYMBOLS = new Set<string>(TEN_MONITORED_SYMBOLS);
@@ -65,13 +66,15 @@ async function ensureVersion(symbol: TechnicalSymbol) {
   const config = {
     symbol,
     strategyFamily: "technical_regime_shadow_a",
+    technicalAnalysisVersion: TECHNICAL_ANALYSIS_SHADOW_VERSION,
+    technicalAnalysisConfig: DEFAULT_TECHNICAL_ANALYSIS_CONFIG,
     featureSource: { component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, timing: "D-1_closed_only" },
-    entry: { signalBasis: "completed_one_minute_candle", executionBasis: "next_same_symbol_source_event_directional_depth_vwap_100", maximumBoardAgeMs: 5_000, maximumAdverseEntryPct: 0.15 },
-    exit: { stop: "frozen_technical_invalidation_level", target: "nearest_frozen_technical_resistance_or_support", sameCandlePriority: "stop_first", dayEndFlattenAtOrAfter: "15:20" },
+    entry: { signalBasis: "completed_one_minute_candle_with_five_minute_and_d_minus_1_context", supportedSignalTypes: ["trend_pullback", "trend_retracement", "ma21_turn", "support_resistance_breakout", "range_reversal"], displayOnlySignalTypes: ["macd_turn", "pattern_candidate"], executionBasis: "next_same_symbol_source_event_directional_depth_vwap_100", maximumBoardAgeMs: 5_000, maximumAdverseEntryPct: 0.15 },
+    exit: { stop: "swing_support_resistance_atr", target: "nearest_dynamic_technical_level", breakEvenAfterR: 1, oppositeConfirmedSignal: true, confirmedSma21Break: true, sameCandlePriority: "stop_first", dayEndFlattenAtOrAfter: "15:20" },
     riskRewardPolicy: {
       mode: "dynamic_technical_levels",
       minimumRewardRisk: TECHNICAL_REGIME_SHADOW_A_MINIMUM_REWARD_RISK,
-      exception: "user_approved_dynamic_technical_levels_2026-10-02",
+      exception: "user_approved_no_fixed_1_2r_filter_then_dynamic_technical_levels",
       automaticAdoption: false,
     },
     collectionStartDate: TECHNICAL_REGIME_SHADOW_A_COLLECTION_START_DATE,
@@ -129,7 +132,7 @@ function loadFrozenPlan(symbol: TechnicalSymbol, tradeDate: string): Promise<Tec
 function existingPlan(value: unknown, tradeDate: string, symbol: string): TechnicalRegimePlan | null {
   const raw = object(value);
   const plan = object(raw.plan);
-  if (raw.tradeDate !== tradeDate || plan.symbol !== symbol || typeof plan.kind !== "string") return null;
+  if (raw.tradeDate !== tradeDate || plan.symbol !== symbol || typeof plan.kind !== "string" || plan.analysisVersion !== TECHNICAL_ANALYSIS_SHADOW_VERSION) return null;
   return plan as unknown as TechnicalRegimePlan;
 }
 
@@ -286,4 +289,43 @@ export function replayTechnicalRegimeShadowDay(
 export function resetTechnicalRegimeShadowVersionCacheForTest() {
   ensuredVersions.clear();
   frozenPlanCache.clear();
+}
+
+/**
+ * 表示専用。各versionの最新signal_quality stateを最大10行読むだけで、raw足の
+ * 再集計・売買判定・state更新は行わない。
+ */
+export async function getTechnicalRegimeShadowDashboard(tradeDate: string) {
+  const rows = await Promise.all(TEN_MONITORED_SYMBOLS.map(async symbol => {
+    const version = strategyVersion(symbol);
+    const stateRow = await getRtForwardShadowState({ strategyVersion: version, evaluationMode: "signal_quality" });
+    const state = object(stateRow?.stateJson);
+    const analysis = object(state.lastAnalysis);
+    const plan = object(state.plan);
+    const sameDate = state.tradeDate === tradeDate;
+    return {
+      symbol,
+      strategyVersion: version,
+      tradeDate,
+      status: !stateRow ? "waiting_first_event" : !sameDate ? "no_state_for_selected_date" : "available",
+      plan: sameDate ? {
+        sourceTradeDate: plan.sourceTradeDate ?? null,
+        kind: plan.kind ?? "no_trade",
+        setup: plan.setup ?? "unknown",
+        confidence: plan.confidence ?? "unavailable",
+      } : null,
+      lastResultType: sameDate ? state.lastResultType ?? null : null,
+      lastSourceEventId: sameDate ? state.lastSourceEventId ?? null : null,
+      analysis: sameDate && analysis.version === TECHNICAL_ANALYSIS_SHADOW_VERSION ? analysis : null,
+    };
+  }));
+  return {
+    version: TECHNICAL_ANALYSIS_SHADOW_VERSION,
+    tradeDate,
+    rows,
+    dataSource: "latest_forward_shadow_signal_quality_state_only",
+    rawReaggregation: false,
+    automaticAdoption: false,
+    orderInstructionConnection: false,
+  };
 }

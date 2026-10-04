@@ -7,6 +7,7 @@ interface RiskPair {
 const TAIYO_AFTERNOON_LONG_WINRATE_VERSION = "candidate-6976-afternoon-long-recovery-winrate-v1";
 const TAIYO_WINRATE_EXCEPTION = "user_approved_forward_shadow_tp_below_2r_2026-09-12";
 const TECHNICAL_LEVEL_EXCEPTION = "user_approved_dynamic_technical_levels_2026-10-02";
+const TECHNICAL_NO_FIXED_RR_EXCEPTION = "user_approved_no_fixed_1_2r_filter_then_dynamic_technical_levels";
 
 function permitsExplicitRiskRewardException(input: { versionId: string; configJson: unknown }): boolean {
   if (input.versionId !== TAIYO_AFTERNOON_LONG_WINRATE_VERSION
@@ -18,13 +19,15 @@ function permitsExplicitRiskRewardException(input: { versionId: string; configJs
 }
 
 function permitsDynamicTechnicalLevels(input: { versionId: string; configJson: unknown }): boolean {
-  if (!input.versionId.match(/^candidate-(285a|3436|5803|6146|6526|6857|6976|6981|8035|9984)-technical-regime-a-v1$/)
+  if (!input.versionId.match(/^candidate-(285a|3436|5803|6146|6526|6857|6976|6981|8035|9984)-technical-regime-a-(v1|v2-complete-technical)$/)
     || !input.configJson || typeof input.configJson !== "object") return false;
   const policy = (input.configJson as Record<string, unknown>).riskRewardPolicy;
   return Boolean(policy && typeof policy === "object"
     && (policy as Record<string, unknown>).mode === "dynamic_technical_levels"
-    && (policy as Record<string, unknown>).exception === TECHNICAL_LEVEL_EXCEPTION
-    && Number((policy as Record<string, unknown>).minimumRewardRisk) >= 1.2
+    && (((policy as Record<string, unknown>).exception === TECHNICAL_LEVEL_EXCEPTION
+      && Number((policy as Record<string, unknown>).minimumRewardRisk) >= 1.2)
+      || ((policy as Record<string, unknown>).exception === TECHNICAL_NO_FIXED_RR_EXCEPTION
+        && Number((policy as Record<string, unknown>).minimumRewardRisk) === 0))
     && (policy as Record<string, unknown>).automaticAdoption === false);
 }
 

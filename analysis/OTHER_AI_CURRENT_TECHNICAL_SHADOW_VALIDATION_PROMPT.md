@@ -24,8 +24,8 @@ Stock Alert App の既存プロジェクト `ULXu9jPfJKpbGaXVVcZcJZ` を対象�
 | ファイル | SHA-256 |
 |---|---|
 | `technicalAnalysisShadowV2.ts` | `9DACB1A0963387F1725547D7B17292132BF1051FAB6B831C00D1E4C6765F1FD9` |
-| `technicalRegimeShadow.ts` | `2C113BC3A111D4ECF4B7F7E732FA7A0F0D26ACB2C73BFA4D48259D97D3AADFF0` |
-| `technicalRegimeShadowEngine.ts` | `B3592A39C72300CBADCA44A908AFEAEBAA37CF4E4E543E337AA34E5742CD940C` |
+| `technicalRegimeShadow.ts` | `91C5E0352DDC3F510F34CB5284DD280293FBD8BD879614B5AA3F54F8214CDF1A` |
+| `technicalRegimeShadowEngine.ts` | `E2A38263B2D043EF75600EE1549E5026B2206B1048B2EB27C0DFDA1664AB9672` |
 
 改行コード差だけなら正規化後のdiffも確認してください。実質的な内容が異なる場合は、勝手に似たロジックを作らず、そこで停止して差分・現在のGit commit・Manus checkpoint・公開revision・`sourceTreeHash`を報告してください。
 

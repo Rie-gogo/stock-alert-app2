@@ -225,6 +225,13 @@
       "when": 1789729215996,
       "tag": "0031_fixed_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1791123830897,
+      "tag": "0032_market_context_selector_shadow",
+      "breakpoints": true
     }
   ]
 }

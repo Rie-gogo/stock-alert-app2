@@ -60,6 +60,12 @@ SYMBOL_CODES = [s["Symbol"] for s in WATCH_SYMBOLS]
 CLOUD_BASE_URL = "https://stockalert-mwf5hf9f.manus.space"
 CLOUD_BOARD_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushOrderBook"
 CLOUD_CANDLE_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushCandle"
+CLOUD_MARKET_CONTEXT_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushMarketContext"
+
+# 選択器専用の市場環境。通常銘柄・売買engineへは送らない。
+# 現物指数の登録可否に依存しないよう、公式APIで直近限月を解決できる日経225miniを使う。
+MARKET_REFERENCE_FUTURE_CODE = "NK225mini"
+MARKET_REFERENCE_EXCHANGE = 2  # 日通し。場中判定では09:00以降だけを使用する。
 
 # 板情報の送信間隔（秒）- 同じ銘柄を連続送信しないためのレート制限
 SEND_INTERVAL_SEC = 0.5
@@ -70,6 +76,8 @@ CANDLE_POLL_INTERVAL_SEC = 60
 # 取引時間（JST）
 MARKET_OPEN_TIME = "09:00"
 MARKET_CLOSE_TIME = "15:30"
+MARKET_CONTEXT_OPEN_TIME = "08:45"
+MARKET_CONTEXT_CLOSE_TIME = "15:45"
 
 # ===== ログ設定 =====
 logging.basicConfig(
@@ -98,6 +106,9 @@ event_metadata_by_key = {}
 
 # 1分足の累積OHLCV（銘柄ごと、1分間の集計用）
 candle_accum = {}  # symbol -> {"open": float, "high": float, "low": float, "close": float, "volume": int, "minute": str}
+market_context_reference = None
+market_context_accum = None
+last_market_context_time = {}
 
 
 # ===== 日時ユーティリティ =====
@@ -120,6 +131,11 @@ def is_market_open() -> bool:
     """取引時間中かどうかを判定する"""
     t = current_minute_jst()
     return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
+
+def is_market_context_open() -> bool:
+    """日経225miniの日中立会時間かどうかを判定する。"""
+    t = current_minute_jst()
+    return MARKET_CONTEXT_OPEN_TIME <= t <= MARKET_CONTEXT_CLOSE_TIME
 
 
 # ===== APIトークン管理 =====
@@ -152,17 +168,66 @@ def get_current_token() -> str | None:
 
 # ===== 板情報（WebSocketプッシュ型） =====
 
+def resolve_market_context_reference(token: str) -> dict | None:
+    """日経225miniの直近限月を起動時に解決し、限月交代を固定コード化しない。"""
+    try:
+        response = requests.get(
+            f"{KABU_API_BASE}/symbolname/future",
+            params={"FutureCode": MARKET_REFERENCE_FUTURE_CODE, "DerivMonth": 0},
+            headers={"X-API-KEY": token},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            logger.error(f"市場環境銘柄コード取得失敗: {response.status_code} {response.text[:200]}")
+            return None
+        symbol = str(response.json().get("Symbol", ""))
+        if not symbol:
+            logger.error("市場環境銘柄コード取得失敗: Symbolなし")
+            return None
+        detail_response = requests.get(
+            f"{KABU_API_BASE}/symbol/{symbol}@{MARKET_REFERENCE_EXCHANGE}",
+            params={"addinfo": "true"},
+            headers={"X-API-KEY": token},
+            timeout=10,
+        )
+        detail = detail_response.json() if detail_response.status_code == 200 else {}
+        raw_contract_month = detail.get("DerivMonth")
+        contract_month = str(raw_contract_month) if raw_contract_month is not None else None
+        if contract_month and contract_month.isdigit() and len(contract_month) == 6:
+            contract_month = contract_month[:4] + "/" + contract_month[4:]
+        if contract_month and (len(contract_month) != 7 or contract_month[4] != "/"):
+            contract_month = None
+        return {
+            "Symbol": symbol,
+            "Exchange": MARKET_REFERENCE_EXCHANGE,
+            "instrumentKey": "nikkei225_mini_front",
+            "productType": "future",
+            "marketSession": "day_night",
+            "contractMonth": contract_month,
+            "symbolName": detail.get("SymbolName") or response.json().get("SymbolName") or "日経225mini",
+        }
+    except Exception as e:
+        logger.error(f"市場環境銘柄コード取得エラー: {e}")
+        return None
+
+
 def register_push_symbols(token: str) -> bool:
     """板情報のプッシュ配信を登録する"""
     try:
+        symbols = list(WATCH_SYMBOLS)
+        if market_context_reference:
+            symbols.append({
+                "Symbol": market_context_reference["Symbol"],
+                "Exchange": market_context_reference["Exchange"],
+            })
         response = requests.put(
-            f"{KABU_API_BASE}/board",
+            f"{KABU_API_BASE}/register",
             headers={"X-API-KEY": token},
-            json={"Symbols": WATCH_SYMBOLS},
+            json={"Symbols": symbols},
             timeout=10,
         )
         if response.status_code == 200:
-            logger.info(f"{len(WATCH_SYMBOLS)}銘柄の板情報プッシュ配信を登録しました")
+            logger.info(f"通常{len(WATCH_SYMBOLS)}銘柄＋市場環境{1 if market_context_reference else 0}銘柄のPUSH配信を登録しました")
             return True
         else:
             logger.error(f"プッシュ配信登録失敗: {response.status_code} {response.text}")
@@ -258,6 +323,9 @@ def on_message(ws, message):
     """WebSocketからメッセージを受信したとき"""
     try:
         raw = json.loads(message)
+        if market_context_reference and str(raw.get("Symbol", "")) == market_context_reference["Symbol"]:
+            update_market_context_accum(raw)
+            return
         board_data = parse_board_data(raw)
         if board_data:
             # 別スレッドで非同期送信（WebSocketをブロックしない）
@@ -367,6 +435,133 @@ def update_candle_accum(symbol: str, price: float):
         accum["high"] = max(accum["high"], price)
         accum["low"] = min(accum["low"], price)
         accum["close"] = price
+
+
+def update_market_context_accum(raw: dict):
+    """日経225miniのPUSHを市場環境専用1分足へ集約する。"""
+    global market_context_accum
+    price = float(raw.get("CurrentPrice", 0) or 0)
+    if price <= 0 or not market_context_reference:
+        return
+    current_minute = current_minute_jst()
+    observed_at_ms = int(time.time() * 1000)
+    if market_context_accum and market_context_accum["minute"] != current_minute:
+        previous = market_context_accum
+        candle = {
+            "instrumentKey": market_context_reference["instrumentKey"],
+            "providerSymbol": market_context_reference["Symbol"],
+            "productType": market_context_reference["productType"],
+            "contractMonth": market_context_reference.get("contractMonth"),
+            "marketSession": market_context_reference["marketSession"],
+            "tradeDate": today_jst_str(),
+            "candleTime": previous["minute"],
+            "open": previous["open"],
+            "high": previous["high"],
+            "low": previous["low"],
+            "close": previous["close"],
+            "volume": None,
+            "previousClose": previous.get("previousClose"),
+            "observedAtMs": previous["observedAtMs"],
+            "valueSource": "ws_aggregated",
+        }
+        threading.Thread(target=send_market_context_to_cloud, args=(candle,), daemon=True).start()
+        market_context_accum = None
+    if market_context_accum is None:
+        market_context_accum = {
+            "minute": current_minute,
+            "open": price,
+            "high": price,
+            "low": price,
+            "close": price,
+            "previousClose": float(raw.get("PreviousClose", 0) or 0) or None,
+            "observedAtMs": observed_at_ms,
+            "valueSource": "rest_fallback",
+        }
+    else:
+        market_context_accum["high"] = max(market_context_accum["high"], price)
+        market_context_accum["low"] = min(market_context_accum["low"], price)
+        market_context_accum["close"] = price
+        market_context_accum["observedAtMs"] = observed_at_ms
+        if market_context_accum.get("previousClose") is None:
+            market_context_accum["previousClose"] = float(raw.get("PreviousClose", 0) or 0) or None
+
+
+def send_market_context_to_cloud(candle_data: dict) -> bool:
+    """市場環境専用endpointへ送り、通常pushCandleを決して呼ばない。"""
+    key = f"{candle_data.get('instrumentKey')}_{candle_data.get('tradeDate')}_{candle_data.get('candleTime')}"
+    if key in last_market_context_time:
+        return True
+    payload = {**candle_data}
+    audit_key = "market_" + key
+    with event_seq_lock:
+        global event_seq
+        metadata = event_metadata_by_key.get(audit_key)
+        if metadata is None:
+            event_seq += 1
+            canonical = json.dumps(candle_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            metadata = {
+                "sourceEventId": f"{relay_session_id}:market:{event_seq}",
+                "relaySessionId": relay_session_id,
+                "eventSeq": event_seq,
+                "payloadHash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            }
+            event_metadata_by_key[audit_key] = metadata
+    payload.update(metadata)
+    payload["relaySentAtMs"] = int(time.time() * 1000)
+    try:
+        response = requests.post(
+            CLOUD_MARKET_CONTEXT_URL,
+            json={"json": payload},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            last_market_context_time[key] = time.time()
+            logger.info(f"市場環境1分足送信成功: {candle_data.get('candleTime')} C={candle_data.get('close')}")
+            return True
+        logger.warning(f"市場環境1分足送信失敗: {response.status_code} {response.text[:200]}")
+        return False
+    except Exception as e:
+        logger.error(f"市場環境1分足送信エラー: {e}")
+        return False
+
+
+def fetch_market_context_from_api(token: str, candle_time: str) -> dict | None:
+    """PUSH欠損時に1回だけRESTで補完する。"""
+    if not market_context_reference:
+        return None
+    try:
+        response = requests.get(
+            f"{KABU_API_BASE}/board/{market_context_reference['Symbol']}@{MARKET_REFERENCE_EXCHANGE}",
+            headers={"X-API-KEY": token},
+            timeout=5,
+        )
+        if response.status_code != 200:
+            return None
+        raw = response.json()
+        price = float(raw.get("CurrentPrice", 0) or 0)
+        if price <= 0:
+            return None
+        observed_at_ms = int(time.time() * 1000)
+        return {
+            "instrumentKey": market_context_reference["instrumentKey"],
+            "providerSymbol": market_context_reference["Symbol"],
+            "productType": market_context_reference["productType"],
+            "contractMonth": market_context_reference.get("contractMonth"),
+            "marketSession": market_context_reference["marketSession"],
+            "tradeDate": today_jst_str(),
+            "candleTime": candle_time,
+            "open": price,
+            "high": price,
+            "low": price,
+            "close": price,
+            "volume": None,
+            "previousClose": float(raw.get("PreviousClose", 0) or 0) or None,
+            "observedAtMs": observed_at_ms,
+        }
+    except Exception as e:
+        logger.error(f"市場環境REST補完エラー: {e}")
+        return None
 
 
 def fetch_candle_from_api(symbol: str, token: str) -> dict | None:
@@ -535,21 +730,73 @@ def candle_polling_loop():
             time.sleep(10)
 
 
+def market_context_polling_loop():
+    """通常銘柄とは別スレッドで、日経225miniを毎分1件まで補完送信する。"""
+    logger.info("市場環境1分足ポーリングループ開始")
+    while True:
+        try:
+            now = now_jst()
+            if not is_market_context_open() or not market_context_reference:
+                time.sleep(15)
+                continue
+            if now.second < 15:
+                time.sleep(15 - now.second)
+                continue
+            prev_minute = (now - timedelta(minutes=1)).strftime("%H:%M")
+            key = f"nikkei225_mini_front_{today_jst_str()}_{prev_minute}"
+            if key not in last_market_context_time:
+                candle = None
+                if market_context_accum and market_context_accum.get("minute") == prev_minute:
+                    candle = {
+                        "instrumentKey": market_context_reference["instrumentKey"],
+                        "providerSymbol": market_context_reference["Symbol"],
+                        "productType": market_context_reference["productType"],
+                        "contractMonth": market_context_reference.get("contractMonth"),
+                        "marketSession": market_context_reference["marketSession"],
+                        "tradeDate": today_jst_str(),
+                        "candleTime": prev_minute,
+                        "open": market_context_accum["open"],
+                        "high": market_context_accum["high"],
+                        "low": market_context_accum["low"],
+                        "close": market_context_accum["close"],
+                        "volume": None,
+                        "previousClose": market_context_accum.get("previousClose"),
+                        "observedAtMs": market_context_accum["observedAtMs"],
+                        "valueSource": "ws_aggregated",
+                    }
+                if candle is None:
+                    token = get_current_token()
+                    candle = fetch_market_context_from_api(token, prev_minute) if token else None
+                if candle:
+                    send_market_context_to_cloud(candle)
+            now2 = now_jst()
+            next_send = now2.replace(second=15, microsecond=0) + timedelta(minutes=1)
+            time.sleep(max(1, min((next_send - now2).total_seconds(), 60)))
+        except Exception as e:
+            logger.error(f"市場環境1分足ポーリングエラー: {e}")
+            time.sleep(10)
+
+
 def main():
     """メイン処理"""
-    global api_token
+    global api_token, market_context_reference
 
     logger.info("=" * 60)
     logger.info("kabu STATION® API 板情報＋1分足中継スクリプト 起動")
     logger.info(f"監視銘柄: {SYMBOL_CODES}")
     logger.info(f"板情報送信先: {CLOUD_BOARD_URL}")
     logger.info(f"1分足送信先: {CLOUD_CANDLE_URL}")
+    logger.info(f"市場環境送信先: {CLOUD_MARKET_CONTEXT_URL}")
     logger.info("=" * 60)
 
     # 1分足ポーリングスレッドを起動
     candle_thread = threading.Thread(target=candle_polling_loop, daemon=True)
     candle_thread.start()
     logger.info("1分足ポーリングスレッド起動完了")
+
+    market_context_thread = threading.Thread(target=market_context_polling_loop, daemon=True)
+    market_context_thread.start()
+    logger.info("市場環境ポーリングスレッド起動完了")
 
     while True:
         # Step 1: APIトークンを取得
@@ -563,13 +810,23 @@ def main():
         with token_lock:
             api_token = token
 
-        # Step 2: プッシュ配信を登録
+        # Step 2: 市場環境用の直近限月を解決（失敗時も通常10銘柄は継続）
+        market_context_reference = resolve_market_context_reference(token)
+        if market_context_reference:
+            logger.info(
+                f"市場環境銘柄: {market_context_reference['symbolName']} "
+                f"({market_context_reference['Symbol']}, {market_context_reference.get('contractMonth')})"
+            )
+        else:
+            logger.warning("市場環境銘柄を解決できません。通常銘柄だけで継続します")
+
+        # Step 3: プッシュ配信を登録
         if not register_push_symbols(token):
             logger.error("プッシュ配信登録失敗。30秒後に再試行します...")
             time.sleep(30)
             continue
 
-        # Step 3: WebSocketで板情報を受信（切断されるまでブロック）
+        # Step 4: WebSocketで板情報を受信（切断されるまでブロック）
         logger.info("板情報の受信を開始します...")
         start_websocket(token)
 

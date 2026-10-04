@@ -572,6 +572,7 @@ import {
   rtTelOpenDirectionBreakoutEvents,
   rtKioxiaShortGuardEvents,
   rtSourceEvents,
+  rtMarketContextEvents,
   rtShadowDispatchQueue,
   rtStrategyVersions,
   rtForwardShadowEvents,
@@ -616,6 +617,8 @@ import {
   type RtKioxiaShortGuardEvent,
   type InsertRtSourceEvent,
   type RtSourceEvent,
+  type InsertRtMarketContextEvent,
+  type RtMarketContextEvent,
   type InsertRtShadowDispatchQueue,
   type RtShadowDispatchQueue,
   type InsertRtStrategyVersion,
@@ -653,6 +656,59 @@ import {
   type RtReportDeliveryControl,
   type RtEodExecutionControl,
 } from "../drizzle/schema";
+
+// ============================================================
+// 市場環境専用1分足 helpers（通常売買engineとは完全分離）
+// ============================================================
+
+export async function getRtMarketContextEvent(sourceEventId: string): Promise<RtMarketContextEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtMarketContextEvents)
+    .where(eq(rtMarketContextEvents.sourceEventId, sourceEventId)).limit(1))[0] ?? null;
+}
+
+export async function insertRtMarketContextEvent(
+  data: Omit<InsertRtMarketContextEvent, "id" | "createdAt">,
+): Promise<RtMarketContextEvent> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtMarketContextEvents).values(data).onDuplicateKeyUpdate({
+    // 再送は既存行を変更しない。呼出側がpayload hashを照合する。
+    set: { sourceEventId: data.sourceEventId },
+  });
+  const row = await getRtMarketContextEvent(data.sourceEventId);
+  if (!row) throw new Error("market_context_event_insert_missing");
+  return row;
+}
+
+export async function getRtMarketContextEventsForDate(input: {
+  tradeDate: string;
+  instrumentKey?: string;
+  verifiedOnly?: boolean;
+}): Promise<RtMarketContextEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const filters = [eq(rtMarketContextEvents.tradeDate, input.tradeDate)];
+  if (input.instrumentKey) filters.push(eq(rtMarketContextEvents.instrumentKey, input.instrumentKey));
+  if (input.verifiedOnly) filters.push(eq(rtMarketContextEvents.qualityStatus, "verified"));
+  return db.select().from(rtMarketContextEvents)
+    .where(and(...filters))
+    .orderBy(rtMarketContextEvents.candleTime, rtMarketContextEvents.id);
+}
+
+export async function getLatestRtMarketContextEvents(input: {
+  tradeDate: string;
+  limit?: number;
+}): Promise<RtMarketContextEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const limit = Math.min(240, Math.max(1, Math.trunc(input.limit ?? 60)));
+  return db.select().from(rtMarketContextEvents)
+    .where(eq(rtMarketContextEvents.tradeDate, input.tradeDate))
+    .orderBy(desc(rtMarketContextEvents.id))
+    .limit(limit);
+}
 
 /**
  * 1分足ローソク足を保存する

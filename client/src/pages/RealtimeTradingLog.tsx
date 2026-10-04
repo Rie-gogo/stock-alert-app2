@@ -40,6 +40,7 @@ import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSect
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
 import TechnicalAObservationV2Section from "@/components/TechnicalAObservationV2Section";
+import MarketContextSelectorShadowSection from "@/components/MarketContextSelectorShadowSection";
 import {
   Table,
   TableBody,
@@ -501,6 +502,9 @@ export default function RealtimeTradingLog() {
 
         {/* ===== current/variantをrouteGroupId単位で固定比較。保存snapshotのみを読む ===== */}
         <RouteGranularNextDaySelectorSection asOfDate={selectedDate} />
+
+        {/* ===== 日経平均系の専用1分足で、固定時刻に未エントリー候補を再評価 ===== */}
+        <MarketContextSelectorShadowSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
 
         {/* Technical A v2 は完全に独立した参考監視。保存snapshotだけを表示する。 */}
         <TechnicalAObservationV2Section asOfDate={selectedDate} />

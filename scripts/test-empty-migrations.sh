@@ -44,6 +44,10 @@ delivery_unique_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-na
   "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=DATABASE() AND constraint_name IN ('rt_report_delivery_identity','rt_eod_execution_identity') AND constraint_type='UNIQUE';")
 shadow_dispatch_index_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
   "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='rt_shadow_dispatch_queue' AND index_name='rt_shadow_dispatch_active_status_sequence';")
+market_context_table_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='rt_market_context_events';")
+market_context_index_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
+  "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='rt_market_context_events' AND index_name IN ('rt_market_context_instrument_date_time','rt_market_context_trade_date_quality');")
 
 if [[ "$repair_table_count" != "3" ]]; then
   echo "Expected 3 repair tables, got $repair_table_count" >&2
@@ -63,6 +67,10 @@ if [[ "$delivery_table_count" != "2" || "$delivery_column_count" != "5" || "$del
 fi
 if [[ "$shadow_dispatch_index_count" != "1" ]]; then
   echo "Shadow dispatch active-status index assertion failed: indexes=$shadow_dispatch_index_count" >&2
+  exit 1
+fi
+if [[ "$market_context_table_count" != "1" || "$market_context_index_count" != "2" ]]; then
+  echo "Market context schema assertion failed: tables=$market_context_table_count indexes=$market_context_index_count" >&2
   exit 1
 fi
 

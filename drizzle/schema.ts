@@ -852,6 +852,47 @@ export type RtSourceEvent = typeof rtSourceEvents.$inferSelect;
 export type InsertRtSourceEvent = typeof rtSourceEvents.$inferInsert;
 
 /**
+ * 日経平均等の市場環境専用1分足。
+ * 通常銘柄のsource eventと分離し、現行engine・shadow dispatch・注文へ流さない。
+ */
+export const rtMarketContextEvents = mysqlTable("rt_market_context_events", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+  relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
+  eventSeq: int("event_seq").notNull(),
+  instrumentKey: varchar("instrument_key", { length: 32 }).notNull(),
+  providerSymbol: varchar("provider_symbol", { length: 32 }).notNull(),
+  productType: mysqlEnum("market_context_product_type", ["index", "future"]).notNull(),
+  contractMonth: varchar("contract_month", { length: 7 }),
+  marketSession: mysqlEnum("market_context_session", ["cash", "day", "night", "day_night"]).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  candleTime: varchar("candle_time", { length: 5 }).notNull(),
+  open: decimal("open", { precision: 16, scale: 6 }).notNull(),
+  high: decimal("high", { precision: 16, scale: 6 }).notNull(),
+  low: decimal("low", { precision: 16, scale: 6 }).notNull(),
+  close: decimal("close", { precision: 16, scale: 6 }).notNull(),
+  volume: bigint("volume", { mode: "number" }),
+  previousClose: decimal("previous_close", { precision: 16, scale: 6 }),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  relayPayloadHash: varchar("relay_payload_hash", { length: 64 }),
+  payloadJson: json("payload_json").notNull(),
+  observedAtMs: bigint("observed_at_ms", { mode: "number" }),
+  relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
+  cloudReceivedAtMs: bigint("cloud_received_at_ms", { mode: "number" }).notNull(),
+  correctedEventId: varchar("corrected_event_id", { length: 128 }),
+  qualityStatus: mysqlEnum("market_context_quality_status", ["verified", "degraded", "invalid"]).notNull(),
+  resultJson: json("result_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_market_context_source_identity").on(table.sourceEventId),
+  instrumentDateTime: index("rt_market_context_instrument_date_time").on(table.instrumentKey, table.tradeDate, table.candleTime, table.id),
+  tradeDateQuality: index("rt_market_context_trade_date_quality").on(table.tradeDate, table.qualityStatus, table.id),
+}));
+
+export type RtMarketContextEvent = typeof rtMarketContextEvents.$inferSelect;
+export type InsertRtMarketContextEvent = typeof rtMarketContextEvents.$inferInsert;
+
+/**
  * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
  * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
  */

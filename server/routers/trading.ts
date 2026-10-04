@@ -63,6 +63,40 @@ const relayCandleProvenanceInput = z.object({
   relayAssembledAtMs: z.number().int().nonnegative().nullable().optional(),
 }).optional();
 
+const marketContextInput = z.object({
+  instrumentKey: z.enum(["nikkei225_cash", "nikkei225_mini_front"]),
+  providerSymbol: z.string().min(1).max(32),
+  productType: z.enum(["index", "future"]),
+  contractMonth: z.string().regex(/^\d{4}\/\d{2}$/).nullable().optional(),
+  marketSession: z.enum(["cash", "day", "night", "day_night"]),
+  tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  candleTime: z.string().regex(/^\d{2}:\d{2}$/),
+  open: z.number().positive(),
+  high: z.number().positive(),
+  low: z.number().positive(),
+  close: z.number().positive(),
+  volume: z.number().int().nonnegative().nullable().optional(),
+  previousClose: z.number().positive().nullable().optional(),
+  valueSource: z.enum(["ws_aggregated", "rest_fallback"]),
+  sourceEventId: z.string().min(1).max(128).optional(),
+  relaySessionId: z.string().min(1).max(96).optional(),
+  eventSeq: z.number().int().nonnegative().optional(),
+  payloadHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  observedAtMs: z.number().int().nonnegative().nullable().optional(),
+  relaySentAtMs: z.number().int().nonnegative().nullable().optional(),
+  correctedEventId: z.string().min(1).max(128).nullable().optional(),
+}).superRefine((value, context) => {
+  if (value.high < Math.max(value.open, value.close) || value.low > Math.min(value.open, value.close) || value.high < value.low) {
+    context.addIssue({ code: "custom", message: "OHLCの大小関係が不正です" });
+  }
+  if (value.instrumentKey === "nikkei225_cash" && value.productType !== "index") {
+    context.addIssue({ code: "custom", message: "nikkei225_cashはindexとして送信してください" });
+  }
+  if (value.instrumentKey === "nikkei225_mini_front" && value.productType !== "future") {
+    context.addIssue({ code: "custom", message: "nikkei225_mini_frontはfutureとして送信してください" });
+  }
+});
+
 export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
@@ -1050,6 +1084,45 @@ export const tradingRouter = router({
       boardSignals: analyzeOrderBook(book),
     }));
   }),
+
+  /**
+   * 日経平均系の市場環境専用1分足。
+   * 通常のpushCandleと入口を分け、売買engine・shadow dispatch・注文を一切呼ばない。
+   */
+  pushMarketContext: publicProcedure
+    .input(marketContextInput)
+    .mutation(async ({ input }) => {
+      const { ingestMarketContext } = await import("../marketContextIngestion");
+      return ingestMarketContext(input);
+    }),
+
+  /** 市場環境と固定時刻の選択器専用シャドー判断を読み取る。 */
+  getMarketContextSelectorShadow: protectedProcedure
+    .input(z.object({
+      tradeDate: z.string()
+        .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+        .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください"),
+      limit: z.number().int().min(1).max(240).default(90),
+    }))
+    .query(async ({ input }) => {
+      const { getLatestRtMarketContextEvents } = await import("../db");
+      const events = await getLatestRtMarketContextEvents(input);
+      return {
+        version: "market-context-selector-shadow-v1-monitoring",
+        tradeDate: input.tradeDate,
+        monitoringOnly: true,
+        automaticAdoption: false,
+        orderInstructionConnection: false,
+        latest: events[0] ?? null,
+        decisions: events.filter(event => {
+          const result = event.resultJson && typeof event.resultJson === "object"
+            ? event.resultJson as Record<string, unknown>
+            : {};
+          return result.selectorShadow !== null && result.selectorShadow !== undefined;
+        }),
+        events,
+      };
+    }),
 
   /**
    * kabuステーション® プラン設定を取得

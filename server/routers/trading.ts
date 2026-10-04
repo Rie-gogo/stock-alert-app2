@@ -33,6 +33,10 @@ import {
   RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN,
 } from "../signalCandidateLedger";
 import { isArchivedNoSignalStrategyVersion } from "../shadowArchiveLifecycle";
+import {
+  authorizePremarketAutomation,
+  premarketAutomationEnvelopeViolation,
+} from "../premarketAutomationIngress";
 
 const rtSignalCandidateLedgerInput = z.object({
   tradeDate: z.string()
@@ -135,6 +139,9 @@ const premarketContextInput = z.object({
     sourceUrl: httpsSource,
     status: premarketLegStatus,
   }).nullable(),
+});
+const premarketAutomationInput = premarketContextInput.extend({
+  ingestKey: z.string().min(32).max(256),
 });
 
 export const tradingRouter = router({
@@ -1142,6 +1149,25 @@ export const tradingRouter = router({
     .mutation(async ({ input }) => {
       const { ingestPremarketContext } = await import("../premarketContextIngestion");
       return ingestPremarketContext(input);
+    }),
+
+  /**
+   * 08:30のローカル自動調査専用。OAuthを持たないtaskから、Manus Secretと
+   * ローカルkey fileが一致する場合だけ①〜③の構造化snapshotを受け付ける。
+   */
+  pushPremarketMarketContextAutomated: publicProcedure
+    .input(premarketAutomationInput)
+    .mutation(async ({ input }) => {
+      const { ingestKey, ...snapshot } = input;
+      if (!authorizePremarketAutomation(ingestKey)) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Premarket automation key rejected" });
+      }
+      const envelopeViolation = premarketAutomationEnvelopeViolation(snapshot);
+      if (envelopeViolation) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: envelopeViolation });
+      }
+      const { ingestPremarketContext } = await import("../premarketContextIngestion");
+      return ingestPremarketContext(snapshot);
     }),
 
   /** 市場環境と固定時刻の選択器専用シャドー判断を読み取る。 */

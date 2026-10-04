@@ -4,6 +4,15 @@ Stock Alert App の既存プロジェクト `ULXu9jPfJKpbGaXVVcZcJZ` を対象�
 
 今回は調査・再生・報告だけです。コード、DB、Secrets、GitHub、strategy lifecycle、Manus checkpoint、公開環境、既存シャドー、通知、schedule、formal Gate、OrderBridge、Executor、注文instructionを変更しないでください。Manusの新規プロジェクト・新規公開URLも作成しないでください。
 
+## 0. 最重要：2種類の検証を別々に実行する
+
+この依頼には、目的と入力資格が異なる2種類の検証があります。片方の結果で片方を代用しないでください。
+
+1. **厳格監査**: provenance、raw source event、raw depth、完全coverageを要求する。本番採否の安全確認用。不足時の `no_trade` は正しい結果。
+2. **OHLC proxy参考再生**: 以前の30営業日・116件検証を再現するため、保存済み公開1分足からD-1特徴量を再構成し、次足始値を実行価格proxyとして使う。正式成績や採用判定には使わない。
+
+厳格監査が0件でも、参考再生が116件になることは矛盾ではありません。以前の参考値を再現する場合は、後述の既存スクリプトをそのまま実行してください。
+
 ## 1. 最初に同一ロジックを固定する
 
 検証前に、次のファイルを読み、既存exportを直接使用してください。
@@ -24,8 +33,8 @@ Stock Alert App の既存プロジェクト `ULXu9jPfJKpbGaXVVcZcJZ` を対象�
 | ファイル | SHA-256 |
 |---|---|
 | `technicalAnalysisShadowV2.ts` | `9DACB1A0963387F1725547D7B17292132BF1051FAB6B831C00D1E4C6765F1FD9` |
-| `technicalRegimeShadow.ts` | `91C5E0352DDC3F510F34CB5284DD280293FBD8BD879614B5AA3F54F8214CDF1A` |
-| `technicalRegimeShadowEngine.ts` | `E2A38263B2D043EF75600EE1549E5026B2206B1048B2EB27C0DFDA1664AB9672` |
+| `technicalRegimeShadow.ts` | `2C113BC3A111D4ECF4B7F7E732FA7A0F0D26ACB2C73BFA4D48259D97D3AADFF0` |
+| `technicalRegimeShadowEngine.ts` | `B3592A39C72300CBADCA44A908AFEAEBAA37CF4E4E543E337AA34E5742CD940C` |
 
 改行コード差だけなら正規化後のdiffも確認してください。実質的な内容が異なる場合は、勝手に似たロジックを作らず、そこで停止して差分・現在のGit commit・Manus checkpoint・公開revision・`sourceTreeHash`を報告してください。
 
@@ -158,6 +167,24 @@ TP変更後も、反対confirmed signal、SMA21＋MACD、break-even、日次終�
 | 次のテクニカル水準 | 116 | 48.28% | -88,261円 |
 
 この参考値は正式前向き成績ではありません。また、以前の旧世代結果である123件／候補24件と混ぜないでください。
+
+### 同じ参考検証を再現する固定コマンド
+
+独自実装を作らず、次の3ファイルを使用してください。
+
+- `analysis/replayTechnicalShadowV2Last5.ts`
+- `analysis/summarizeTechnicalShadowTpPolicies.ts`
+- `analysis/validateTechnicalShadowV2ReferenceBaseline.ts`
+
+実行手順は `analysis/TECHNICAL_SHADOW_V2_REFERENCE_REPRODUCTION.md` のとおりです。最低限、次を順に実行します。
+
+```bash
+pnpm exec tsx analysis/replayTechnicalShadowV2Last5.ts 30 2026-07-20 2026-10-02 all10 compare-targets
+pnpm exec tsx analysis/summarizeTechnicalShadowTpPolicies.ts analysis/technical-shadow-v2-last30-20260818-20261002-compare-targets.json analysis/technical-shadow-v2-tp-policy-summary-eight-symbols-last30.json
+pnpm exec tsx analysis/validateTechnicalShadowV2ReferenceBaseline.ts analysis/technical-shadow-v2-last30-20260818-20261002-compare-targets.json analysis/technical-shadow-v2-tp-policy-summary-eight-symbols-last30.json
+```
+
+検証器が `exact_reference_match` を返した場合だけ「以前と同じ参考検証を再現」と報告してください。`reference_mismatch` の場合は条件を調整せず、対象日、足数、最初の売買不一致を報告してください。
 
 ## 9. 採否判定を三つに分ける
 

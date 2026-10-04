@@ -97,6 +97,44 @@ const marketContextInput = z.object({
   }
 });
 
+const premarketLegStatus = z.enum(["verified", "degraded", "missing"]);
+const httpsSource = z.string().url().refine(value => value.startsWith("https://"), "出典URLはHTTPSで指定してください");
+const premarketContextInput = z.object({
+  sourceSnapshotId: z.string().min(1).max(128).optional(),
+  tradeDate: z.string()
+    .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+    .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください"),
+  capturedAtMs: z.number().int().nonnegative(),
+  collectorVersion: z.string().min(1).max(96),
+  sourceMode: z.enum(["scheduled_research", "provider_api", "manual_review"]),
+  dow: z.object({
+    sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    close: z.number().positive(),
+    changePct: z.number().finite().min(-20).max(20),
+    observedAtMs: z.number().int().nonnegative(),
+    sourceUrl: httpsSource,
+    status: premarketLegStatus,
+  }).nullable(),
+  cme: z.object({
+    providerSymbol: z.string().min(1).max(32),
+    contractMonth: z.string().regex(/^\d{4}\/\d{2}$/),
+    currency: z.enum(["JPY", "USD"]),
+    quote: z.number().positive(),
+    oseDayClose: z.number().positive(),
+    observedAtMs: z.number().int().nonnegative(),
+    sourceUrl: httpsSource,
+    status: premarketLegStatus,
+  }).nullable(),
+  usdJpy: z.object({
+    previousRate: z.number().positive(),
+    previousAtMs: z.number().int().nonnegative(),
+    currentRate: z.number().positive(),
+    currentAtMs: z.number().int().nonnegative(),
+    sourceUrl: httpsSource,
+    status: premarketLegStatus,
+  }).nullable(),
+});
+
 export const tradingRouter = router({
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
@@ -1096,6 +1134,14 @@ export const tradingRouter = router({
       return ingestMarketContext(input);
     }),
 
+  /** ①〜③の構造化済み開場前snapshot。文章ではなく数値・時刻・出典だけを保存する。 */
+  pushPremarketMarketContext: protectedProcedure
+    .input(premarketContextInput)
+    .mutation(async ({ input }) => {
+      const { ingestPremarketContext } = await import("../premarketContextIngestion");
+      return ingestPremarketContext(input);
+    }),
+
   /** 市場環境と固定時刻の選択器専用シャドー判断を読み取る。 */
   getMarketContextSelectorShadow: protectedProcedure
     .input(z.object({
@@ -1105,14 +1151,18 @@ export const tradingRouter = router({
       limit: z.number().int().min(1).max(240).default(90),
     }))
     .query(async ({ input }) => {
-      const { getLatestRtMarketContextEvents } = await import("../db");
-      const events = await getLatestRtMarketContextEvents(input);
+      const { getLatestRtMarketContextEvents, getLatestRtPremarketContextSnapshot } = await import("../db");
+      const [events, premarket] = await Promise.all([
+        getLatestRtMarketContextEvents(input),
+        getLatestRtPremarketContextSnapshot({ tradeDate: input.tradeDate }),
+      ]);
       return {
         version: "market-context-selector-shadow-v1-monitoring",
         tradeDate: input.tradeDate,
         monitoringOnly: true,
         automaticAdoption: false,
         orderInstructionConnection: false,
+        premarket,
         latest: events[0] ?? null,
         decisions: events.filter(event => {
           const result = event.resultJson && typeof event.resultJson === "object"

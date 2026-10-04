@@ -48,6 +48,10 @@ market_context_table_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-colu
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='rt_market_context_events';")
 market_context_index_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
   "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='rt_market_context_events' AND index_name IN ('rt_market_context_instrument_date_time','rt_market_context_trade_date_quality');")
+premarket_context_table_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='rt_premarket_context_snapshots';")
+premarket_context_index_count=$("$MYSQL_BIN" "${MYSQL_ARGS[@]}" --batch --skip-column-names "$DATABASE_NAME" -e \
+  "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='rt_premarket_context_snapshots' AND index_name IN ('rt_premarket_context_source_identity','rt_premarket_context_trade_date_capture','rt_premarket_context_trade_date_quality');")
 
 if [[ "$repair_table_count" != "3" ]]; then
   echo "Expected 3 repair tables, got $repair_table_count" >&2
@@ -71,6 +75,10 @@ if [[ "$shadow_dispatch_index_count" != "1" ]]; then
 fi
 if [[ "$market_context_table_count" != "1" || "$market_context_index_count" != "2" ]]; then
   echo "Market context schema assertion failed: tables=$market_context_table_count indexes=$market_context_index_count" >&2
+  exit 1
+fi
+if [[ "$premarket_context_table_count" != "1" || "$premarket_context_index_count" != "3" ]]; then
+  echo "Premarket context schema assertion failed: tables=$premarket_context_table_count indexes=$premarket_context_index_count" >&2
   exit 1
 fi
 

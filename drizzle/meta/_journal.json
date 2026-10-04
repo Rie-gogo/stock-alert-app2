@@ -232,6 +232,13 @@
       "when": 1791123830897,
       "tag": "0032_market_context_selector_shadow",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1791125445836,
+      "tag": "0033_premarket_context_integration",
+      "breakpoints": true
     }
   ]
 }

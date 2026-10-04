@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import {
   buildMarketContextSelectorShadowDecision,
   classifyIntradayMarketContext,
+  classifyPremarketContext,
+  combinePremarketAndIntraday,
   type MarketContextBar,
 } from "./marketContextSelectorShadow";
 
@@ -25,6 +27,55 @@ function bars(input: {
 }
 
 describe("market context selector shadow", () => {
+  const premarketInput = {
+    tradeDate: "2026-10-05",
+    capturedAtMs: Date.parse("2026-10-05T08:30:00+09:00"),
+    collectorVersion: "test-v1",
+    sourceMode: "scheduled_research" as const,
+    dow: { sessionDate: "2026-10-02", close: 45000, changePct: 1.1, observedAtMs: 1, sourceUrl: "https://example.com/dow", status: "verified" as const },
+    cme: { providerSymbol: "NIY", contractMonth: "2026/12", currency: "JPY" as const, quote: 50600, oseDayClose: 50000, observedAtMs: 2, sourceUrl: "https://example.com/cme", status: "verified" as const },
+    usdJpy: { previousRate: 150, previousAtMs: 3, currentRate: 151, currentAtMs: 4, sourceUrl: "https://example.com/fx", status: "verified" as const },
+  };
+
+  it("①〜③が同方向なら強い上昇として固定する", () => {
+    const result = classifyPremarketContext(premarketInput);
+    expect(result).toMatchObject({
+      state: "strong_up",
+      confidence: "high",
+      allowedDirections: ["long"],
+      qualityStatus: "verified",
+      verifiedLegs: 3,
+    });
+  });
+
+  it("CMEの通貨がUSDならOSE比較のverified材料にしない", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      cme: { ...premarketInput.cme, currency: "USD" },
+      dow: null,
+    });
+    expect(result.state).toBe("unavailable");
+    expect(result.reasonCodes).toContain("cme_currency_not_jpy");
+  });
+
+  it("9:00 JST以降に凍結した開場前snapshotを選択材料にしない", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      capturedAtMs: Date.parse("2026-10-05T09:01:00+09:00"),
+    });
+    expect(result).toMatchObject({ state: "unavailable", qualityStatus: "invalid", allowedDirections: [] });
+    expect(result.reasonCodes).toContain("captured_at_or_after_cash_open");
+  });
+
+  it("snapshot凍結後の観測値を先読みとして無効にする", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: { ...premarketInput.dow, observedAtMs: premarketInput.capturedAtMs + 1 },
+    });
+    expect(result).toMatchObject({ state: "unavailable", qualityStatus: "invalid" });
+    expect(result.reasonCodes).toContain("source_observed_after_snapshot_capture");
+  });
+
   it("最初の5分が揃うまで方向を選ばない", () => {
     const result = classifyIntradayMarketContext(bars({ closes: [100, 100.1, 100.2, 100.3] }));
     expect(result.state).toBe("waiting_open_confirmation");
@@ -53,6 +104,34 @@ describe("market context selector shadow", () => {
     }));
     expect(result.state).toBe("strong_down");
     expect(result.allowedDirections).toEqual(["short"]);
+  });
+
+  it("開場前と場中が09:05に逆なら見送る", () => {
+    const premarket = classifyPremarketContext(premarketInput);
+    const intraday = classifyIntradayMarketContext(bars({
+      previousClose: 100,
+      open: 99.5,
+      closes: [99.5, 99.3, 99.1, 98.9, 98.7],
+    }));
+    const combined = combinePremarketAndIntraday(premarket, intraday);
+    expect(combined).toMatchObject({ state: "wait", allowedDirections: [] });
+  });
+
+  it("明確なギャップ反転は開場前判断より場中事実を優先する", () => {
+    const premarket = classifyPremarketContext({
+      ...premarketInput,
+      dow: { ...premarketInput.dow, changePct: -1.1 },
+      cme: { ...premarketInput.cme, quote: 49400 },
+      usdJpy: { ...premarketInput.usdJpy, currentRate: 149 },
+    });
+    const intraday = classifyIntradayMarketContext(bars({
+      previousClose: 100,
+      open: 99,
+      closes: [99, 99.05, 99.1, 99.2, 99.4],
+    }));
+    const combined = combinePremarketAndIntraday(premarket, intraday);
+    expect(combined).toMatchObject({ state: "long", allowedDirections: ["long"] });
+    expect(combined.reasonCodes).toContain("explicit_gap_reversal_overrides_premarket");
   });
 
   it("同一分の再送を別の1分足として数えない", () => {
@@ -100,11 +179,16 @@ describe("market context selector shadow", () => {
   });
 
   it("市場環境ingestionは通常engine・shadow・注文をimportしない", async () => {
-    const source = await readFile(new URL("./marketContextIngestion.ts", import.meta.url), "utf8");
-    expect(source).not.toContain("./realtimeSimEngine");
-    expect(source).not.toContain("./sourceEventIngestion");
-    expect(source).not.toContain("./forwardShadow");
-    expect(source).not.toContain("./orderBridge");
-    expect(source).not.toContain("processCandle(");
+    const sources = await Promise.all([
+      readFile(new URL("./marketContextIngestion.ts", import.meta.url), "utf8"),
+      readFile(new URL("./premarketContextIngestion.ts", import.meta.url), "utf8"),
+    ]);
+    for (const source of sources) {
+      expect(source).not.toContain("./realtimeSimEngine");
+      expect(source).not.toContain("./sourceEventIngestion");
+      expect(source).not.toContain("./forwardShadow");
+      expect(source).not.toContain("./orderBridge");
+      expect(source).not.toContain("processCandle(");
+    }
   });
 });

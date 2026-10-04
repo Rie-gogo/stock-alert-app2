@@ -893,6 +893,46 @@ export type RtMarketContextEvent = typeof rtMarketContextEvents.$inferSelect;
 export type InsertRtMarketContextEvent = typeof rtMarketContextEvents.$inferInsert;
 
 /**
+ * 08:30時点の①NYダウ・②CME日経225先物・③USD/JPYを凍結した監視用snapshot。
+ * AI文章ではなく数値・時刻・出典・品質を保存し、場中④との統合判断にだけ使う。
+ */
+export const rtPremarketContextSnapshots = mysqlTable("rt_premarket_context_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceSnapshotId: varchar("source_snapshot_id", { length: 128 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
+  collectorVersion: varchar("collector_version", { length: 96 }).notNull(),
+  sourceMode: mysqlEnum("premarket_source_mode", ["scheduled_research", "provider_api", "manual_review"]).notNull(),
+  dowSessionDate: varchar("dow_session_date", { length: 10 }),
+  dowClose: decimal("dow_close", { precision: 16, scale: 6 }),
+  dowChangePct: decimal("dow_change_pct", { precision: 10, scale: 6 }),
+  cmeProviderSymbol: varchar("cme_provider_symbol", { length: 32 }),
+  cmeContractMonth: varchar("cme_contract_month", { length: 7 }),
+  cmeCurrency: mysqlEnum("cme_currency", ["JPY", "USD"]),
+  cmeQuote: decimal("cme_quote", { precision: 16, scale: 6 }),
+  oseDayClose: decimal("ose_day_close", { precision: 16, scale: 6 }),
+  cmeBasisPct: decimal("cme_basis_pct", { precision: 10, scale: 6 }),
+  usdJpyPrevious: decimal("usd_jpy_previous", { precision: 16, scale: 6 }),
+  usdJpyCurrent: decimal("usd_jpy_current", { precision: 16, scale: 6 }),
+  usdJpyChangePct: decimal("usd_jpy_change_pct", { precision: 10, scale: 6 }),
+  inputHash: varchar("input_hash", { length: 64 }).notNull(),
+  ruleVersion: varchar("rule_version", { length: 96 }).notNull(),
+  qualityStatus: mysqlEnum("premarket_quality_status", ["verified", "degraded", "invalid"]).notNull(),
+  regimeState: mysqlEnum("premarket_regime_state", ["strong_up", "up", "mixed", "down", "strong_down", "unavailable"]).notNull(),
+  confidence: mysqlEnum("premarket_confidence", ["high", "medium", "low", "unavailable"]).notNull(),
+  inputJson: json("input_json").notNull(),
+  resultJson: json("result_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_premarket_context_source_identity").on(table.sourceSnapshotId),
+  tradeDateCapture: index("rt_premarket_context_trade_date_capture").on(table.tradeDate, table.capturedAtMs, table.id),
+  tradeDateQuality: index("rt_premarket_context_trade_date_quality").on(table.tradeDate, table.qualityStatus, table.id),
+}));
+
+export type RtPremarketContextSnapshot = typeof rtPremarketContextSnapshots.$inferSelect;
+export type InsertRtPremarketContextSnapshot = typeof rtPremarketContextSnapshots.$inferInsert;
+
+/**
  * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
  * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
  */

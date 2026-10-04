@@ -573,6 +573,7 @@ import {
   rtKioxiaShortGuardEvents,
   rtSourceEvents,
   rtMarketContextEvents,
+  rtPremarketContextSnapshots,
   rtShadowDispatchQueue,
   rtStrategyVersions,
   rtForwardShadowEvents,
@@ -619,6 +620,8 @@ import {
   type RtSourceEvent,
   type InsertRtMarketContextEvent,
   type RtMarketContextEvent,
+  type InsertRtPremarketContextSnapshot,
+  type RtPremarketContextSnapshot,
   type InsertRtShadowDispatchQueue,
   type RtShadowDispatchQueue,
   type InsertRtStrategyVersion,
@@ -708,6 +711,40 @@ export async function getLatestRtMarketContextEvents(input: {
     .where(eq(rtMarketContextEvents.tradeDate, input.tradeDate))
     .orderBy(desc(rtMarketContextEvents.id))
     .limit(limit);
+}
+
+export async function getRtPremarketContextSnapshot(sourceSnapshotId: string): Promise<RtPremarketContextSnapshot | null> {
+  const db = await getDb();
+  if (!db) return null;
+  return (await db.select().from(rtPremarketContextSnapshots)
+    .where(eq(rtPremarketContextSnapshots.sourceSnapshotId, sourceSnapshotId)).limit(1))[0] ?? null;
+}
+
+export async function insertRtPremarketContextSnapshot(
+  data: Omit<InsertRtPremarketContextSnapshot, "id" | "createdAt">,
+): Promise<RtPremarketContextSnapshot> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(rtPremarketContextSnapshots).values(data).onDuplicateKeyUpdate({
+    set: { sourceSnapshotId: data.sourceSnapshotId },
+  });
+  const row = await getRtPremarketContextSnapshot(data.sourceSnapshotId);
+  if (!row) throw new Error("premarket_context_snapshot_insert_missing");
+  return row;
+}
+
+export async function getLatestRtPremarketContextSnapshot(input: {
+  tradeDate: string;
+  usableOnly?: boolean;
+}): Promise<RtPremarketContextSnapshot | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const filters = [eq(rtPremarketContextSnapshots.tradeDate, input.tradeDate)];
+  if (input.usableOnly) filters.push(inArray(rtPremarketContextSnapshots.qualityStatus, ["verified", "degraded"]));
+  return (await db.select().from(rtPremarketContextSnapshots)
+    .where(and(...filters))
+    .orderBy(desc(rtPremarketContextSnapshots.capturedAtMs), desc(rtPremarketContextSnapshots.id))
+    .limit(1))[0] ?? null;
 }
 
 /**

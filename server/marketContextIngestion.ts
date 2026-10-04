@@ -2,12 +2,14 @@ import {
   getRtDailyAuditMaterialization,
   getRtMarketContextEvent,
   getRtMarketContextEventsForDate,
+  getLatestRtPremarketContextSnapshot,
   insertRtMarketContextEvent,
 } from "./db";
 import {
   buildMarketContextSelectorShadowDecision,
   classifyIntradayMarketContext,
   type MarketContextBar,
+  type PremarketMarketRegime,
 } from "./marketContextSelectorShadow";
 import {
   ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
@@ -140,19 +142,31 @@ export async function ingestMarketContext(input: MarketContextInput) {
   let selectorShadow: ReturnType<typeof buildMarketContextSelectorShadowDecision> | null = null;
   let selectorReason = regime.checkpoint ? "route_selector_snapshot_missing" : "not_a_fixed_checkpoint";
   if (observedQuality.status === "verified" && regime.checkpoint) {
-    const routeSnapshot = await getRtDailyAuditMaterialization({
-      component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
-      version: ROUTE_GRANULAR_SELECTOR_VERSION,
-      tradeDate: input.tradeDate,
-    });
+    const [routeSnapshot, premarketSnapshot] = await Promise.all([
+      getRtDailyAuditMaterialization({
+        component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
+        version: ROUTE_GRANULAR_SELECTOR_VERSION,
+        tradeDate: input.tradeDate,
+      }),
+      getLatestRtPremarketContextSnapshot({ tradeDate: input.tradeDate, usableOnly: true }),
+    ]);
     if (routeSnapshot) {
+      const premarketResult = premarketSnapshot?.resultJson && typeof premarketSnapshot.resultJson === "object"
+        ? premarketSnapshot.resultJson as Record<string, unknown>
+        : null;
+      const premarketRegime = premarketResult?.regime && typeof premarketResult.regime === "object"
+        ? premarketResult.regime as PremarketMarketRegime
+        : null;
       selectorShadow = buildMarketContextSelectorShadowDecision({
         tradeDate: input.tradeDate,
         sourceEventId,
         regime,
+        premarketRegime,
         routeSelectorSnapshot: routeSnapshot.resultJson,
       });
-      selectorReason = "fixed_checkpoint_selector_shadow_recorded";
+      selectorReason = premarketRegime
+        ? "premarket_and_intraday_fixed_checkpoint_selector_shadow_recorded"
+        : "intraday_only_fixed_checkpoint_selector_shadow_recorded";
     }
   }
 

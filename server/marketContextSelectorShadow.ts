@@ -1,6 +1,7 @@
 import { sha256Stable } from "./runtimeIdentity";
 
 export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v1-monitoring";
+export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v1-monitoring";
 
 export const MARKET_CONTEXT_CHECKPOINTS = Object.freeze({
   "09:04": "09:05",
@@ -52,6 +53,64 @@ export type IntradayMarketRegime = {
   };
 };
 
+export type PremarketLegStatus = "verified" | "degraded" | "missing";
+
+export type PremarketContextInput = {
+  tradeDate: string;
+  capturedAtMs: number;
+  collectorVersion: string;
+  sourceMode: "scheduled_research" | "provider_api" | "manual_review";
+  dow: {
+    sessionDate: string;
+    close: number;
+    changePct: number;
+    observedAtMs: number;
+    sourceUrl: string;
+    status: PremarketLegStatus;
+  } | null;
+  cme: {
+    providerSymbol: string;
+    contractMonth: string;
+    currency: "JPY" | "USD";
+    quote: number;
+    oseDayClose: number;
+    observedAtMs: number;
+    sourceUrl: string;
+    status: PremarketLegStatus;
+  } | null;
+  usdJpy: {
+    previousRate: number;
+    previousAtMs: number;
+    currentRate: number;
+    currentAtMs: number;
+    sourceUrl: string;
+    status: PremarketLegStatus;
+  } | null;
+};
+
+export type PremarketMarketRegime = {
+  version: typeof PREMARKET_CONTEXT_RULE_VERSION;
+  state: "strong_up" | "up" | "mixed" | "down" | "strong_down" | "unavailable";
+  confidence: "high" | "medium" | "low" | "unavailable";
+  allowedDirections: Array<"long" | "short">;
+  qualityStatus: "verified" | "degraded" | "invalid";
+  verifiedLegs: number;
+  reasonCodes: string[];
+  metrics: {
+    dowChangePct: number | null;
+    cmeBasisPct: number | null;
+    usdJpyChangePct: number | null;
+    directionalScore: number;
+  };
+};
+
+export type CombinedMarketRegime = {
+  state: "long" | "short" | "wait";
+  confidence: "high" | "medium" | "low" | "unavailable";
+  allowedDirections: Array<"long" | "short">;
+  reasonCodes: string[];
+};
+
 type Value = Record<string, unknown>;
 
 function object(value: unknown): Value {
@@ -65,6 +124,136 @@ function finite(value: unknown): number | null {
 
 function pct(current: number, base: number) {
   return base > 0 ? (current / base - 1) * 100 : null;
+}
+
+function directionalVote(value: number | null, mild: number, strong: number): number {
+  if (value === null) return 0;
+  if (value >= strong) return 2;
+  if (value >= mild) return 1;
+  if (value <= -strong) return -2;
+  if (value <= -mild) return -1;
+  return 0;
+}
+
+function premarketTemporalViolations(input: PremarketContextInput): string[] {
+  const reasons: string[] = [];
+  const capturedAtMs = finite(input.capturedAtMs);
+  if (capturedAtMs === null || capturedAtMs < 0) return ["captured_at_invalid"];
+  const jst = new Date(capturedAtMs + 9 * 60 * 60 * 1000);
+  const capturedTradeDate = jst.toISOString().slice(0, 10);
+  const capturedMinuteJst = jst.getUTCHours() * 60 + jst.getUTCMinutes();
+  if (capturedTradeDate !== input.tradeDate) reasons.push("captured_date_not_trade_date_jst");
+  if (capturedMinuteJst >= 9 * 60) reasons.push("captured_at_or_after_cash_open");
+  const observedTimes = [input.dow?.observedAtMs, input.cme?.observedAtMs, input.usdJpy?.currentAtMs]
+    .filter((value): value is number => value !== null && value !== undefined);
+  if (observedTimes.some(value => !Number.isFinite(value) || value > capturedAtMs)) reasons.push("source_observed_after_snapshot_capture");
+  if (input.usdJpy && input.usdJpy.previousAtMs > input.usdJpy.currentAtMs) reasons.push("usd_jpy_time_order_invalid");
+  return reasons;
+}
+
+/**
+ * ①〜③を、結果を見て日中変更しない固定v1閾値で分類する。
+ * CMEはOSEと直接比較できるJPY建てだけをverified材料として扱う。
+ */
+export function classifyPremarketContext(input: PremarketContextInput): PremarketMarketRegime {
+  const dowVerified = input.dow?.status === "verified";
+  const cmeVerified = input.cme?.status === "verified" && input.cme.currency === "JPY";
+  const fxVerified = input.usdJpy?.status === "verified";
+  const dowChangePct = dowVerified ? finite(input.dow?.changePct) : null;
+  const cmeBasisPct = cmeVerified && input.cme ? pct(input.cme.quote, input.cme.oseDayClose) : null;
+  const usdJpyChangePct = fxVerified && input.usdJpy ? pct(input.usdJpy.currentRate, input.usdJpy.previousRate) : null;
+  const verifiedLegs = [dowVerified, cmeVerified, fxVerified].filter(Boolean).length;
+  const reasonCodes: string[] = [];
+  if (input.cme?.status === "verified" && input.cme.currency !== "JPY") reasonCodes.push("cme_currency_not_jpy");
+  if (!dowVerified) reasonCodes.push("dow_not_verified");
+  if (!cmeVerified) reasonCodes.push("cme_jpy_not_verified");
+  if (!fxVerified) reasonCodes.push("usd_jpy_not_verified");
+  const directionalScore = directionalVote(dowChangePct, 0.3, 1.0)
+    + directionalVote(cmeBasisPct, 0.35, 0.9)
+    + directionalVote(usdJpyChangePct, 0.2, 0.6);
+  const metrics = { dowChangePct, cmeBasisPct, usdJpyChangePct, directionalScore };
+  const temporalViolations = premarketTemporalViolations(input);
+  if (temporalViolations.length > 0) {
+    return {
+      version: PREMARKET_CONTEXT_RULE_VERSION,
+      state: "unavailable",
+      confidence: "unavailable",
+      allowedDirections: [],
+      qualityStatus: "invalid",
+      verifiedLegs,
+      reasonCodes: [...reasonCodes, ...temporalViolations],
+      metrics,
+    };
+  }
+  if (verifiedLegs < 2) {
+    return {
+      version: PREMARKET_CONTEXT_RULE_VERSION,
+      state: "unavailable",
+      confidence: "unavailable",
+      allowedDirections: [],
+      qualityStatus: verifiedLegs === 0 ? "invalid" : "degraded",
+      verifiedLegs,
+      reasonCodes: [...reasonCodes, "fewer_than_two_verified_inputs"],
+      metrics,
+    };
+  }
+  let state: PremarketMarketRegime["state"] = "mixed";
+  let allowedDirections: PremarketMarketRegime["allowedDirections"] = [];
+  if (directionalScore >= 4) { state = "strong_up"; allowedDirections = ["long"]; }
+  else if (directionalScore >= 2) { state = "up"; allowedDirections = ["long"]; }
+  else if (directionalScore <= -4) { state = "strong_down"; allowedDirections = ["short"]; }
+  else if (directionalScore <= -2) { state = "down"; allowedDirections = ["short"]; }
+  else reasonCodes.push("premarket_inputs_mixed_or_small");
+  const qualityStatus = verifiedLegs === 3 ? "verified" as const : "degraded" as const;
+  const confidence = Math.abs(directionalScore) >= 4 && verifiedLegs === 3
+    ? "high" as const
+    : Math.abs(directionalScore) >= 2
+      ? "medium" as const
+      : "low" as const;
+  return {
+    version: PREMARKET_CONTEXT_RULE_VERSION,
+    state,
+    confidence,
+    allowedDirections,
+    qualityStatus,
+    verifiedLegs,
+    reasonCodes: [...reasonCodes, `directional_score_${directionalScore}`],
+    metrics,
+  };
+}
+
+/** 開場前①〜③と場中④の固定ルール。保有中ポジションには適用しない。 */
+export function combinePremarketAndIntraday(
+  premarket: PremarketMarketRegime | null,
+  intraday: IntradayMarketRegime,
+): CombinedMarketRegime {
+  const preDirection = premarket?.allowedDirections[0] ?? null;
+  const intraDirection = intraday.allowedDirections[0] ?? null;
+  const explicitReversal = intraday.state === "gap_down_recovery" || intraday.state === "gap_up_failure";
+  if (!premarket || premarket.state === "unavailable") {
+    return intraDirection
+      ? { state: intraDirection, confidence: intraday.confidence, allowedDirections: [intraDirection], reasonCodes: ["intraday_only_premarket_unavailable"] }
+      : { state: "wait", confidence: "unavailable", allowedDirections: [], reasonCodes: ["premarket_and_intraday_unavailable"] };
+  }
+  if (explicitReversal && intraDirection) {
+    return { state: intraDirection, confidence: intraday.confidence, allowedDirections: [intraDirection], reasonCodes: ["explicit_gap_reversal_overrides_premarket"] };
+  }
+  if (preDirection && intraDirection && preDirection === intraDirection) {
+    return { state: intraDirection, confidence: premarket.confidence === "high" && intraday.confidence === "high" ? "high" : "medium", allowedDirections: [intraDirection], reasonCodes: ["premarket_and_intraday_agree"] };
+  }
+  if (preDirection && intraDirection && preDirection !== intraDirection) {
+    if (intraday.decisionAt === "10:00" || intraday.decisionAt === "12:35" || intraday.decisionAt === "13:30") {
+      return { state: intraDirection, confidence: intraday.confidence, allowedDirections: [intraDirection], reasonCodes: ["persistent_intraday_direction_overrides_premarket_after_1000"] };
+    }
+    return { state: "wait", confidence: "low", allowedDirections: [], reasonCodes: ["premarket_intraday_conflict_wait"] };
+  }
+  if (preDirection && !intraDirection && premarket.confidence === "high") {
+    return { state: preDirection, confidence: "low", allowedDirections: [preDirection], reasonCodes: ["high_confidence_premarket_intraday_mixed"] };
+  }
+  if (!preDirection && intraDirection) {
+    return { state: intraDirection, confidence: intraday.confidence, allowedDirections: [intraDirection], reasonCodes: ["mixed_premarket_intraday_confirmed"] };
+  }
+  return { state: "wait", confidence: "low", allowedDirections: [], reasonCodes: ["combined_direction_unconfirmed"] };
 }
 
 function unavailable(reasonCodes: string[], observedThrough: string | null = null): IntradayMarketRegime {
@@ -196,16 +385,18 @@ export function buildMarketContextSelectorShadowDecision(input: {
   tradeDate: string;
   sourceEventId: string;
   regime: IntradayMarketRegime;
+  premarketRegime?: PremarketMarketRegime | null;
   routeSelectorSnapshot: unknown;
 }) {
   const snapshot = object(input.routeSelectorSnapshot);
   const rawScores = Array.isArray(snapshot.scores) ? snapshot.scores.map(object) : [];
+  const combinedRegime = combinePremarketAndIntraday(input.premarketRegime ?? null, input.regime);
   const symbols = Array.from(new Set(rawScores.map(row => String(row.symbol ?? "")).filter(Boolean))).sort();
   const selections = symbols.map(symbol => {
     const candidates = rawScores
       .filter(row => row.symbol === symbol)
       .filter(row => row.selectable === true)
-      .filter(row => input.regime.allowedDirections.includes(String(row.direction) as "long" | "short"))
+      .filter(row => combinedRegime.allowedDirections.includes(String(row.direction) as "long" | "short"))
       .filter(row => (finite(row.expectedDailyPnlPer100) ?? 0) > 0)
       .sort((a, b) => {
         const expected = (finite(b.expectedDailyPnlPer100) ?? 0) - (finite(a.expectedDailyPnlPer100) ?? 0);
@@ -220,7 +411,7 @@ export function buildMarketContextSelectorShadowDecision(input: {
       selectedDirection: chosen?.direction ?? null,
       expectedDailyPnlPer100: finite(chosen?.expectedDailyPnlPer100),
       decision: chosen ? "selector_shadow" : "no_selection",
-      reason: chosen ? "d_minus_1_route_score_filtered_by_intraday_market_context" : input.regime.allowedDirections.length === 0 ? "market_direction_unconfirmed" : "no_positive_eligible_route_for_market_direction",
+      reason: chosen ? "d_minus_1_route_score_filtered_by_combined_market_context" : combinedRegime.allowedDirections.length === 0 ? "combined_market_direction_unconfirmed" : "no_positive_eligible_route_for_market_direction",
     };
   });
   const result = {
@@ -231,8 +422,10 @@ export function buildMarketContextSelectorShadowDecision(input: {
     monitoringOnly: true,
     automaticAdoption: false,
     orderInstructionConnection: false,
-    premarketContextIntegrated: false,
+    premarketContextIntegrated: input.premarketRegime !== undefined && input.premarketRegime !== null,
+    premarketRegime: input.premarketRegime ?? null,
     regime: input.regime,
+    combinedRegime,
     selectorSnapshotVersion: snapshot.selectorVersion ?? null,
     selectorSnapshotInputHash: snapshot.inputHash ?? null,
     selections,

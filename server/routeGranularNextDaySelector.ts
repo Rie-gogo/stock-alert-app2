@@ -9,7 +9,7 @@ import { buildTechnicalMarketRegimeTimeline, TECHNICAL_MARKET_REGIME_VERSION, ty
 
 export const ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT = "route_granular_next_day_selector";
 export const ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT = "route_granular_next_day_selector_result";
-export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v3";
+export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v4-market-context-candidates";
 export const ROUTE_GRANULAR_SELECTOR_CONFIG = Object.freeze({
   version: ROUTE_GRANULAR_SELECTOR_VERSION,
   variants: ROUTE_GRANULAR_VARIANTS,
@@ -132,13 +132,85 @@ function buildRouteRecentTrend(history: RouteHistoryRow[]) {
 
 type TechnicalTimeline = Record<string, Record<string, TechnicalMarketRegime>>;
 
-function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: string; cutoffFeature: Value; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle>; catalogComplete: boolean; technicalTimeline: TechnicalTimeline }) {
-  if (!input.catalogComplete) return { ...input.variant, lifecycle: "unavailable", selectable: false, exclusionReasons: ["route_catalog_incomplete_or_unresolved"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
+/**
+ * ①〜④の市場方向で絞り込むための候補資格。
+ * 通常の経路別選択器が必要とするD-1テクニカル特徴量とは独立に、
+ * lifecycleと保存済みの確定済み経路成績だけから作る。
+ * 少数標本はprovisionalの監視候補であり、本採用には使わない。
+ */
+function buildMarketContextCandidate(input: {
+  variant: RouteGranularVariant;
+  sourceTradeDate: string;
+  dailyRows: Row[];
+  lifecycles: Record<string, Lifecycle>;
+  catalogComplete: boolean;
+}) {
+  if (!input.catalogComplete) {
+    return {
+      marketContextEligible: false,
+      marketContextEvidenceLevel: "unavailable" as const,
+      marketContextExpectedDailyPnlPer100: null,
+      marketContextRecent10AveragePnlPerTrade: null,
+      marketContextCompletedTrades: 0,
+      marketContextRecent10CompletedTrades: 0,
+      marketContextExclusionReasons: ["route_catalog_incomplete_or_unresolved"],
+    };
+  }
   const lifecycle = isLifecycleEligible(input.variant, input.lifecycles);
-  if (!lifecycle.eligible) return { ...input.variant, lifecycle: "unavailable", selectable: false, exclusionReasons: [lifecycle.reason], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
-  if (!featureEligible(input.cutoffFeature)) return { ...input.variant, lifecycle: "eligible", selectable: false, exclusionReasons: ["feature_or_provenance_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
+  if (!lifecycle.eligible) {
+    return {
+      marketContextEligible: false,
+      marketContextEvidenceLevel: "unavailable" as const,
+      marketContextExpectedDailyPnlPer100: null,
+      marketContextRecent10AveragePnlPerTrade: null,
+      marketContextCompletedTrades: 0,
+      marketContextRecent10CompletedTrades: 0,
+      marketContextExclusionReasons: [lifecycle.reason],
+    };
+  }
+  const history = input.dailyRows
+    .filter(row => row.tradeDate <= input.sourceTradeDate && snapshot(row) !== null)
+    .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate))
+    .map(row => ({ date: row.tradeDate, plan: plan(snapshot(row), input.variant.rowId) }));
+  const trend = buildRouteRecentTrend(history);
+  const all = trend.windows.all;
+  const recent10 = trend.windows.recent10;
+  const expectedDailyPnlPer100 = recent10.includedTradingDays > 0
+    ? recent10.pnlPer100 / recent10.includedTradingDays
+    : null;
+  const recent10AveragePnlPerTrade = recent10.completedTrades > 0
+    ? recent10.pnlPer100 / recent10.completedTrades
+    : null;
+  const exclusionReasons = [
+    ...(all.completedTrades < 1 ? ["no_completed_route_trade"] : []),
+    ...(recent10.completedTrades < 1 ? ["no_recent10_completed_route_trade"] : []),
+    ...(all.pnlPer100 <= 0 ? ["non_positive_all_route_pnl"] : []),
+    ...(recent10.pnlPer100 <= 0 ? ["non_positive_recent10_route_pnl"] : []),
+    ...(expectedDailyPnlPer100 === null || expectedDailyPnlPer100 <= 0 ? ["non_positive_market_context_expected_daily_pnl"] : []),
+  ];
+  return {
+    marketContextEligible: exclusionReasons.length === 0,
+    marketContextEvidenceLevel: all.completedTrades >= 10 && recent10.completedTrades >= 2
+      ? "established" as const
+      : "provisional" as const,
+    marketContextExpectedDailyPnlPer100: expectedDailyPnlPer100,
+    marketContextRecent10AveragePnlPerTrade: recent10AveragePnlPerTrade,
+    marketContextCompletedTrades: all.completedTrades,
+    marketContextRecent10CompletedTrades: recent10.completedTrades,
+    marketContextRecent10PnlPer100: recent10.pnlPer100,
+    marketContextAllPnlPer100: all.pnlPer100,
+    marketContextExclusionReasons: exclusionReasons,
+  };
+}
+
+function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: string; cutoffFeature: Value; featureRows: Row[]; dailyRows: Row[]; lifecycles: Record<string, Lifecycle>; catalogComplete: boolean; technicalTimeline: TechnicalTimeline }) {
+  const marketContextCandidate = buildMarketContextCandidate(input);
+  if (!input.catalogComplete) return { ...input.variant, ...marketContextCandidate, lifecycle: "unavailable", selectable: false, exclusionReasons: ["route_catalog_incomplete_or_unresolved"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
+  const lifecycle = isLifecycleEligible(input.variant, input.lifecycles);
+  if (!lifecycle.eligible) return { ...input.variant, ...marketContextCandidate, lifecycle: "unavailable", selectable: false, exclusionReasons: [lifecycle.reason], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
+  if (!featureEligible(input.cutoffFeature)) return { ...input.variant, ...marketContextCandidate, lifecycle: "eligible", selectable: false, exclusionReasons: ["feature_or_provenance_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null };
   const currentRegime = input.technicalTimeline[input.sourceTradeDate]?.[input.variant.symbol];
-  if (!currentRegime?.eligible) return { ...input.variant, lifecycle: "eligible", selectable: false, exclusionReasons: ["technical_regime_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null, technicalRegime: currentRegime ?? null };
+  if (!currentRegime?.eligible) return { ...input.variant, ...marketContextCandidate, lifecycle: "eligible", selectable: false, exclusionReasons: ["technical_regime_unavailable"], fallbackLevel: "unavailable", eligibleDays: 0, completedTrades: 0, expectedDailyPnlPer100: null, technicalRegime: currentRegime ?? null };
   const dailyByDate = new Map(input.dailyRows.map(row => [row.tradeDate, snapshot(row)]));
   const featureDates = input.featureRows
     .filter(row => row.status === "complete" && row.tradeDate <= input.sourceTradeDate)
@@ -200,6 +272,7 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
   ];
   return {
     ...input.variant,
+    ...marketContextCandidate,
     lifecycle: "eligible",
     eligibleDays: history.length,
     completedTrades: variant.trades,

@@ -1,6 +1,6 @@
 import { sha256Stable } from "./runtimeIdentity";
 
-export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v1-monitoring";
+export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v2-monitoring";
 export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v1-monitoring";
 
 export const MARKET_CONTEXT_CHECKPOINTS = Object.freeze({
@@ -377,6 +377,52 @@ export function classifyIntradayMarketContext(rawBars: MarketContextBar[]): Intr
   };
 }
 
+function marketContextMetric(row: Value) {
+  return finite(row.marketContextExpectedDailyPnlPer100)
+    ?? finite(row.expectedDailyPnlPer100);
+}
+
+function marketContextCandidate(row: Value) {
+  return row.marketContextEligible === true
+    || (row.marketContextEligible === undefined && row.selectable === true);
+}
+
+function selectMarketContextRoutes(rawScores: Value[], allowedDirections: Array<"long" | "short">) {
+  const symbols = Array.from(new Set(rawScores.map(row => String(row.symbol ?? "")).filter(Boolean))).sort();
+  return symbols.map(symbol => {
+    const symbolScores = rawScores.filter(row => row.symbol === symbol);
+    const candidates = symbolScores
+      .filter(marketContextCandidate)
+      .filter(row => allowedDirections.includes(String(row.direction) as "long" | "short"))
+      .filter(row => (marketContextMetric(row) ?? 0) > 0)
+      .sort((a, b) => {
+        const expected = (marketContextMetric(b) ?? 0) - (marketContextMetric(a) ?? 0);
+        return expected !== 0 ? expected : (finite(b.marketContextRecent10AveragePnlPerTrade) ?? finite(b.recentTrendRankingPnlPerTrade) ?? 0)
+          - (finite(a.marketContextRecent10AveragePnlPerTrade) ?? finite(a.recentTrendRankingPnlPerTrade) ?? 0);
+      });
+    const chosen = candidates[0] ?? null;
+    return {
+      symbol,
+      selectedRowId: chosen?.rowId ?? null,
+      selectedCanonicalLogic: chosen?.canonicalLogic ?? null,
+      selectedStrategyVersion: chosen?.strategyVersion ?? null,
+      selectedDirection: chosen?.direction ?? null,
+      expectedDailyPnlPer100: chosen ? marketContextMetric(chosen) : null,
+      evidenceLevel: chosen?.marketContextEvidenceLevel ?? (chosen ? "legacy_selector" : null),
+      completedTrades: finite(chosen?.marketContextCompletedTrades),
+      recent10CompletedTrades: finite(chosen?.marketContextRecent10CompletedTrades),
+      decision: chosen ? "selector_shadow" : "no_selection",
+      reason: chosen
+        ? "closed_route_performance_filtered_by_market_context"
+        : allowedDirections.length === 0
+          ? "combined_market_direction_unconfirmed"
+          : symbolScores.some(marketContextCandidate)
+            ? "no_positive_eligible_route_for_market_direction"
+            : "no_route_with_positive_closed_performance_evidence",
+    };
+  });
+}
+
 /**
  * 前日閉場後に凍結したroute scoreを、場中の市場方向で絞るだけのシャドー選択。
  * source engine、既存shadow、資金配分、注文には接続しない。
@@ -391,34 +437,13 @@ export function buildMarketContextSelectorShadowDecision(input: {
   const snapshot = object(input.routeSelectorSnapshot);
   const rawScores = Array.isArray(snapshot.scores) ? snapshot.scores.map(object) : [];
   const combinedRegime = combinePremarketAndIntraday(input.premarketRegime ?? null, input.regime);
-  const symbols = Array.from(new Set(rawScores.map(row => String(row.symbol ?? "")).filter(Boolean))).sort();
-  const selections = symbols.map(symbol => {
-    const candidates = rawScores
-      .filter(row => row.symbol === symbol)
-      .filter(row => row.selectable === true)
-      .filter(row => combinedRegime.allowedDirections.includes(String(row.direction) as "long" | "short"))
-      .filter(row => (finite(row.expectedDailyPnlPer100) ?? 0) > 0)
-      .sort((a, b) => {
-        const expected = (finite(b.expectedDailyPnlPer100) ?? 0) - (finite(a.expectedDailyPnlPer100) ?? 0);
-        return expected !== 0 ? expected : (finite(b.recentTrendRankingPnlPerTrade) ?? 0) - (finite(a.recentTrendRankingPnlPerTrade) ?? 0);
-      });
-    const chosen = candidates[0] ?? null;
-    return {
-      symbol,
-      selectedRowId: chosen?.rowId ?? null,
-      selectedCanonicalLogic: chosen?.canonicalLogic ?? null,
-      selectedStrategyVersion: chosen?.strategyVersion ?? null,
-      selectedDirection: chosen?.direction ?? null,
-      expectedDailyPnlPer100: finite(chosen?.expectedDailyPnlPer100),
-      decision: chosen ? "selector_shadow" : "no_selection",
-      reason: chosen ? "d_minus_1_route_score_filtered_by_combined_market_context" : combinedRegime.allowedDirections.length === 0 ? "combined_market_direction_unconfirmed" : "no_positive_eligible_route_for_market_direction",
-    };
-  });
+  const selections = selectMarketContextRoutes(rawScores, combinedRegime.allowedDirections);
   const result = {
     version: MARKET_CONTEXT_SELECTOR_SHADOW_VERSION,
     tradeDate: input.tradeDate,
     sourceEventId: input.sourceEventId,
     decisionAt: input.regime.decisionAt,
+    decisionStage: "intraday_fixed_checkpoint" as const,
     monitoringOnly: true,
     automaticAdoption: false,
     orderInstructionConnection: false,
@@ -426,6 +451,44 @@ export function buildMarketContextSelectorShadowDecision(input: {
     premarketRegime: input.premarketRegime ?? null,
     regime: input.regime,
     combinedRegime,
+    selectorSnapshotVersion: snapshot.selectorVersion ?? null,
+    selectorSnapshotInputHash: snapshot.inputHash ?? null,
+    selections,
+  };
+  return { ...result, decisionHash: sha256Stable(result) };
+}
+
+/** 08:30に①〜③だけで作る、場中判断とは独立した開場前シャドー選択。 */
+export function buildPremarketMarketContextSelectorShadowDecision(input: {
+  tradeDate: string;
+  sourceSnapshotId: string;
+  premarketRegime: PremarketMarketRegime;
+  routeSelectorSnapshot: unknown;
+}) {
+  const snapshot = object(input.routeSelectorSnapshot);
+  const rawScores = Array.isArray(snapshot.scores) ? snapshot.scores.map(object) : [];
+  const allowedDirections = input.premarketRegime.allowedDirections;
+  const selections = selectMarketContextRoutes(rawScores, allowedDirections);
+  const result = {
+    version: MARKET_CONTEXT_SELECTOR_SHADOW_VERSION,
+    tradeDate: input.tradeDate,
+    sourceEventId: input.sourceSnapshotId,
+    decisionAt: "08:30",
+    decisionStage: "premarket_0830" as const,
+    monitoringOnly: true,
+    automaticAdoption: false,
+    orderInstructionConnection: false,
+    premarketContextIntegrated: true,
+    premarketRegime: input.premarketRegime,
+    regime: null,
+    combinedRegime: {
+      state: allowedDirections[0] ?? "wait",
+      confidence: input.premarketRegime.confidence,
+      allowedDirections,
+      reasonCodes: allowedDirections.length > 0
+        ? ["premarket_direction_applied_before_open"]
+        : ["premarket_direction_unconfirmed"],
+    },
     selectorSnapshotVersion: snapshot.selectorVersion ?? null,
     selectorSnapshotInputHash: snapshot.inputHash ?? null,
     selections,

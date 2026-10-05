@@ -1184,21 +1184,38 @@ export const tradingRouter = router({
         getLatestRtMarketContextEvents(input),
         getLatestRtPremarketContextSnapshot({ tradeDate: input.tradeDate }),
       ]);
+      const decisions = events.filter(event => {
+        const result = event.resultJson && typeof event.resultJson === "object"
+          ? event.resultJson as Record<string, unknown>
+          : {};
+        return result.selectorShadow !== null && result.selectorShadow !== undefined;
+      });
+      const premarketResult = premarket?.resultJson && typeof premarket.resultJson === "object"
+        ? premarket.resultJson as Record<string, unknown>
+        : {};
+      const verifiedMarketEvents = events.filter(event => event.qualityStatus === "verified").length;
       return {
-        version: "market-context-selector-shadow-v1-monitoring",
+        version: "market-context-selector-shadow-v2-monitoring",
         tradeDate: input.tradeDate,
         monitoringOnly: true,
         automaticAdoption: false,
         orderInstructionConnection: false,
         premarket,
         latest: events[0] ?? null,
-        decisions: events.filter(event => {
-          const result = event.resultJson && typeof event.resultJson === "object"
-            ? event.resultJson as Record<string, unknown>
-            : {};
-          return result.selectorShadow !== null && result.selectorShadow !== undefined;
-        }),
+        decisions,
         events,
+        readiness: {
+          premarketSnapshotPresent: Boolean(premarket),
+          premarketUsable: premarket?.qualityStatus === "verified" || premarket?.qualityStatus === "degraded",
+          premarketSelectorRecorded: premarketResult.selectorShadow !== null && premarketResult.selectorShadow !== undefined,
+          marketContextEventCount: events.length,
+          verifiedMarketContextEventCount: verifiedMarketEvents,
+          intradaySelectorDecisionCount: decisions.length,
+          missingInputs: [
+            ...(!premarket ? ["premarket_1_to_3"] : []),
+            ...(verifiedMarketEvents === 0 ? ["nikkei225_mini_4"] : []),
+          ],
+        },
       };
     }),
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 
 const dbMock = vi.hoisted(() => ({
+  getRtDailyAuditMaterialization: vi.fn(),
   getRtPremarketContextSnapshot: vi.fn(),
   insertRtPremarketContextSnapshot: vi.fn(),
 }));
@@ -57,6 +58,7 @@ function stored(inputHash: string, qualityStatus: "verified" | "degraded" | "inv
 describe("premarket context immutable snapshot ingress", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMock.getRtDailyAuditMaterialization.mockResolvedValue(null);
     dbMock.getRtPremarketContextSnapshot.mockResolvedValue(null);
     dbMock.insertRtPremarketContextSnapshot.mockImplementation(async (row: Record<string, unknown>) => stored(
       String(row.inputHash),
@@ -88,6 +90,40 @@ describe("premarket context immutable snapshot ingress", () => {
       dow: { ...input.dow, observedAtMs: input.capturedAtMs + 1 },
     });
     expect(futureObservation).toMatchObject({ accepted: false, qualityStatus: "invalid" });
+  });
+
+  it("①〜③を08:30時点の経路選択シャドーへ渡す", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockResolvedValue({
+      resultJson: {
+        selectorVersion: "route-v3",
+        inputHash: "frozen-route-input",
+        scores: [
+          {
+            symbol: "285A",
+            rowId: "285a-long-a",
+            canonicalLogic: "candidate-long-a",
+            strategyVersion: "candidate-long-a-v1",
+            direction: "long",
+            marketContextEligible: true,
+            marketContextEvidenceLevel: "provisional",
+            marketContextExpectedDailyPnlPer100: 150,
+            marketContextCompletedTrades: 3,
+            marketContextRecent10CompletedTrades: 1,
+          },
+        ],
+      },
+    });
+    await ingestPremarketContext(input);
+    expect(dbMock.insertRtPremarketContextSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      resultJson: expect.objectContaining({
+        selectorReason: "premarket_0830_selector_shadow_recorded",
+        selectorShadow: expect.objectContaining({
+          decisionAt: "08:30",
+          decisionStage: "premarket_0830",
+          selections: [expect.objectContaining({ symbol: "285A", selectedRowId: "285a-long-a" })],
+        }),
+      }),
+    }));
   });
 
   it("does not import trading engines, shadow dispatch, candidate workers, or order routing", async () => {

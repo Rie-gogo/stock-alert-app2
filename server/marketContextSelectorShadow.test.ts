@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import {
   buildMarketContextSelectorShadowDecision,
+  buildPremarketMarketContextSelectorShadowDecision,
   classifyIntradayMarketContext,
   classifyPremarketContext,
   combinePremarketAndIntraday,
@@ -176,6 +177,63 @@ describe("market context selector shadow", () => {
     ]);
     expect(result.orderInstructionConnection).toBe(false);
     expect(result.automaticAdoption).toBe(false);
+  });
+
+  it("通常選択器のtechnical featureが不足していても①〜④専用候補を選べる", () => {
+    const regime = classifyIntradayMarketContext(bars({
+      previousClose: 100,
+      open: 99,
+      closes: [99, 99.05, 99.1, 99.2, 99.4],
+    }));
+    const result = buildMarketContextSelectorShadowDecision({
+      tradeDate: "2026-10-05",
+      sourceEventId: "market:2",
+      regime,
+      routeSelectorSnapshot: {
+        selectorVersion: "route-v3",
+        inputHash: "frozen",
+        scores: [
+          {
+            symbol: "285A",
+            rowId: "market-long",
+            canonicalLogic: "market-long",
+            strategyVersion: "market-long-v1",
+            direction: "long",
+            selectable: false,
+            exclusionReasons: ["feature_or_provenance_unavailable"],
+            marketContextEligible: true,
+            marketContextEvidenceLevel: "provisional",
+            marketContextExpectedDailyPnlPer100: 180,
+            marketContextCompletedTrades: 4,
+            marketContextRecent10CompletedTrades: 2,
+          },
+        ],
+      },
+    });
+    expect(result.selections[0]).toMatchObject({
+      selectedRowId: "market-long",
+      evidenceLevel: "provisional",
+      decision: "selector_shadow",
+    });
+  });
+
+  it("開場前①〜③だけでも08:30の選択結果を作る", () => {
+    const premarket = classifyPremarketContext(premarketInput);
+    const result = buildPremarketMarketContextSelectorShadowDecision({
+      tradeDate: "2026-10-05",
+      sourceSnapshotId: "premarket:2026-10-05:scheduled:test",
+      premarketRegime: premarket,
+      routeSelectorSnapshot: {
+        selectorVersion: "route-v3",
+        inputHash: "frozen",
+        scores: [
+          { symbol: "285A", rowId: "long", canonicalLogic: "long", strategyVersion: "long-v1", direction: "long", marketContextEligible: true, marketContextExpectedDailyPnlPer100: 100 },
+          { symbol: "285A", rowId: "short", canonicalLogic: "short", strategyVersion: "short-v1", direction: "short", marketContextEligible: true, marketContextExpectedDailyPnlPer100: 900 },
+        ],
+      },
+    });
+    expect(result).toMatchObject({ decisionAt: "08:30", decisionStage: "premarket_0830" });
+    expect(result.selections[0]).toMatchObject({ selectedRowId: "long", selectedDirection: "long" });
   });
 
   it("市場環境ingestionは通常engine・shadow・注文をimportしない", async () => {

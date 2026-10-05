@@ -1,12 +1,18 @@
 import {
+  getRtDailyAuditMaterialization,
   getRtPremarketContextSnapshot,
   insertRtPremarketContextSnapshot,
 } from "./db";
 import {
+  buildPremarketMarketContextSelectorShadowDecision,
   classifyPremarketContext,
   PREMARKET_CONTEXT_RULE_VERSION,
   type PremarketContextInput,
 } from "./marketContextSelectorShadow";
+import {
+  ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
+  ROUTE_GRANULAR_SELECTOR_VERSION,
+} from "./routeGranularNextDaySelector";
 import { sha256Stable } from "./runtimeIdentity";
 
 export type PremarketContextSubmission = PremarketContextInput & {
@@ -45,6 +51,21 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
     };
   }
   const regime = classifyPremarketContext(canonicalInput);
+  const routeSnapshot = regime.qualityStatus !== "invalid"
+    ? await getRtDailyAuditMaterialization({
+      component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
+      version: ROUTE_GRANULAR_SELECTOR_VERSION,
+      tradeDate: input.tradeDate,
+    })
+    : null;
+  const selectorShadow = routeSnapshot
+    ? buildPremarketMarketContextSelectorShadowDecision({
+      tradeDate: input.tradeDate,
+      sourceSnapshotId,
+      premarketRegime: regime,
+      routeSelectorSnapshot: routeSnapshot.resultJson,
+    })
+    : null;
   const resultJson = {
     monitoringOnly: true,
     currentEngineConnection: false,
@@ -54,6 +75,12 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
     orderInstructionConnection: false,
     automaticAdoption: false,
     regime,
+    selectorReason: selectorShadow
+      ? "premarket_0830_selector_shadow_recorded"
+      : regime.qualityStatus === "invalid"
+        ? "premarket_snapshot_invalid"
+        : "route_selector_snapshot_missing",
+    selectorShadow,
   };
   const row = await insertRtPremarketContextSnapshot({
     sourceSnapshotId,

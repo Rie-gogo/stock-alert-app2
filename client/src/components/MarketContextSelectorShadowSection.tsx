@@ -32,7 +32,10 @@ export default function MarketContextSelectorShadowSection({ tradeDate, autoRefr
   const result: any = latest?.resultJson ?? null;
   const regime: any = result?.regime ?? null;
   const decisionEvent: any = (query.data?.decisions as any[] | undefined)?.[0];
-  const decision: any = decisionEvent?.resultJson?.selectorShadow ?? null;
+  const intradayDecision: any = decisionEvent?.resultJson?.selectorShadow ?? null;
+  const premarketDecision: any = premarket?.resultJson?.selectorShadow ?? null;
+  const decision: any = intradayDecision ?? premarketDecision;
+  const readiness: any = query.data?.readiness ?? null;
   return <Card className="border-cyan-500/40 bg-card" data-testid="market-context-selector-shadow-section">
     <CardHeader className="pb-2">
       <CardTitle className="flex items-center gap-2 text-base"><Activity className="h-4 w-4 text-cyan-300" />①〜④ 市場環境・選択器専用シャドー</CardTitle>
@@ -50,6 +53,8 @@ export default function MarketContextSelectorShadowSection({ tradeDate, autoRefr
                   <div>CME対OSE <strong>{pct(premarketRegime.metrics?.cmeBasisPct)}</strong></div>
                   <div>USD/JPY <strong>{pct(premarketRegime.metrics?.usdJpyChangePct)}</strong></div>
                 </div> : <div className="mt-1 text-amber-200">8:30の構造化snapshotはまだ保存されていません。</div>}
+                {premarketDecision ? <div className="mt-1 text-cyan-200">08:30の選択判断を保存済みです。</div>
+                  : premarket ? <div className="mt-1 text-amber-200">①〜③は保存済みですが、経路選択snapshotがないため08:30判断は未作成です。</div> : null}
               </div>
               {!latest ? <div className="rounded border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">日経平均系の専用1分データを待っています。通常10銘柄の受信には影響しません。</div> : <>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -65,15 +70,20 @@ export default function MarketContextSelectorShadowSection({ tradeDate, autoRefr
                 <div>3分勢い <strong>{pct(regime?.metrics?.momentum3Pct)}</strong></div>
               </div>
               <div className="rounded border border-cyan-500/20 p-2">
-                <div className="font-medium">直近の統合固定時刻判断：{decision?.decisionAt ?? "まだありません"}</div>
+                <div className="font-medium">直近の選択判断：{decision?.decisionAt ?? "まだありません"} {decision?.decisionStage === "premarket_0830" ? "（開場前）" : decision ? "（場中固定時刻）" : ""}</div>
                 {decision?.combinedRegime ? <div className="mt-1 text-muted-foreground">統合方向：{decision.combinedRegime.allowedDirections?.join(" / ") || "見送り"}（{decision.combinedRegime.reasonCodes?.join(", ")}）</div> : null}
                 {decision?.selections?.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">
                   {decision.selections.map((item: any) => <div key={item.symbol} className="rounded bg-cyan-500/5 px-2 py-1">
                     <strong>{item.symbol}</strong>：{item.selectedCanonicalLogic ?? "no_trade"} {item.selectedDirection ? `(${item.selectedDirection})` : ""}
+                    {item.selectedCanonicalLogic ? <span className="ml-1 text-muted-foreground">[{item.evidenceLevel === "established" ? "十分な実績" : "暫定実績"}]</span> : null}
                   </div>)}
                 </div> : <div className="mt-1 text-muted-foreground">9:05・9:15・10:00・12:35・13:30の判断を待っています。</div>}
                 </div>
               </>}
+              {readiness ? <div className="rounded border border-slate-500/20 p-2 text-muted-foreground">
+                利用状況：①〜③ {readiness.premarketUsable ? "利用可" : "未利用"} / ④ {readiness.verifiedMarketContextEventCount > 0 ? `利用可（${readiness.verifiedMarketContextEventCount}件）` : "未着"} / 場中判断 {readiness.intradaySelectorDecisionCount}件
+                {readiness.missingInputs?.length ? <div className="mt-1 text-amber-200">不足：{readiness.missingInputs.join(" / ")}</div> : null}
+              </div> : null}
               <div className="rounded bg-muted/30 p-2"><ShieldCheck className="mr-1 inline h-3 w-3 text-cyan-300" />監視専用です。選ばれた案は仮想比較にだけ使い、自動採用・自動停止・注文は行いません。</div>
             </>}
     </CardContent>

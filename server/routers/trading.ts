@@ -1195,7 +1195,7 @@ export const tradingRouter = router({
         : {};
       const verifiedMarketEvents = events.filter(event => event.qualityStatus === "verified").length;
       return {
-        version: "market-context-selector-shadow-v2-monitoring",
+        version: "market-context-selector-shadow-v3-market-affinity-monitoring",
         tradeDate: input.tradeDate,
         monitoringOnly: true,
         automaticAdoption: false,

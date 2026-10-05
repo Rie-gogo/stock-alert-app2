@@ -75,9 +75,10 @@ export default function MarketContextSelectorShadowSection({ tradeDate, autoRefr
                 {decision?.selections?.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">
                   {decision.selections.map((item: any) => <div key={item.symbol} className="rounded bg-cyan-500/5 px-2 py-1">
                     <strong>{item.symbol}</strong>：{item.selectedCanonicalLogic ?? "no_trade"} {item.selectedDirection ? `(${item.selectedDirection})` : ""}
-                    {item.selectedCanonicalLogic ? <span className="ml-1 text-muted-foreground">[{item.evidenceLevel === "established" ? "十分な実績" : "暫定実績"}]</span> : null}
+                    {item.selectedCanonicalLogic ? <span className="ml-1 text-muted-foreground">[{item.routeStyle ?? "市場適合"} / 同率{item.selectedAlternatives?.length ?? 1}案]</span> : null}
                   </div>)}
                 </div> : <div className="mt-1 text-muted-foreground">9:05・9:15・10:00・12:35・13:30の判断を待っています。</div>}
+                {decision ? <div className="mt-1 text-muted-foreground">直近損益は選定条件に使わず、①〜④の市場状態と経路特性で絞ります。同じ適合度のA/B案は並行評価します。</div> : null}
                 </div>
               </>}
               {readiness ? <div className="rounded border border-slate-500/20 p-2 text-muted-foreground">

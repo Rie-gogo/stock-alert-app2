@@ -1,6 +1,6 @@
 import { sha256Stable } from "./runtimeIdentity";
 
-export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v2-monitoring";
+export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v3-market-affinity-monitoring";
 export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v1-monitoring";
 
 export const MARKET_CONTEXT_CHECKPOINTS = Object.freeze({
@@ -377,48 +377,89 @@ export function classifyIntradayMarketContext(rawBars: MarketContextBar[]): Intr
   };
 }
 
-function marketContextMetric(row: Value) {
-  return finite(row.marketContextExpectedDailyPnlPer100)
-    ?? finite(row.expectedDailyPnlPer100);
-}
-
 function marketContextCandidate(row: Value) {
   return row.marketContextEligible === true
     || (row.marketContextEligible === undefined && row.selectable === true);
 }
 
-function selectMarketContextRoutes(rawScores: Value[], allowedDirections: Array<"long" | "short">) {
+type MarketRouteStyle = "trend_long" | "reversal_long" | "trend_short" | "reversal_short";
+
+function marketRouteStyle(row: Value): MarketRouteStyle | null {
+  const group = String(row.routeGroupId ?? "").toLowerCase();
+  const direction = String(row.direction ?? "");
+  if (direction === "long") {
+    return group.includes("reversal") || group.includes("low_reversal") || group.includes("deep_reversal")
+      ? "reversal_long"
+      : "trend_long";
+  }
+  if (direction === "short") {
+    return group.includes("reversal") || group.includes("high_fade") || group.includes("peak_reversal")
+      ? "reversal_short"
+      : "trend_short";
+  }
+  return null;
+}
+
+function marketAffinity(style: MarketRouteStyle | null, states: string[]) {
+  if (!style) return 0;
+  return states.reduce((best, state) => {
+    let score = 0;
+    if (state === "gap_down_recovery") score = style === "reversal_long" ? 5 : style === "trend_long" ? 3 : 0;
+    else if (state === "gap_up_failure") score = style === "reversal_short" ? 5 : style === "trend_short" ? 3 : 0;
+    else if (state === "strong_up" || state === "up") score = style === "trend_long" ? 4 : style === "reversal_long" ? 2 : 0;
+    else if (state === "strong_down" || state === "down") score = style === "trend_short" ? 4 : style === "reversal_short" ? 2 : 0;
+    return Math.max(best, score);
+  }, 0);
+}
+
+function selectMarketContextRoutes(
+  rawScores: Value[],
+  allowedDirections: Array<"long" | "short">,
+  marketStates: string[],
+) {
   const symbols = Array.from(new Set(rawScores.map(row => String(row.symbol ?? "")).filter(Boolean))).sort();
   return symbols.map(symbol => {
     const symbolScores = rawScores.filter(row => row.symbol === symbol);
     const candidates = symbolScores
       .filter(marketContextCandidate)
       .filter(row => allowedDirections.includes(String(row.direction) as "long" | "short"))
-      .filter(row => (marketContextMetric(row) ?? 0) > 0)
-      .sort((a, b) => {
-        const expected = (marketContextMetric(b) ?? 0) - (marketContextMetric(a) ?? 0);
-        return expected !== 0 ? expected : (finite(b.marketContextRecent10AveragePnlPerTrade) ?? finite(b.recentTrendRankingPnlPerTrade) ?? 0)
-          - (finite(a.marketContextRecent10AveragePnlPerTrade) ?? finite(a.recentTrendRankingPnlPerTrade) ?? 0);
-      });
-    const chosen = candidates[0] ?? null;
+      .map(row => ({ row, style: marketRouteStyle(row), affinity: marketAffinity(marketRouteStyle(row), marketStates) }))
+      .filter(item => item.affinity > 0);
+    const bestAffinity = candidates.reduce((best, item) => Math.max(best, item.affinity), 0);
+    const best = candidates
+      .filter(item => item.affinity === bestAffinity)
+      .sort((a, b) => `${a.row.routeGroupId ?? ""}:${a.row.rowId ?? ""}`.localeCompare(`${b.row.routeGroupId ?? ""}:${b.row.rowId ?? ""}`));
+    const chosen = best[0] ?? null;
+    const selectedAlternatives = best.map(item => ({
+      rowId: item.row.rowId ?? null,
+      canonicalLogic: item.row.canonicalLogic ?? null,
+      strategyVersion: item.row.strategyVersion ?? null,
+      routeGroupId: item.row.routeGroupId ?? null,
+      direction: item.row.direction ?? null,
+      routeStyle: item.style,
+      marketAffinityScore: item.affinity,
+      completedTrades: finite(item.row.marketContextCompletedTrades),
+      recent10PnlPer100: finite(item.row.marketContextRecent10PnlPer100),
+      allPnlPer100: finite(item.row.marketContextAllPnlPer100),
+    }));
     return {
       symbol,
-      selectedRowId: chosen?.rowId ?? null,
-      selectedCanonicalLogic: chosen?.canonicalLogic ?? null,
-      selectedStrategyVersion: chosen?.strategyVersion ?? null,
-      selectedDirection: chosen?.direction ?? null,
-      expectedDailyPnlPer100: chosen ? marketContextMetric(chosen) : null,
-      evidenceLevel: chosen?.marketContextEvidenceLevel ?? (chosen ? "legacy_selector" : null),
-      completedTrades: finite(chosen?.marketContextCompletedTrades),
-      recent10CompletedTrades: finite(chosen?.marketContextRecent10CompletedTrades),
-      decision: chosen ? "selector_shadow" : "no_selection",
+      selectedRowId: chosen?.row.rowId ?? null,
+      selectedCanonicalLogic: chosen?.row.canonicalLogic ?? null,
+      selectedStrategyVersion: chosen?.row.strategyVersion ?? null,
+      selectedDirection: chosen?.row.direction ?? null,
+      routeStyle: chosen?.style ?? null,
+      marketAffinityScore: chosen?.affinity ?? null,
+      selectedAlternatives,
+      unconditionalRecentPnlUsedForSelection: false,
+      decision: chosen ? (best.length > 1 ? "selector_shadow_group" : "selector_shadow") : "no_selection",
       reason: chosen
-        ? "closed_route_performance_filtered_by_market_context"
+        ? "market_regime_route_style_affinity"
         : allowedDirections.length === 0
           ? "combined_market_direction_unconfirmed"
           : symbolScores.some(marketContextCandidate)
-            ? "no_positive_eligible_route_for_market_direction"
-            : "no_route_with_positive_closed_performance_evidence",
+            ? "no_route_style_compatible_with_market_regime"
+            : "no_active_route_candidate",
     };
   });
 }
@@ -437,7 +478,11 @@ export function buildMarketContextSelectorShadowDecision(input: {
   const snapshot = object(input.routeSelectorSnapshot);
   const rawScores = Array.isArray(snapshot.scores) ? snapshot.scores.map(object) : [];
   const combinedRegime = combinePremarketAndIntraday(input.premarketRegime ?? null, input.regime);
-  const selections = selectMarketContextRoutes(rawScores, combinedRegime.allowedDirections);
+  const selections = selectMarketContextRoutes(
+    rawScores,
+    combinedRegime.allowedDirections,
+    [input.regime.state, input.premarketRegime?.state ?? "unavailable"],
+  );
   const result = {
     version: MARKET_CONTEXT_SELECTOR_SHADOW_VERSION,
     tradeDate: input.tradeDate,
@@ -447,6 +492,9 @@ export function buildMarketContextSelectorShadowDecision(input: {
     monitoringOnly: true,
     automaticAdoption: false,
     orderInstructionConnection: false,
+    selectionPolicy: "market_regime_route_style_affinity_v1",
+    unconditionalRecentPnlUsedForSelection: false,
+    learningPolicy: "accumulate_outcomes_by_frozen_market_regime_before_conditional_ranking",
     premarketContextIntegrated: input.premarketRegime !== undefined && input.premarketRegime !== null,
     premarketRegime: input.premarketRegime ?? null,
     regime: input.regime,
@@ -468,7 +516,7 @@ export function buildPremarketMarketContextSelectorShadowDecision(input: {
   const snapshot = object(input.routeSelectorSnapshot);
   const rawScores = Array.isArray(snapshot.scores) ? snapshot.scores.map(object) : [];
   const allowedDirections = input.premarketRegime.allowedDirections;
-  const selections = selectMarketContextRoutes(rawScores, allowedDirections);
+  const selections = selectMarketContextRoutes(rawScores, allowedDirections, [input.premarketRegime.state]);
   const result = {
     version: MARKET_CONTEXT_SELECTOR_SHADOW_VERSION,
     tradeDate: input.tradeDate,
@@ -478,6 +526,9 @@ export function buildPremarketMarketContextSelectorShadowDecision(input: {
     monitoringOnly: true,
     automaticAdoption: false,
     orderInstructionConnection: false,
+    selectionPolicy: "market_regime_route_style_affinity_v1",
+    unconditionalRecentPnlUsedForSelection: false,
+    learningPolicy: "accumulate_outcomes_by_frozen_market_regime_before_conditional_ranking",
     premarketContextIntegrated: true,
     premarketRegime: input.premarketRegime,
     regime: null,

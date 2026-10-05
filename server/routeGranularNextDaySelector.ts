@@ -9,7 +9,7 @@ import { buildTechnicalMarketRegimeTimeline, TECHNICAL_MARKET_REGIME_VERSION, ty
 
 export const ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT = "route_granular_next_day_selector";
 export const ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT = "route_granular_next_day_selector_result";
-export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v4-market-context-candidates";
+export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v5-market-affinity";
 export const ROUTE_GRANULAR_SELECTOR_CONFIG = Object.freeze({
   version: ROUTE_GRANULAR_SELECTOR_VERSION,
   variants: ROUTE_GRANULAR_VARIANTS,
@@ -136,7 +136,8 @@ type TechnicalTimeline = Record<string, Record<string, TechnicalMarketRegime>>;
  * ①〜④の市場方向で絞り込むための候補資格。
  * 通常の経路別選択器が必要とするD-1テクニカル特徴量とは独立に、
  * lifecycleと保存済みの確定済み経路成績だけから作る。
- * 少数標本はprovisionalの監視候補であり、本採用には使わない。
+ * 成績は診断値として添付するが、直近・全期間損益で候補を除外しない。
+ * 候補選定は後段で①〜④の市場状態とroute styleの適合度から行う。
  */
 function buildMarketContextCandidate(input: {
   variant: RouteGranularVariant;
@@ -181,18 +182,14 @@ function buildMarketContextCandidate(input: {
   const recent10AveragePnlPerTrade = recent10.completedTrades > 0
     ? recent10.pnlPer100 / recent10.completedTrades
     : null;
-  const exclusionReasons = [
-    ...(all.completedTrades < 1 ? ["no_completed_route_trade"] : []),
-    ...(recent10.completedTrades < 1 ? ["no_recent10_completed_route_trade"] : []),
-    ...(all.pnlPer100 <= 0 ? ["non_positive_all_route_pnl"] : []),
-    ...(recent10.pnlPer100 <= 0 ? ["non_positive_recent10_route_pnl"] : []),
-    ...(expectedDailyPnlPer100 === null || expectedDailyPnlPer100 <= 0 ? ["non_positive_market_context_expected_daily_pnl"] : []),
-  ];
+  const exclusionReasons: string[] = [];
   return {
-    marketContextEligible: exclusionReasons.length === 0,
-    marketContextEvidenceLevel: all.completedTrades >= 10 && recent10.completedTrades >= 2
-      ? "established" as const
-      : "provisional" as const,
+    marketContextEligible: true,
+    marketContextEvidenceLevel: all.completedTrades >= 10
+      ? "observed" as const
+      : all.completedTrades > 0
+        ? "limited" as const
+        : "unobserved" as const,
     marketContextExpectedDailyPnlPer100: expectedDailyPnlPer100,
     marketContextRecent10AveragePnlPerTrade: recent10AveragePnlPerTrade,
     marketContextCompletedTrades: all.completedTrades,

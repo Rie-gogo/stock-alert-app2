@@ -38,7 +38,7 @@ function dailyRow(tradeDate: string, pnl: number) {
 
 describe("route-granular next-day monitoring selector", () => {
   it("declares technical market state as authority and recent trend as a safety gate", () => {
-    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-technical-regime-authority-v4-market-context-candidates");
+    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-technical-regime-authority-v5-market-affinity");
     expect(ROUTE_GRANULAR_SELECTOR_CONFIG).toMatchObject({
       decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review",
       aggregatePlanTrendAuthority: false,
@@ -177,7 +177,7 @@ describe("route-granular next-day monitoring selector", () => {
     expect(current.exclusionReasons).toContain("fewer_than_10_variant_completed_trades");
   });
 
-  it("keeps a positive closed-performance market-context candidate when technical features are unavailable", () => {
+  it("keeps an active market-context candidate when technical features are unavailable", () => {
     const cutoff = "2026-10-30";
     const rows = [
       ...Array.from({ length: 9 }, (_, index) => dailyRow(`2026-10-${String(index + 21).padStart(2, "0")}`, 100)),
@@ -200,11 +200,39 @@ describe("route-granular next-day monitoring selector", () => {
     expect(score.exclusionReasons).toContain("feature_or_provenance_unavailable");
     expect(score).toMatchObject({
       marketContextEligible: true,
-      marketContextEvidenceLevel: "established",
+      marketContextEvidenceLevel: "observed",
       marketContextCompletedTrades: 10,
       marketContextRecent10CompletedTrades: 10,
       marketContextExpectedDailyPnlPer100: 100,
     });
+  });
+
+  it("does not exclude a route from market-context matching merely because recent pnl is negative", () => {
+    const cutoff = "2026-10-30";
+    const rows = [
+      ...Array.from({ length: 9 }, (_, index) => dailyRow(`2026-10-${String(index + 21).padStart(2, "0")}`, -100)),
+      dailyRow(cutoff, -100),
+    ];
+    const unavailableFeature = featureRow(cutoff, "untracked");
+    const lifecycles: any = Object.fromEntries(ROUTE_GRANULAR_VARIANTS
+      .filter(item => item.strategyVersion)
+      .map(item => [item.strategyVersion!, { lifecycle: "monitoring", purpose: "candidate" }]));
+    const snapshot = buildRouteGranularSelectorSnapshot({
+      sourceTradeDate: cutoff,
+      feature: unavailableFeature,
+      featureRows: [unavailableFeature],
+      dailyRows: rows,
+      lifecycles,
+      watermark: { source: { count: 1 } },
+    });
+    const score = snapshot.scores.find((item: any) => item.rowId === "current:285A:confirmed_morning_long:trendLong") as any;
+    expect(score).toMatchObject({
+      marketContextEligible: true,
+      marketContextExpectedDailyPnlPer100: -100,
+      marketContextRecent10PnlPer100: -1000,
+      marketContextAllPnlPer100: -1000,
+    });
+    expect(score.marketContextExclusionReasons).toEqual([]);
   });
 
   it("blocks a route variant whose recent five-day trend deteriorated", () => {

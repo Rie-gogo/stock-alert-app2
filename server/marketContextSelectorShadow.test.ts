@@ -150,7 +150,7 @@ describe("market context selector shadow", () => {
     });
   });
 
-  it("前日snapshotの正の候補から場中方向と一致する1案だけを選ぶ", () => {
+  it("直近損益で足切りせず、場中方向とroute styleが同率の案を並行選択する", () => {
     const regime = classifyIntradayMarketContext(bars({
       previousClose: 100,
       open: 99,
@@ -172,11 +172,22 @@ describe("market context selector shadow", () => {
       },
     });
     expect(result.selections).toEqual([
-      expect.objectContaining({ symbol: "285A", selectedRowId: "long-b", decision: "selector_shadow" }),
-      expect.objectContaining({ symbol: "8035", selectedRowId: null, decision: "no_selection" }),
+      expect.objectContaining({
+        symbol: "285A",
+        selectedRowId: "long-a",
+        decision: "selector_shadow_group",
+        unconditionalRecentPnlUsedForSelection: false,
+        selectedAlternatives: [
+          expect.objectContaining({ rowId: "long-a" }),
+          expect.objectContaining({ rowId: "long-b" }),
+        ],
+      }),
+      expect.objectContaining({ symbol: "8035", selectedRowId: "negative", decision: "selector_shadow" }),
     ]);
     expect(result.orderInstructionConnection).toBe(false);
     expect(result.automaticAdoption).toBe(false);
+    expect(result.unconditionalRecentPnlUsedForSelection).toBe(false);
+    expect(result.selectionPolicy).toBe("market_regime_route_style_affinity_v1");
   });
 
   it("通常選択器のtechnical featureが不足していても①〜④専用候補を選べる", () => {
@@ -212,8 +223,35 @@ describe("market context selector shadow", () => {
     });
     expect(result.selections[0]).toMatchObject({
       selectedRowId: "market-long",
-      evidenceLevel: "provisional",
       decision: "selector_shadow",
+      unconditionalRecentPnlUsedForSelection: false,
+    });
+  });
+
+  it("ギャップ安から回復した日は単純な順張りより反転LONG経路を優先する", () => {
+    const regime = classifyIntradayMarketContext(bars({
+      previousClose: 100,
+      open: 99,
+      closes: [99, 99.05, 99.1, 99.2, 99.4],
+    }));
+    const result = buildMarketContextSelectorShadowDecision({
+      tradeDate: "2026-10-05",
+      sourceEventId: "market:gap-recovery",
+      regime,
+      routeSelectorSnapshot: {
+        selectorVersion: "route-v5",
+        inputHash: "frozen",
+        scores: [
+          { symbol: "285A", rowId: "trend", routeGroupId: "confirmed_morning_long", canonicalLogic: "trend", strategyVersion: "trend-v1", direction: "long", marketContextEligible: true, marketContextExpectedDailyPnlPer100: 500 },
+          { symbol: "285A", rowId: "reversal", routeGroupId: "reversal_long", canonicalLogic: "reversal", strategyVersion: "reversal-v1", direction: "long", marketContextEligible: true, marketContextExpectedDailyPnlPer100: -500 },
+        ],
+      },
+    });
+    expect(result.selections[0]).toMatchObject({
+      selectedRowId: "reversal",
+      selectedCanonicalLogic: "reversal",
+      routeStyle: "reversal_long",
+      marketAffinityScore: 5,
     });
   });
 

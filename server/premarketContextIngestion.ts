@@ -34,7 +34,17 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
     collectorVersion: input.collectorVersion,
     sourceMode: input.sourceMode,
     dow: input.dow,
-    cme: input.cme,
+    cme: input.cme ? {
+      providerSymbol: input.cme.providerSymbol,
+      contractMonth: input.cme.contractMonth,
+      currency: input.cme.currency,
+      quote: input.cme.quote,
+      observedAtMs: input.cme.observedAtMs,
+      comparisonPolicy: input.cme.comparisonPolicy,
+      previousSession: input.cme.previousSession ?? null,
+      sourceUrl: input.cme.sourceUrl,
+      status: input.cme.status,
+    } : null,
     usdJpy: input.usdJpy,
   };
   const inputHash = sha256Stable(canonicalInput);
@@ -95,8 +105,10 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
     cmeContractMonth: input.cme?.contractMonth ?? null,
     cmeCurrency: input.cme?.currency ?? null,
     cmeQuote: decimal(input.cme?.quote),
-    oseDayClose: decimal(input.cme?.oseDayClose),
-    cmeBasisPct: decimal(regime.metrics.cmeBasisPct),
+    // 同一CME比較の入力・計算値はinputJson/resultJsonへ完全保存する。
+    // 旧列は履歴互換のため残すが、v2以降は判定にも新規保存にも使用しない。
+    oseDayClose: null,
+    cmeBasisPct: null,
     usdJpyPrevious: decimal(input.usdJpy?.previousRate),
     usdJpyCurrent: decimal(input.usdJpy?.currentRate),
     usdJpyChangePct: decimal(regime.metrics.usdJpyChangePct),

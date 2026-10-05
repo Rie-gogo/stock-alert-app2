@@ -50,7 +50,7 @@ export default function MarketContextSelectorShadowSection({ tradeDate, autoRefr
                 {premarketRegime ? <div className="mt-1 grid gap-1 sm:grid-cols-4">
                   <div>品質 <strong>{premarket?.qualityStatus ?? "—"}</strong></div>
                   <div>NYダウ <strong>{pct(premarketRegime.metrics?.dowChangePct)}</strong></div>
-                  <div>CME対OSE <strong>{pct(premarketRegime.metrics?.cmeBasisPct)}</strong></div>
+                  <div>CME前営業日同時刻比 <strong>{pct(premarketRegime.metrics?.cmePreviousSessionChangePct)}</strong></div>
                   <div>USD/JPY <strong>{pct(premarketRegime.metrics?.usdJpyChangePct)}</strong></div>
                 </div> : <div className="mt-1 text-amber-200">8:30の構造化snapshotはまだ保存されていません。</div>}
                 {premarketDecision ? <div className="mt-1 text-cyan-200">08:30の選択判断を保存済みです。</div>

@@ -1,7 +1,8 @@
 import { sha256Stable } from "./runtimeIdentity";
+import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 
 export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v3-market-affinity-monitoring";
-export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v1-monitoring";
+export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v2-same-cme-session";
 
 export const MARKET_CONTEXT_CHECKPOINTS = Object.freeze({
   "09:04": "09:05",
@@ -73,8 +74,16 @@ export type PremarketContextInput = {
     contractMonth: string;
     currency: "JPY" | "USD";
     quote: number;
-    oseDayClose: number;
     observedAtMs: number;
+    comparisonPolicy?: "same_cme_previous_jpx_business_day_0830";
+    previousSession?: {
+      tradeDate: string;
+      providerSymbol: string;
+      contractMonth: string;
+      currency: "JPY" | "USD";
+      quote: number;
+      observedAtMs: number;
+    } | null;
     sourceUrl: string;
     status: PremarketLegStatus;
   } | null;
@@ -98,7 +107,7 @@ export type PremarketMarketRegime = {
   reasonCodes: string[];
   metrics: {
     dowChangePct: number | null;
-    cmeBasisPct: number | null;
+    cmePreviousSessionChangePct: number | null;
     usdJpyChangePct: number | null;
     directionalScore: number;
   };
@@ -135,6 +144,42 @@ function directionalVote(value: number | null, mild: number, strong: number): nu
   return 0;
 }
 
+function jstDateAndMinute(epochMs: number) {
+  const jst = new Date(epochMs + 9 * 60 * 60 * 1000);
+  return {
+    tradeDate: jst.toISOString().slice(0, 10),
+    minute: jst.getUTCHours() * 60 + jst.getUTCMinutes(),
+  };
+}
+
+function cmeComparisonViolations(cme: NonNullable<PremarketContextInput["cme"]>, tradeDate: string): string[] {
+  const reasons: string[] = [];
+  const previous = cme.previousSession;
+  if (cme.comparisonPolicy !== "same_cme_previous_jpx_business_day_0830") {
+    reasons.push("cme_comparison_policy_invalid");
+  }
+  if (!previous) return [...reasons, "cme_previous_session_reference_missing"];
+  if (
+    previous.providerSymbol !== cme.providerSymbol
+    || previous.contractMonth !== cme.contractMonth
+    || previous.currency !== cme.currency
+  ) {
+    reasons.push("cme_previous_session_instrument_mismatch");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(previous.tradeDate) || Number.isNaN(Date.parse(`${previous.tradeDate}T00:00:00Z`))) {
+    reasons.push("cme_previous_trade_date_invalid");
+  } else {
+    try {
+      if (nextTokyoEquityTradeDate(previous.tradeDate) !== tradeDate) {
+        reasons.push("cme_reference_not_previous_jpx_business_day");
+      }
+    } catch {
+      reasons.push("cme_jpx_calendar_unavailable");
+    }
+  }
+  return reasons;
+}
+
 function premarketTemporalViolations(input: PremarketContextInput): string[] {
   const reasons: string[] = [];
   const capturedAtMs = finite(input.capturedAtMs);
@@ -148,30 +193,47 @@ function premarketTemporalViolations(input: PremarketContextInput): string[] {
     .filter((value): value is number => value !== null && value !== undefined);
   if (observedTimes.some(value => !Number.isFinite(value) || value > capturedAtMs)) reasons.push("source_observed_after_snapshot_capture");
   if (input.usdJpy && input.usdJpy.previousAtMs > input.usdJpy.currentAtMs) reasons.push("usd_jpy_time_order_invalid");
+  if (input.cme?.previousSession) {
+    const current = jstDateAndMinute(input.cme.observedAtMs);
+    const previous = jstDateAndMinute(input.cme.previousSession.observedAtMs);
+    if (current.tradeDate !== input.tradeDate) reasons.push("cme_current_observation_date_mismatch");
+    if (previous.tradeDate !== input.cme.previousSession.tradeDate) reasons.push("cme_previous_observation_date_mismatch");
+    if (input.cme.previousSession.tradeDate >= input.tradeDate) reasons.push("cme_previous_trade_date_not_before_trade_date");
+    if (input.cme.previousSession.observedAtMs >= input.cme.observedAtMs) reasons.push("cme_observation_time_order_invalid");
+    if (current.minute !== 8 * 60 + 25 || previous.minute !== 8 * 60 + 25) {
+      reasons.push("cme_comparison_not_same_0825_completed_bar");
+    }
+  }
   return reasons;
 }
 
 /**
- * ①〜③を、結果を見て日中変更しない固定v1閾値で分類する。
- * CMEはOSEと直接比較できるJPY建てだけをverified材料として扱う。
+ * ①〜③を、結果を見て日中変更しない固定閾値で分類する。
+ * CMEは前JPX営業日の同一CME・同一限月・08:25確定足との比較だけをverified材料として扱う。
  */
 export function classifyPremarketContext(input: PremarketContextInput): PremarketMarketRegime {
   const dowVerified = input.dow?.status === "verified";
-  const cmeVerified = input.cme?.status === "verified" && input.cme.currency === "JPY";
+  const cmeComparisonReasons = input.cme ? cmeComparisonViolations(input.cme, input.tradeDate) : [];
+  const cmeVerified = input.cme?.status === "verified"
+    && input.cme.currency === "JPY"
+    && cmeComparisonReasons.length === 0;
   const fxVerified = input.usdJpy?.status === "verified";
   const dowChangePct = dowVerified ? finite(input.dow?.changePct) : null;
-  const cmeBasisPct = cmeVerified && input.cme ? pct(input.cme.quote, input.cme.oseDayClose) : null;
+  const cmePreviousSessionChangePct = cmeVerified && input.cme?.previousSession
+    ? pct(input.cme.quote, input.cme.previousSession.quote)
+    : null;
   const usdJpyChangePct = fxVerified && input.usdJpy ? pct(input.usdJpy.currentRate, input.usdJpy.previousRate) : null;
   const verifiedLegs = [dowVerified, cmeVerified, fxVerified].filter(Boolean).length;
   const reasonCodes: string[] = [];
   if (input.cme?.status === "verified" && input.cme.currency !== "JPY") reasonCodes.push("cme_currency_not_jpy");
+  reasonCodes.push(...cmeComparisonReasons);
   if (!dowVerified) reasonCodes.push("dow_not_verified");
   if (!cmeVerified) reasonCodes.push("cme_jpy_not_verified");
   if (!fxVerified) reasonCodes.push("usd_jpy_not_verified");
   const directionalScore = directionalVote(dowChangePct, 0.3, 1.0)
-    + directionalVote(cmeBasisPct, 0.35, 0.9)
+    + directionalVote(cmePreviousSessionChangePct, 0.35, 0.9)
     + directionalVote(usdJpyChangePct, 0.2, 0.6);
-  const metrics = { dowChangePct, cmeBasisPct, usdJpyChangePct, directionalScore };
+  const metrics = { dowChangePct, cmePreviousSessionChangePct, usdJpyChangePct, directionalScore };
   const temporalViolations = premarketTemporalViolations(input);
   if (temporalViolations.length > 0) {
     return {

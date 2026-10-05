@@ -126,8 +126,20 @@ const premarketContextInput = z.object({
     contractMonth: z.string().regex(/^\d{4}\/\d{2}$/),
     currency: z.enum(["JPY", "USD"]),
     quote: z.number().positive(),
-    oseDayClose: z.number().positive(),
     observedAtMs: z.number().int().nonnegative(),
+    comparisonPolicy: z.literal("same_cme_previous_jpx_business_day_0830").optional(),
+    previousSession: z.object({
+      tradeDate: z.string()
+        .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
+        .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください"),
+      providerSymbol: z.string().min(1).max(32),
+      contractMonth: z.string().regex(/^\d{4}\/\d{2}$/),
+      currency: z.enum(["JPY", "USD"]),
+      quote: z.number().positive(),
+      observedAtMs: z.number().int().nonnegative(),
+    }).nullable().optional(),
+    // 旧collectorのpayloadを直ちに壊さないため受信だけ許可する。方向判定には使用しない。
+    oseDayClose: z.number().positive().optional(),
     sourceUrl: httpsSource,
     status: premarketLegStatus,
   }).nullable(),

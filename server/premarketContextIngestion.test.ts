@@ -30,8 +30,16 @@ const input = {
     contractMonth: "2026/12",
     currency: "JPY" as const,
     quote: 50600,
-    oseDayClose: 50000,
-    observedAtMs: Date.parse("2026-10-05T08:10:00+09:00"),
+    observedAtMs: Date.parse("2026-10-05T08:25:00+09:00"),
+    comparisonPolicy: "same_cme_previous_jpx_business_day_0830" as const,
+    previousSession: {
+      tradeDate: "2026-10-02",
+      providerSymbol: "NIY",
+      contractMonth: "2026/12",
+      currency: "JPY" as const,
+      quote: 50000,
+      observedAtMs: Date.parse("2026-10-02T08:25:00+09:00"),
+    },
     sourceUrl: "https://example.com/cme",
     status: "verified" as const,
   },
@@ -115,6 +123,17 @@ describe("premarket context immutable snapshot ingress", () => {
     });
     await ingestPremarketContext(input);
     expect(dbMock.insertRtPremarketContextSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      oseDayClose: null,
+      cmeBasisPct: null,
+      inputJson: expect.objectContaining({
+        cme: expect.objectContaining({
+          comparisonPolicy: "same_cme_previous_jpx_business_day_0830",
+          previousSession: expect.objectContaining({
+            tradeDate: "2026-10-02",
+            quote: 50000,
+          }),
+        }),
+      }),
       resultJson: expect.objectContaining({
         selectorReason: "premarket_0830_selector_shadow_recorded",
         selectorShadow: expect.objectContaining({

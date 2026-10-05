@@ -34,7 +34,24 @@ describe("market context selector shadow", () => {
     collectorVersion: "test-v1",
     sourceMode: "scheduled_research" as const,
     dow: { sessionDate: "2026-10-02", close: 45000, changePct: 1.1, observedAtMs: 1, sourceUrl: "https://example.com/dow", status: "verified" as const },
-    cme: { providerSymbol: "NIY", contractMonth: "2026/12", currency: "JPY" as const, quote: 50600, oseDayClose: 50000, observedAtMs: 2, sourceUrl: "https://example.com/cme", status: "verified" as const },
+    cme: {
+      providerSymbol: "NIY",
+      contractMonth: "2026/12",
+      currency: "JPY" as const,
+      quote: 50600,
+      observedAtMs: Date.parse("2026-10-05T08:25:00+09:00"),
+      comparisonPolicy: "same_cme_previous_jpx_business_day_0830" as const,
+      previousSession: {
+        tradeDate: "2026-10-02",
+        providerSymbol: "NIY",
+        contractMonth: "2026/12",
+        currency: "JPY" as const,
+        quote: 50000,
+        observedAtMs: Date.parse("2026-10-02T08:25:00+09:00"),
+      },
+      sourceUrl: "https://example.com/cme",
+      status: "verified" as const,
+    },
     usdJpy: { previousRate: 150, previousAtMs: 3, currentRate: 151, currentAtMs: 4, sourceUrl: "https://example.com/fx", status: "verified" as const },
   };
 
@@ -49,14 +66,87 @@ describe("market context selector shadow", () => {
     });
   });
 
-  it("CMEの通貨がUSDならOSE比較のverified材料にしない", () => {
+  it("CMEの通貨がUSDならverified材料にしない", () => {
     const result = classifyPremarketContext({
       ...premarketInput,
-      cme: { ...premarketInput.cme, currency: "USD" },
+      cme: {
+        ...premarketInput.cme,
+        currency: "USD",
+        previousSession: { ...premarketInput.cme.previousSession, currency: "USD" },
+      },
       dow: null,
     });
     expect(result.state).toBe("unavailable");
     expect(result.reasonCodes).toContain("cme_currency_not_jpy");
+  });
+
+  it("10/5は前JPX営業日10/2の同一CME 08:25比で上昇と判定する", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: { ...premarketInput.dow, changePct: 0.49 },
+      cme: {
+        ...premarketInput.cme,
+        quote: 69835,
+        previousSession: { ...premarketInput.cme.previousSession, quote: 68475 },
+      },
+      usdJpy: { ...premarketInput.usdJpy, previousRate: 147.30, currentRate: 147.33 },
+    });
+    expect(result).toMatchObject({ state: "up", allowedDirections: ["long"] });
+    expect(result.metrics.cmePreviousSessionChangePct).toBeCloseTo(1.986, 3);
+    expect(result.metrics.directionalScore).toBe(3);
+  });
+
+  it("旧OSE比較だけのCME payloadは受信互換でも方向判定に使用しない", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: null,
+      cme: { ...premarketInput.cme, previousSession: null },
+    });
+    expect(result).toMatchObject({ state: "unavailable", qualityStatus: "degraded" });
+    expect(result.metrics.cmePreviousSessionChangePct).toBeNull();
+    expect(result.reasonCodes).toContain("cme_previous_session_reference_missing");
+  });
+
+  it("前営業日のCMEが別限月なら比較せずfail-closedにする", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: null,
+      cme: {
+        ...premarketInput.cme,
+        previousSession: { ...premarketInput.cme.previousSession, contractMonth: "2027/03" },
+      },
+    });
+    expect(result).toMatchObject({ state: "unavailable", qualityStatus: "degraded" });
+    expect(result.reasonCodes).toContain("cme_previous_session_instrument_mismatch");
+  });
+
+  it("単に過去の日付ではなく直前のJPX営業日だけを比較対象にする", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: null,
+      cme: {
+        ...premarketInput.cme,
+        previousSession: {
+          ...premarketInput.cme.previousSession,
+          tradeDate: "2026-10-01",
+          observedAtMs: Date.parse("2026-10-01T08:25:00+09:00"),
+        },
+      },
+    });
+    expect(result).toMatchObject({ state: "unavailable", qualityStatus: "degraded" });
+    expect(result.reasonCodes).toContain("cme_reference_not_previous_jpx_business_day");
+  });
+
+  it("当日と前営業日が同じ08:25確定足でなければsnapshotを無効にする", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      cme: {
+        ...premarketInput.cme,
+        observedAtMs: Date.parse("2026-10-05T08:20:00+09:00"),
+      },
+    });
+    expect(result).toMatchObject({ state: "unavailable", qualityStatus: "invalid" });
+    expect(result.reasonCodes).toContain("cme_comparison_not_same_0825_completed_bar");
   });
 
   it("9:00 JST以降に凍結した開場前snapshotを選択材料にしない", () => {

@@ -75,23 +75,23 @@ describe("route-granular next-day monitoring selector", () => {
     expect(current.completedTrades).toBe(1);
   });
 
-  it("partitions technical-regime A outcomes by persisted LONG/SHORT action side", () => {
-    const strategyVersion = "candidate-285a-technical-regime-a-v1";
+  it("partitions Bollinger no-stop outcomes by persisted LONG/SHORT action side", () => {
+    const strategyVersion = "candidate-285a-bollinger-directional-no-stop-v1";
     const daily = buildRouteGranularDailySnapshot({
       tradeDate: "2026-10-05",
       candidates: [],
       candidateTrades: [],
       shadowEvents: [{
         strategyVersion,
-        sourceEventId: "technical:long:entry",
+        sourceEventId: "bollinger:long:entry",
         evaluationMode: "signal_quality",
-        decisionJson: { actions: [{ type: "entry", side: "long", routeId: "technical_breakout_long" }] },
+        decisionJson: { actions: [{ type: "entry", side: "long", routeId: "bollinger_directional_no_stop_long" }] },
       }] as any,
       shadowTrades: [{
         strategyVersion,
         evaluationMode: "signal_quality",
         symbol: "285A",
-        entrySourceEventId: "technical:long:entry",
+        entrySourceEventId: "bollinger:long:entry",
         exitTradeDate: "2026-10-05",
         pnl: 300,
         shares: 100,
@@ -266,8 +266,10 @@ describe("route-granular next-day monitoring selector", () => {
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(true);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
-      "6857_technical_regime_a",
-      "6857_technical_regime_a",
+      "6857_bollinger_directional_no_stop",
+      "6857_bollinger_directional_no_stop",
+      "6857_bollinger_directional_stop060",
+      "6857_bollinger_directional_stop060",
       "candidate-6857-confirmed-continuation-depth",
       "candidate-6857-short-body008-depth",
     ]);

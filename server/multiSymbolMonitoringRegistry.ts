@@ -2,6 +2,8 @@ import { ACTIVE_ENTRY_SYMBOLS, NAME_BY_SYMBOL } from "../shared/stocks";
 import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
+  BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
+  BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_BASELINE_VERSION,
@@ -26,7 +28,6 @@ import {
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
-  TECHNICAL_REGIME_SHADOW_A_VERSIONS,
   TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./runtimeIdentity";
 
@@ -75,13 +76,19 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   { strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", label: "実行価格・板確認B", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", label: "A案：次イベント板確認", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", label: "B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
-  ...TEN_MONITORED_SYMBOLS.map(symbol => ({
-    strategyVersion: TECHNICAL_REGIME_SHADOW_A_VERSIONS[symbol as keyof typeof TECHNICAL_REGIME_SHADOW_A_VERSIONS],
+  ...TEN_MONITORED_SYMBOLS.flatMap(symbol => ([{
+    strategyVersion: BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS],
     symbol,
-    label: "テクニカルA：D-1相場状態＋当日1分足",
+    label: "ボリンジャー方向判定：±2σ・SLなし",
     purpose: "candidate" as const,
-    eligibleForAdoption: true,
-  })),
+    eligibleForAdoption: false,
+  }, {
+    strategyVersion: BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS],
+    symbol,
+    label: "ボリンジャー方向判定：±2σ・SL0.60%",
+    purpose: "candidate" as const,
+    eligibleForAdoption: false,
+  }])),
 ];
 
 export const MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS: ReadonlyArray<MonitoringPlanDefinition> = Object.freeze([

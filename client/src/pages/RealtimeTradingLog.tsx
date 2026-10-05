@@ -39,7 +39,6 @@ import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComp
 import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSection";
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
-import TechnicalAObservationV2Section from "@/components/TechnicalAObservationV2Section";
 import MarketContextSelectorShadowSection from "@/components/MarketContextSelectorShadowSection";
 import {
   Table,
@@ -505,9 +504,6 @@ export default function RealtimeTradingLog() {
 
         {/* ===== 日経平均系の専用1分足で、固定時刻に未エントリー候補を再評価 ===== */}
         <MarketContextSelectorShadowSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
-
-        {/* Technical A v2 は完全に独立した参考監視。保存snapshotだけを表示する。 */}
-        <TechnicalAObservationV2Section asOfDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

@@ -57,8 +57,8 @@ export const DISCO_LONG_PRIOR_THREE_B_VERSION = "candidate-6146-confirmed-long-p
 /** 6981の現行経路とは独立した、手動審査専用の前向きshadow 2案。 */
 export const MURATA_DEEP_REVERSAL_LONG_VERSION = "candidate-6981-deep-reversal-long-v1";
 export const MURATA_MORNING_BREAKDOWN_SHORT_VERSION = "candidate-6981-morning-20bar-breakdown-short-v1";
-/** D-1で固定した日足・時間足レジームを、当日の確定1分足で評価する10銘柄共通shadow A。 */
-export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
+/** 廃止済みテクニカルA。DB上の監査履歴を停止状態へ移すためだけにIDを保持する。 */
+export const RETIRED_TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
   "285A": "candidate-285a-technical-regime-a-v1",
   "3436": "candidate-3436-technical-regime-a-v1",
   "5803": "candidate-5803-technical-regime-a-v1",
@@ -69,6 +69,47 @@ export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = Object.freeze({
   "6981": "candidate-6981-technical-regime-a-v1",
   "8035": "candidate-8035-technical-regime-a-v1",
   "9984": "candidate-9984-technical-regime-a-v1",
+} as const);
+/** @deprecated 旧コードの監査再生互換だけに残す。active registry/dispatchには含めない。 */
+export const TECHNICAL_REGIME_SHADOW_A_VERSIONS = RETIRED_TECHNICAL_REGIME_SHADOW_A_VERSIONS;
+/** 廃止済みTechnical A v2 observer。過去行は削除せず、今後のdispatchだけを止める。 */
+export const RETIRED_TECHNICAL_A_OBSERVATION_V2_VERSIONS = Object.freeze({
+  "285A": "observation-285a-technical-a-v2",
+  "3436": "observation-3436-technical-a-v2",
+  "5803": "observation-5803-technical-a-v2",
+  "6146": "observation-6146-technical-a-v2",
+  "6526": "observation-6526-technical-a-v2",
+  "6857": "observation-6857-technical-a-v2",
+  "6976": "observation-6976-technical-a-v2",
+  "6981": "observation-6981-technical-a-v2",
+  "8035": "observation-8035-technical-a-v2",
+  "9984": "observation-9984-technical-a-v2",
+} as const);
+/** ①〜③の方向と当日1分足BB(20,2σ)を使う、損切りなしの新規shadow。 */
+export const BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-no-stop-v1",
+  "3436": "candidate-3436-bollinger-directional-no-stop-v1",
+  "5803": "candidate-5803-bollinger-directional-no-stop-v1",
+  "6146": "candidate-6146-bollinger-directional-no-stop-v1",
+  "6526": "candidate-6526-bollinger-directional-no-stop-v1",
+  "6857": "candidate-6857-bollinger-directional-no-stop-v1",
+  "6976": "candidate-6976-bollinger-directional-no-stop-v1",
+  "6981": "candidate-6981-bollinger-directional-no-stop-v1",
+  "8035": "candidate-8035-bollinger-directional-no-stop-v1",
+  "9984": "candidate-9984-bollinger-directional-no-stop-v1",
+} as const);
+/** 上と同一entry/targetで、固定0.60%損切りだけを加えた並行shadow。 */
+export const BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-stop060-v1",
+  "3436": "candidate-3436-bollinger-directional-stop060-v1",
+  "5803": "candidate-5803-bollinger-directional-stop060-v1",
+  "6146": "candidate-6146-bollinger-directional-stop060-v1",
+  "6526": "candidate-6526-bollinger-directional-stop060-v1",
+  "6857": "candidate-6857-bollinger-directional-stop060-v1",
+  "6976": "candidate-6976-bollinger-directional-stop060-v1",
+  "6981": "candidate-6981-bollinger-directional-stop060-v1",
+  "8035": "candidate-8035-bollinger-directional-stop060-v1",
+  "9984": "candidate-9984-bollinger-directional-stop060-v1",
 } as const);
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
@@ -106,7 +147,8 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
-  ...Object.values(TECHNICAL_REGIME_SHADOW_A_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS),
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

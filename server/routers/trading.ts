@@ -272,21 +272,6 @@ export const tradingRouter = router({
       }
     }),
 
-  /** Technical A v2 observation. Immutable closed-day snapshots only; no source reads or materialization. */
-  getTechnicalAObservationV2: protectedProcedure
-    .input(z.object({ asOfDate: z.string()
-      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
-      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
-    .query(async ({ input }) => {
-      try {
-        const { getTechnicalAObservationV2Dashboard } = await import("../technicalAObservationV2");
-        return await getTechnicalAObservationV2Dashboard(input.asOfDate);
-      } catch {
-        console.error("[TechnicalAObservationV2] snapshot read failed");
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Technical A v2 observation snapshotを取得できませんでした" });
-      }
-    }),
-
   /** routeGroupId単位の可変行selector。immutableな閉場後snapshotだけを読む。 */
   getRouteGranularNextDaySelector: protectedProcedure
     .input(z.object({ asOfDate: z.string()

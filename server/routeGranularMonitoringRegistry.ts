@@ -3,6 +3,8 @@ import { CURRENT_SIGNAL_CANDIDATE_VERSION } from "./currentSignalCandidateRegist
 import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
+  BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
+  BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -28,7 +30,6 @@ import {
   TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
-  TECHNICAL_REGIME_SHADOW_A_VERSIONS,
   TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./runtimeIdentity";
 
@@ -180,28 +181,32 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
 
-// 相場状態対応型Aは、同じversion内のLONG/SHORTを保存action sideで分離集計する。
-for (const [symbol, strategyVersion] of Object.entries(TECHNICAL_REGIME_SHADOW_A_VERSIONS)) {
-  variants.push(
-    shadow({
-      symbol,
-      routeGroupId: "technical_regime_a_long",
-      direction: "long",
-      label: "テクニカルA：相場状態対応LONG",
-      canonicalLogic: `${symbol.toLowerCase()}_technical_regime_a`,
-      strategyVersion,
-      shadowSide: "long",
-    }),
-    shadow({
-      symbol,
-      routeGroupId: "technical_regime_a_short",
-      direction: "short",
-      label: "テクニカルA：相場状態対応SHORT",
-      canonicalLogic: `${symbol.toLowerCase()}_technical_regime_a`,
-      strategyVersion,
-      shadowSide: "short",
-    }),
-  );
+// ボリンジャー2案は、variantと方向を混ぜずに4経路として集計する。
+for (const symbol of Object.keys(BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS)) {
+  const noStopVersion = BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS];
+  const stopVersion = BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS];
+  for (const direction of ["long", "short"] as const) {
+    variants.push(
+      shadow({
+        symbol,
+        routeGroupId: `bollinger_directional_no_stop_${direction}`,
+        direction,
+        label: `ボリンジャー方向判定・SLなし ${direction.toUpperCase()}`,
+        canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_no_stop`,
+        strategyVersion: noStopVersion,
+        shadowSide: direction,
+      }),
+      shadow({
+        symbol,
+        routeGroupId: `bollinger_directional_stop060_${direction}`,
+        direction,
+        label: `ボリンジャー方向判定・SL0.60% ${direction.toUpperCase()}`,
+        canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_stop060`,
+        strategyVersion: stopVersion,
+        shadowSide: direction,
+      }),
+    );
+  }
 }
 
 export const ROUTE_GRANULAR_VARIANTS = Object.freeze(variants);

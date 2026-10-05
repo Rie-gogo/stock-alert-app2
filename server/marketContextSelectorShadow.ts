@@ -180,6 +180,38 @@ function cmeComparisonViolations(cme: NonNullable<PremarketContextInput["cme"]>,
   return reasons;
 }
 
+function cmeObservationViolations(
+  cme: NonNullable<PremarketContextInput["cme"]>,
+  tradeDate: string,
+): string[] {
+  const previous = cme.previousSession;
+  if (!previous) return [];
+  const reasons: string[] = [];
+  const currentObservation = jstDateAndMinute(cme.observedAtMs);
+  const previousObservation = jstDateAndMinute(previous.observedAtMs);
+  if (currentObservation.tradeDate !== tradeDate) reasons.push("cme_current_observation_date_mismatch");
+  if (previousObservation.tradeDate !== previous.tradeDate) reasons.push("cme_previous_observation_date_mismatch");
+  if (previous.tradeDate >= tradeDate) reasons.push("cme_previous_trade_date_not_before_trade_date");
+  if (previous.observedAtMs >= cme.observedAtMs) reasons.push("cme_observation_time_order_invalid");
+  if (currentObservation.minute !== 8 * 60 + 25 || previousObservation.minute !== 8 * 60 + 25) {
+    reasons.push("cme_comparison_not_same_0825_completed_bar");
+  }
+  return reasons;
+}
+
+/**
+ * CMEが存在するsnapshotは、同一CMEの前JPX営業日08:25比較として完全でなければ
+ * 永続化境界を通さない。CMEが取得不能な日はcme=nullとして他2 legだけを評価する。
+ */
+export function premarketCmeIngressViolation(input: PremarketContextInput): string | null {
+  if (!input.cme) return null;
+  if (input.cme.currency !== "JPY") return "cme_currency_not_jpy";
+  return [
+    ...cmeComparisonViolations(input.cme, input.tradeDate),
+    ...cmeObservationViolations(input.cme, input.tradeDate),
+  ][0] ?? null;
+}
+
 function premarketTemporalViolations(input: PremarketContextInput): string[] {
   const reasons: string[] = [];
   const capturedAtMs = finite(input.capturedAtMs);
@@ -193,17 +225,7 @@ function premarketTemporalViolations(input: PremarketContextInput): string[] {
     .filter((value): value is number => value !== null && value !== undefined);
   if (observedTimes.some(value => !Number.isFinite(value) || value > capturedAtMs)) reasons.push("source_observed_after_snapshot_capture");
   if (input.usdJpy && input.usdJpy.previousAtMs > input.usdJpy.currentAtMs) reasons.push("usd_jpy_time_order_invalid");
-  if (input.cme?.previousSession) {
-    const current = jstDateAndMinute(input.cme.observedAtMs);
-    const previous = jstDateAndMinute(input.cme.previousSession.observedAtMs);
-    if (current.tradeDate !== input.tradeDate) reasons.push("cme_current_observation_date_mismatch");
-    if (previous.tradeDate !== input.cme.previousSession.tradeDate) reasons.push("cme_previous_observation_date_mismatch");
-    if (input.cme.previousSession.tradeDate >= input.tradeDate) reasons.push("cme_previous_trade_date_not_before_trade_date");
-    if (input.cme.previousSession.observedAtMs >= input.cme.observedAtMs) reasons.push("cme_observation_time_order_invalid");
-    if (current.minute !== 8 * 60 + 25 || previous.minute !== 8 * 60 + 25) {
-      reasons.push("cme_comparison_not_same_0825_completed_bar");
-    }
-  }
+  if (input.cme) reasons.push(...cmeObservationViolations(input.cme, input.tradeDate));
   return reasons;
 }
 

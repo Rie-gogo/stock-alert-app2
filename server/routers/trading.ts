@@ -37,6 +37,7 @@ import {
   authorizePremarketAutomation,
   premarketAutomationEnvelopeViolation,
 } from "../premarketAutomationIngress";
+import { premarketCmeIngressViolation } from "../marketContextSelectorShadow";
 
 const rtSignalCandidateLedgerInput = z.object({
   tradeDate: z.string()
@@ -151,8 +152,17 @@ const premarketContextInput = z.object({
     sourceUrl: httpsSource,
     status: premarketLegStatus,
   }).nullable(),
+}).superRefine((value, context) => {
+  const violation = premarketCmeIngressViolation(value);
+  if (violation) {
+    context.addIssue({
+      code: "custom",
+      path: ["cme"],
+      message: violation,
+    });
+  }
 });
-const premarketAutomationInput = premarketContextInput.extend({
+const premarketAutomationInput = premarketContextInput.safeExtend({
   ingestKey: z.string().min(32).max(256),
 });
 

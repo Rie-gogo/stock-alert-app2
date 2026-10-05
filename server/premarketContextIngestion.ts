@@ -6,6 +6,7 @@ import {
 import {
   buildPremarketMarketContextSelectorShadowDecision,
   classifyPremarketContext,
+  premarketCmeIngressViolation,
   PREMARKET_CONTEXT_RULE_VERSION,
   type PremarketContextInput,
 } from "./marketContextSelectorShadow";
@@ -50,6 +51,22 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
   const inputHash = sha256Stable(canonicalInput);
   const sourceSnapshotId = input.sourceSnapshotId
     ?? `premarket:${input.tradeDate}:${input.capturedAtMs}:${inputHash.slice(0, 20)}`;
+  const cmeIngressViolation = premarketCmeIngressViolation(canonicalInput);
+  if (cmeIngressViolation) {
+    return {
+      accepted: false,
+      duplicate: false,
+      payloadMismatch: false,
+      sourceSnapshotId,
+      qualityStatus: "invalid" as const,
+      rejectionReason: cmeIngressViolation,
+      result: {
+        monitoringOnly: true,
+        selectorReason: "premarket_cme_input_rejected",
+        selectorShadow: null,
+      },
+    };
+  }
   const existing = await getRtPremarketContextSnapshot(sourceSnapshotId);
   if (existing) {
     return {

@@ -10,6 +10,7 @@ const dbMock = vi.hoisted(() => ({
 vi.mock("./db", () => dbMock);
 
 import { ingestPremarketContext } from "./premarketContextIngestion";
+import { tradingRouter } from "./routers/trading";
 
 const input = {
   sourceSnapshotId: "premarket:2026-10-05:0830:fixed",
@@ -98,6 +99,86 @@ describe("premarket context immutable snapshot ingress", () => {
       dow: { ...input.dow, observedAtMs: input.capturedAtMs + 1 },
     });
     expect(futureObservation).toMatchObject({ accepted: false, qualityStatus: "invalid" });
+  });
+
+  it.each([
+    {
+      name: "旧OSE-only形式",
+      expected: "cme_comparison_policy_invalid",
+      cme: {
+        ...input.cme,
+        comparisonPolicy: undefined,
+        previousSession: undefined,
+        oseDayClose: 50000,
+      },
+    },
+    {
+      name: "別限月",
+      expected: "cme_previous_session_instrument_mismatch",
+      cme: {
+        ...input.cme,
+        previousSession: { ...input.cme.previousSession, contractMonth: "2027/03" },
+      },
+    },
+    {
+      name: "USD建て",
+      expected: "cme_currency_not_jpy",
+      cme: {
+        ...input.cme,
+        currency: "USD" as const,
+        previousSession: { ...input.cme.previousSession, currency: "USD" as const },
+      },
+    },
+    {
+      name: "08:25以外",
+      expected: "cme_comparison_not_same_0825_completed_bar",
+      cme: {
+        ...input.cme,
+        observedAtMs: Date.parse("2026-10-05T08:20:00+09:00"),
+      },
+    },
+    {
+      name: "直前JPX営業日ではない参照",
+      expected: "cme_reference_not_previous_jpx_business_day",
+      cme: {
+        ...input.cme,
+        previousSession: {
+          ...input.cme.previousSession,
+          tradeDate: "2026-10-01",
+          observedAtMs: Date.parse("2026-10-01T08:25:00+09:00"),
+        },
+      },
+    },
+  ])("rejects $name before every DB read/write", async ({ cme, expected }) => {
+    const result = await ingestPremarketContext({
+      ...input,
+      sourceSnapshotId: `rejected:${expected}`,
+      cme,
+    } as never);
+    expect(result).toMatchObject({
+      accepted: false,
+      qualityStatus: "invalid",
+      rejectionReason: expected,
+    });
+    expect(dbMock.getRtPremarketContextSnapshot).not.toHaveBeenCalled();
+    expect(dbMock.getRtDailyAuditMaterialization).not.toHaveBeenCalled();
+    expect(dbMock.insertRtPremarketContextSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects an old OSE-only payload at the public automation schema boundary", async () => {
+    const caller = tradingRouter.createCaller({} as never);
+    await expect(caller.pushPremarketMarketContextAutomated({
+      ...input,
+      ingestKey: "a".repeat(64),
+      cme: {
+        ...input.cme,
+        comparisonPolicy: undefined,
+        previousSession: undefined,
+        oseDayClose: 50000,
+      },
+    } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(dbMock.getRtPremarketContextSnapshot).not.toHaveBeenCalled();
+    expect(dbMock.insertRtPremarketContextSnapshot).not.toHaveBeenCalled();
   });
 
   it("①〜③を08:30時点の経路選択シャドーへ渡す", async () => {

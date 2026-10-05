@@ -6,13 +6,14 @@ export const BOLLINGER_DIRECTIONAL_LEARNING_CUTOFF_DATE = "2026-10-06";
 export const BOLLINGER_DIRECTIONAL_FORMAL_START_DATE = "2026-10-07";
 export const BOLLINGER_DIRECTIONAL_PERIOD = 20;
 export const BOLLINGER_DIRECTIONAL_SIGMA = 2;
-export const BOLLINGER_DIRECTIONAL_STOP_PCT = 0.6;
+export const BOLLINGER_DIRECTIONAL_STOP_PCT = 1.4;
+export const BOLLINGER_DIRECTIONAL_STOP_COOLDOWN_MINUTES = 30;
 export const BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS = 5_000;
 export const BOLLINGER_DIRECTIONAL_ENTRY_START = "09:20";
 export const BOLLINGER_DIRECTIONAL_ENTRY_END = "14:57";
 export const BOLLINGER_DIRECTIONAL_DAY_END = "15:20";
 
-export type BollingerDirectionalVariant = "no_stop" | "stop_060";
+export type BollingerDirectionalVariant = "fixed_stop_140_cooldown_30";
 export type BollingerDirectionalSide = "long" | "short";
 export type BollingerDirectionalResultType = "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
 
@@ -72,7 +73,7 @@ export interface BollingerDirectionalPosition {
 }
 
 export interface BollingerDirectionalState {
-  version: 1;
+  version: 2;
   tradeDate: string;
   plan: BollingerDirectionalPlan;
   variant: BollingerDirectionalVariant;
@@ -80,6 +81,7 @@ export interface BollingerDirectionalState {
   pending: BollingerDirectionalPending | null;
   position: BollingerDirectionalPosition | null;
   completedTrades: number;
+  entryBlockedUntilMinute: number | null;
   lastSourceEventId: string | null;
   lastResultType: BollingerDirectionalResultType | null;
   lastActions: Array<Record<string, unknown>>;
@@ -96,7 +98,7 @@ export interface BollingerDirectionalTransition {
     exitReason: string;
     pnl: number;
     pnlAfterAdverseExit: number;
-    /** 両案比較用に、SLなし案も0.60%を1Rとして表示する。 */
+    /** 固定1.40%損切りを1Rとして表示する。 */
     realizedR: number;
   } | null;
 }
@@ -146,7 +148,7 @@ export function createEmptyBollingerDirectionalState(
   variant: BollingerDirectionalVariant,
 ): BollingerDirectionalState {
   return {
-    version: 1,
+    version: 2,
     tradeDate: plan.tradeDate,
     plan,
     variant,
@@ -154,6 +156,7 @@ export function createEmptyBollingerDirectionalState(
     pending: null,
     position: null,
     completedTrades: 0,
+    entryBlockedUntilMinute: null,
     lastSourceEventId: null,
     lastResultType: null,
     lastActions: [],
@@ -168,7 +171,7 @@ export function normalizeBollingerDirectionalState(
   const raw = object(value);
   if (raw.tradeDate !== plan.tradeDate || raw.variant !== variant) return createEmptyBollingerDirectionalState(plan, variant);
   return {
-    version: 1,
+    version: 2,
     tradeDate: plan.tradeDate,
     plan: object(raw.plan).tradeDate === plan.tradeDate ? raw.plan as unknown as BollingerDirectionalPlan : plan,
     variant,
@@ -176,6 +179,7 @@ export function normalizeBollingerDirectionalState(
     pending: raw.pending && typeof raw.pending === "object" ? raw.pending as BollingerDirectionalPending : null,
     position: raw.position && typeof raw.position === "object" ? raw.position as BollingerDirectionalPosition : null,
     completedTrades: Number.isInteger(raw.completedTrades) ? Number(raw.completedTrades) : 0,
+    entryBlockedUntilMinute: Number.isInteger(raw.entryBlockedUntilMinute) ? Number(raw.entryBlockedUntilMinute) : null,
     lastSourceEventId: typeof raw.lastSourceEventId === "string" ? raw.lastSourceEventId : null,
     lastResultType: typeof raw.lastResultType === "string" ? raw.lastResultType as BollingerDirectionalResultType : null,
     lastActions: Array.isArray(raw.lastActions) ? raw.lastActions as Array<Record<string, unknown>> : [],
@@ -199,6 +203,11 @@ export function calculateBollingerBands(candles: BollingerDirectionalCandle[]): 
 
 function inEntryWindow(candleTime: string) {
   return candleTime >= BOLLINGER_DIRECTIONAL_ENTRY_START && candleTime <= BOLLINGER_DIRECTIONAL_ENTRY_END;
+}
+
+function minuteOfDay(candleTime: string) {
+  const [hour, minute] = candleTime.split(":").map(Number);
+  return hour * 60 + minute;
 }
 
 function sharesForMode(mode: ForwardEvaluationMode, price: number) {
@@ -252,14 +261,14 @@ function entryFromConfirmedCandle(
       touchSourceEventId: pending.touchSourceEventId,
       confirmationSourceEventId: input.sourceEventId,
       executableEntryPrice: entryPrice,
-      dynamicTargetPrice: targetPrice,
+      fixedTargetPrice: targetPrice,
       boardAgeMs: clockAge.boardAgeMs,
     });
     return null;
   }
-  const stopPrice = state.variant === "stop_060"
-    ? pending.side === "long" ? entryPrice * (1 - BOLLINGER_DIRECTIONAL_STOP_PCT / 100) : entryPrice * (1 + BOLLINGER_DIRECTIONAL_STOP_PCT / 100)
-    : null;
+  const stopPrice = pending.side === "long"
+    ? entryPrice * (1 - BOLLINGER_DIRECTIONAL_STOP_PCT / 100)
+    : entryPrice * (1 + BOLLINGER_DIRECTIONAL_STOP_PCT / 100);
   const position: BollingerDirectionalPosition = {
     side: pending.side,
     touchSourceEventId: pending.touchSourceEventId,
@@ -271,7 +280,7 @@ function entryFromConfirmedCandle(
     initialTargetPrice: targetPrice,
     stopPrice,
     shares: sharesForMode(mode, entryPrice),
-    slPct: state.variant === "stop_060" ? BOLLINGER_DIRECTIONAL_STOP_PCT : 0,
+    slPct: BOLLINGER_DIRECTIONAL_STOP_PCT,
     tpPct: Math.abs(targetPrice - entryPrice) / entryPrice * 100,
     comparisonRiskPct: BOLLINGER_DIRECTIONAL_STOP_PCT,
     executionProxyKind: pending.side === "long" ? "ask_depth_vwap_100" : "bid_depth_vwap_100",
@@ -285,7 +294,7 @@ function entryFromConfirmedCandle(
     confirmationSourceEventId: input.sourceEventId,
     executableEntryPrice: entryPrice,
     stopPrice,
-    dynamicTargetPrice: targetPrice,
+    fixedTargetPrice: targetPrice,
     shares: position.shares,
     depth,
   });
@@ -296,20 +305,19 @@ function closePosition(state: BollingerDirectionalState, input: ForwardSourceEve
   const position = state.position;
   if (!position) return null;
   const candle = input.candle;
-  const bands = calculateBollingerBands(state.candles);
-  const targetPrice = bands ? (position.side === "long" ? bands.upper : bands.lower) : position.initialTargetPrice;
+  const targetPrice = position.initialTargetPrice;
   let exitPrice: number | null = null;
   let exitReason: string | null = null;
   if (position.side === "long") {
-    if (position.stopPrice !== null && candle.open <= position.stopPrice) { exitPrice = candle.open; exitReason = "fixed_stop_060_gap"; }
-    else if (position.stopPrice !== null && candle.low <= position.stopPrice) { exitPrice = position.stopPrice; exitReason = "fixed_stop_060"; }
-    else if (candle.open >= targetPrice) { exitPrice = candle.open; exitReason = "dynamic_upper_band_gap"; }
-    else if (candle.high >= targetPrice) { exitPrice = targetPrice; exitReason = "dynamic_upper_band"; }
+    if (position.stopPrice !== null && candle.open <= position.stopPrice) { exitPrice = candle.open; exitReason = "fixed_stop_140_gap"; }
+    else if (position.stopPrice !== null && candle.low <= position.stopPrice) { exitPrice = position.stopPrice; exitReason = "fixed_stop_140"; }
+    else if (candle.open >= targetPrice) { exitPrice = candle.open; exitReason = "fixed_entry_upper_band_gap"; }
+    else if (candle.high >= targetPrice) { exitPrice = targetPrice; exitReason = "fixed_entry_upper_band"; }
   } else {
-    if (position.stopPrice !== null && candle.open >= position.stopPrice) { exitPrice = candle.open; exitReason = "fixed_stop_060_gap"; }
-    else if (position.stopPrice !== null && candle.high >= position.stopPrice) { exitPrice = position.stopPrice; exitReason = "fixed_stop_060"; }
-    else if (candle.open <= targetPrice) { exitPrice = candle.open; exitReason = "dynamic_lower_band_gap"; }
-    else if (candle.low <= targetPrice) { exitPrice = targetPrice; exitReason = "dynamic_lower_band"; }
+    if (position.stopPrice !== null && candle.open >= position.stopPrice) { exitPrice = candle.open; exitReason = "fixed_stop_140_gap"; }
+    else if (position.stopPrice !== null && candle.high >= position.stopPrice) { exitPrice = position.stopPrice; exitReason = "fixed_stop_140"; }
+    else if (candle.open <= targetPrice) { exitPrice = candle.open; exitReason = "fixed_entry_lower_band_gap"; }
+    else if (candle.low <= targetPrice) { exitPrice = targetPrice; exitReason = "fixed_entry_lower_band"; }
   }
   if (exitPrice === null && candle.candleTime >= BOLLINGER_DIRECTIONAL_DAY_END) {
     exitPrice = candle.close;
@@ -328,7 +336,7 @@ function closePosition(state: BollingerDirectionalState, input: ForwardSourceEve
     pnl,
     pnlAfterAdverseExit,
     realizedR: comparisonRisk > 0 ? pnl / comparisonRisk : 0,
-    dynamicTargetPrice: targetPrice,
+    fixedTargetPrice: targetPrice,
   };
 }
 
@@ -353,15 +361,19 @@ export function applyBollingerDirectionalTransition(
     const closed = closePosition(state, input);
     if (closed) {
       closedPosition = closed;
+      if (closed.exitReason.startsWith("fixed_stop_140")) {
+        state.entryBlockedUntilMinute = minuteOfDay(input.candle.candleTime) + BOLLINGER_DIRECTIONAL_STOP_COOLDOWN_MINUTES;
+      }
       actions.push({
         type: "exit",
         routeId: `bollinger_directional_${state.variant}_${closed.position.side}`,
         side: closed.position.side,
         exitPrice: closed.exitPrice,
         exitReason: closed.exitReason,
-        dynamicTargetPrice: closed.dynamicTargetPrice,
+        fixedTargetPrice: closed.fixedTargetPrice,
         pnl: closed.pnl,
         comparisonRiskPct: BOLLINGER_DIRECTIONAL_STOP_PCT,
+        entryBlockedUntilMinute: state.entryBlockedUntilMinute,
       });
       state.position = null;
       state.completedTrades += 1;
@@ -394,7 +406,23 @@ export function applyBollingerDirectionalTransition(
 
   // exit足から即座に再entry候補を作らず、次の1分足から再探索する。
   if (!state.position && !state.pending && resultType !== "exit" && inEntryWindow(current.candleTime)) {
-    if (state.plan.direction === "wait") {
+    const currentMinute = minuteOfDay(current.candleTime);
+    if (state.entryBlockedUntilMinute !== null && currentMinute >= state.entryBlockedUntilMinute) {
+      actions.push({
+        type: "entry_cooldown_expired",
+        expiredAtMinute: state.entryBlockedUntilMinute,
+        currentMinute,
+      });
+      state.entryBlockedUntilMinute = null;
+    }
+    if (state.entryBlockedUntilMinute !== null && currentMinute < state.entryBlockedUntilMinute) {
+      actions.push({
+        type: "entry_cooldown_active",
+        reason: "same_symbol_30_minutes_after_fixed_stop",
+        currentMinute,
+        entryBlockedUntilMinute: state.entryBlockedUntilMinute,
+      });
+    } else if (state.plan.direction === "wait") {
       actions.push({ type: "no_trade_plan", reasonCodes: state.plan.reasonCodes, sourceSnapshotId: state.plan.sourceSnapshotId });
     } else if (bandsBeforeCurrent) {
       const touched = state.plan.direction === "long"

@@ -29,12 +29,12 @@ function permitsDynamicTechnicalLevels(input: { versionId: string; configJson: u
     && (policy as Record<string, unknown>).automaticAdoption === false);
 }
 
-function permitsDynamicBollingerLevels(input: { versionId: string; configJson: unknown; eligibleForAdoption?: boolean }): boolean {
-  if (!input.versionId.match(/^candidate-(285a|3436|5803|6146|6526|6857|6976|6981|8035|9984)-bollinger-directional-(no-stop|stop060)-v1$/)
+function permitsFixedEntryBollingerLevels(input: { versionId: string; configJson: unknown; eligibleForAdoption?: boolean }): boolean {
+  if (!input.versionId.match(/^candidate-(285a|3436|5803|6146|6526|6857|6976|6981|8035|9984)-bollinger-directional-fixed-stop140-cooldown30-v1$/)
     || !input.configJson || typeof input.configJson !== "object") return false;
   const policy = (input.configJson as Record<string, unknown>).riskRewardPolicy;
   return Boolean(policy && typeof policy === "object"
-    && (policy as Record<string, unknown>).mode === "dynamic_bollinger_opposite_band"
+    && (policy as Record<string, unknown>).mode === "fixed_entry_bollinger_opposite_band"
     && (policy as Record<string, unknown>).exception === BOLLINGER_DIRECTIONAL_EXCEPTION
     && (policy as Record<string, unknown>).automaticAdoption === false
     && input.eligibleForAdoption === false);
@@ -68,7 +68,7 @@ export function assertForwardCandidateRiskReward(input: {
   const purpose = input.evaluationPurpose ?? "candidate";
   if (purpose !== "candidate") return [];
   const pairs = collectRiskPairs(input.configJson);
-  if (pairs.length === 0 && (permitsDynamicTechnicalLevels(input) || permitsDynamicBollingerLevels(input))) return [];
+  if (pairs.length === 0 && (permitsDynamicTechnicalLevels(input) || permitsFixedEntryBollingerLevels(input))) return [];
   if (pairs.length === 0) {
     throw new Error(`candidate_risk_reward_missing:${input.versionId}`);
   }

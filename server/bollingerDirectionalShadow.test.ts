@@ -57,6 +57,8 @@ function seeded(variant: BollingerDirectionalVariant, direction: "long" | "short
   return state;
 }
 
+const VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30";
+
 describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
   it("BBは現在足を含めず、直前の確定20本だけで算出する", () => {
     const candles = history();
@@ -67,8 +69,8 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     expect(after?.middle).not.toBe(before?.middle);
   });
 
-  it("上昇判断では-2σ接触後の次の陽線で板約定し、動的+2σで決済する", () => {
-    let state = seeded("no_stop", "long");
+  it("上昇判断では-2σ接触後の次の陽線で板約定し、入口時に固定した+2σで決済する", () => {
+    let state = seeded(VARIANT, "long");
     const touch = applyBollingerDirectionalTransition(state, source("touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality");
     expect(touch.resultType).toBe("pending");
     expect(touch.actions[0]).toMatchObject({ type: "signal_pending_next_candle_confirmation", side: "long", touchBand: 96 });
@@ -76,17 +78,21 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
 
     const entry = applyBollingerDirectionalTransition(state, source("confirm", "10:01", { open: 96, high: 98, low: 96, close: 97 }), "signal_quality");
     expect(entry.resultType).toBe("entry");
-    expect(entry.openedPosition).toMatchObject({ side: "long", slPct: 0, shares: 100, stopPrice: null });
+    expect(entry.openedPosition).toMatchObject({ side: "long", slPct: 1.4, shares: 100 });
+    expect(entry.openedPosition?.stopPrice).toBeCloseTo((entry.openedPosition?.entryPrice ?? 0) * 0.986);
+    const fixedTargetPrice = entry.openedPosition?.initialTargetPrice;
+    expect(fixedTargetPrice).toBeGreaterThan(entry.openedPosition?.entryPrice ?? Number.POSITIVE_INFINITY);
     state = entry.nextState;
 
     const exit = applyBollingerDirectionalTransition(state, source("target", "10:02", { open: 100, high: 110, low: 99, close: 105 }), "signal_quality");
     expect(exit.resultType).toBe("exit");
-    expect(exit.closedPosition?.exitReason).toBe("dynamic_upper_band");
+    expect(exit.closedPosition?.exitReason).toBe("fixed_entry_upper_band");
+    expect(exit.closedPosition?.exitPrice).toBeCloseTo(fixedTargetPrice ?? 0);
     expect(exit.closedPosition?.pnl).toBeGreaterThan(0);
   });
 
   it("接触の次足が方向確認足でなければ拒否し、日次回数は消費しない", () => {
-    let state = seeded("no_stop", "long");
+    let state = seeded(VARIANT, "long");
     state = applyBollingerDirectionalTransition(state, source("touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
     const rejected = applyBollingerDirectionalTransition(state, source("red", "10:01", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality");
     // 拒否足自身も再び-2σへ接触したため、拒否を記録して次足確認を再予約する。
@@ -96,21 +102,40 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     expect(rejected.nextState.completedTrades).toBe(0);
   });
 
-  it("同じ入口・同じ足で、0.60%案だけがstop-first、SLなし案は+2σ決済になる", () => {
-    const enter = (variant: BollingerDirectionalVariant) => {
-      let state = seeded(variant, "long");
-      state = applyBollingerDirectionalTransition(state, source(`${variant}:touch`, "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
-      return applyBollingerDirectionalTransition(state, source(`${variant}:entry`, "10:01", { open: 96, high: 98, low: 96, close: 97 }), "signal_quality").nextState;
-    };
+  it("同じ足でSLと固定目標の両方に触れた場合は1.40%損切りを優先する", () => {
+    let state = seeded(VARIANT, "long");
+    state = applyBollingerDirectionalTransition(state, source("stop-first:touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
+    state = applyBollingerDirectionalTransition(state, source("stop-first:entry", "10:01", { open: 96, high: 98, low: 96, close: 97 }), "signal_quality").nextState;
     const volatile = source("volatile", "10:02", { open: 97, high: 110, low: 90, close: 100 });
-    const stopped = applyBollingerDirectionalTransition(enter("stop_060"), volatile, "signal_quality");
-    const noStop = applyBollingerDirectionalTransition(enter("no_stop"), volatile, "signal_quality");
-    expect(stopped.closedPosition?.exitReason).toBe("fixed_stop_060");
-    expect(noStop.closedPosition?.exitReason).toBe("dynamic_upper_band");
+    const stopped = applyBollingerDirectionalTransition(state, volatile, "signal_quality");
+    expect(stopped.closedPosition?.exitReason).toBe("fixed_stop_140");
+    expect(stopped.nextState.entryBlockedUntilMinute).toBe(10 * 60 + 32);
+  });
+
+  it("損切り後30分未満は同一銘柄を再探索せず、30分経過時から再開する", () => {
+    let state = seeded(VARIANT, "long");
+    state = applyBollingerDirectionalTransition(state, source("cooldown:touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
+    state = applyBollingerDirectionalTransition(state, source("cooldown:entry", "10:01", { open: 96, high: 98, low: 96, close: 97 }), "signal_quality").nextState;
+    state = applyBollingerDirectionalTransition(state, source("cooldown:stop", "10:02", { open: 97, high: 98, low: 90, close: 96 }), "signal_quality").nextState;
+
+    const blocked = applyBollingerDirectionalTransition(state, source("cooldown:blocked", "10:31", { open: 97, high: 98, low: 90, close: 96 }), "signal_quality");
+    expect(blocked.resultType).toBe("no_signal");
+    expect(blocked.nextState.pending).toBeNull();
+    expect(blocked.actions[0]).toMatchObject({
+      type: "entry_cooldown_active",
+      reason: "same_symbol_30_minutes_after_fixed_stop",
+      entryBlockedUntilMinute: 10 * 60 + 32,
+    });
+
+    const resumed = applyBollingerDirectionalTransition(blocked.nextState, source("cooldown:resumed", "10:32", { open: 97, high: 98, low: 90, close: 96 }), "signal_quality");
+    expect(resumed.resultType).toBe("pending");
+    expect(resumed.nextState.entryBlockedUntilMinute).toBeNull();
+    expect(resumed.actions[0]).toMatchObject({ type: "entry_cooldown_expired", expiredAtMinute: 10 * 60 + 32 });
+    expect(resumed.nextState.pending?.side).toBe("long");
   });
 
   it("1日1回に制限せず、決済の次の足から同日再探索する", () => {
-    let state = seeded("no_stop", "long");
+    let state = seeded(VARIANT, "long");
     state = applyBollingerDirectionalTransition(state, source("touch1", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
     state = applyBollingerDirectionalTransition(state, source("entry1", "10:01", { open: 96, high: 98, low: 96, close: 97 }), "signal_quality").nextState;
     const exit = applyBollingerDirectionalTransition(state, source("exit1", "10:02", { open: 100, high: 110, low: 99, close: 105 }), "signal_quality");
@@ -120,12 +145,13 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
   });
 
   it("下落判断は+2σ接触後の次の陰線でSHORTになる", () => {
-    let state = seeded("stop_060", "short");
+    let state = seeded(VARIANT, "short");
     state = applyBollingerDirectionalTransition(state, source("short-touch", "10:00", { open: 103, high: 105, low: 102, close: 104 }, "short"), "signal_quality").nextState;
     const entry = applyBollingerDirectionalTransition(state, source("short-confirm", "10:01", { open: 104, high: 104, low: 102, close: 103 }, "short"), "signal_quality");
     expect(entry.resultType).toBe("entry");
     expect(entry.openedPosition?.side).toBe("short");
-    expect(entry.openedPosition?.slPct).toBe(0.6);
+    expect(entry.openedPosition?.slPct).toBe(1.4);
+    expect(entry.openedPosition?.stopPrice).toBeCloseTo((entry.openedPosition?.entryPrice ?? 0) * 1.014);
   });
 
   it("mixed・欠損・invalidはfail-closedで売買しない", () => {

@@ -2,8 +2,7 @@ import { ACTIVE_ENTRY_SYMBOLS, NAME_BY_SYMBOL } from "../shared/stocks";
 import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
-  BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
-  BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_BASELINE_VERSION,
@@ -76,19 +75,13 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   { strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", label: "実行価格・板確認B", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", label: "A案：次イベント板確認", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", label: "B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
-  ...TEN_MONITORED_SYMBOLS.flatMap(symbol => ([{
-    strategyVersion: BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS],
+  ...TEN_MONITORED_SYMBOLS.map(symbol => ({
+    strategyVersion: BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS],
     symbol,
-    label: "ボリンジャー方向判定：±2σ・SLなし",
+    label: "ボリンジャー方向判定：入口時固定±2σ・SL1.40%・損切り後30分停止",
     purpose: "candidate" as const,
     eligibleForAdoption: false,
-  }, {
-    strategyVersion: BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS],
-    symbol,
-    label: "ボリンジャー方向判定：±2σ・SL0.60%",
-    purpose: "candidate" as const,
-    eligibleForAdoption: false,
-  }])),
+  })),
 ];
 
 export const MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS: ReadonlyArray<MonitoringPlanDefinition> = Object.freeze([

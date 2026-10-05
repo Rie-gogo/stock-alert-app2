@@ -85,7 +85,7 @@ export const RETIRED_TECHNICAL_A_OBSERVATION_V2_VERSIONS = Object.freeze({
   "8035": "observation-8035-technical-a-v2",
   "9984": "observation-9984-technical-a-v2",
 } as const);
-/** ①〜③の方向と当日1分足BB(20,2σ)を使う、損切りなしの新規shadow。 */
+/** 停止対象の旧「損切りなし」版。version IDは履歴監査と非破壊停止のためだけに保持する。 */
 export const BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-no-stop-v1",
   "3436": "candidate-3436-bollinger-directional-no-stop-v1",
@@ -98,7 +98,7 @@ export const BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS = Object.freeze({
   "8035": "candidate-8035-bollinger-directional-no-stop-v1",
   "9984": "candidate-9984-bollinger-directional-no-stop-v1",
 } as const);
-/** 上と同一entry/targetで、固定0.60%損切りだけを加えた並行shadow。 */
+/** 停止対象の旧「固定0.60%損切り」版。version IDは履歴監査と非破壊停止のためだけに保持する。 */
 export const BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-stop060-v1",
   "3436": "candidate-3436-bollinger-directional-stop060-v1",
@@ -110,6 +110,19 @@ export const BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS = Object.freeze({
   "6981": "candidate-6981-bollinger-directional-stop060-v1",
   "8035": "candidate-8035-bollinger-directional-stop060-v1",
   "9984": "candidate-9984-bollinger-directional-stop060-v1",
+} as const);
+/** 入口時点の反対側2σを固定し、SL1.40%後30分は同一銘柄を再探索しない新規shadow。 */
+export const BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "3436": "candidate-3436-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "5803": "candidate-5803-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "6146": "candidate-6146-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "6526": "candidate-6526-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "6857": "candidate-6857-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "6976": "candidate-6976-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "6981": "candidate-6981-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "8035": "candidate-8035-bollinger-directional-fixed-stop140-cooldown30-v1",
+  "9984": "candidate-9984-bollinger-directional-fixed-stop140-cooldown30-v1",
 } as const);
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
@@ -147,8 +160,7 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
-  ...Object.values(BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

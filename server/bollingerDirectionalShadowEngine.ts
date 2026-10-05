@@ -19,6 +19,7 @@ import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
 import { TEN_MONITORED_SYMBOLS } from "./multiSymbolMonitoringRegistry";
 import {
   BASELINE_STRATEGY_GIT_SHA,
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
   BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   FORWARD_EVALUATION_POLICY,
@@ -37,6 +38,7 @@ import {
   BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS,
   BOLLINGER_DIRECTIONAL_PERIOD,
   BOLLINGER_DIRECTIONAL_SIGMA,
+  BOLLINGER_DIRECTIONAL_STOP_COOLDOWN_MINUTES,
   BOLLINGER_DIRECTIONAL_STOP_PCT,
   applyBollingerDirectionalTransition,
   buildBollingerDirectionalPlan,
@@ -48,25 +50,25 @@ import {
 } from "./bollingerDirectionalShadow";
 
 const MODES: readonly ForwardEvaluationMode[] = FORWARD_EVALUATION_POLICY.evaluationModes;
-const VARIANTS: readonly BollingerDirectionalVariant[] = ["no_stop", "stop_060"];
+const VARIANTS: readonly BollingerDirectionalVariant[] = ["fixed_stop_140_cooldown_30"];
 const SYMBOLS = new Set<string>(TEN_MONITORED_SYMBOLS);
 const ensuredVersions = new Set<string>();
 const frozenPlanCache = new Map<string, Promise<BollingerDirectionalPlan>>();
-let retiredTechnicalAVersions = false;
+let retiredSupersededVersions = false;
 
-type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS;
+type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS;
 
-export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, variant: BollingerDirectionalVariant) {
-  return variant === "no_stop"
-    ? BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS[symbol]
-    : BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS[symbol];
+export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, _variant: BollingerDirectionalVariant) {
+  return BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol];
 }
 
-async function retireTechnicalA() {
-  if (retiredTechnicalAVersions) return;
+async function retireSupersededVersions() {
+  if (retiredSupersededVersions) return;
   const historicalVersions = [
     ...Object.values(RETIRED_TECHNICAL_REGIME_SHADOW_A_VERSIONS),
     ...Object.values(RETIRED_TECHNICAL_A_OBSERVATION_V2_VERSIONS),
+    ...Object.values(BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS),
+    ...Object.values(BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS),
   ];
   for (const versionId of historicalVersions) {
     const row = await getRtStrategyVersion(versionId);
@@ -74,11 +76,11 @@ async function retireTechnicalA() {
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: "retired_replaced_by_bollinger_directional_shadow_2026_10_06",
+        statusReason: "retired_replaced_by_bollinger_fixed_stop140_cooldown30_shadow_2026_10_06",
       });
     }
   }
-  retiredTechnicalAVersions = true;
+  retiredSupersededVersions = true;
 }
 
 async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectionalVariant) {
@@ -107,17 +109,18 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
       multipleSequentialTradesPerDay: true,
     },
     exit: {
-      target: "opposite_2sigma_recalculated_from_prior_completed_20_closes_each_event",
-      stop: variant === "stop_060" ? { type: "fixed_pct", pct: BOLLINGER_DIRECTIONAL_STOP_PCT } : { type: "none" },
-      sameCandlePriority: "stop_first_when_stop_exists",
+      target: "opposite_2sigma_frozen_at_entry_from_prior_completed_20_closes",
+      stop: { type: "fixed_pct", pct: BOLLINGER_DIRECTIONAL_STOP_PCT },
+      sameCandlePriority: "stop_first",
+      sameSymbolReentryCooldownMinutesAfterStop: BOLLINGER_DIRECTIONAL_STOP_COOLDOWN_MINUTES,
       dayEndFlattenAtOrAfter: BOLLINGER_DIRECTIONAL_DAY_END,
     },
     riskRewardPolicy: {
-      mode: "dynamic_bollinger_opposite_band",
+      mode: "fixed_entry_bollinger_opposite_band",
       exception: "user_approved_bollinger_directional_shadow_2026-10-06",
       automaticAdoption: false,
     },
-    comparisonR: { denominatorPct: BOLLINGER_DIRECTIONAL_STOP_PCT, appliesToBothVariants: true },
+    comparisonR: { denominatorPct: BOLLINGER_DIRECTIONAL_STOP_PCT, appliesToFixedStopVariant: true },
     collectionStartDate: BOLLINGER_DIRECTIONAL_COLLECTION_START_DATE,
     formalEvaluationStartDate: BOLLINGER_DIRECTIONAL_FORMAL_START_DATE,
     evaluationModes: MODES,
@@ -138,7 +141,7 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
     evaluationPurpose: "candidate",
     eligibleForAdoption: false,
     status: "monitoring",
-    statusReason: "bollinger_directional_shadow_manual_review_only",
+    statusReason: "bollinger_directional_fixed_stop140_cooldown30_shadow_manual_review_only",
   });
   ensuredVersions.add(version);
 }
@@ -299,7 +302,7 @@ export async function processBollingerDirectionalShadowSourceEvent(source: Forwa
   if (source.candle.tradeDate < BOLLINGER_DIRECTIONAL_COLLECTION_START_DATE) return { skipped: "before_collection_start" as const };
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) return { skipped: "baseline_trading_logic_mismatch" as const };
   const symbol = source.candle.symbol as BollingerSymbol;
-  await retireTechnicalA();
+  await retireSupersededVersions();
   const evaluations = [];
   for (const variant of VARIANTS) {
     await ensureVersion(symbol, variant);
@@ -337,5 +340,5 @@ function createReplayState(plan: BollingerDirectionalPlan, variant: BollingerDir
 export function resetBollingerDirectionalShadowCachesForTest() {
   ensuredVersions.clear();
   frozenPlanCache.clear();
-  retiredTechnicalAVersions = false;
+  retiredSupersededVersions = false;
 }

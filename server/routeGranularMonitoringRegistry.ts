@@ -3,8 +3,7 @@ import { CURRENT_SIGNAL_CANDIDATE_VERSION } from "./currentSignalCandidateRegist
 import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
-  BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
-  BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -181,28 +180,18 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
 
-// ボリンジャー2案は、variantと方向を混ぜずに4経路として集計する。
-for (const symbol of Object.keys(BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS)) {
-  const noStopVersion = BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS];
-  const stopVersion = BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS];
+// ボリンジャー新案は、LONG/SHORTを混ぜずに2経路として集計する。
+for (const symbol of Object.keys(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS)) {
+  const strategyVersion = BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS];
   for (const direction of ["long", "short"] as const) {
     variants.push(
       shadow({
         symbol,
-        routeGroupId: `bollinger_directional_no_stop_${direction}`,
+        routeGroupId: `bollinger_directional_fixed_stop140_cooldown30_${direction}`,
         direction,
-        label: `ボリンジャー方向判定・SLなし ${direction.toUpperCase()}`,
-        canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_no_stop`,
-        strategyVersion: noStopVersion,
-        shadowSide: direction,
-      }),
-      shadow({
-        symbol,
-        routeGroupId: `bollinger_directional_stop060_${direction}`,
-        direction,
-        label: `ボリンジャー方向判定・SL0.60% ${direction.toUpperCase()}`,
-        canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_stop060`,
-        strategyVersion: stopVersion,
+        label: `ボリンジャー入口時固定±2σ・SL1.40%・30分停止 ${direction.toUpperCase()}`,
+        canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_fixed_stop140_cooldown30`,
+        strategyVersion,
         shadowSide: direction,
       }),
     );

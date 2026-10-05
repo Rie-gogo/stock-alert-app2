@@ -75,8 +75,8 @@ describe("route-granular next-day monitoring selector", () => {
     expect(current.completedTrades).toBe(1);
   });
 
-  it("partitions Bollinger no-stop outcomes by persisted LONG/SHORT action side", () => {
-    const strategyVersion = "candidate-285a-bollinger-directional-no-stop-v1";
+  it("partitions fixed-target Bollinger outcomes by persisted LONG/SHORT action side", () => {
+    const strategyVersion = "candidate-285a-bollinger-directional-fixed-stop140-cooldown30-v1";
     const daily = buildRouteGranularDailySnapshot({
       tradeDate: "2026-10-05",
       candidates: [],
@@ -85,7 +85,7 @@ describe("route-granular next-day monitoring selector", () => {
         strategyVersion,
         sourceEventId: "bollinger:long:entry",
         evaluationMode: "signal_quality",
-        decisionJson: { actions: [{ type: "entry", side: "long", routeId: "bollinger_directional_no_stop_long" }] },
+        decisionJson: { actions: [{ type: "entry", side: "long", routeId: "bollinger_directional_fixed_stop_140_cooldown_30_long" }] },
       }] as any,
       shadowTrades: [{
         strategyVersion,
@@ -266,10 +266,8 @@ describe("route-granular next-day monitoring selector", () => {
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(true);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
-      "6857_bollinger_directional_no_stop",
-      "6857_bollinger_directional_no_stop",
-      "6857_bollinger_directional_stop060",
-      "6857_bollinger_directional_stop060",
+      "6857_bollinger_directional_fixed_stop140_cooldown30",
+      "6857_bollinger_directional_fixed_stop140_cooldown30",
       "candidate-6857-confirmed-continuation-depth",
       "candidate-6857-short-body008-depth",
     ]);

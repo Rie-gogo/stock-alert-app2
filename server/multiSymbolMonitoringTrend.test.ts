@@ -77,7 +77,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "A案：高値失速SHORT・陰線実体0.08%＋次イベント板",
       "B案：確認型継続LONG・二段階高値更新＋次イベント板",
       "ボリンジャー方向判定：入口時固定±2σ・SL1.40%・損切り後30分停止",
-      "ボリンジャー方向判定：①〜③不使用・当日完成5分足SMA20方向・最低戻し余地0.60%",
+      "ボリンジャー方向判定：①〜③不使用・完成5分足SMA20＋Wilder RSI(14)≤22 LONG代替・最低戻し余地0.60%",
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
     ]);
     const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6981");
@@ -87,7 +87,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "A案：深い下落後の確認反発LONG",
       "B案：前場20本安値更新SHORT",
       "ボリンジャー方向判定：入口時固定±2σ・SL1.40%・損切り後30分停止",
-      "ボリンジャー方向判定：①〜③不使用・当日完成5分足SMA20方向・最低戻し余地0.60%",
+      "ボリンジャー方向判定：①〜③不使用・完成5分足SMA20＋Wilder RSI(14)≤22 LONG代替・最低戻し余地0.60%",
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
     ]);
   });

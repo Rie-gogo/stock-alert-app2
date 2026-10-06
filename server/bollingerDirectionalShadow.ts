@@ -17,6 +17,7 @@ export type BollingerDirectionalVariant =
   | "fixed_stop_140_cooldown_30"
   | "fixed_stop_140_cooldown_30_sma20_gap060"
   | "fixed_stop_140_cooldown_30_sma20_dynamic_gap060"
+  | "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060"
   | "fixed_stop_140_cooldown_30_sma10_slope_gap050";
 export type BollingerDirectionalSide = "long" | "short";
 export type BollingerDirectionalResultType = "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
@@ -28,6 +29,8 @@ export interface BollingerDirectionalVariantConfig {
   minimumTargetDistancePct: number;
   directionSource: "premarket_frozen" | "intraday_sma";
   requireCompleteFiveMinuteBars: boolean;
+  /** SMA20方向に代わりLONGだけを許可するWilder RSI(14)閾値。nullは不使用。 */
+  longWilderRsi14AlternativeThreshold: number | null;
 }
 
 export interface BollingerDirectionalMovingAverageSnapshot {
@@ -56,17 +59,29 @@ export interface BollingerDirectionalFiveMinuteAccumulator {
   minuteMask: number;
 }
 
+interface WilderRsiState {
+  closesUsed: number;
+  lastClose: number | null;
+  seedGainTotal: number;
+  seedLossTotal: number;
+  averageGain: number | null;
+  averageLoss: number | null;
+}
+
 export function bollingerDirectionalVariantConfig(variant: BollingerDirectionalVariant): BollingerDirectionalVariantConfig {
   if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") {
-    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false, longWilderRsi14AlternativeThreshold: null };
   }
   if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060") {
-    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "intraday_sma", requireCompleteFiveMinuteBars: true };
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "intraday_sma", requireCompleteFiveMinuteBars: true, longWilderRsi14AlternativeThreshold: null };
+  }
+  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060") {
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "intraday_sma", requireCompleteFiveMinuteBars: true, longWilderRsi14AlternativeThreshold: 22 };
   }
   if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") {
-    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 10, requireDirectionalSlope: true, minimumTargetDistancePct: 0.5, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 10, requireDirectionalSlope: true, minimumTargetDistancePct: 0.5, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false, longWilderRsi14AlternativeThreshold: null };
   }
-  return { movingAverageTimeframeMinutes: null, movingAveragePeriod: null, requireDirectionalSlope: false, minimumTargetDistancePct: 0, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
+  return { movingAverageTimeframeMinutes: null, movingAveragePeriod: null, requireDirectionalSlope: false, minimumTargetDistancePct: 0, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false, longWilderRsi14AlternativeThreshold: null };
 }
 
 export interface BollingerDirectionalPlan {
@@ -105,6 +120,16 @@ export interface BollingerDirectionalPending {
   touchBand: number;
   bands: BollingerBandSnapshot;
   movingAverage: BollingerDirectionalMovingAverageSnapshot | null;
+  wilderRsi14: WilderRsiSnapshot | null;
+  entryQualification: "sma20_direction" | "wilder_rsi14_oversold" | "premarket_direction";
+}
+
+export interface WilderRsiSnapshot {
+  period: 14;
+  closesUsed: number;
+  value: number;
+  averageGain: number;
+  averageLoss: number;
 }
 
 export interface BollingerDirectionalPosition {
@@ -125,6 +150,7 @@ export interface BollingerDirectionalPosition {
   boardAgeMs: number;
   minimumTargetDistancePct: number;
   targetDistancePct: number;
+  entryQualification: BollingerDirectionalPending["entryQualification"];
 }
 
 export interface BollingerDirectionalState {
@@ -133,6 +159,8 @@ export interface BollingerDirectionalState {
   plan: BollingerDirectionalPlan;
   variant: BollingerDirectionalVariant;
   candles: BollingerDirectionalCandle[];
+  /** 128本のraw 1分足上限とは別に保持する、同日Wilder RSI(14)の累積状態。 */
+  wilderRsi14State: WilderRsiState;
   /** 欠損bucketを除外した、当日中の完成済み5分足。 */
   completedFiveMinuteBars: BollingerDirectionalCompletedFiveMinuteBar[];
   /** 現在構築中の5分足。5分すべて揃った場合だけ完成済みへ昇格する。 */
@@ -224,6 +252,7 @@ export function createEmptyBollingerDirectionalState(
     plan,
     variant,
     candles: [],
+    wilderRsi14State: emptyWilderRsiState(),
     completedFiveMinuteBars: [],
     fiveMinuteAccumulator: null,
     pending: null,
@@ -245,12 +274,14 @@ export function normalizeBollingerDirectionalState(
   if (raw.tradeDate !== plan.tradeDate || raw.variant !== variant) return createEmptyBollingerDirectionalState(plan, variant);
   const candles = Array.isArray(raw.candles) ? raw.candles.slice(-128) as BollingerDirectionalCandle[] : [];
   const restoredFiveMinuteState = normalizeCompletedFiveMinuteState(raw, candles);
+  const restoredWilderRsiState = normalizeWilderRsiState(raw.wilderRsi14State, candles);
   return {
     version: 2,
     tradeDate: plan.tradeDate,
     plan: object(raw.plan).tradeDate === plan.tradeDate ? raw.plan as unknown as BollingerDirectionalPlan : plan,
     variant,
     candles,
+    wilderRsi14State: restoredWilderRsiState,
     completedFiveMinuteBars: restoredFiveMinuteState.completedFiveMinuteBars,
     fiveMinuteAccumulator: restoredFiveMinuteState.fiveMinuteAccumulator,
     pending: raw.pending && typeof raw.pending === "object" ? raw.pending as BollingerDirectionalPending : null,
@@ -261,6 +292,84 @@ export function normalizeBollingerDirectionalState(
     lastResultType: typeof raw.lastResultType === "string" ? raw.lastResultType as BollingerDirectionalResultType : null,
     lastActions: Array.isArray(raw.lastActions) ? raw.lastActions as Array<Record<string, unknown>> : [],
   };
+}
+
+function emptyWilderRsiState(): WilderRsiState {
+  return {
+    closesUsed: 0,
+    lastClose: null,
+    seedGainTotal: 0,
+    seedLossTotal: 0,
+    averageGain: null,
+    averageLoss: null,
+  };
+}
+
+function wilderRsiSnapshot(state: WilderRsiState): WilderRsiSnapshot | null {
+  if (state.closesUsed < 15 || state.averageGain === null || state.averageLoss === null) return null;
+  const value = state.averageLoss === 0
+    ? state.averageGain === 0 ? 50 : 100
+    : 100 - 100 / (1 + state.averageGain / state.averageLoss);
+  if (!Number.isFinite(value)) return null;
+  return {
+    period: 14,
+    closesUsed: state.closesUsed,
+    value,
+    averageGain: state.averageGain,
+    averageLoss: state.averageLoss,
+  };
+}
+
+function advanceWilderRsi14(state: WilderRsiState, close: number): WilderRsiState {
+  if (!Number.isFinite(close)) return state;
+  if (state.lastClose === null) return { ...state, closesUsed: 1, lastClose: close };
+  const change = close - state.lastClose;
+  const gain = Math.max(0, change);
+  const loss = Math.max(0, -change);
+  const intervalsBefore = state.closesUsed - 1;
+  if (intervalsBefore < 14) {
+    const closesUsed = state.closesUsed + 1;
+    const seedGainTotal = state.seedGainTotal + gain;
+    const seedLossTotal = state.seedLossTotal + loss;
+    return {
+      closesUsed,
+      lastClose: close,
+      seedGainTotal,
+      seedLossTotal,
+      averageGain: closesUsed === 15 ? seedGainTotal / 14 : null,
+      averageLoss: closesUsed === 15 ? seedLossTotal / 14 : null,
+    };
+  }
+  const averageGain = ((state.averageGain ?? 0) * 13 + gain) / 14;
+  const averageLoss = ((state.averageLoss ?? 0) * 13 + loss) / 14;
+  return { ...state, closesUsed: state.closesUsed + 1, lastClose: close, averageGain, averageLoss };
+}
+
+function normalizeWilderRsiState(value: unknown, candles: BollingerDirectionalCandle[]): WilderRsiState {
+  const raw = object(value);
+  const stored = Number.isInteger(raw.closesUsed)
+    && Number(raw.closesUsed) >= 0
+    && (raw.lastClose === null || Number.isFinite(raw.lastClose))
+    && Number.isFinite(raw.seedGainTotal)
+    && Number.isFinite(raw.seedLossTotal)
+    && (raw.averageGain === null || Number.isFinite(raw.averageGain))
+    && (raw.averageLoss === null || Number.isFinite(raw.averageLoss));
+  if (stored) {
+    return {
+      closesUsed: Number(raw.closesUsed),
+      lastClose: raw.lastClose === null ? null : Number(raw.lastClose),
+      seedGainTotal: Number(raw.seedGainTotal),
+      seedLossTotal: Number(raw.seedLossTotal),
+      averageGain: raw.averageGain === null ? null : Number(raw.averageGain),
+      averageLoss: raw.averageLoss === null ? null : Number(raw.averageLoss),
+    };
+  }
+  return candles.reduce((state, candle) => advanceWilderRsi14(state, candle.close), emptyWilderRsiState());
+}
+
+export function calculateWilderRsi14(candles: BollingerDirectionalCandle[]): WilderRsiSnapshot | null {
+  const state = candles.reduce((current, candle) => advanceWilderRsi14(current, candle.close), emptyWilderRsiState());
+  return wilderRsiSnapshot(state);
 }
 
 export function calculateBollingerBands(candles: BollingerDirectionalCandle[]): BollingerBandSnapshot | null {
@@ -552,6 +661,9 @@ function entryFromConfirmedCandle(
       targetDistancePct,
       minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
       boardAgeMs: clockAge.boardAgeMs,
+      movingAverage: pending.movingAverage,
+      wilderRsi14: pending.wilderRsi14,
+      entryQualification: pending.entryQualification,
     });
     return null;
   }
@@ -576,6 +688,7 @@ function entryFromConfirmedCandle(
     boardAgeMs: clockAge.boardAgeMs,
     minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
     targetDistancePct,
+    entryQualification: pending.entryQualification,
   };
   actions.push({
     type: "entry",
@@ -589,6 +702,8 @@ function entryFromConfirmedCandle(
     targetDistancePct,
     minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
     movingAverage: pending.movingAverage,
+    wilderRsi14: pending.wilderRsi14,
+    entryQualification: pending.entryQualification,
     shares: position.shares,
     depth,
   });
@@ -648,6 +763,7 @@ export function applyBollingerDirectionalTransition(
   const state: BollingerDirectionalState = {
     ...previous,
     candles: [...previous.candles],
+    wilderRsi14State: { ...previous.wilderRsi14State },
     completedFiveMinuteBars: [...previousFiveMinuteState.completedFiveMinuteBars],
     fiveMinuteAccumulator: previousFiveMinuteState.fiveMinuteAccumulator ? { ...previousFiveMinuteState.fiveMinuteAccumulator } : null,
     pending: previous.pending ? { ...previous.pending, bands: { ...previous.pending.bands } } : null,
@@ -705,6 +821,7 @@ export function applyBollingerDirectionalTransition(
   };
   state.candles.push(current);
   state.candles = state.candles.slice(-128);
+  state.wilderRsi14State = advanceWilderRsi14(state.wilderRsi14State, current.close);
   const completedFiveMinuteState = updateCompletedFiveMinuteState(
     state.completedFiveMinuteBars,
     state.fiveMinuteAccumulator,
@@ -739,10 +856,20 @@ export function applyBollingerDirectionalTransition(
       const dynamicDirection = variantConfig.directionSource === "intraday_sma"
         ? intradaySmaDirection(state.variant, current, state.candles, state.completedFiveMinuteBars)
         : null;
-      const candidateSide = dynamicDirection?.side ?? state.plan.direction;
       const lowerTouched = current.low <= bandsBeforeCurrent.lower;
       const upperTouched = current.high >= bandsBeforeCurrent.upper;
-      if (dynamicDirection?.side === "wait" && (lowerTouched || upperTouched)) {
+      const wilderRsi14 = wilderRsiSnapshot(state.wilderRsi14State);
+      const rsiLongAlternative = variantConfig.longWilderRsi14AlternativeThreshold !== null
+        && lowerTouched
+        && dynamicDirection?.snapshot !== null
+        && dynamicDirection?.snapshot !== undefined
+        && wilderRsi14 !== null
+        && wilderRsi14.value <= variantConfig.longWilderRsi14AlternativeThreshold;
+      const candidateSide = rsiLongAlternative ? "long" as const : dynamicDirection?.side ?? state.plan.direction;
+      const entryQualification: BollingerDirectionalPending["entryQualification"] = rsiLongAlternative
+        ? "wilder_rsi14_oversold"
+        : dynamicDirection ? "sma20_direction" : "premarket_direction";
+      if (dynamicDirection?.side === "wait" && (lowerTouched || upperTouched) && !rsiLongAlternative) {
         actions.push({
           type: "entry_filter_rejected",
           routeId: `bollinger_directional_${state.variant}`,
@@ -772,6 +899,7 @@ export function applyBollingerDirectionalTransition(
             movingAverage: movingAverageFilter.snapshot,
             touchPrice,
             touchBand,
+            wilderRsi14,
           });
         } else {
           state.pending = {
@@ -782,6 +910,8 @@ export function applyBollingerDirectionalTransition(
             touchBand,
             bands: bandsBeforeCurrent,
             movingAverage: movingAverageFilter.snapshot,
+            wilderRsi14,
+            entryQualification,
           };
           actions.push({
             type: "signal_pending_next_candle_confirmation",
@@ -794,6 +924,8 @@ export function applyBollingerDirectionalTransition(
             sourceSnapshotId: state.plan.sourceSnapshotId,
             regimeState: state.plan.regimeState,
             movingAverage: movingAverageFilter.snapshot,
+            wilderRsi14,
+            entryQualification,
             premarketDirectionUsed: variantConfig.directionSource === "premarket_frozen",
           });
           resultType = "pending";

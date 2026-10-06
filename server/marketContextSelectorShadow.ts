@@ -2,7 +2,7 @@ import { sha256Stable } from "./runtimeIdentity";
 import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 
 export const MARKET_CONTEXT_SELECTOR_SHADOW_VERSION = "market-context-selector-shadow-v3-market-affinity-monitoring";
-export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v2-same-cme-session";
+export const PREMARKET_CONTEXT_RULE_VERSION = "premarket-context-rule-v3-sign-direction-magnitude-strength";
 
 export const MARKET_CONTEXT_CHECKPOINTS = Object.freeze({
   "09:04": "09:05",
@@ -110,6 +110,10 @@ export type PremarketMarketRegime = {
     cmePreviousSessionChangePct: number | null;
     usdJpyChangePct: number | null;
     directionalScore: number;
+    magnitudeScore: number;
+    positiveLegs: number;
+    negativeLegs: number;
+    neutralLegs: number;
   };
 };
 
@@ -142,6 +146,11 @@ function directionalVote(value: number | null, mild: number, strong: number): nu
   if (value <= -strong) return -2;
   if (value <= -mild) return -1;
   return 0;
+}
+
+function signVote(value: number | null): -1 | 0 | 1 {
+  if (value === null || value === 0) return 0;
+  return value > 0 ? 1 : -1;
 }
 
 function jstDateAndMinute(epochMs: number) {
@@ -230,7 +239,7 @@ function premarketTemporalViolations(input: PremarketContextInput): string[] {
 }
 
 /**
- * ①〜③を、結果を見て日中変更しない固定閾値で分類する。
+ * ①〜③の方向は検証済み入力の符号・多数決で固定し、変動幅の固定閾値は強さと信頼度だけに使う。
  * CMEは前JPX営業日の同一CME・同一限月・08:25確定足との比較だけをverified材料として扱う。
  */
 export function classifyPremarketContext(input: PremarketContextInput): PremarketMarketRegime {
@@ -252,10 +261,26 @@ export function classifyPremarketContext(input: PremarketContextInput): Premarke
   if (!dowVerified) reasonCodes.push("dow_not_verified");
   if (!cmeVerified) reasonCodes.push("cme_jpy_not_verified");
   if (!fxVerified) reasonCodes.push("usd_jpy_not_verified");
-  const directionalScore = directionalVote(dowChangePct, 0.3, 1.0)
+  const magnitudeScore = directionalVote(dowChangePct, 0.3, 1.0)
     + directionalVote(cmePreviousSessionChangePct, 0.35, 0.9)
     + directionalVote(usdJpyChangePct, 0.2, 0.6);
-  const metrics = { dowChangePct, cmePreviousSessionChangePct, usdJpyChangePct, directionalScore };
+  const signVotes = [dowChangePct, cmePreviousSessionChangePct, usdJpyChangePct]
+    .filter((value): value is number => value !== null)
+    .map(signVote);
+  const positiveLegs = signVotes.filter(value => value > 0).length;
+  const negativeLegs = signVotes.filter(value => value < 0).length;
+  const neutralLegs = signVotes.filter(value => value === 0).length;
+  const directionalScore = positiveLegs - negativeLegs;
+  const metrics = {
+    dowChangePct,
+    cmePreviousSessionChangePct,
+    usdJpyChangePct,
+    directionalScore,
+    magnitudeScore,
+    positiveLegs,
+    negativeLegs,
+    neutralLegs,
+  };
   const temporalViolations = premarketTemporalViolations(input);
   if (temporalViolations.length > 0) {
     return {
@@ -283,15 +308,30 @@ export function classifyPremarketContext(input: PremarketContextInput): Premarke
   }
   let state: PremarketMarketRegime["state"] = "mixed";
   let allowedDirections: PremarketMarketRegime["allowedDirections"] = [];
-  if (directionalScore >= 4) { state = "strong_up"; allowedDirections = ["long"]; }
-  else if (directionalScore >= 2) { state = "up"; allowedDirections = ["long"]; }
-  else if (directionalScore <= -4) { state = "strong_down"; allowedDirections = ["short"]; }
-  else if (directionalScore <= -2) { state = "down"; allowedDirections = ["short"]; }
-  else reasonCodes.push("premarket_inputs_mixed_or_small");
+  if (positiveLegs >= 2 && positiveLegs > negativeLegs) {
+    state = magnitudeScore >= 4 ? "strong_up" : "up";
+    allowedDirections = ["long"];
+    reasonCodes.push(magnitudeScore >= 2
+      ? "premarket_positive_majority_with_material_magnitude"
+      : "premarket_positive_majority_below_magnitude_thresholds");
+  } else if (negativeLegs >= 2 && negativeLegs > positiveLegs) {
+    state = magnitudeScore <= -4 ? "strong_down" : "down";
+    allowedDirections = ["short"];
+    reasonCodes.push(magnitudeScore <= -2
+      ? "premarket_negative_majority_with_material_magnitude"
+      : "premarket_negative_majority_below_magnitude_thresholds");
+  } else {
+    reasonCodes.push("premarket_inputs_directionally_mixed_or_insufficient_agreement");
+  }
   const qualityStatus = verifiedLegs === 3 ? "verified" as const : "degraded" as const;
-  const confidence = Math.abs(directionalScore) >= 4 && verifiedLegs === 3
+  const alignedMagnitudeScore = allowedDirections[0] === "long"
+    ? magnitudeScore
+    : allowedDirections[0] === "short"
+      ? -magnitudeScore
+      : 0;
+  const confidence = alignedMagnitudeScore >= 4 && verifiedLegs === 3
     ? "high" as const
-    : Math.abs(directionalScore) >= 2
+    : alignedMagnitudeScore >= 2
       ? "medium" as const
       : "low" as const;
   return {
@@ -301,7 +341,7 @@ export function classifyPremarketContext(input: PremarketContextInput): Premarke
     allowedDirections,
     qualityStatus,
     verifiedLegs,
-    reasonCodes: [...reasonCodes, `directional_score_${directionalScore}`],
+    reasonCodes: [...reasonCodes, `directional_score_${directionalScore}`, `magnitude_score_${magnitudeScore}`],
     metrics,
   };
 }

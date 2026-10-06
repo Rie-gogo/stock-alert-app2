@@ -96,6 +96,79 @@ describe("market context selector shadow", () => {
     expect(result.metrics.directionalScore).toBe(3);
   });
 
+  it("3項目がすべて小幅上昇ならmixedではなく低信頼度のupにする", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: { ...premarketInput.dow, changePct: 0.18 },
+      cme: {
+        ...premarketInput.cme,
+        quote: 70130,
+        previousSession: { ...premarketInput.cme.previousSession, quote: 69910 },
+      },
+      usdJpy: { ...premarketInput.usdJpy, previousRate: 157.85, currentRate: 157.91 },
+    });
+    expect(result).toMatchObject({
+      state: "up",
+      confidence: "low",
+      allowedDirections: ["long"],
+      metrics: {
+        directionalScore: 3,
+        magnitudeScore: 0,
+        positiveLegs: 3,
+        negativeLegs: 0,
+      },
+    });
+    expect(result.reasonCodes).toContain("premarket_positive_majority_below_magnitude_thresholds");
+  });
+
+  it("3項目がすべて小幅下落ならmixedではなく低信頼度のdownにする", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: { ...premarketInput.dow, changePct: -0.18 },
+      cme: {
+        ...premarketInput.cme,
+        quote: 69690,
+        previousSession: { ...premarketInput.cme.previousSession, quote: 69910 },
+      },
+      usdJpy: { ...premarketInput.usdJpy, previousRate: 157.91, currentRate: 157.85 },
+    });
+    expect(result).toMatchObject({
+      state: "down",
+      confidence: "low",
+      allowedDirections: ["short"],
+      metrics: {
+        directionalScore: -3,
+        magnitudeScore: 0,
+        positiveLegs: 0,
+        negativeLegs: 3,
+      },
+    });
+    expect(result.reasonCodes).toContain("premarket_negative_majority_below_magnitude_thresholds");
+  });
+
+  it("多数決方向と大幅変動の向きが逆なら確信度を過大評価しない", () => {
+    const result = classifyPremarketContext({
+      ...premarketInput,
+      dow: { ...premarketInput.dow, changePct: 0.1 },
+      cme: {
+        ...premarketInput.cme,
+        quote: 69980,
+        previousSession: { ...premarketInput.cme.previousSession, quote: 69910 },
+      },
+      usdJpy: { ...premarketInput.usdJpy, previousRate: 158, currentRate: 156.5 },
+    });
+    expect(result).toMatchObject({
+      state: "up",
+      confidence: "low",
+      allowedDirections: ["long"],
+      metrics: {
+        directionalScore: 1,
+        positiveLegs: 2,
+        negativeLegs: 1,
+      },
+    });
+  });
+
   it("旧OSE比較だけのCME payloadは受信互換でも方向判定に使用しない", () => {
     const result = classifyPremarketContext({
       ...premarketInput,

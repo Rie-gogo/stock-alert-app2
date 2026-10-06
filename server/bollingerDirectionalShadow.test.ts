@@ -7,6 +7,7 @@ import {
   calculateBollingerBands,
   calculateBollingerDirectionalMovingAverage,
   createEmptyBollingerDirectionalState,
+  normalizeBollingerDirectionalState,
   type BollingerDirectionalCandle,
   type BollingerDirectionalVariant,
 } from "./bollingerDirectionalShadow";
@@ -115,6 +116,72 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     expect(calculateBollingerDirectionalMovingAverage(complete, "10:40", 20, false, true))
       .toMatchObject({ period: 20, completedBars: 20 });
     expect(calculateBollingerDirectionalMovingAverage(missingOneMinute, "10:40", 20, false, true)).toBeNull();
+  });
+
+  it("完成済み5分足を1分足128本とは別に保持し、欠損bucketを除外して20本を再起動後も使う", () => {
+    const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
+    let state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
+    let sequence = 0;
+    const feed = (minute: number, close: number) => {
+      const time = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+      state = applyBollingerDirectionalTransition(state, source(`separate-five-minute:${sequence++}`, time, {
+        open: close,
+        high: close + 0.01,
+        low: close - 0.01,
+        close,
+      }), "signal_quality").nextState;
+    };
+
+    // 前場は17本だけ完成させ、残り13bucketは1分欠損のため完成扱いにしない。
+    for (let bucket = 0; bucket < 30; bucket += 1) {
+      const offsets = bucket < 17 ? [0, 1, 2, 3, 4] : [0, 1, 2, 3];
+      for (const offset of offsets) feed(9 * 60 + bucket * 5 + offset, 100 + bucket * 0.1);
+    }
+    // 後場の完成3本を加えると、当日完成済み5分足が合計20本になる。
+    for (let bucket = 0; bucket < 3; bucket += 1) {
+      for (const offset of [0, 1, 2, 3, 4]) feed(12 * 60 + 30 + bucket * 5 + offset, 103 + bucket * 0.1);
+    }
+
+    expect(state.candles).toHaveLength(128);
+    expect(state.completedFiveMinuteBars).toHaveLength(20);
+    expect(calculateBollingerDirectionalMovingAverage(state.candles, "12:44", 20, false, true)).toBeNull();
+    expect(calculateBollingerDirectionalMovingAverage(
+      state.candles,
+      "12:44",
+      20,
+      false,
+      true,
+      state.completedFiveMinuteBars,
+    )).toMatchObject({ period: 20, completedBars: 20 });
+
+    const restored = normalizeBollingerDirectionalState(JSON.parse(JSON.stringify(state)), intradayPlan, SMA20_DYNAMIC_VARIANT);
+    expect(restored.completedFiveMinuteBars).toEqual(state.completedFiveMinuteBars);
+    const nextTradeDatePlan = buildBollingerIntradaySmaDirectionPlan("2026-10-08");
+    const nextTradeDateState = normalizeBollingerDirectionalState(
+      JSON.parse(JSON.stringify(state)),
+      nextTradeDatePlan,
+      SMA20_DYNAMIC_VARIANT,
+    );
+    expect(nextTradeDateState.completedFiveMinuteBars).toEqual([]);
+    expect(nextTradeDateState.fiveMinuteAccumulator).toBeNull();
+    const bands = calculateBollingerBands(restored.candles)!;
+    const movingAverage = calculateBollingerDirectionalMovingAverage(
+      restored.candles,
+      "12:44",
+      20,
+      false,
+      true,
+      restored.completedFiveMinuteBars,
+    )!;
+    const touchClose = movingAverage.value + 1;
+    const touch = applyBollingerDirectionalTransition(restored, source("separate-five-minute:touch", "12:45", {
+      open: touchClose - 0.1,
+      high: touchClose + 0.1,
+      low: bands.lower - 0.1,
+      close: touchClose,
+    }), "signal_quality");
+    expect(touch.resultType).toBe("pending");
+    expect(touch.nextState.pending).toMatchObject({ side: "long", movingAverage: { period: 20, completedBars: 20 } });
   });
 
   it("①〜③がmixedでも、当日完成5分足SMA20が上なら下側2σ接触をLONG候補にする", () => {

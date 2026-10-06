@@ -39,6 +39,23 @@ export interface BollingerDirectionalMovingAverageSnapshot {
   completedBars: number;
 }
 
+export interface BollingerDirectionalCompletedFiveMinuteBar {
+  sessionStartMinute: number;
+  bucketStartMinute: number;
+  bucketEndMinute: number;
+  close: number;
+  completedAtTime: string;
+}
+
+export interface BollingerDirectionalFiveMinuteAccumulator {
+  sessionStartMinute: number;
+  bucketStartMinute: number;
+  bucketEndMinute: number;
+  close: number;
+  closeMinute: number;
+  minuteMask: number;
+}
+
 export function bollingerDirectionalVariantConfig(variant: BollingerDirectionalVariant): BollingerDirectionalVariantConfig {
   if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") {
     return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
@@ -116,6 +133,10 @@ export interface BollingerDirectionalState {
   plan: BollingerDirectionalPlan;
   variant: BollingerDirectionalVariant;
   candles: BollingerDirectionalCandle[];
+  /** 欠損bucketを除外した、当日中の完成済み5分足。 */
+  completedFiveMinuteBars: BollingerDirectionalCompletedFiveMinuteBar[];
+  /** 現在構築中の5分足。5分すべて揃った場合だけ完成済みへ昇格する。 */
+  fiveMinuteAccumulator: BollingerDirectionalFiveMinuteAccumulator | null;
   pending: BollingerDirectionalPending | null;
   position: BollingerDirectionalPosition | null;
   completedTrades: number;
@@ -203,6 +224,8 @@ export function createEmptyBollingerDirectionalState(
     plan,
     variant,
     candles: [],
+    completedFiveMinuteBars: [],
+    fiveMinuteAccumulator: null,
     pending: null,
     position: null,
     completedTrades: 0,
@@ -220,12 +243,16 @@ export function normalizeBollingerDirectionalState(
 ): BollingerDirectionalState {
   const raw = object(value);
   if (raw.tradeDate !== plan.tradeDate || raw.variant !== variant) return createEmptyBollingerDirectionalState(plan, variant);
+  const candles = Array.isArray(raw.candles) ? raw.candles.slice(-128) as BollingerDirectionalCandle[] : [];
+  const restoredFiveMinuteState = normalizeCompletedFiveMinuteState(raw, candles);
   return {
     version: 2,
     tradeDate: plan.tradeDate,
     plan: object(raw.plan).tradeDate === plan.tradeDate ? raw.plan as unknown as BollingerDirectionalPlan : plan,
     variant,
-    candles: Array.isArray(raw.candles) ? raw.candles.slice(-128) as BollingerDirectionalCandle[] : [],
+    candles,
+    completedFiveMinuteBars: restoredFiveMinuteState.completedFiveMinuteBars,
+    fiveMinuteAccumulator: restoredFiveMinuteState.fiveMinuteAccumulator,
     pending: raw.pending && typeof raw.pending === "object" ? raw.pending as BollingerDirectionalPending : null,
     position: raw.position && typeof raw.position === "object" ? raw.position as BollingerDirectionalPosition : null,
     completedTrades: Number.isInteger(raw.completedTrades) ? Number(raw.completedTrades) : 0,
@@ -258,6 +285,102 @@ function inEntryWindow(candleTime: string) {
 function minuteOfDay(candleTime: string) {
   const [hour, minute] = candleTime.split(":").map(Number);
   return hour * 60 + minute;
+}
+
+const BOLLINGER_DIRECTIONAL_MAX_COMPLETED_FIVE_MINUTE_BARS = 80;
+const COMPLETE_FIVE_MINUTE_MASK = 0b1_1111;
+
+function fiveMinuteBucketFor(candleTime: string) {
+  const minute = minuteOfDay(candleTime);
+  const sessionStartMinute = minute < 12 * 60 ? 9 * 60 : 12 * 60 + 30;
+  if (minute < sessionStartMinute) return null;
+  const bucketStartMinute = sessionStartMinute + Math.floor((minute - sessionStartMinute) / 5) * 5;
+  const bucketEndMinute = bucketStartMinute + 4;
+  const offset = minute - bucketStartMinute;
+  if (offset < 0 || offset > 4) return null;
+  return { minute, sessionStartMinute, bucketStartMinute, bucketEndMinute, offset };
+}
+
+function updateCompletedFiveMinuteState(
+  completedFiveMinuteBars: BollingerDirectionalCompletedFiveMinuteBar[],
+  fiveMinuteAccumulator: BollingerDirectionalFiveMinuteAccumulator | null,
+  candle: BollingerDirectionalCandle,
+) {
+  const bucket = fiveMinuteBucketFor(candle.candleTime);
+  if (!bucket) return { completedFiveMinuteBars, fiveMinuteAccumulator };
+  let accumulator = fiveMinuteAccumulator;
+  if (!accumulator
+    || accumulator.sessionStartMinute !== bucket.sessionStartMinute
+    || accumulator.bucketStartMinute !== bucket.bucketStartMinute) {
+    accumulator = {
+      sessionStartMinute: bucket.sessionStartMinute,
+      bucketStartMinute: bucket.bucketStartMinute,
+      bucketEndMinute: bucket.bucketEndMinute,
+      close: candle.close,
+      closeMinute: bucket.minute,
+      minuteMask: 0,
+    };
+  }
+  accumulator = {
+    ...accumulator,
+    minuteMask: accumulator.minuteMask | (1 << bucket.offset),
+    close: bucket.minute >= accumulator.closeMinute ? candle.close : accumulator.close,
+    closeMinute: Math.max(accumulator.closeMinute, bucket.minute),
+  };
+  let completed = completedFiveMinuteBars;
+  if (accumulator.minuteMask === COMPLETE_FIVE_MINUTE_MASK) {
+    const bar: BollingerDirectionalCompletedFiveMinuteBar = {
+      sessionStartMinute: accumulator.sessionStartMinute,
+      bucketStartMinute: accumulator.bucketStartMinute,
+      bucketEndMinute: accumulator.bucketEndMinute,
+      close: accumulator.close,
+      completedAtTime: candle.candleTime,
+    };
+    const existingIndex = completed.findIndex(candidate => candidate.bucketStartMinute === bar.bucketStartMinute
+      && candidate.sessionStartMinute === bar.sessionStartMinute);
+    completed = existingIndex >= 0
+      ? completed.map((candidate, index) => index === existingIndex ? bar : candidate)
+      : [...completed, bar];
+    completed = completed
+      .sort((left, right) => left.bucketStartMinute - right.bucketStartMinute)
+      .slice(-BOLLINGER_DIRECTIONAL_MAX_COMPLETED_FIVE_MINUTE_BARS);
+  }
+  return { completedFiveMinuteBars: completed, fiveMinuteAccumulator: accumulator };
+}
+
+function normalizeCompletedFiveMinuteState(
+  raw: Record<string, unknown>,
+  candles: BollingerDirectionalCandle[],
+) {
+  const storedBars = Array.isArray(raw.completedFiveMinuteBars)
+    ? raw.completedFiveMinuteBars.filter(value => {
+      const bar = object(value);
+      return Number.isInteger(bar.sessionStartMinute)
+        && Number.isInteger(bar.bucketStartMinute)
+        && Number.isInteger(bar.bucketEndMinute)
+        && Number.isFinite(bar.close)
+        && typeof bar.completedAtTime === "string";
+    }).slice(-BOLLINGER_DIRECTIONAL_MAX_COMPLETED_FIVE_MINUTE_BARS) as BollingerDirectionalCompletedFiveMinuteBar[]
+    : [];
+  const storedAccumulatorRaw = object(raw.fiveMinuteAccumulator);
+  const storedAccumulator = Number.isInteger(storedAccumulatorRaw.sessionStartMinute)
+    && Number.isInteger(storedAccumulatorRaw.bucketStartMinute)
+    && Number.isInteger(storedAccumulatorRaw.bucketEndMinute)
+    && Number.isFinite(storedAccumulatorRaw.close)
+    && Number.isInteger(storedAccumulatorRaw.closeMinute)
+    && Number.isInteger(storedAccumulatorRaw.minuteMask)
+    ? storedAccumulatorRaw as unknown as BollingerDirectionalFiveMinuteAccumulator
+    : null;
+  if (storedBars.length || storedAccumulator) {
+    return { completedFiveMinuteBars: storedBars, fiveMinuteAccumulator: storedAccumulator };
+  }
+  return candles.reduce(
+    (state, candle) => updateCompletedFiveMinuteState(state.completedFiveMinuteBars, state.fiveMinuteAccumulator, candle),
+    {
+      completedFiveMinuteBars: [] as BollingerDirectionalCompletedFiveMinuteBar[],
+      fiveMinuteAccumulator: null as BollingerDirectionalFiveMinuteAccumulator | null,
+    },
+  );
 }
 
 function completedFiveMinuteCloses(
@@ -294,8 +417,15 @@ export function calculateBollingerDirectionalMovingAverage(
   period: 10 | 20,
   requirePrevious = true,
   requireCompleteBars = false,
+  completedFiveMinuteBars: BollingerDirectionalCompletedFiveMinuteBar[] | null = null,
 ): BollingerDirectionalMovingAverageSnapshot | null {
-  const closes = completedFiveMinuteCloses(candles, currentTime, requireCompleteBars);
+  const currentMinute = minuteOfDay(currentTime);
+  const closes = requireCompleteBars && completedFiveMinuteBars
+    ? completedFiveMinuteBars
+      .filter(bar => bar.bucketEndMinute <= currentMinute)
+      .sort((left, right) => left.bucketStartMinute - right.bucketStartMinute)
+      .map(bar => bar.close)
+    : completedFiveMinuteCloses(candles, currentTime, requireCompleteBars);
   if (closes.length < period + (requirePrevious ? 1 : 0)) return null;
   const current = closes.slice(-period).reduce((sum, value) => sum + value, 0) / period;
   const previous = closes.length >= period + 1
@@ -316,6 +446,7 @@ function movingAverageAllowsTouch(
   side: BollingerDirectionalSide,
   current: BollingerDirectionalCandle,
   candlesIncludingCurrent: BollingerDirectionalCandle[],
+  completedFiveMinuteBars: BollingerDirectionalCompletedFiveMinuteBar[],
 ) {
   const config = bollingerDirectionalVariantConfig(variant);
   if (config.movingAveragePeriod === null) return { allowed: true, snapshot: null, reason: null };
@@ -325,6 +456,7 @@ function movingAverageAllowsTouch(
     config.movingAveragePeriod,
     config.requireDirectionalSlope,
     config.requireCompleteFiveMinuteBars,
+    completedFiveMinuteBars,
   );
   if (!snapshot) return { allowed: false, snapshot: null, reason: "five_minute_sma_unavailable" };
   const priceAligned = side === "long" ? current.close > snapshot.value : current.close < snapshot.value;
@@ -338,6 +470,7 @@ function intradaySmaDirection(
   variant: BollingerDirectionalVariant,
   current: BollingerDirectionalCandle,
   candlesIncludingCurrent: BollingerDirectionalCandle[],
+  completedFiveMinuteBars: BollingerDirectionalCompletedFiveMinuteBar[],
 ) {
   const config = bollingerDirectionalVariantConfig(variant);
   if (config.directionSource !== "intraday_sma" || config.movingAveragePeriod === null) {
@@ -349,6 +482,7 @@ function intradaySmaDirection(
     config.movingAveragePeriod,
     config.requireDirectionalSlope,
     config.requireCompleteFiveMinuteBars,
+    completedFiveMinuteBars,
   );
   if (!snapshot) return { side: "wait" as const, snapshot: null, reason: "complete_five_minute_sma_unavailable" };
   if (current.close > snapshot.value) return { side: "long" as const, snapshot, reason: "touch_close_above_intraday_sma20" };
@@ -505,9 +639,17 @@ export function applyBollingerDirectionalTransition(
   input: ForwardSourceEventInput,
   mode: ForwardEvaluationMode,
 ): BollingerDirectionalTransition {
+  const previousFiveMinuteState = previous.completedFiveMinuteBars?.length || previous.fiveMinuteAccumulator
+    ? {
+      completedFiveMinuteBars: previous.completedFiveMinuteBars ?? [],
+      fiveMinuteAccumulator: previous.fiveMinuteAccumulator ?? null,
+    }
+    : normalizeCompletedFiveMinuteState({}, previous.candles);
   const state: BollingerDirectionalState = {
     ...previous,
     candles: [...previous.candles],
+    completedFiveMinuteBars: [...previousFiveMinuteState.completedFiveMinuteBars],
+    fiveMinuteAccumulator: previousFiveMinuteState.fiveMinuteAccumulator ? { ...previousFiveMinuteState.fiveMinuteAccumulator } : null,
     pending: previous.pending ? { ...previous.pending, bands: { ...previous.pending.bands } } : null,
     position: previous.position ? { ...previous.position } : null,
     lastActions: [],
@@ -563,6 +705,13 @@ export function applyBollingerDirectionalTransition(
   };
   state.candles.push(current);
   state.candles = state.candles.slice(-128);
+  const completedFiveMinuteState = updateCompletedFiveMinuteState(
+    state.completedFiveMinuteBars,
+    state.fiveMinuteAccumulator,
+    current,
+  );
+  state.completedFiveMinuteBars = completedFiveMinuteState.completedFiveMinuteBars;
+  state.fiveMinuteAccumulator = completedFiveMinuteState.fiveMinuteAccumulator;
 
   // exit足から即座に再entry候補を作らず、次の1分足から再探索する。
   if (!state.position && !state.pending && resultType !== "exit" && inEntryWindow(current.candleTime)) {
@@ -588,7 +737,7 @@ export function applyBollingerDirectionalTransition(
     } else if (bandsBeforeCurrent) {
       const variantConfig = bollingerDirectionalVariantConfig(state.variant);
       const dynamicDirection = variantConfig.directionSource === "intraday_sma"
-        ? intradaySmaDirection(state.variant, current, state.candles)
+        ? intradaySmaDirection(state.variant, current, state.candles, state.completedFiveMinuteBars)
         : null;
       const candidateSide = dynamicDirection?.side ?? state.plan.direction;
       const lowerTouched = current.low <= bandsBeforeCurrent.lower;
@@ -613,7 +762,7 @@ export function applyBollingerDirectionalTransition(
         const touchPrice = candidateSide === "long" ? current.low : current.high;
         const movingAverageFilter = dynamicDirection
           ? { allowed: true, snapshot: dynamicDirection.snapshot, reason: dynamicDirection.reason }
-          : movingAverageAllowsTouch(state.variant, candidateSide, current, state.candles);
+          : movingAverageAllowsTouch(state.variant, candidateSide, current, state.candles, state.completedFiveMinuteBars);
         if (!movingAverageFilter.allowed) {
           actions.push({
             type: "entry_filter_rejected",

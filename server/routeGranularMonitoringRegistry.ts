@@ -4,6 +4,8 @@ import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -180,21 +182,41 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
 
-// ボリンジャー新案は、LONG/SHORTを混ぜずに2経路として集計する。
-for (const symbol of Object.keys(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS)) {
-  const strategyVersion = BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS];
-  for (const direction of ["long", "short"] as const) {
-    variants.push(
-      shadow({
-        symbol,
-        routeGroupId: `bollinger_directional_fixed_stop140_cooldown30_${direction}`,
-        direction,
-        label: `ボリンジャー入口時固定±2σ・SL1.40%・30分停止 ${direction.toUpperCase()}`,
-        canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_fixed_stop140_cooldown30`,
-        strategyVersion,
-        shadowSide: direction,
-      }),
-    );
+// ボリンジャー3案は、案別かつLONG/SHORT別に混ぜず集計する。
+const bollingerRouteConfigs = [
+  {
+    versions: BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
+    routeKey: "fixed_stop140_cooldown30",
+    label: "現行：入口時固定±2σ・SL1.40%・30分停止",
+  },
+  {
+    versions: BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS,
+    routeKey: "sma20_gap060_stop140_cooldown30",
+    label: "5分SMA20・最低戻し余地0.60%",
+  },
+  {
+    versions: BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
+    routeKey: "sma10_slope_gap050_stop140_cooldown30",
+    label: "5分SMA10＋傾き・最低戻し余地0.50%",
+  },
+] as const;
+
+for (const config of bollingerRouteConfigs) {
+  for (const symbol of Object.keys(config.versions)) {
+    const strategyVersion = config.versions[symbol as keyof typeof config.versions];
+    for (const direction of ["long", "short"] as const) {
+      variants.push(
+        shadow({
+          symbol,
+          routeGroupId: `bollinger_directional_${config.routeKey}_${direction}`,
+          direction,
+          label: `${config.label} ${direction.toUpperCase()}`,
+          canonicalLogic: `${symbol.toLowerCase()}_bollinger_directional_${config.routeKey}`,
+          strategyVersion,
+          shadowSide: direction,
+        }),
+      );
+    }
   }
 }
 

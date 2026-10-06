@@ -21,6 +21,8 @@ import {
   BASELINE_STRATEGY_GIT_SHA,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS,
   BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   FORWARD_EVALUATION_POLICY,
   RETIRED_TECHNICAL_A_OBSERVATION_V2_VERSIONS,
@@ -41,6 +43,7 @@ import {
   BOLLINGER_DIRECTIONAL_STOP_COOLDOWN_MINUTES,
   BOLLINGER_DIRECTIONAL_STOP_PCT,
   applyBollingerDirectionalTransition,
+  bollingerDirectionalVariantConfig,
   buildBollingerDirectionalPlan,
   normalizeBollingerDirectionalState,
   type BollingerDirectionalPlan,
@@ -50,7 +53,11 @@ import {
 } from "./bollingerDirectionalShadow";
 
 const MODES: readonly ForwardEvaluationMode[] = FORWARD_EVALUATION_POLICY.evaluationModes;
-const VARIANTS: readonly BollingerDirectionalVariant[] = ["fixed_stop_140_cooldown_30"];
+const VARIANTS: readonly BollingerDirectionalVariant[] = [
+  "fixed_stop_140_cooldown_30",
+  "fixed_stop_140_cooldown_30_sma20_gap060",
+  "fixed_stop_140_cooldown_30_sma10_slope_gap050",
+];
 const SYMBOLS = new Set<string>(TEN_MONITORED_SYMBOLS);
 const ensuredVersions = new Set<string>();
 const frozenPlanCache = new Map<string, Promise<BollingerDirectionalPlan>>();
@@ -58,7 +65,9 @@ let retiredSupersededVersions = false;
 
 type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS;
 
-export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, _variant: BollingerDirectionalVariant) {
+export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, variant: BollingerDirectionalVariant) {
+  if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") return BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") return BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS[symbol];
   return BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol];
 }
 
@@ -87,6 +96,7 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
   const version = bollingerDirectionalStrategyVersion(symbol, variant);
   if (ensuredVersions.has(version)) return;
   const identity = getRuntimeIdentity();
+  const variantConfig = bollingerDirectionalVariantConfig(variant);
   const config = {
     symbol,
     strategyFamily: "bollinger_directional_shadow",
@@ -107,6 +117,14 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
       maximumBoardAgeMs: BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS,
       entryWindow: [BOLLINGER_DIRECTIONAL_ENTRY_START, BOLLINGER_DIRECTIONAL_ENTRY_END],
       multipleSequentialTradesPerDay: true,
+      movingAverageFilter: variantConfig.movingAveragePeriod === null ? null : {
+        timeframeMinutes: variantConfig.movingAverageTimeframeMinutes,
+        period: variantConfig.movingAveragePeriod,
+        priceRelation: "touch_candle_close_directionally_beyond_sma",
+        requireDirectionalSlope: variantConfig.requireDirectionalSlope,
+        completedBarsOnly: true,
+      },
+      minimumFixedTargetDistancePct: variantConfig.minimumTargetDistancePct,
     },
     exit: {
       target: "opposite_2sigma_frozen_at_entry_from_prior_completed_20_closes",
@@ -141,7 +159,7 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
     evaluationPurpose: "candidate",
     eligibleForAdoption: false,
     status: "monitoring",
-    statusReason: "bollinger_directional_fixed_stop140_cooldown30_shadow_manual_review_only",
+    statusReason: `bollinger_directional_${variant}_shadow_manual_review_only`,
   });
   ensuredVersions.add(version);
 }

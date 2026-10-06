@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyBollingerDirectionalTransition,
+  bollingerDirectionalVariantConfig,
   buildBollingerDirectionalPlan,
   calculateBollingerBands,
+  calculateBollingerDirectionalMovingAverage,
   createEmptyBollingerDirectionalState,
   type BollingerDirectionalCandle,
   type BollingerDirectionalVariant,
@@ -58,6 +60,25 @@ function seeded(variant: BollingerDirectionalVariant, direction: "long" | "short
 }
 
 const VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30";
+const SMA20_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_gap060";
+const SMA10_SLOPE_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma10_slope_gap050";
+
+function risingFiveMinuteHistory(): BollingerDirectionalCandle[] {
+  return Array.from({ length: 105 }, (_, index) => {
+    const minute = 9 * 60 + index;
+    const bucket = Math.floor(index / 5);
+    const close = 90 + bucket * 0.2;
+    return {
+      sourceEventId: `five-minute:${index}`,
+      candleTime: `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`,
+      open: close - 0.05,
+      high: close + 0.1,
+      low: close - 0.1,
+      close,
+      volume: 1_000,
+    };
+  });
+}
 
 describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
   it("BBは現在足を含めず、直前の確定20本だけで算出する", () => {
@@ -67,6 +88,61 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     const after = calculateBollingerBands([...candles, current]);
     expect(before).toMatchObject({ middle: 100, upper: 104, lower: 96, inputCount: 20 });
     expect(after?.middle).not.toBe(before?.middle);
+  });
+
+  it("5分足SMAは完了済みbucketだけを使い、SMA10の上向き傾きを因果的に算出する", () => {
+    const history = risingFiveMinuteHistory();
+    const snapshot = calculateBollingerDirectionalMovingAverage(history, "10:45", 10);
+    expect(snapshot).toMatchObject({ timeframeMinutes: 5, period: 10, completedBars: 21 });
+    expect(snapshot?.slope).toBeGreaterThan(0);
+    expect(bollingerDirectionalVariantConfig(SMA20_VARIANT)).toMatchObject({ movingAveragePeriod: 20, minimumTargetDistancePct: 0.6, requireDirectionalSlope: false });
+    expect(bollingerDirectionalVariantConfig(SMA10_SLOPE_VARIANT)).toMatchObject({ movingAveragePeriod: 10, minimumTargetDistancePct: 0.5, requireDirectionalSlope: true });
+  });
+
+  it("傾きを使わないSMA20案は20本の完了済み5分足から判定できる", () => {
+    const firstTwentyBuckets = risingFiveMinuteHistory().slice(0, 100);
+    const withoutSlope = calculateBollingerDirectionalMovingAverage(firstTwentyBuckets, "10:40", 20, false);
+    const withSlope = calculateBollingerDirectionalMovingAverage(firstTwentyBuckets, "10:40", 20, true);
+    expect(withoutSlope).toMatchObject({ timeframeMinutes: 5, period: 20, completedBars: 20 });
+    expect(withSlope).toBeNull();
+  });
+
+  it("SMA10＋傾き案は-2σ接触時に終値がSMA上かつSMA上向きの場合だけ確認待ちにする", () => {
+    const state = createEmptyBollingerDirectionalState(plan("long"), SMA10_SLOPE_VARIANT);
+    state.candles = risingFiveMinuteHistory();
+    const priorBands = calculateBollingerBands(state.candles);
+    expect(priorBands).not.toBeNull();
+    const accepted = applyBollingerDirectionalTransition(state, source("sma-touch", "10:45", {
+      open: 94,
+      high: 95.2,
+      low: (priorBands?.lower ?? 0) - 0.1,
+      close: 95,
+    }), "signal_quality");
+    expect(accepted.resultType).toBe("pending");
+    expect(accepted.nextState.pending?.movingAverage).toMatchObject({ period: 10 });
+    expect(accepted.nextState.pending?.movingAverage?.slope).toBeGreaterThan(0);
+  });
+
+  it("最低戻し余地を満たさない実行可能価格は、確認足が陽線でもentryしない", () => {
+    const state = seeded(SMA20_VARIANT, "long");
+    const bands = calculateBollingerBands(state.candles)!;
+    state.pending = {
+      side: "long",
+      touchSourceEventId: "gap-touch",
+      touchTime: "10:00",
+      touchPrice: bands.lower,
+      touchBand: bands.lower,
+      bands,
+      movingAverage: null,
+    };
+    const rejected = applyBollingerDirectionalTransition(state, source("gap-confirm", "10:01", {
+      open: bands.upper - 0.3,
+      high: bands.upper,
+      low: bands.upper - 0.4,
+      close: bands.upper - 0.1,
+    }), "signal_quality");
+    expect(rejected.openedPosition).toBeNull();
+    expect(rejected.actions[0]).toMatchObject({ type: "entry_rejected", reason: "minimum_fixed_target_distance_not_met", minimumTargetDistancePct: 0.6 });
   });
 
   it("上昇判断では-2σ接触後の次の陽線で板約定し、入口時に固定した+2σで決済する", () => {

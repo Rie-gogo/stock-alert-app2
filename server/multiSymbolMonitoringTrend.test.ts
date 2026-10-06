@@ -69,22 +69,26 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v1");
   });
 
-  it("6857と6981は現行・独立2案・固定目標ボリンジャー案を発火ゼロでも固定表示する", () => {
+  it("6857と6981は現行・独立2案・固定目標ボリンジャー3案を発火ゼロでも固定表示する", () => {
     const advantest = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6857");
-    expect(advantest).toHaveLength(4);
+    expect(advantest).toHaveLength(6);
     expect(advantest.map(plan => plan.label)).toEqual([
       "現行（証拠金ブロック含む）",
       "A案：高値失速SHORT・陰線実体0.08%＋次イベント板",
       "B案：確認型継続LONG・二段階高値更新＋次イベント板",
       "ボリンジャー方向判定：入口時固定±2σ・SL1.40%・損切り後30分停止",
+      "ボリンジャー方向判定：5分SMA20・最低戻し余地0.60%",
+      "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
     ]);
     const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6981");
-    expect(murata).toHaveLength(4);
+    expect(murata).toHaveLength(6);
     expect(murata.map(plan => plan.label)).toEqual([
       "現行（証拠金ブロック含む）",
       "A案：深い下落後の確認反発LONG",
       "B案：前場20本安値更新SHORT",
       "ボリンジャー方向判定：入口時固定±2σ・SL1.40%・損切り後30分停止",
+      "ボリンジャー方向判定：5分SMA20・最低戻し余地0.60%",
+      "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
     ]);
   });
 });

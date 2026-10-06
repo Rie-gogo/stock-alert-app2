@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyBollingerDirectionalTransition,
   bollingerDirectionalVariantConfig,
+  buildBollingerIntradaySmaDirectionPlan,
   buildBollingerDirectionalPlan,
   calculateBollingerBands,
   calculateBollingerDirectionalMovingAverage,
@@ -61,6 +62,7 @@ function seeded(variant: BollingerDirectionalVariant, direction: "long" | "short
 
 const VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30";
 const SMA20_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_gap060";
+const SMA20_DYNAMIC_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_dynamic_gap060";
 const SMA10_SLOPE_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma10_slope_gap050";
 
 function risingFiveMinuteHistory(): BollingerDirectionalCandle[] {
@@ -105,6 +107,59 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     const withSlope = calculateBollingerDirectionalMovingAverage(firstTwentyBuckets, "10:40", 20, true);
     expect(withoutSlope).toMatchObject({ timeframeMinutes: 5, period: 20, completedBars: 20 });
     expect(withSlope).toBeNull();
+  });
+
+  it("①〜③不使用のSMA20案は不完全な5分足を除外し、20本揃うまでfail-closedにする", () => {
+    const complete = risingFiveMinuteHistory().slice(0, 100);
+    const missingOneMinute = complete.filter(candle => candle.sourceEventId !== "five-minute:4");
+    expect(calculateBollingerDirectionalMovingAverage(complete, "10:40", 20, false, true))
+      .toMatchObject({ period: 20, completedBars: 20 });
+    expect(calculateBollingerDirectionalMovingAverage(missingOneMinute, "10:40", 20, false, true)).toBeNull();
+  });
+
+  it("①〜③がmixedでも、当日完成5分足SMA20が上なら下側2σ接触をLONG候補にする", () => {
+    const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
+    expect(intradayPlan).toMatchObject({ direction: "wait", sourceSnapshotId: null, sourceQuality: "not_applicable", regimeState: "intraday_sma20_dynamic" });
+    let state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
+    state.candles = risingFiveMinuteHistory().slice(0, 100);
+    const bands = calculateBollingerBands(state.candles)!;
+    const transition = applyBollingerDirectionalTransition(state, source("dynamic-long-touch", "10:40", {
+      open: 93.7,
+      high: 94.1,
+      low: bands.lower - 0.1,
+      close: 94,
+    }), "signal_quality");
+    expect(transition.resultType).toBe("pending");
+    expect(transition.nextState.pending).toMatchObject({ side: "long", movingAverage: { period: 20, completedBars: 20 } });
+    expect(transition.actions[0]).toMatchObject({
+      type: "signal_pending_next_candle_confirmation",
+      side: "long",
+      premarketDirectionUsed: false,
+    });
+  });
+
+  it("①〜③不使用のSMA20案は当日完成5分足SMA20が下なら上側2σ接触をSHORT候補にする", () => {
+    const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
+    const state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
+    state.candles = risingFiveMinuteHistory().slice(0, 100).map((candle, index) => {
+      const bucket = Math.floor(index / 5);
+      const close = 110 - bucket * 0.2;
+      return { ...candle, open: close + 0.05, high: close + 0.1, low: close - 0.1, close };
+    });
+    const bands = calculateBollingerBands(state.candles)!;
+    const transition = applyBollingerDirectionalTransition(state, source("dynamic-short-touch", "10:40", {
+      open: 106.3,
+      high: bands.upper + 0.1,
+      low: 105.9,
+      close: 106,
+    }, "short"), "signal_quality");
+    expect(transition.resultType).toBe("pending");
+    expect(transition.nextState.pending).toMatchObject({ side: "short", movingAverage: { period: 20, completedBars: 20 } });
+    expect(transition.actions[0]).toMatchObject({
+      type: "signal_pending_next_candle_confirmation",
+      side: "short",
+      premarketDirectionUsed: false,
+    });
   });
 
   it("SMA10＋傾き案は-2σ接触時に終値がSMA上かつSMA上向きの場合だけ確認待ちにする", () => {

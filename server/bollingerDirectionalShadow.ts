@@ -16,6 +16,7 @@ export const BOLLINGER_DIRECTIONAL_DAY_END = "15:20";
 export type BollingerDirectionalVariant =
   | "fixed_stop_140_cooldown_30"
   | "fixed_stop_140_cooldown_30_sma20_gap060"
+  | "fixed_stop_140_cooldown_30_sma20_dynamic_gap060"
   | "fixed_stop_140_cooldown_30_sma10_slope_gap050";
 export type BollingerDirectionalSide = "long" | "short";
 export type BollingerDirectionalResultType = "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
@@ -25,6 +26,8 @@ export interface BollingerDirectionalVariantConfig {
   movingAveragePeriod: 10 | 20 | null;
   requireDirectionalSlope: boolean;
   minimumTargetDistancePct: number;
+  directionSource: "premarket_frozen" | "intraday_sma";
+  requireCompleteFiveMinuteBars: boolean;
 }
 
 export interface BollingerDirectionalMovingAverageSnapshot {
@@ -38,18 +41,21 @@ export interface BollingerDirectionalMovingAverageSnapshot {
 
 export function bollingerDirectionalVariantConfig(variant: BollingerDirectionalVariant): BollingerDirectionalVariantConfig {
   if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") {
-    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6 };
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
+  }
+  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060") {
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "intraday_sma", requireCompleteFiveMinuteBars: true };
   }
   if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") {
-    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 10, requireDirectionalSlope: true, minimumTargetDistancePct: 0.5 };
+    return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 10, requireDirectionalSlope: true, minimumTargetDistancePct: 0.5, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
   }
-  return { movingAverageTimeframeMinutes: null, movingAveragePeriod: null, requireDirectionalSlope: false, minimumTargetDistancePct: 0 };
+  return { movingAverageTimeframeMinutes: null, movingAveragePeriod: null, requireDirectionalSlope: false, minimumTargetDistancePct: 0, directionSource: "premarket_frozen", requireCompleteFiveMinuteBars: false };
 }
 
 export interface BollingerDirectionalPlan {
   tradeDate: string;
   sourceSnapshotId: string | null;
-  sourceQuality: "verified" | "degraded" | "invalid" | "missing";
+  sourceQuality: "verified" | "degraded" | "invalid" | "missing" | "not_applicable";
   regimeState: string;
   confidence: string;
   direction: BollingerDirectionalSide | "wait";
@@ -175,6 +181,18 @@ export function buildBollingerDirectionalPlan(input: {
   };
 }
 
+export function buildBollingerIntradaySmaDirectionPlan(tradeDate: string): BollingerDirectionalPlan {
+  return {
+    tradeDate,
+    sourceSnapshotId: null,
+    sourceQuality: "not_applicable",
+    regimeState: "intraday_sma20_dynamic",
+    confidence: "rule_based",
+    direction: "wait",
+    reasonCodes: ["premarket_1_to_3_not_used", "intraday_sma20_direction_pending"],
+  };
+}
+
 export function createEmptyBollingerDirectionalState(
   plan: BollingerDirectionalPlan,
   variant: BollingerDirectionalVariant,
@@ -242,9 +260,13 @@ function minuteOfDay(candleTime: string) {
   return hour * 60 + minute;
 }
 
-function completedFiveMinuteCloses(candles: BollingerDirectionalCandle[], currentTime: string): number[] {
+function completedFiveMinuteCloses(
+  candles: BollingerDirectionalCandle[],
+  currentTime: string,
+  requireCompleteBars = false,
+): number[] {
   const currentMinute = minuteOfDay(currentTime);
-  const buckets = new Map<number, number>();
+  const buckets = new Map<number, { close: number; closeMinute: number; minutes: Set<number> }>();
   for (const candle of candles) {
     const minute = minuteOfDay(candle.candleTime);
     const sessionStart = minute < 12 * 60 ? 9 * 60 : 12 * 60 + 30;
@@ -252,9 +274,18 @@ function completedFiveMinuteCloses(candles: BollingerDirectionalCandle[], curren
     const bucketStart = sessionStart + Math.floor((minute - sessionStart) / 5) * 5;
     const bucketEnd = bucketStart + 4;
     if (bucketEnd > currentMinute) continue;
-    buckets.set(bucketStart, candle.close);
+    const bucket = buckets.get(bucketStart) ?? { close: candle.close, closeMinute: minute, minutes: new Set<number>() };
+    bucket.minutes.add(minute);
+    if (minute >= bucket.closeMinute) {
+      bucket.close = candle.close;
+      bucket.closeMinute = minute;
+    }
+    buckets.set(bucketStart, bucket);
   }
-  return Array.from(buckets.entries()).sort(([left], [right]) => left - right).map(([, close]) => close);
+  return Array.from(buckets.entries())
+    .filter(([, bucket]) => !requireCompleteBars || bucket.minutes.size === 5)
+    .sort(([left], [right]) => left - right)
+    .map(([, bucket]) => bucket.close);
 }
 
 export function calculateBollingerDirectionalMovingAverage(
@@ -262,8 +293,9 @@ export function calculateBollingerDirectionalMovingAverage(
   currentTime: string,
   period: 10 | 20,
   requirePrevious = true,
+  requireCompleteBars = false,
 ): BollingerDirectionalMovingAverageSnapshot | null {
-  const closes = completedFiveMinuteCloses(candles, currentTime);
+  const closes = completedFiveMinuteCloses(candles, currentTime, requireCompleteBars);
   if (closes.length < period + (requirePrevious ? 1 : 0)) return null;
   const current = closes.slice(-period).reduce((sum, value) => sum + value, 0) / period;
   const previous = closes.length >= period + 1
@@ -292,6 +324,7 @@ function movingAverageAllowsTouch(
     current.candleTime,
     config.movingAveragePeriod,
     config.requireDirectionalSlope,
+    config.requireCompleteFiveMinuteBars,
   );
   if (!snapshot) return { allowed: false, snapshot: null, reason: "five_minute_sma_unavailable" };
   const priceAligned = side === "long" ? current.close > snapshot.value : current.close < snapshot.value;
@@ -299,6 +332,28 @@ function movingAverageAllowsTouch(
   const slopeAligned = !config.requireDirectionalSlope || (side === "long" ? snapshot.slope > 0 : snapshot.slope < 0);
   if (!slopeAligned) return { allowed: false, snapshot, reason: side === "long" ? "sma_slope_not_rising" : "sma_slope_not_falling" };
   return { allowed: true, snapshot, reason: null };
+}
+
+function intradaySmaDirection(
+  variant: BollingerDirectionalVariant,
+  current: BollingerDirectionalCandle,
+  candlesIncludingCurrent: BollingerDirectionalCandle[],
+) {
+  const config = bollingerDirectionalVariantConfig(variant);
+  if (config.directionSource !== "intraday_sma" || config.movingAveragePeriod === null) {
+    return { side: "wait" as const, snapshot: null, reason: "intraday_sma_direction_not_enabled" };
+  }
+  const snapshot = calculateBollingerDirectionalMovingAverage(
+    candlesIncludingCurrent,
+    current.candleTime,
+    config.movingAveragePeriod,
+    config.requireDirectionalSlope,
+    config.requireCompleteFiveMinuteBars,
+  );
+  if (!snapshot) return { side: "wait" as const, snapshot: null, reason: "complete_five_minute_sma_unavailable" };
+  if (current.close > snapshot.value) return { side: "long" as const, snapshot, reason: "touch_close_above_intraday_sma20" };
+  if (current.close < snapshot.value) return { side: "short" as const, snapshot, reason: "touch_close_below_intraday_sma20" };
+  return { side: "wait" as const, snapshot, reason: "touch_close_equal_intraday_sma20" };
 }
 
 function sharesForMode(mode: ForwardEvaluationMode, price: number) {
@@ -527,21 +582,43 @@ export function applyBollingerDirectionalTransition(
         currentMinute,
         entryBlockedUntilMinute: state.entryBlockedUntilMinute,
       });
-    } else if (state.plan.direction === "wait") {
+    } else if (state.plan.direction === "wait"
+      && bollingerDirectionalVariantConfig(state.variant).directionSource === "premarket_frozen") {
       actions.push({ type: "no_trade_plan", reasonCodes: state.plan.reasonCodes, sourceSnapshotId: state.plan.sourceSnapshotId });
     } else if (bandsBeforeCurrent) {
-      const touched = state.plan.direction === "long"
-        ? current.low <= bandsBeforeCurrent.lower
-        : current.high >= bandsBeforeCurrent.upper;
-      if (touched) {
-        const touchBand = state.plan.direction === "long" ? bandsBeforeCurrent.lower : bandsBeforeCurrent.upper;
-        const touchPrice = state.plan.direction === "long" ? current.low : current.high;
-        const movingAverageFilter = movingAverageAllowsTouch(state.variant, state.plan.direction, current, state.candles);
+      const variantConfig = bollingerDirectionalVariantConfig(state.variant);
+      const dynamicDirection = variantConfig.directionSource === "intraday_sma"
+        ? intradaySmaDirection(state.variant, current, state.candles)
+        : null;
+      const candidateSide = dynamicDirection?.side ?? state.plan.direction;
+      const lowerTouched = current.low <= bandsBeforeCurrent.lower;
+      const upperTouched = current.high >= bandsBeforeCurrent.upper;
+      if (dynamicDirection?.side === "wait" && (lowerTouched || upperTouched)) {
+        actions.push({
+          type: "entry_filter_rejected",
+          routeId: `bollinger_directional_${state.variant}`,
+          side: "wait",
+          reason: dynamicDirection.reason,
+          movingAverage: dynamicDirection.snapshot,
+          lowerTouched,
+          upperTouched,
+          premarketDirectionUsed: false,
+        });
+      }
+      const touched = candidateSide === "long"
+        ? lowerTouched
+        : candidateSide === "short" ? upperTouched : false;
+      if (touched && candidateSide !== "wait") {
+        const touchBand = candidateSide === "long" ? bandsBeforeCurrent.lower : bandsBeforeCurrent.upper;
+        const touchPrice = candidateSide === "long" ? current.low : current.high;
+        const movingAverageFilter = dynamicDirection
+          ? { allowed: true, snapshot: dynamicDirection.snapshot, reason: dynamicDirection.reason }
+          : movingAverageAllowsTouch(state.variant, candidateSide, current, state.candles);
         if (!movingAverageFilter.allowed) {
           actions.push({
             type: "entry_filter_rejected",
-            routeId: `bollinger_directional_${state.variant}_${state.plan.direction}`,
-            side: state.plan.direction,
+            routeId: `bollinger_directional_${state.variant}_${candidateSide}`,
+            side: candidateSide,
             reason: movingAverageFilter.reason,
             movingAverage: movingAverageFilter.snapshot,
             touchPrice,
@@ -549,7 +626,7 @@ export function applyBollingerDirectionalTransition(
           });
         } else {
           state.pending = {
-            side: state.plan.direction,
+            side: candidateSide,
             touchSourceEventId: current.sourceEventId,
             touchTime: current.candleTime,
             touchPrice,
@@ -559,8 +636,8 @@ export function applyBollingerDirectionalTransition(
           };
           actions.push({
             type: "signal_pending_next_candle_confirmation",
-            routeId: `bollinger_directional_${state.variant}_${state.plan.direction}`,
-            side: state.plan.direction,
+            routeId: `bollinger_directional_${state.variant}_${candidateSide}`,
+            side: candidateSide,
             touchPrice,
             touchBand,
             bandPeriod: BOLLINGER_DIRECTIONAL_PERIOD,
@@ -568,6 +645,7 @@ export function applyBollingerDirectionalTransition(
             sourceSnapshotId: state.plan.sourceSnapshotId,
             regimeState: state.plan.regimeState,
             movingAverage: movingAverageFilter.snapshot,
+            premarketDirectionUsed: variantConfig.directionSource === "premarket_frozen",
           });
           resultType = "pending";
         }

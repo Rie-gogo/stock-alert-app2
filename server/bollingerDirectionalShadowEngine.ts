@@ -22,11 +22,14 @@ import {
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS,
   BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS,
   FORWARD_EVALUATION_POLICY,
   RETIRED_TECHNICAL_A_OBSERVATION_V2_VERSIONS,
   RETIRED_TECHNICAL_REGIME_SHADOW_A_VERSIONS,
@@ -59,7 +62,9 @@ import {
 const MODES: readonly ForwardEvaluationMode[] = FORWARD_EVALUATION_POLICY.evaluationModes;
 const VARIANTS: readonly BollingerDirectionalVariant[] = [
   "fixed_stop_140_cooldown_30",
-  "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060",
+  "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3",
+  "fixed_stop_140_cooldown_30_sma20_slope_gap060",
+  "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060",
   "fixed_stop_140_cooldown_30_sma10_slope_gap050",
 ];
 const SYMBOLS = new Set<string>(TEN_MONITORED_SYMBOLS);
@@ -72,15 +77,21 @@ type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSION
 export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, variant: BollingerDirectionalVariant) {
   if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") return BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS[symbol];
   if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060") return RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS[symbol];
-  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060") return BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3") return BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_slope_gap060") return BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060") return BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS[symbol];
   if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") return BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS[symbol];
   return BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol];
 }
 
 export function bollingerDirectionalLifecycleStrategyId(symbol: BollingerSymbol, variant: BollingerDirectionalVariant): string {
   // rt_strategy_versions.strategy_id は64文字。versionIdは完全なまま監査に残す。
-  return variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060"
-    ? `${symbol.toLowerCase()}-bb-sma20-rsi22long-v2`
+  return variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3"
+    ? `${symbol.toLowerCase()}-bb-sma20-dynamic-v3`
+    : variant === "fixed_stop_140_cooldown_30_sma20_slope_gap060"
+    ? `${symbol.toLowerCase()}-bb-sma20-slope-a-v1`
+    : variant === "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060"
+    ? `${symbol.toLowerCase()}-bb-sma20-slope-width-b-v1`
     : `${symbol.toLowerCase()}-bollinger-${variant}`;
 }
 
@@ -94,6 +105,7 @@ async function retireSupersededVersions() {
     ...(Object.values(BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS) as string[]),
   ];
   for (const versionId of historicalVersions) {
     const row = await getRtStrategyVersion(versionId);
@@ -101,10 +113,13 @@ async function retireSupersededVersions() {
       const isRetiredSma20 = (Object.values(BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
       const isRetiredDynamicSma20 = (Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
       const isRetiredRsi14 = (Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
+      const isRetiredRsi22Long = (Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: isRetiredRsi14
+        statusReason: isRetiredRsi22Long
+          ? "retired_replaced_by_sma20_direction_slope_variants_without_rsi_2026_10_08"
+          : isRetiredRsi14
           ? "retired_replaced_by_intraday_sma20_rsi22long_alternative_shadow_2026_10_07"
           : isRetiredDynamicSma20
           ? "retired_replaced_by_intraday_sma20_rsi14_long_alternative_shadow_2026_10_07"
@@ -132,9 +147,7 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
         source: "same_day_completed_five_minute_sma20",
         premarketInputsUsed: false,
         resetForEachTradeDate: true,
-        long: variantConfig.longWilderRsi14AlternativeThreshold === null
-          ? "touch_candle_close_above_sma20_and_lower_2sigma_touch"
-          : "lower_2sigma_touch_and_(touch_candle_close_above_sma20_or_wilder_rsi14_lte_22)",
+        long: "touch_candle_close_above_sma20_and_lower_2sigma_touch",
         short: "touch_candle_close_below_sma20_and_upper_2sigma_touch",
         incompleteFiveMinuteBars: "fail_closed",
       }
@@ -158,21 +171,18 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
       movingAverageFilter: variantConfig.movingAveragePeriod === null ? null : {
         timeframeMinutes: variantConfig.movingAverageTimeframeMinutes,
         period: variantConfig.movingAveragePeriod,
-        priceRelation: variantConfig.longWilderRsi14AlternativeThreshold === null
-          ? "touch_candle_close_directionally_beyond_sma"
-          : "long_close_above_sma_or_wilder_rsi14_lte_22__short_close_below_sma",
+        priceRelation: "touch_candle_close_directionally_beyond_sma",
         requireDirectionalSlope: variantConfig.requireDirectionalSlope,
+        requireNonOpposingSlope: variantConfig.requireNonOpposingSlope,
         completedBarsOnly: true,
         requireAllFiveOneMinuteCandles: variantConfig.requireCompleteFiveMinuteBars,
       },
-      longOnlyAlternativeEntry: variantConfig.longWilderRsi14AlternativeThreshold === null ? null : {
-        indicator: "wilder_rsi",
-        period: 14,
-        minimumSameDayCompletedMinuteCloses: 15,
-        threshold: variantConfig.longWilderRsi14AlternativeThreshold,
-        doesNotApplyToShort: true,
-        requiresCompletedFiveMinuteSma20: true,
-      },
+      bollingerWidthGate: variantConfig.requireNonExpandingBollingerWidth5 ? {
+        basis: "prior_completed_one_minute_candles_only",
+        lookbackBars: 5,
+        condition: "current_width_lte_width_five_bars_ago",
+        unavailable: "fail_closed",
+      } : null,
       minimumFixedTargetDistancePct: variantConfig.minimumTargetDistancePct,
     },
     exit: {
@@ -215,7 +225,7 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
 
 /**
  * リリース時の明示的なlifecycle整備用。source eventやshadow event/tradeを作らず、
- * 旧版を停止し、現行3案×10銘柄の監視用strategy versionだけを冪等登録する。
+ * 旧版を停止し、現行5案×10銘柄の監視用strategy versionだけを冪等登録する。
  */
 export async function registerBollingerDirectionalShadowLifecycle(): Promise<void> {
   await retireSupersededVersions();

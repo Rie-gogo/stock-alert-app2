@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyBollingerDirectionalTransition,
@@ -6,7 +7,7 @@ import {
   buildBollingerDirectionalPlan,
   calculateBollingerBands,
   calculateBollingerDirectionalMovingAverage,
-  calculateWilderRsi14,
+  calculatePriorBollingerWidthComparison,
   createEmptyBollingerDirectionalState,
   normalizeBollingerDirectionalState,
   type BollingerDirectionalCandle,
@@ -64,7 +65,9 @@ function seeded(variant: BollingerDirectionalVariant, direction: "long" | "short
 
 const VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30";
 const SMA20_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_gap060";
-const SMA20_DYNAMIC_RSI14_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060";
+const SMA20_DYNAMIC_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3";
+const SMA20_SLOPE_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_slope_gap060";
+const SMA20_SLOPE_WIDTH_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060";
 const SMA10_SLOPE_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma10_slope_gap050";
 
 function risingFiveMinuteHistory(): BollingerDirectionalCandle[] {
@@ -121,7 +124,7 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
 
   it("完成済み5分足を1分足128本とは別に保持し、欠損bucketを除外して20本を再起動後も使う", () => {
     const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
-    let state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_RSI14_VARIANT);
+    let state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
     let sequence = 0;
     const feed = (minute: number, close: number) => {
       const time = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
@@ -155,13 +158,13 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
       state.completedFiveMinuteBars,
     )).toMatchObject({ period: 20, completedBars: 20 });
 
-    const restored = normalizeBollingerDirectionalState(JSON.parse(JSON.stringify(state)), intradayPlan, SMA20_DYNAMIC_RSI14_VARIANT);
+    const restored = normalizeBollingerDirectionalState(JSON.parse(JSON.stringify(state)), intradayPlan, SMA20_DYNAMIC_VARIANT);
     expect(restored.completedFiveMinuteBars).toEqual(state.completedFiveMinuteBars);
     const nextTradeDatePlan = buildBollingerIntradaySmaDirectionPlan("2026-10-08");
     const nextTradeDateState = normalizeBollingerDirectionalState(
       JSON.parse(JSON.stringify(state)),
       nextTradeDatePlan,
-      SMA20_DYNAMIC_RSI14_VARIANT,
+      SMA20_DYNAMIC_VARIANT,
     );
     expect(nextTradeDateState.completedFiveMinuteBars).toEqual([]);
     expect(nextTradeDateState.fiveMinuteAccumulator).toBeNull();
@@ -188,7 +191,7 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
   it("①〜③がmixedでも、当日完成5分足SMA20が上なら下側2σ接触をLONG候補にする", () => {
     const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
     expect(intradayPlan).toMatchObject({ direction: "wait", sourceSnapshotId: null, sourceQuality: "not_applicable", regimeState: "intraday_sma20_dynamic" });
-    let state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_RSI14_VARIANT);
+    let state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
     state.candles = risingFiveMinuteHistory().slice(0, 100);
     const bands = calculateBollingerBands(state.candles)!;
     const transition = applyBollingerDirectionalTransition(state, source("dynamic-long-touch", "10:40", {
@@ -208,7 +211,7 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
 
   it("①〜③不使用のSMA20案は当日完成5分足SMA20が下なら上側2σ接触をSHORT候補にする", () => {
     const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
-    const state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_RSI14_VARIANT);
+    const state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
     state.candles = risingFiveMinuteHistory().slice(0, 100).map((candle, index) => {
       const bucket = Math.floor(index / 5);
       const close = 110 - bucket * 0.2;
@@ -230,73 +233,101 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     });
   });
 
-  it("Wilder RSI(14)は同日確定終値15本未満では未算出で、15本目以後だけ因果的に算出する", () => {
-    const fourteen = Array.from({ length: 14 }, (_, index) => ({
-      sourceEventId: `rsi:${index}`,
-      candleTime: `09:${String(index).padStart(2, "0")}`,
-      open: 100 - index,
-      high: 100 - index,
-      low: 100 - index,
-      close: 100 - index,
-      volume: 1_000,
-    }));
-    expect(calculateWilderRsi14(fourteen)).toBeNull();
-    const rsi = calculateWilderRsi14([...fourteen, { ...fourteen[13], sourceEventId: "rsi:14", candleTime: "09:14", close: 85 }]);
-    expect(rsi).toMatchObject({ period: 14, closesUsed: 15 });
-    expect(rsi?.value).toBeLessThanOrEqual(22);
+  it("RSI条件をactive判定・version名・監査payloadから除去する", () => {
+    const transitionSource = readFileSync(new URL("./bollingerDirectionalShadow.ts", import.meta.url), "utf8");
+    const monitoringSource = readFileSync(new URL("./multiSymbolMonitoringRegistry.ts", import.meta.url), "utf8");
+    expect(transitionSource).not.toMatch(/wilderRsi|rsi14|rsi22/i);
+    expect(monitoringSource).not.toMatch(/rsi22long|rsi14|wilder rsi/i);
+    expect(SMA20_DYNAMIC_VARIANT).toBe("fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3");
   });
 
-  it("完成5分足SMA20が下でも、RSI<=22の下側2σ接触はLONGだけを確認待ちにする", () => {
+  it("RSIなしSMA20案は、RSI相当の極端な下落状態でもSMA20の価格方向と一致しなければLONGを作らない", () => {
     const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
-    const state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_RSI14_VARIANT);
-    state.candles = risingFiveMinuteHistory().slice(0, 100);
-    // SMA20は利用可能だが、接触足終値をSMA20下にして通常の方向判定はSHORTへ向ける。
-    (state as any).wilderRsi14State = {
-      closesUsed: 15,
-      lastClose: 100,
-      seedGainTotal: 0,
-      seedLossTotal: 14,
-      averageGain: 0,
-      averageLoss: 1,
-    };
+    const state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_VARIANT);
+    state.candles = risingFiveMinuteHistory().slice(0, 100).map((candle, index) => {
+      const bucket = Math.floor(index / 5);
+      const close = 110 - bucket * 0.2;
+      return { ...candle, open: close + 0.05, high: close + 0.1, low: close - 0.1, close };
+    });
     const bands = calculateBollingerBands(state.candles)!;
-    const transition = applyBollingerDirectionalTransition(state, source("dynamic-rsi-long-touch", "10:40", {
+    const transition = applyBollingerDirectionalTransition(state, source("dynamic-rsi-removed", "10:40", {
       open: 90.4,
       high: 90.6,
       low: bands.lower - 0.1,
       close: 90.5,
     }), "signal_quality");
-    expect(transition.resultType).toBe("pending");
-    expect(transition.nextState.pending).toMatchObject({
-      side: "long",
-      entryQualification: "wilder_rsi14_oversold",
-      wilderRsi14: { period: 14 },
-      movingAverage: { period: 20, completedBars: 20 },
-    });
-    expect(transition.nextState.pending?.wilderRsi14?.value).toBeLessThanOrEqual(22);
-  });
-
-  it("RSI代替入口はSHORTへ適用せず、上側2σ接触だけではLONG化しない", () => {
-    const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
-    const state = createEmptyBollingerDirectionalState(intradayPlan, SMA20_DYNAMIC_RSI14_VARIANT);
-    state.candles = risingFiveMinuteHistory().slice(0, 100);
-    (state as any).wilderRsi14State = {
-      closesUsed: 15,
-      lastClose: 100,
-      seedGainTotal: 0,
-      seedLossTotal: 14,
-      averageGain: 0,
-      averageLoss: 1,
-    };
-    const bands = calculateBollingerBands(state.candles)!;
-    const transition = applyBollingerDirectionalTransition(state, source("dynamic-rsi-upper-touch", "10:40", {
-      open: 95,
-      high: bands.upper + 0.1,
-      low: 94.7,
-      close: 95,
-    }), "signal_quality");
     expect(transition.nextState.pending).toBeNull();
     expect(transition.actions.some(action => action.type === "signal_pending_next_candle_confirmation")).toBe(false);
+    expect(JSON.stringify(transition.actions)).not.toContain("rsi");
+  });
+
+  it("改善AはLONGの負のSMA20傾きとSHORTの正のSMA20傾きをrejectし、ゼロ傾きは許可する", () => {
+    const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
+    const falling = risingFiveMinuteHistory().slice(0, 105).map((candle, index) => {
+      const bucket = Math.floor(index / 5);
+      const close = 110 - bucket * 0.2;
+      return { ...candle, open: close + 0.05, high: close + 0.1, low: close - 0.1, close };
+    });
+    const longState = createEmptyBollingerDirectionalState(intradayPlan, SMA20_SLOPE_VARIANT);
+    longState.candles = falling;
+    const longBands = calculateBollingerBands(falling)!;
+    const longRejected = applyBollingerDirectionalTransition(longState, source("slope-long-reject", "10:45", {
+      open: 109.9, high: 110.1, low: longBands.lower - 0.1, close: 110,
+    }), "signal_quality");
+    expect(longRejected.actions).toContainEqual(expect.objectContaining({ reason: "sma20_slope_negative", side: "long" }));
+
+    const rising = risingFiveMinuteHistory().slice(0, 105);
+    const shortState = createEmptyBollingerDirectionalState(intradayPlan, SMA20_SLOPE_VARIANT);
+    shortState.candles = rising;
+    const shortBands = calculateBollingerBands(rising)!;
+    const shortRejected = applyBollingerDirectionalTransition(shortState, source("slope-short-reject", "10:45", {
+      open: 90.1, high: shortBands.upper + 0.1, low: 89.9, close: 90,
+    }, "short"), "signal_quality");
+    expect(shortRejected.actions).toContainEqual(expect.objectContaining({ reason: "sma20_slope_positive", side: "short" }));
+
+    const flat = risingFiveMinuteHistory().slice(0, 105).map(candle => ({ ...candle, open: 100, high: 100.1, low: 99.9, close: 100 }));
+    const flatState = createEmptyBollingerDirectionalState(intradayPlan, SMA20_SLOPE_VARIANT);
+    flatState.candles = flat;
+    const zeroSlope = applyBollingerDirectionalTransition(flatState, source("slope-zero-allowed", "10:45", {
+      open: 100.9, high: 101.1, low: 99.9, close: 101,
+    }), "signal_quality");
+    expect(zeroSlope.resultType).toBe("pending");
+    expect(zeroSlope.nextState.pending?.side).toBe("long");
+  });
+
+  it("改善Bは触発足より前の20本・5本前20本だけでBB幅を比較し、拡大をreject、同幅または収縮を許可する", () => {
+    const base = risingFiveMinuteHistory().slice(0, 105);
+    const expanding = base.map((candle, index) => {
+      if (index < 80) return candle;
+      const close = index < 100 ? 100 : (index % 2 === 0 ? 90 : 110);
+      return { ...candle, open: close, high: close + 0.1, low: close - 0.1, close };
+    });
+    const expandingComparison = calculatePriorBollingerWidthComparison(expanding);
+    expect(expandingComparison).toMatchObject({ lookbackBars: 5, nonExpanding: false });
+    const intradayPlan = buildBollingerIntradaySmaDirectionPlan("2026-10-07");
+    const expandingState = createEmptyBollingerDirectionalState(intradayPlan, SMA20_SLOPE_WIDTH_VARIANT);
+    expandingState.candles = expanding;
+    const expandingBands = calculateBollingerBands(expanding)!;
+    const rejected = applyBollingerDirectionalTransition(expandingState, source("width-reject", "10:45", {
+      open: 119.9, high: 120.1, low: expandingBands.lower - 0.1, close: 120,
+    }), "signal_quality");
+    expect(rejected.actions).toContainEqual(expect.objectContaining({ reason: "bollinger_width_expanding_over_5_bars" }));
+
+    const contracting = base.map((candle, index) => {
+      if (index < 80) return candle;
+      const close = index < 100 ? (index % 2 === 0 ? 90 : 110) : 100;
+      return { ...candle, open: close, high: close + 0.1, low: close - 0.1, close };
+    });
+    const contractingComparison = calculatePriorBollingerWidthComparison(contracting);
+    expect(contractingComparison).toMatchObject({ lookbackBars: 5, nonExpanding: true });
+    const contractingState = createEmptyBollingerDirectionalState(intradayPlan, SMA20_SLOPE_WIDTH_VARIANT);
+    contractingState.candles = contracting;
+    const contractingBands = calculateBollingerBands(contracting)!;
+    const allowed = applyBollingerDirectionalTransition(contractingState, source("width-allowed", "10:45", {
+      open: 119.9, high: 120.1, low: contractingBands.lower - 0.1, close: 120,
+    }), "signal_quality");
+    expect(allowed.resultType).toBe("pending");
+    expect(allowed.nextState.pending?.bollingerWidthComparison).toMatchObject({ nonExpanding: true });
   });
 
   it("SMA10＋傾き案は-2σ接触時に終値がSMA上かつSMA上向きの場合だけ確認待ちにする", () => {

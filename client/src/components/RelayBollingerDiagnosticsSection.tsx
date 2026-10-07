@@ -63,7 +63,7 @@ export default function RelayBollingerDiagnosticsSection({ tradeDate }: Props) {
               </div>
             </div>
             <div className="rounded border border-border p-3 space-y-2">
-              <div className="font-medium">10銘柄 × 3案 × 2mode の当日保存済み状態</div>
+              <div className="font-medium">10銘柄 × 5案 × 2mode の当日保存済み状態</div>
               <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-xs">
                 <thead className="text-muted-foreground"><tr><th className="p-1 text-left">strategy version</th><th className="p-1 text-left">mode</th><th className="p-1 text-left">状態</th><th className="p-1 text-right">件数</th></tr></thead>
                 <tbody>{data.shadow.variantModeStatus.map(row => <tr key={`${row.strategyVersion}:${row.evaluationMode}:${row.status}`} className="border-t border-border">

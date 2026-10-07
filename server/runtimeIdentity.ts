@@ -153,11 +153,8 @@ export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS = Obje
  "8035": "candidate-8035-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v1",
  "9984": "candidate-9984-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v1",
 } as const);
-/**
- * ①〜③を使用しない当日完成5分足SMA20案の後継版。LONGだけは、SMA20上の
- * 下側2σ接触に加え、Wilder RSI(14)<=22 の同日過売り代替入口を記録する。
- */
-export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS = Object.freeze({
+/** RSIを用いたSMA20動的方向版。履歴専用として停止し、active面から除外する。 */
+export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
   "3436": "candidate-3436-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
   "5803": "candidate-5803-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
@@ -169,7 +166,7 @@ export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS = Ob
   "8035": "candidate-8035-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
   "9984": "candidate-9984-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
 } as const);
-/** rsi14表記の初回版。履歴は保持し、rsi22long後継版だけをdispatchする。 */
+/** rsi14表記の初回版。履歴専用として停止し、active面から除外する。 */
 export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
   "3436": "candidate-3436-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
@@ -181,6 +178,45 @@ export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS 
   "6981": "candidate-6981-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
   "8035": "candidate-8035-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
   "9984": "candidate-9984-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
+} as const);
+/** ①〜③を使わず、完成5分足SMA20の価格方向だけを用いるRSIなし後継版。 */
+export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "3436": "candidate-3436-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "5803": "candidate-5803-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "6146": "candidate-6146-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "6526": "candidate-6526-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "6857": "candidate-6857-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "6976": "candidate-6976-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "6981": "candidate-6981-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "8035": "candidate-8035-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+  "9984": "candidate-9984-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
+} as const);
+/** RSIなしSMA20方向に、非逆行のSMA20傾きを加えた改善A。 */
+export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "3436": "candidate-3436-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "5803": "candidate-5803-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "6146": "candidate-6146-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "6526": "candidate-6526-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "6857": "candidate-6857-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "6976": "candidate-6976-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "6981": "candidate-6981-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "8035": "candidate-8035-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+  "9984": "candidate-9984-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
+} as const);
+/** 改善Aに、触発時点以前だけのBB幅5本非拡大条件を加えた改善B。 */
+export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "3436": "candidate-3436-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "5803": "candidate-5803-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "6146": "candidate-6146-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "6526": "candidate-6526-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "6857": "candidate-6857-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "6976": "candidate-6976-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "6981": "candidate-6981-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "8035": "candidate-8035-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
+  "9984": "candidate-9984-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
 } as const);
 /** 5分足SMA10の方向一致・同方向傾きと、入口から固定targetまで0.50%以上を要求する比較shadow。 */
 export const BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS = Object.freeze({
@@ -232,7 +268,9 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS),
   ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS),
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([

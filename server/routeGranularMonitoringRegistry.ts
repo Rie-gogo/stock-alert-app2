@@ -5,7 +5,9 @@ import {
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -182,7 +184,7 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
 
-// ボリンジャー3案は、案別かつLONG/SHORT別に混ぜず集計する。
+// ボリンジャー5案は、案別かつLONG/SHORT別に混ぜず集計する。
 const bollingerRouteConfigs = [
   {
     versions: BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
@@ -190,9 +192,19 @@ const bollingerRouteConfigs = [
     label: "現行：入口時固定±2σ・SL1.40%・30分停止",
   },
   {
-    versions: BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS,
-    routeKey: "sma20_dynamic_rsi22long_gap060_stop140_cooldown30",
-    label: "①〜③不使用・完成5分足SMA20＋Wilder RSI(14)≤22 LONG代替・最低戻し余地0.60%",
+    versions: BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS,
+    routeKey: "sma20_dynamic_gap060_stop140_cooldown30",
+    label: "①〜③不使用・完成5分足SMA20方向・最低戻し余地0.60%",
+  },
+  {
+    versions: BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS,
+    routeKey: "sma20_slope_gap060_stop140_cooldown30",
+    label: "改善A：完成5分足SMA20方向＋傾き一致・最低戻し余地0.60%",
+  },
+  {
+    versions: BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS,
+    routeKey: "sma20_slope_bbwidth5_gap060_stop140_cooldown30",
+    label: "改善B：SMA20傾き一致＋BB幅5本非拡大・最低戻し余地0.60%",
   },
   {
     versions: BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,

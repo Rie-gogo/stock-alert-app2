@@ -1,12 +1,26 @@
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { rtForwardShadowEvents, rtRealtimeDecisionEvents, rtShadowDispatchQueue, rtSourceEvents } from "../drizzle/schema";
+import {
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS,
+} from "./runtimeIdentity";
 
 const FIXED_SESSION_MINUTES = [
   ...Array.from({ length: 150 }, (_, index) => 9 * 60 + index),
   ...Array.from({ length: 175 }, (_, index) => 12 * 60 + 30 + index),
 ];
 const BOLLINGER_SYMBOLS = ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"];
+const ACTIVE_BOLLINGER_STRATEGY_VERSIONS = [
+  ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS),
+] as string[];
 
 function minuteToClock(value: number) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
@@ -59,21 +73,21 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
       lastError: rtForwardShadowEvents.lastError,
     }).from(rtForwardShadowEvents).where(and(
       eq(rtForwardShadowEvents.tradeDate, tradeDate),
-      like(rtForwardShadowEvents.strategyVersion, "candidate-%-bollinger-directional-%"),
+      inArray(rtForwardShadowEvents.strategyVersion, ACTIVE_BOLLINGER_STRATEGY_VERSIONS),
     )),
     db.select({ decisionJson: rtForwardShadowEvents.decisionJson }).from(rtForwardShadowEvents).where(and(
       eq(rtForwardShadowEvents.tradeDate, tradeDate),
       eq(rtForwardShadowEvents.resultType, "rejected"),
-      like(rtForwardShadowEvents.strategyVersion, "candidate-%-bollinger-directional-%"),
+      inArray(rtForwardShadowEvents.strategyVersion, ACTIVE_BOLLINGER_STRATEGY_VERSIONS),
     )),
     db.select({
       strategyVersion: rtForwardShadowEvents.strategyVersion,
       evaluationMode: rtForwardShadowEvents.evaluationMode,
       processedNoSignal: sql<number>`sum(case when ${rtForwardShadowEvents.resultType} = 'no_signal'
-        and JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%five_minute_sma_unavailable%') is null
-        and JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%wilder_rsi14%unavailable%') is null then 1 else 0 end)`,
+        and JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%five_minute_sma_unavailable%') is null then 1 else 0 end)`,
       blockedFiveMinuteSma: sql<number>`sum(case when JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%five_minute_sma_unavailable%') is not null then 1 else 0 end)`,
-      blockedRsi: sql<number>`sum(case when JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%wilder_rsi14%unavailable%') is not null then 1 else 0 end)`,
+      blockedSmaSlope: sql<number>`sum(case when JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%sma20_slope_%') is not null then 1 else 0 end)`,
+      blockedBollingerWidth: sql<number>`sum(case when JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', '%bollinger_width_%') is not null then 1 else 0 end)`,
       pendingNextCandle: sql<number>`sum(case when ${rtForwardShadowEvents.resultType} = 'pending' then 1 else 0 end)`,
       rejectedBoard: sql<number>`sum(case when ${rtForwardShadowEvents.resultType} = 'rejected'
         and (JSON_SEARCH(${rtForwardShadowEvents.decisionJson}, 'one', 'board_%') is not null
@@ -88,7 +102,7 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
       total: sql<number>`count(*)`,
     }).from(rtForwardShadowEvents).where(and(
       eq(rtForwardShadowEvents.tradeDate, tradeDate),
-      like(rtForwardShadowEvents.strategyVersion, "candidate-%-bollinger-directional-%"),
+      inArray(rtForwardShadowEvents.strategyVersion, ACTIVE_BOLLINGER_STRATEGY_VERSIONS),
     )).groupBy(
       rtForwardShadowEvents.strategyVersion,
       rtForwardShadowEvents.evaluationMode,
@@ -153,7 +167,8 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
     const statuses: Array<[string, number]> = [
       ["processed_no_signal", Number(row.processedNoSignal)],
       ["blocked_data:completed_5m_sma_unavailable", Number(row.blockedFiveMinuteSma)],
-      ["blocked_data:rsi14_unavailable", Number(row.blockedRsi)],
+      ["rejected_filter:sma20_slope", Number(row.blockedSmaSlope)],
+      ["rejected_filter:bollinger_width_5", Number(row.blockedBollingerWidth)],
       ["pending_next_candle", Number(row.pendingNextCandle)],
       ["rejected_board", Number(row.rejectedBoard)],
       ["rejected_other", Number(row.rejectedOther)],

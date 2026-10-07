@@ -7,7 +7,11 @@ import { SUMCO_TIME_15_SPEC, SUMCO_VOLUME_110_SPEC } from "./sumcoForwardShadow"
 import { TAIYO_AFTERNOON_DEPTH_SPEC, TAIYO_AFTERNOON_RR2_SPEC } from "./taiyoAfternoonForwardShadow";
 import { TAIYO_AFTERNOON_LONG_RR2_SPEC, TAIYO_AFTERNOON_LONG_WINRATE_SPEC } from "./taiyoAfternoonLongForwardShadow";
 import {
-  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS,
   SOFTBANK_DEPTH_CONFIRM_VERSION,
   SOFTBANK_RR2_PROTECT_VERSION,
   SOCIONEXT_CONFIRM_STRENGTH_VERSION,
@@ -109,7 +113,7 @@ describe("前向きcandidate登録Gate", () => {
     })).toThrow("candidate_risk_reward_below_2x:candidate-ng");
   });
 
-  it("10銘柄の正確なRSI22LONG版だけが固定entry Bollinger例外を通過し、旧版・未知版・不正policyを拒否する", () => {
+  it("5案のactive Bollinger版だけが固定entry例外を通過し、旧RSI版・未知版・不正policyを拒否する", () => {
     const validConfig = {
       riskRewardPolicy: {
         mode: "fixed_entry_bollinger_opposite_band",
@@ -117,11 +121,17 @@ describe("前向きcandidate登録Gate", () => {
         automaticAdoption: false,
       },
     };
-    for (const versionId of Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS)) {
-      expect(assertForwardCandidateRiskReward({ versionId, eligibleForAdoption: false, configJson: validConfig })).toEqual([]);
-    }
+    const activeVersions = [
+      ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
+      ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS),
+      ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS),
+      ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS),
+      ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS),
+    ];
+    expect(activeVersions).toHaveLength(50);
+    for (const versionId of activeVersions) expect(assertForwardCandidateRiskReward({ versionId, eligibleForAdoption: false, configJson: validConfig })).toEqual([]);
     expect(() => assertForwardCandidateRiskReward({
-      versionId: "candidate-285a-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
+      versionId: "candidate-285a-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
       eligibleForAdoption: false,
       configJson: validConfig,
     })).toThrow("candidate_risk_reward_missing");

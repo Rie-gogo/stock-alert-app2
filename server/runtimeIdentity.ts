@@ -157,7 +157,20 @@ export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS = Obje
  * ①〜③を使用しない当日完成5分足SMA20案の後継版。LONGだけは、SMA20上の
  * 下側2σ接触に加え、Wilder RSI(14)<=22 の同日過売り代替入口を記録する。
  */
-export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS = Object.freeze({
+export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "3436": "candidate-3436-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "5803": "candidate-5803-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "6146": "candidate-6146-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "6526": "candidate-6526-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "6857": "candidate-6857-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "6976": "candidate-6976-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "6981": "candidate-6981-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "8035": "candidate-8035-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+  "9984": "candidate-9984-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2",
+} as const);
+/** rsi14表記の初回版。履歴は保持し、rsi22long後継版だけをdispatchする。 */
+export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
   "3436": "candidate-3436-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
   "5803": "candidate-5803-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
@@ -219,7 +232,7 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS),
   ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS),
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([

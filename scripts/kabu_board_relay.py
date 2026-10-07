@@ -25,6 +25,7 @@ kabuステーション® (localhost:18080)
 
 import json
 import hashlib
+import os
 import time
 import threading
 import uuid
@@ -32,6 +33,7 @@ import requests
 import websocket
 import logging
 from datetime import datetime, timezone, timedelta
+from relay_delivery_spool import RelayDeliverySpool, RelaySpoolCollisionError
 
 # ===== 設定 =====
 
@@ -60,7 +62,13 @@ SYMBOL_CODES = [s["Symbol"] for s in WATCH_SYMBOLS]
 CLOUD_BASE_URL = "https://stockalert-mwf5hf9f.manus.space"
 CLOUD_BOARD_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushOrderBook"
 CLOUD_CANDLE_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushCandle"
+CLOUD_CANDLE_WITH_BOARD_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushCandleWithBoard"
 CLOUD_MARKET_CONTEXT_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushMarketContext"
+# Windowsで実際に配備したファイルを確認した後だけ設定する。クラウド側で推測しない。
+RELAY_VERSION = "kabu-board-relay-v6.0-durable-fifo"
+RELAY_SOURCE_TREE_HASH = os.environ.get("STOCK_ALERT_RELAY_SOURCE_TREE_HASH", "unavailable")
+RELAY_SPOOL_PATH = os.environ.get("STOCK_ALERT_RELAY_SPOOL_PATH", "kabu_relay_candle_outbox.sqlite3")
+CANDLE_DELIVERY_MAX_BACKOFF_SECONDS = 30
 
 # 選択器専用の市場環境。通常銘柄・売買engineへは送らない。
 # 現物指数の登録可否に依存しないよう、公式APIで直近限月を解決できる日経225miniを使う。
@@ -96,16 +104,28 @@ token_lock = threading.Lock()
 last_send_time = {}  # 銘柄ごとの最終送信時刻
 
 # 1分足の前回取得時刻（銘柄ごと）
-last_candle_time = {}  # symbol -> "HH:MM"
+# cloudが200応答を返すまで「送信済み」とは扱わない。
+last_candle_time = {}  # symbol_time -> acknowledged epoch seconds
 
 # 前向き監査: 同じ送信イベントの再試行では同じIDを再利用する。
 relay_session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:12]
 event_seq = 0
 event_seq_lock = threading.Lock()
 event_metadata_by_key = {}
-
 # 1分足の累積OHLCV（銘柄ごと、1分間の集計用）
-candle_accum = {}  # symbol -> {"open": float, "high": float, "low": float, "close": float, "volume": int, "minute": str}
+candle_accum = {}
+# WebSocketで確定した実測minute bucket。HTTP送信workerとは分離し、scheduler遅延時も
+# 古い未spool化bucketからFIFOで回収する。REST現在値による過去足の捏造は禁止する。
+finalized_candle_buckets = {}
+relay_gap_logged = set()
+MAX_FINALIZED_CANDLE_BUCKETS_PER_SYMBOL = 480
+candle_accum_lock = threading.RLock()
+latest_board_by_symbol = {}
+latest_board_lock = threading.RLock()
+relay_spool = RelayDeliverySpool(RELAY_SPOOL_PATH)
+candle_delivery_wakeup = threading.Event()
+candle_delivery_thread_started = False
+candle_delivery_thread_lock = threading.Lock()
 market_context_reference = None
 market_context_accum = None
 last_market_context_time = {}
@@ -130,12 +150,49 @@ def current_minute_jst() -> str:
 def is_market_open() -> bool:
     """取引時間中かどうかを判定する"""
     t = current_minute_jst()
-    return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
+    return ("09:00" <= t <= "11:30") or ("12:30" <= t <= MARKET_CLOSE_TIME)
 
+def is_regular_candle_minute(candle_time: str) -> bool:
+    """昼休み・寄り前・引け後を架空の1分足として出力しない。"""
+    return ("09:00" <= candle_time <= "11:29") or ("12:30" <= candle_time <= "15:24")
 def is_market_context_open() -> bool:
     """日経225miniの日中立会時間かどうかを判定する。"""
     t = current_minute_jst()
     return MARKET_CONTEXT_OPEN_TIME <= t <= MARKET_CONTEXT_CLOSE_TIME
+
+def candle_provenance(candle_time: str, value_source: str, tick_count=None,
+                      first_tick_at_ms=None, last_tick_at_ms=None, fallback_reason=None) -> dict:
+    """監査専用の生成元を、OHLC値を変更せずpayloadへ付与する。"""
+    assembled_at_ms = int(time.time() * 1000)
+    try:
+        start = datetime.strptime(today_jst_str() + " " + candle_time, "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+        end = start + timedelta(minutes=1)
+        bar_start = start.isoformat()
+        bar_end = end.isoformat()
+    except Exception:
+        bar_start = None
+        bar_end = None
+    return {
+        "relayVersion": RELAY_VERSION,
+        "relaySourceTreeHash": RELAY_SOURCE_TREE_HASH,
+        "rawCandleTime": candle_time,
+        "barStartJst": bar_start,
+        "barEndJst": bar_end,
+        "valueSource": value_source,
+        "tickCount": tick_count,
+        "firstTickAtMs": first_tick_at_ms,
+        "lastTickAtMs": last_tick_at_ms,
+        "fallbackReason": fallback_reason,
+        "isNoTrade": False if value_source == "ws_aggregated" else "unknown",
+        "clockHealth": {
+            "timezone": "JST",
+            "ntpOffsetMs": None,
+            "monotonicAnomaly": False,
+            "websocketConnected": True,
+            "websocketLastReceivedAtMs": last_tick_at_ms,
+        },
+        "relayAssembledAtMs": assembled_at_ms,
+    }
 
 
 # ===== APIトークン管理 =====
@@ -328,6 +385,8 @@ def on_message(ws, message):
             return
         board_data = parse_board_data(raw)
         if board_data:
+            with latest_board_lock:
+                latest_board_by_symbol[board_data["symbol"]] = board_data
             # 別スレッドで非同期送信（WebSocketをブロックしない）
             threading.Thread(
                 target=send_board_to_cloud,
@@ -385,56 +444,37 @@ def update_candle_accum(symbol: str, price: float):
     毎分0秒になったら前の分の足を確定して送信する。
     """
     current_minute = current_minute_jst()
-
-    if symbol not in candle_accum:
-        # 初回: 新しい分の足を開始
-        candle_accum[symbol] = {
-            "open": price,
-            "high": price,
-            "low": price,
-            "close": price,
-            "volume": 0,
-            "minute": current_minute,
-        }
-        return
-
-    accum = candle_accum[symbol]
-
-    if accum["minute"] != current_minute:
-        # 分が変わった: 前の分の足を確定して送信
-        prev_minute = accum["minute"]
-        prev_candle = {
-            "symbol": symbol,
-            "tradeDate": today_jst_str(),
-            "candleTime": prev_minute,
-            "open": accum["open"],
-            "high": accum["high"],
-            "low": accum["low"],
-            "close": accum["close"],
-            "volume": accum["volume"],
-        }
-
-        # 別スレッドで送信
-        threading.Thread(
-            target=send_candle_to_cloud,
-            args=(prev_candle,),
-            daemon=True,
-        ).start()
-
-        # 新しい分の足を開始
-        candle_accum[symbol] = {
-            "open": price,
-            "high": price,
-            "low": price,
-            "close": price,
-            "volume": 0,
-            "minute": current_minute,
-        }
-    else:
-        # 同じ分: 高値・安値・終値を更新
-        accum["high"] = max(accum["high"], price)
-        accum["low"] = min(accum["low"], price)
-        accum["close"] = price
+    tick_at_ms = int(time.time() * 1000)
+    with candle_accum_lock:
+        if symbol not in candle_accum:
+            candle_accum[symbol] = {
+                "open": price, "high": price, "low": price, "close": price,
+                "volume": 0, "minute": current_minute, "tradeDate": today_jst_str(), "tickCount": 1,
+                "firstTickAtMs": tick_at_ms, "lastTickAtMs": tick_at_ms,
+            }
+            return
+        accum = candle_accum[symbol]
+        if accum["minute"] != current_minute:
+            # WebSocket callbackは送信を開始せず、確定bucketを銘柄ごとの複数minute bufferへ残す。
+            # 次のtickが来ないminuteはOHLCを推測せず、polling側でgapとして監査する。
+            if is_regular_candle_minute(accum["minute"]):
+                buckets = finalized_candle_buckets.setdefault(symbol, {})
+                buckets[(accum.get("tradeDate") or today_jst_str(), accum["minute"])] = dict(accum)
+                while len(buckets) > MAX_FINALIZED_CANDLE_BUCKETS_PER_SYMBOL:
+                    oldest = sorted(buckets)[0]
+                    logger.error("確定1分足buffer上限。未spool実測bucketを明示gapとして破棄: %s %s", symbol, oldest)
+                    del buckets[oldest]
+            candle_accum[symbol] = {
+                "open": price, "high": price, "low": price, "close": price,
+                "volume": 0, "minute": current_minute, "tradeDate": today_jst_str(), "tickCount": 1,
+                "firstTickAtMs": tick_at_ms, "lastTickAtMs": tick_at_ms,
+            }
+        else:
+            accum["high"] = max(accum["high"], price)
+            accum["low"] = min(accum["low"], price)
+            accum["close"] = price
+            accum["tickCount"] = int(accum.get("tickCount", 0)) + 1
+            accum["lastTickAtMs"] = tick_at_ms
 
 
 def update_market_context_accum(raw: dict):
@@ -595,17 +635,68 @@ def fetch_candle_from_api(symbol: str, token: str) -> dict | None:
         return None
 
 
-def send_candle_to_cloud(candle_data: dict) -> bool:
-    """1分足OHLCVをクラウドWebアプリに送信する"""
+def _ensure_candle_delivery_worker():
+    """WebSocket/polling producerとHTTP送信を分離し、workerは一つだけにする。"""
+    global candle_delivery_thread_started
+    with candle_delivery_thread_lock:
+        if candle_delivery_thread_started:
+            return
+        candle_delivery_thread_started = True
+        threading.Thread(target=_candle_delivery_loop, daemon=True, name="candle-delivery-fifo").start()
+
+
+def _candle_delivery_loop():
+    """HTTP 200 ACKまでFIFO先頭を保持し、後続イベントを追い越させない。"""
+    while True:
+        item = relay_spool.head()
+        if item is None:
+            candle_delivery_wakeup.wait(timeout=1.0)
+            candle_delivery_wakeup.clear()
+            continue
+        now_ms = int(time.time() * 1000)
+        if item.retry_after_ms is not None and item.retry_after_ms > now_ms:
+            candle_delivery_wakeup.wait(timeout=min((item.retry_after_ms - now_ms) / 1000.0, 1.0))
+            candle_delivery_wakeup.clear()
+            continue
+        attempted = relay_spool.record_attempt(item.source_event_id)
+        payload = {**attempted.payload, "relaySentAtMs": int(time.time() * 1000)}
+        try:
+            board = payload.pop("board", None)
+            # Existing pushOrderBook cache is refreshed immediately before the
+            # normal pushCandle endpoint.  This preserves the no-OrderBridge
+            # source-event path while failing closed when board refresh fails.
+            if board and not send_board_to_cloud(board):
+                raise RuntimeError("board_cache_unacknowledged")
+            response = requests.post(
+                CLOUD_CANDLE_URL,
+                json={"json": payload},
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"http_{response.status_code}")
+            relay_spool.mark_delivered(attempted.source_event_id)
+            last_candle_time[f"{attempted.symbol}_{attempted.trade_date}_{attempted.candle_time}"] = time.time()
+            logger.info("1分足ACK: %s %s seq=%s attempts=%s", attempted.symbol, attempted.candle_time, attempted.event_seq, attempted.attempt_count)
+        except Exception as error:
+            retry_seconds = min(CANDLE_DELIVERY_MAX_BACKOFF_SECONDS, 2 ** min(attempted.attempt_count, 5))
+            relay_spool.mark_failed(attempted.source_event_id, str(error), int(time.time() * 1000) + retry_seconds * 1000)
+            logger.warning("1分足未ACK。FIFO先頭を再送: %s %s seq=%s retry=%ss error=%s", attempted.symbol, attempted.candle_time, attempted.event_seq, retry_seconds, str(error)[:160])
+
+
+def send_candle_to_cloud(candle_data: dict, board_data: dict | None = None) -> bool:
+    """送信ではなく耐久outboxへの保存を完了条件にする。"""
     symbol = candle_data.get("symbol", "")
     candle_time = candle_data.get("candleTime", "")
 
     # 重複送信チェック（同じ銘柄・同じ分は1回だけ送信）
-    key = f"{symbol}_{candle_time}"
+    key = f"{symbol}_{candle_data.get('tradeDate', '')}_{candle_time}"
     if key in last_candle_time:
         return True  # 既に送信済み
 
     payload = {**candle_data}
+    if board_data:
+        payload["board"] = board_data
     audit_key = candle_data.get("tradeDate", "") + "_" + key
     with event_seq_lock:
         global event_seq
@@ -623,31 +714,17 @@ def send_candle_to_cloud(candle_data: dict) -> bool:
             }
             event_metadata_by_key[audit_key] = metadata
     payload.update(metadata)
-    payload["relaySentAtMs"] = int(time.time() * 1000)
-
     try:
-        response = requests.post(
-            CLOUD_CANDLE_URL,
-            json={"json": payload},
-            headers={"Content-Type": "application/json"},
-            timeout=10,
-        )
-        if response.status_code == 200:
-            last_candle_time[key] = time.time()
-            result = response.json()
-            action = result.get("result", {}).get("data", {}).get("json", {}).get("action", "none")
-            pnl = result.get("result", {}).get("data", {}).get("json", {}).get("pnl")
-            if action != "none":
-                pnl_str = f" 損益:{'+' if pnl and pnl >= 0 else ''}{pnl}円" if pnl is not None else ""
-                logger.info(f"1分足送信→取引発生: {symbol} {candle_time} {action}{pnl_str}")
-            else:
-                logger.debug(f"1分足送信成功: {symbol} {candle_time} O={candle_data['open']} H={candle_data['high']} L={candle_data['low']} C={candle_data['close']}")
-            return True
-        else:
-            logger.warning(f"1分足送信失敗: {symbol} {candle_time} {response.status_code} {response.text[:100]}")
-            return False
-    except Exception as e:
-        logger.error(f"1分足送信エラー: {symbol} {candle_time} {e}")
+        item, inserted = relay_spool.enqueue(payload)
+        _ensure_candle_delivery_worker()
+        candle_delivery_wakeup.set()
+        logger.info("1分足outbox%s: %s %s seq=%s source=%s", "追加" if inserted else "再利用", symbol, candle_time, item.event_seq, item.source_event_id)
+        return True
+    except RelaySpoolCollisionError as error:
+        logger.error("1分足outbox衝突。内容が異なる再送を拒否: %s", str(error))
+        return False
+    except Exception as error:
+        logger.error(f"1分足outbox保存エラー: {symbol} {candle_time} {error}")
         return False
 
 
@@ -676,47 +753,51 @@ def candle_polling_loop():
                 time.sleep(15 - seconds)
                 continue
 
-            # 前の分の時刻を計算
+            # 前の分の時刻を計算。schedulerが遅延しても下のfinalized bufferを全件FIFO回収する。
             prev_minute_dt = now - timedelta(minutes=1)
             prev_minute = prev_minute_dt.strftime("%H:%M")
-            trade_date = today_jst_str()
+            trade_date = prev_minute_dt.strftime("%Y-%m-%d")
 
-            token = get_current_token()
-            if not token:
-                time.sleep(10)
-                continue
-
-            # 全銘柄の1分足を送信
+            # 全銘柄のWebSocket確定済み1分足を耐久outboxへ保存する。過去minuteを
+            # REST現在値で合成せず、実測bucketだけをspoolへ渡す。
             for symbol in SYMBOL_CODES:
-                key = f"{symbol}_{prev_minute}"
-                if key in last_candle_time:
-                    continue  # 既に送信済み
-
-                # WebSocket累積データがあればそれを使用
-                accum = candle_accum.get(symbol)
-                if accum and accum.get("minute") == prev_minute:
+                with candle_accum_lock:
+                    buckets = finalized_candle_buckets.get(symbol, {})
+                    finalized = [(key, dict(buckets[key])) for key in sorted(buckets)]
+                for (bucket_trade_date, bucket_minute), accum in finalized:
+                    key = f"{symbol}_{bucket_trade_date}_{bucket_minute}"
+                    if key in last_candle_time:
+                        with candle_accum_lock:
+                            finalized_candle_buckets.get(symbol, {}).pop((bucket_trade_date, bucket_minute), None)
+                        continue
                     candle = {
                         "symbol": symbol,
-                        "tradeDate": trade_date,
-                        "candleTime": prev_minute,
+                        "tradeDate": bucket_trade_date,
+                        "candleTime": bucket_minute,
                         "open": accum["open"],
                         "high": accum["high"],
                         "low": accum["low"],
                         "close": accum["close"],
                         "volume": accum["volume"],
+                        "provenance": candle_provenance(
+                            prev_minute, "ws_aggregated", accum.get("tickCount"),
+                            accum.get("firstTickAtMs"), accum.get("lastTickAtMs"),
+                        ),
                     }
-                else:
-                    # WebSocket累積データがない場合はREST APIで取得
-                    candle = fetch_candle_from_api(symbol, token)
-                    if candle:
-                        candle["candleTime"] = prev_minute  # 前の分の時刻に修正
+                    with latest_board_lock:
+                        board = latest_board_by_symbol.get(symbol)
+                    if send_candle_to_cloud(candle, board):
+                        with candle_accum_lock:
+                            finalized_candle_buckets.get(symbol, {}).pop((bucket_trade_date, bucket_minute), None)
 
-                if candle:
-                    threading.Thread(
-                        target=send_candle_to_cloud,
-                        args=(candle,),
-                        daemon=True,
-                    ).start()
+                # 15秒を過ぎても直前minuteに実測bucketが無ければ、値を捏造せずgapを一度だけ記録する。
+                gap_key = f"{symbol}_{trade_date}_{prev_minute}"
+                if is_regular_candle_minute(prev_minute) and gap_key not in relay_gap_logged:
+                    with candle_accum_lock:
+                        has_finalized = (trade_date, prev_minute) in finalized_candle_buckets.get(symbol, {})
+                    if not has_finalized and f"{symbol}_{prev_minute}" not in last_candle_time:
+                        relay_gap_logged.add(gap_key)
+                        logger.warning("1分足実測bucket欠損（OHLC非生成）: %s %s %s", symbol, trade_date, prev_minute)
 
             # 次の分まで待機（次の分の15秒後まで）
             now2 = now_jst()
@@ -780,15 +861,19 @@ def market_context_polling_loop():
 def main():
     """メイン処理"""
     global api_token, market_context_reference
-
     logger.info("=" * 60)
-    logger.info("kabu STATION® API 板情報＋1分足中継スクリプト 起動")
+    logger.info("kabu STATION® API 板情報＋1分足中継スクリプト %s 起動", RELAY_VERSION)
+    logger.info("provenance: relayVersion=%s / relaySourceTreeHash=%s", RELAY_VERSION, RELAY_SOURCE_TREE_HASH)
+    logger.info("delivery: SQLite FIFO outbox / HTTP 200 ACK only / no candle leapfrogging")
+    logger.info("delivery: WS aggregated / REST fallback provenance is explicit; lunch synthetic candles are disabled")
     logger.info(f"監視銘柄: {SYMBOL_CODES}")
     logger.info(f"板情報送信先: {CLOUD_BOARD_URL}")
     logger.info(f"1分足送信先: {CLOUD_CANDLE_URL}")
     logger.info(f"市場環境送信先: {CLOUD_MARKET_CONTEXT_URL}")
     logger.info("=" * 60)
 
+    _ensure_candle_delivery_worker()
+    logger.info("1分足FIFO送信worker起動完了: spool=%s", os.path.abspath(RELAY_SPOOL_PATH))
     # 1分足ポーリングスレッドを起動
     candle_thread = threading.Thread(target=candle_polling_loop, daemon=True)
     candle_thread.start()

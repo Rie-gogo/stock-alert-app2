@@ -17,7 +17,7 @@ export type BollingerDirectionalVariant =
   | "fixed_stop_140_cooldown_30"
   | "fixed_stop_140_cooldown_30_sma20_gap060"
   | "fixed_stop_140_cooldown_30_sma20_dynamic_gap060"
-  | "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060"
+  | "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060"
   | "fixed_stop_140_cooldown_30_sma10_slope_gap050";
 export type BollingerDirectionalSide = "long" | "short";
 export type BollingerDirectionalResultType = "no_signal" | "pending" | "rejected" | "entry" | "hold" | "exit";
@@ -75,7 +75,7 @@ export function bollingerDirectionalVariantConfig(variant: BollingerDirectionalV
   if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060") {
     return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "intraday_sma", requireCompleteFiveMinuteBars: true, longWilderRsi14AlternativeThreshold: null };
   }
-  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060") {
+  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060") {
     return { movingAverageTimeframeMinutes: 5, movingAveragePeriod: 20, requireDirectionalSlope: false, minimumTargetDistancePct: 0.6, directionSource: "intraday_sma", requireCompleteFiveMinuteBars: true, longWilderRsi14AlternativeThreshold: 22 };
   }
   if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") {

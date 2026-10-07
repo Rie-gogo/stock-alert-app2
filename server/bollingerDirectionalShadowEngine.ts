@@ -22,10 +22,11 @@ import {
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS,
   BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS,
   FORWARD_EVALUATION_POLICY,
   RETIRED_TECHNICAL_A_OBSERVATION_V2_VERSIONS,
   RETIRED_TECHNICAL_REGIME_SHADOW_A_VERSIONS,
@@ -58,7 +59,7 @@ import {
 const MODES: readonly ForwardEvaluationMode[] = FORWARD_EVALUATION_POLICY.evaluationModes;
 const VARIANTS: readonly BollingerDirectionalVariant[] = [
   "fixed_stop_140_cooldown_30",
-  "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060",
+  "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060",
   "fixed_stop_140_cooldown_30_sma10_slope_gap050",
 ];
 const SYMBOLS = new Set<string>(TEN_MONITORED_SYMBOLS);
@@ -71,15 +72,15 @@ type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSION
 export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, variant: BollingerDirectionalVariant) {
   if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") return BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS[symbol];
   if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060") return RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS[symbol];
-  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060") return BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060") return BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS[symbol];
   if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") return BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS[symbol];
   return BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol];
 }
 
 export function bollingerDirectionalLifecycleStrategyId(symbol: BollingerSymbol, variant: BollingerDirectionalVariant): string {
   // rt_strategy_versions.strategy_id は64文字。versionIdは完全なまま監査に残す。
-  return variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060"
-    ? `${symbol.toLowerCase()}-bb-sma20-rsi14-v2`
+  return variant === "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060"
+    ? `${symbol.toLowerCase()}-bb-sma20-rsi22long-v2`
     : `${symbol.toLowerCase()}-bollinger-${variant}`;
 }
 
@@ -92,16 +93,20 @@ async function retireSupersededVersions() {
     ...(Object.values(BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS) as string[]),
     ...(Object.values(BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS) as string[]),
   ];
   for (const versionId of historicalVersions) {
     const row = await getRtStrategyVersion(versionId);
     if (row && row.status !== "stopped") {
       const isRetiredSma20 = (Object.values(BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
       const isRetiredDynamicSma20 = (Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
+      const isRetiredRsi14 = (Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: isRetiredDynamicSma20
+        statusReason: isRetiredRsi14
+          ? "retired_replaced_by_intraday_sma20_rsi22long_alternative_shadow_2026_10_07"
+          : isRetiredDynamicSma20
           ? "retired_replaced_by_intraday_sma20_rsi14_long_alternative_shadow_2026_10_07"
           : isRetiredSma20
           ? "retired_replaced_by_intraday_sma20_direction_shadow_2026_10_07"
@@ -381,14 +386,28 @@ export async function processBollingerDirectionalShadowSourceEvent(source: Forwa
   await retireSupersededVersions();
   const evaluations = [];
   for (const variant of VARIANTS) {
-    await ensureVersion(symbol, variant);
     const versionId = bollingerDirectionalStrategyVersion(symbol, variant);
-    const version = await getRtStrategyVersion(versionId);
-    if (version?.status === "stopped" || version?.status === "insufficient") {
-      evaluations.push({ variant, skipped: `strategy_${version.status}` as const, strategyVersion: versionId });
-      continue;
+    try {
+      await ensureVersion(symbol, variant);
+      const version = await getRtStrategyVersion(versionId);
+      if (version?.status === "stopped" || version?.status === "insufficient") {
+        evaluations.push({ variant, skipped: `strategy_${version.status}` as const, strategyVersion: versionId });
+        continue;
+      }
+      for (const mode of MODES) {
+        try {
+          evaluations.push(await processMode(source, symbol, variant, mode));
+        } catch (error) {
+          // processModeはclaim済みならfailRtForwardShadowEventへversion/mode/sourceEventId/errorを保存する。
+          console.error("[BollingerDirectionalShadow] variant/mode isolated failure", { variant, mode, strategyVersion: versionId, sourceEventId: source.sourceEventId, error: String(error) });
+          evaluations.push({ variant, mode, strategyVersion: versionId, skipped: "isolated_mode_error" as const, error: String(error) });
+        }
+      }
+    } catch (error) {
+      // version登録失敗も後続variantを止めない。DB停止時には保存不能なのでsourceを成功扱いにせず明示的に返す。
+      console.error("[BollingerDirectionalShadow] variant isolated registration failure", { variant, strategyVersion: versionId, sourceEventId: source.sourceEventId, error: String(error) });
+      evaluations.push({ variant, strategyVersion: versionId, skipped: "isolated_variant_registration_error" as const, error: String(error) });
     }
-    for (const mode of MODES) evaluations.push(await processMode(source, symbol, variant, mode));
   }
   return { skipped: false as const, symbol, evaluations };
 }

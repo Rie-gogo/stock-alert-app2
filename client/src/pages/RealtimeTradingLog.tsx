@@ -40,6 +40,7 @@ import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSect
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
 import MarketContextSelectorShadowSection from "@/components/MarketContextSelectorShadowSection";
+import RelayBollingerDiagnosticsSection from "@/components/RelayBollingerDiagnosticsSection";
 import {
   Table,
   TableBody,
@@ -618,6 +619,8 @@ export default function RealtimeTradingLog() {
             </CardContent>
           )}
         </Card>
+
+        <RelayBollingerDiagnosticsSection tradeDate={selectedDate} />
 
         {/* 注意事項 */}
         <div className="text-xs text-muted-foreground border border-border rounded-md p-4 space-y-1">

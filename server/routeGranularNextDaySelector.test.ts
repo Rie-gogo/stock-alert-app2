@@ -270,8 +270,8 @@ describe("route-granular next-day monitoring selector", () => {
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_sma10_slope_gap050_stop140_cooldown30",
       "6857_bollinger_directional_sma10_slope_gap050_stop140_cooldown30",
-      "6857_bollinger_directional_sma20_dynamic_rsi14_gap060_stop140_cooldown30",
-      "6857_bollinger_directional_sma20_dynamic_rsi14_gap060_stop140_cooldown30",
+      "6857_bollinger_directional_sma20_dynamic_rsi22long_gap060_stop140_cooldown30",
+      "6857_bollinger_directional_sma20_dynamic_rsi22long_gap060_stop140_cooldown30",
       "candidate-6857-confirmed-continuation-depth",
       "candidate-6857-short-body008-depth",
     ]);

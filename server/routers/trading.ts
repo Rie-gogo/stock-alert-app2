@@ -167,6 +167,17 @@ const premarketAutomationInput = premarketContextInput.safeExtend({
 });
 
 export const tradingRouter = router({
+  /**
+   * 手動更新だけで読む、relay→source→decision→shadowの保存済み監査診断。
+   * 受信hot path・raw再集計・pollingは増やさない。
+   */
+  getRelayBollingerDiagnostics: publicProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getRelayBollingerDiagnosticsSnapshot } = await import("../relayBollingerDiagnostics");
+      return getRelayBollingerDiagnosticsSnapshot(input.tradeDate);
+    }),
+
   /** 実際に稼働中のビルドと固定評価設定を自己証明する。 */
   getRuntimeIdentity: publicProcedure.query(() => getRuntimeIdentity()),
 

@@ -64,7 +64,7 @@ function seeded(variant: BollingerDirectionalVariant, direction: "long" | "short
 
 const VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30";
 const SMA20_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_gap060";
-const SMA20_DYNAMIC_RSI14_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_dynamic_rsi14_gap060";
+const SMA20_DYNAMIC_RSI14_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma20_dynamic_rsi22long_gap060";
 const SMA10_SLOPE_VARIANT: BollingerDirectionalVariant = "fixed_stop_140_cooldown_30_sma10_slope_gap050";
 
 function risingFiveMinuteHistory(): BollingerDirectionalCandle[] {

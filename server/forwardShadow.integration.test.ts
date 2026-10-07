@@ -5,10 +5,15 @@ const memory = vi.hoisted(() => ({
   claims: new Set<string>(),
   trades: [] as any[],
   events: [] as any[],
+  failFixedStopRegistration: false,
 }));
 
 vi.mock("./db", () => ({
-  upsertRtStrategyVersion: vi.fn(),
+  upsertRtStrategyVersion: vi.fn(async data => {
+    if (memory.failFixedStopRegistration && data.configJson?.variant === "fixed_stop_140_cooldown_30") {
+      throw new Error("forced_fixed_stop_registration_failure");
+    }
+  }),
   getRtStrategyVersion: vi.fn(async () => ({ status: "monitoring", statusReason: null })),
   updateRtStrategyVersionStatus: vi.fn(),
   acquireRtForwardShadowStateLock: vi.fn(async () => true),
@@ -37,6 +42,9 @@ vi.mock("./db", () => ({
     Object.assign(target, data);
   }),
   getRtForwardShadowTrades: vi.fn(async () => memory.trades),
+  getLatestRtPremarketContextSnapshot: vi.fn(async () => ({
+    sourceSnapshotId: "test:premarket", qualityStatus: "verified", regimeState: "up", confidence: "medium",
+  })),
 }));
 
 import { processForwardShadowSourceEvent } from "./forwardShadow";
@@ -70,6 +78,24 @@ describe("8035未見データ前向きシャドー統合", () => {
     memory.claims.clear();
     memory.trades.length = 0;
     memory.events.length = 0;
+    memory.failFixedStopRegistration = false;
+  });
+
+  it("Bollingerの①〜③依存variantが失敗しても、SMA20 RSI22LONGとSMA10 variantの両modeを継続する", async () => {
+    memory.failFixedStopRegistration = true;
+    // 基準案のversion登録だけを強制失敗させ、独立variantの継続を確認する。
+    const result: any = await processForwardShadowSourceEvent({
+      sourceEventId: "bollinger-isolation:1",
+      candle: { symbol: "285A", tradeDate: "2026-10-07", candleTime: "09:00", open: 100, high: 100.1, low: 99.9, close: 100, volume: 100 },
+      board: null,
+    });
+    const evaluations = result.bollingerDirectionalShadow.evaluations;
+    expect(evaluations.some((item: any) => item.skipped === "isolated_mode_error" || item.skipped === "isolated_variant_registration_error")).toBe(true);
+    const continuedVersions = new Set(memory.events.map(item => item.strategyVersion));
+    expect(continuedVersions.has("candidate-285a-bollinger-directional-sma20-dynamic-rsi22long-gap060-stop140-cooldown30-v2")).toBe(true);
+    expect(continuedVersions.has("candidate-285a-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v1")).toBe(true);
+    expect(memory.events.filter(item => item.strategyVersion.includes("bollinger-directional-sma20-dynamic-rsi22long"))).toHaveLength(2);
+    expect(memory.events.filter(item => item.strategyVersion.includes("bollinger-directional-sma10-slope"))).toHaveLength(2);
   });
 
   it("共通判定コアのシグナルを受信時点板現在値で2つの独立方式へ一度だけ約定する", async () => {

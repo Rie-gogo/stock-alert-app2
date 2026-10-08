@@ -42,7 +42,6 @@ import {
   SUMCO_VOLUME_110_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
-  TEL_EXECUTABLE_DEPTH_VERSION,
   FORWARD_STRATEGY_VERSION,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -95,7 +94,7 @@ const candidateSlots: SelectorSlot[] = [
   { symbol: "6981", slot: "A", planId: `shadow:${MURATA_DEEP_REVERSAL_LONG_VERSION}`, label: "A：深い下落後の確認反発LONG", origin: "forward_shadow", canonicalLogic: "candidate-6981-deep-reversal-long", strategyVersion: MURATA_DEEP_REVERSAL_LONG_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "6981", slot: "B", planId: `shadow:${MURATA_MORNING_BREAKDOWN_SHORT_VERSION}`, label: "B：前場20本安値更新SHORT", origin: "forward_shadow", canonicalLogic: "candidate-6981-morning-20bar-breakdown-short", strategyVersion: MURATA_MORNING_BREAKDOWN_SHORT_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "8035", slot: "A", planId: `shadow:${FORWARD_STRATEGY_VERSION}`, label: "A：始値方向ブレイク", origin: "forward_shadow", canonicalLogic: "8035_open_direction_breakout", strategyVersion: FORWARD_STRATEGY_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
-  { symbol: "8035", slot: "B", planId: `shadow:${TEL_EXECUTABLE_DEPTH_VERSION}`, label: "B：次イベント板depth", origin: "forward_shadow", canonicalLogic: "candidate-8035-executable-depth", strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
+  { symbol: "8035", slot: "B", planId: "unavailable:8035:B", label: "B：退役済み", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "retired_8035_executable_depth" },
   { symbol: "9984", slot: "A", planId: `shadow:${SOFTBANK_DEPTH_CONFIRM_VERSION}`, label: "A：次イベント板確認", origin: "forward_shadow", canonicalLogic: "candidate-9984-breakout-depth-confirm", strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "9984", slot: "B", planId: `shadow:${SOFTBANK_RR2_PROTECT_VERSION}`, label: "B：2R利益保護", origin: "forward_shadow", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
 ];

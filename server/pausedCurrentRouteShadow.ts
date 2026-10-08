@@ -15,10 +15,8 @@ export type PausedCurrentRouteStateKey =
   | "lowReversalBreakLong"
   | "trendShort"
   | "highFadeBreakShort"
-  | "afternoonLowBreakShort"
   | "taiyoAfternoonReversal"
   | "reversalLong"
-  | "openingBreakShort"
   | "telShortBreak"
   | "discoOpeningBreakShort";
 
@@ -63,12 +61,7 @@ export const PAUSED_CURRENT_ROUTE_SPECS: readonly PausedCurrentRouteSpec[] = Obj
     reasonPrefixes: Object.freeze(["高値失速ブレイクSHORT"]),
     captureViaGenericCandidateLedger: true,
   },
-  {
-    symbol: "5803", side: "short", stateKey: "afternoonLowBreakShort", publicRouteId: "afternoon_low_break_short",
-    label: "後場安値更新SHORT",
-    reasonPrefixes: Object.freeze(["後場安値更新SHORT", "フジクラ後場安値更新SHORT"]),
-    captureViaGenericCandidateLedger: true,
-  },
+
   {
     symbol: "6976", side: "long", stateKey: "taiyoAfternoonReversal", publicRouteId: "reversal_long",
     label: "後場反転LONG",
@@ -81,12 +74,7 @@ export const PAUSED_CURRENT_ROUTE_SPECS: readonly PausedCurrentRouteSpec[] = Obj
     reasonPrefixes: Object.freeze(["反転LONG"]),
     captureViaGenericCandidateLedger: true,
   },
-  {
-    symbol: "6981", side: "short", stateKey: "openingBreakShort", publicRouteId: "opening_break_short",
-    label: "寄り付きブレイクSHORT",
-    reasonPrefixes: Object.freeze(["寄り付きブレイクSHORT"]),
-    captureViaGenericCandidateLedger: true,
-  },
+
   {
     symbol: "8035", side: "long", stateKey: "telShortBreak", publicRouteId: "8035_open_direction_breakout_long",
     label: "短期ブレイクLONG",

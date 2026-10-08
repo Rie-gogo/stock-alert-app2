@@ -24,7 +24,7 @@ describe("paused current route shadow summary", () => {
       ] as any,
     });
 
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(8);
     expect(rows.find(row => row.symbol === "285A" && row.routeId === "trendShort")).toMatchObject({
       signals: 2,
       openedVirtualTrades: 2,

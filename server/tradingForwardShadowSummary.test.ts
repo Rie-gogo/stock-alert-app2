@@ -46,17 +46,19 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
-  TAIYO_AFTERNOON_DEPTH_VERSION,
-  TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
 } from "./runtimeIdentity";
 import { TEL_CURRENT_PARITY_VERSION, TEL_CAUSALITY_AUDIT_VERSION } from "./telCurrentParity";
 import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
-import { TEL_EXECUTABLE_DEPTH_VERSION } from "./telExecutableConfirmDepth";
+import {
+  RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION,
+  RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  RETIRED_TAIYO_AFTERNOON_RR2_VERSION,
+  RETIRED_TEL_EXECUTABLE_DEPTH_VERSION,
+} from "./retiredSixStrategies";
 
 describe("trading.getForwardShadowSummary", () => {
   it("既存順序を保ち、比較基盤修正前の履歴と修正後の8035・6146候補を分離する", async () => {
@@ -73,14 +75,10 @@ describe("trading.getForwardShadowSummary", () => {
       [KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION, "285A"],
       [TEL_EXECUTABLE_CONFIRM_VERSION, "8035"],
       [TEL_EXECUTABLE_DEPTH_LEGACY_VERSION, "8035"],
-      [TEL_EXECUTABLE_DEPTH_VERSION, "8035"],
       [SOFTBANK_DEPTH_CONFIRM_VERSION, "9984"],
       [SOFTBANK_RR2_PROTECT_VERSION, "9984"],
       [TAIYO_BOARD_DEMAND_VERSION, "6976"],
       [TAIYO_RR2_PROTECT_VERSION, "6976"],
-      [TAIYO_AFTERNOON_RR2_VERSION, "6976"],
-      [TAIYO_AFTERNOON_DEPTH_VERSION, "6976"],
-      [TAIYO_AFTERNOON_LONG_RR2_VERSION, "6976"],
       [TAIYO_AFTERNOON_LONG_WINRATE_VERSION, "6976"],
       [SOCIONEXT_INITIAL_STRENGTH_VERSION, "6526"],
       [SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION, "6526"],
@@ -109,13 +107,14 @@ describe("trading.getForwardShadowSummary", () => {
     });
     expect(byVersion.get(TEL_EXECUTABLE_CONFIRM_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
     expect(byVersion.get(TEL_EXECUTABLE_DEPTH_LEGACY_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "superseded_stopped_audit_only" });
-    expect(byVersion.get(TEL_EXECUTABLE_DEPTH_VERSION)).toMatchObject({
-      eligibleForAdoption: true,
-      purpose: "candidate",
-      collectionStartDate: "2026-09-18",
-      evaluationStartDate: "2026-09-18",
-    });
-    expect(byVersion.get(TAIYO_AFTERNOON_LONG_RR2_VERSION)).toMatchObject({ eligibleForAdoption: false, purpose: "diagnostic_candidate" });
+    for (const version of [
+      RETIRED_TEL_EXECUTABLE_DEPTH_VERSION,
+      RETIRED_TAIYO_AFTERNOON_RR2_VERSION,
+      RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION,
+      RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION,
+    ]) {
+      expect(byVersion.has(version)).toBe(false);
+    }
     for (const version of [KIOXIA_REVERSAL_LONG_REOPEN_VERSION, SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION]) {
       expect(byVersion.get(version)).toMatchObject({ eligibleForAdoption: false, purpose: "invalid_mapping_quarantined", automaticAdoption: false, orderInstructionConnection: false, collectionStartDate: "2026-10-02" });
     }
@@ -153,7 +152,7 @@ describe("trading.getForwardShadowSummary", () => {
       automaticAdoption: false,
     });
     expect(result.audit.discoShortPortfolioComparison).toMatchObject({ scenarios: { paused_current: { actualReceipt: { complete: true } } } });
-    expect(result.pausedCurrentRoutes).toHaveLength(11);
+    expect(result.pausedCurrentRoutes).toHaveLength(9);
     expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain("6146:寄り付き10本安値更新SHORT");
     expect(summaryMock).toHaveBeenCalledTimes(expected.length);
     for (const [version] of expected) {

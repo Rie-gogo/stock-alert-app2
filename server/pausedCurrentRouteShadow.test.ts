@@ -15,11 +15,11 @@ import { resolveSpecializedFiredStateKeys } from "./realtimeSimEngine";
 import { resolveCurrentRouteSpec } from "./currentSignalCandidateRegistry";
 
 describe("paused current route shadow policy", () => {
-  it("添付指定の11経路を重複なく固定する", () => {
+  it("退役後に残す9経路を重複なく固定する", () => {
     expect(PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE).toBe("2026-09-16");
-    expect(PAUSED_CURRENT_ROUTE_SPECS).toHaveLength(11);
-    expect(new Set(PAUSED_CURRENT_ROUTE_SPECS.map(spec => `${spec.symbol}:${spec.side}:${spec.label}`)).size).toBe(11);
-    expect(PAUSED_CURRENT_ROUTE_SPECS.filter(spec => spec.captureViaGenericCandidateLedger)).toHaveLength(10);
+    expect(PAUSED_CURRENT_ROUTE_SPECS).toHaveLength(9);
+    expect(new Set(PAUSED_CURRENT_ROUTE_SPECS.map(spec => `${spec.symbol}:${spec.side}:${spec.label}`)).size).toBe(9);
+    expect(PAUSED_CURRENT_ROUTE_SPECS.filter(spec => spec.captureViaGenericCandidateLedger)).toHaveLength(8);
     expect(PAUSED_CURRENT_ROUTE_SPECS.find(spec => spec.symbol === "6146")).toMatchObject({
       captureViaGenericCandidateLedger: false,
       label: "寄り付き10本安値更新SHORT",
@@ -67,7 +67,7 @@ describe("paused current route shadow policy", () => {
     }).routeId).toBe("afternoonLowBreakShort");
   });
 
-  it("停止する10経路すべてを同じrouteIdの仮想取引として追跡できる", () => {
+  it("残す停止経路を同じrouteIdの仮想取引として追跡できる", () => {
     for (const spec of PAUSED_CURRENT_ROUTE_SPECS.filter(item => item.captureViaGenericCandidateLedger)) {
       const reason = `${spec.reasonPrefixes[0]}: テスト候補`;
       expect(resolvePausedCurrentRoute({

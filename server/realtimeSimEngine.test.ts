@@ -2497,8 +2497,7 @@ describe("村田製作所(6981) 構造ブレイクLONG・寄り付きブレイ�
       if (minute < 55) expect(result.action).not.toBe("entry");
       if (result.reason?.startsWith("shadow_route_pause:")) { normalShadow = result; break; }
     }
-    expect(normalShadow).toMatchObject({ action: "none" });
-    expect(normalShadow?.reason).toContain("寄り付きブレイクSHORT");
+    expect(normalShadow).toBeNull();
     expect(getOpenPositions().find(item => item.symbol === symbol)).toBeUndefined();
 
     const shockDate = "2026-09-22";

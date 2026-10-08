@@ -25,13 +25,9 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
-  TAIYO_AFTERNOON_DEPTH_VERSION,
-  TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
-  TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./runtimeIdentity";
 
 export type MonitoringPlanPurpose = "current" | "candidate" | "diagnostic" | "paused_baseline";
@@ -69,14 +65,10 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   { strategyVersion: ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION, symbol: "6857", label: "B案：確認型継続LONG・二段階高値更新＋次イベント板", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: TAIYO_BOARD_DEMAND_VERSION, symbol: "6976", label: "候補B A案：板需要確認", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: TAIYO_RR2_PROTECT_VERSION, symbol: "6976", label: "候補B B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: TAIYO_AFTERNOON_RR2_VERSION, symbol: "6976", label: "後場SHORT A案：2R/45分", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: TAIYO_AFTERNOON_DEPTH_VERSION, symbol: "6976", label: "後場SHORT B案：次イベント板", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: TAIYO_AFTERNOON_LONG_RR2_VERSION, symbol: "6976", label: "後場LONG A案：2R/10分", purpose: "diagnostic", eligibleForAdoption: false },
   { strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976", label: "後場LONG B案：回復勝率型", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: MURATA_DEEP_REVERSAL_LONG_VERSION, symbol: "6981", label: "A案：深い下落後の確認反発LONG", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: MURATA_MORNING_BREAKDOWN_SHORT_VERSION, symbol: "6981", label: "B案：前場20本安値更新SHORT", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: FORWARD_STRATEGY_VERSION, symbol: "8035", label: "短期ブレイク既存シャドー", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", label: "実行価格・板確認B", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", label: "A案：次イベント板確認", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", label: "B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
   ...TEN_MONITORED_SYMBOLS.map(symbol => ({

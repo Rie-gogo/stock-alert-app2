@@ -294,10 +294,7 @@ export const tradingRouter = router({
         SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
         SUMCO_TIME_15_VERSION,
         SUMCO_VOLUME_110_VERSION,
-        TAIYO_AFTERNOON_DEPTH_VERSION,
-        TAIYO_AFTERNOON_LONG_RR2_VERSION,
         TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-        TAIYO_AFTERNOON_RR2_VERSION,
         TAIYO_BOARD_DEMAND_VERSION,
         TAIYO_RR2_PROTECT_VERSION,
         TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
@@ -314,10 +311,6 @@ export const tradingRouter = router({
         TAIYO_FORWARD_COLLECTION_START_DATE,
         TAIYO_FORWARD_FORMAL_START_DATE,
       } = await import("../taiyoForwardShadow");
-      const {
-        TAIYO_AFTERNOON_COLLECTION_START_DATE,
-        TAIYO_AFTERNOON_FORMAL_START_DATE,
-      } = await import("../taiyoAfternoonForwardShadow");
       const {
         TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
         TAIYO_AFTERNOON_LONG_FORMAL_START_DATE,
@@ -347,10 +340,6 @@ export const tradingRouter = router({
         TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
         TEL_EXECUTABLE_CONFIRM_VERSION,
       } = await import("../telExecutableConfirm");
-      const {
-        TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
-        TEL_EXECUTABLE_DEPTH_VERSION,
-      } = await import("../telExecutableConfirmDepth");
       const {
         getRtDivergenceHypotheses,
         getRtDailyAuditMaterialization,
@@ -481,15 +470,7 @@ export const tradingRouter = router({
             eligibleForAdoption: false,
             evaluationStartDate: "2026-09-07",
           },
-          {
-            strategyVersion: TEL_EXECUTABLE_DEPTH_VERSION,
-            symbol: "8035",
-            summaries: await getForwardShadowSummary(input.asOfDate, TEL_EXECUTABLE_DEPTH_VERSION),
-            purpose: "candidate" as const,
-            eligibleForAdoption: true,
-            collectionStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
-            evaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
-          },
+
           {
             strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION,
             symbol: "9984",
@@ -526,33 +507,9 @@ export const tradingRouter = router({
             collectionStartDate: TAIYO_FORWARD_COLLECTION_START_DATE,
             evaluationStartDate: TAIYO_FORWARD_FORMAL_START_DATE,
           },
-          {
-            strategyVersion: TAIYO_AFTERNOON_RR2_VERSION,
-            symbol: "6976",
-            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_AFTERNOON_RR2_VERSION),
-            purpose: "candidate" as const,
-            eligibleForAdoption: true,
-            collectionStartDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
-            evaluationStartDate: TAIYO_AFTERNOON_FORMAL_START_DATE,
-          },
-          {
-            strategyVersion: TAIYO_AFTERNOON_DEPTH_VERSION,
-            symbol: "6976",
-            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_AFTERNOON_DEPTH_VERSION),
-            purpose: "candidate" as const,
-            eligibleForAdoption: true,
-            collectionStartDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
-            evaluationStartDate: TAIYO_AFTERNOON_FORMAL_START_DATE,
-          },
-          {
-            strategyVersion: TAIYO_AFTERNOON_LONG_RR2_VERSION,
-            symbol: "6976",
-            summaries: await getForwardShadowSummary(input.asOfDate, TAIYO_AFTERNOON_LONG_RR2_VERSION),
-            purpose: "diagnostic_candidate" as const,
-            eligibleForAdoption: false,
-            collectionStartDate: TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
-            evaluationStartDate: TAIYO_AFTERNOON_LONG_FORMAL_START_DATE,
-          },
+
+
+
           {
             strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
             symbol: "6976",
@@ -746,7 +703,6 @@ export const tradingRouter = router({
           },
           divergenceHypotheses: divergenceHypotheses.slice(0, 20),
           semantics: {
-            active8035CandidateEvaluationStartDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
             superseded8035CandidateEvaluationStartDate: TEL_EXECUTABLE_CONFIRM_EVALUATION_START_DATE,
             officialReplayOrder: "rt_realtime_decision_events.id_engine_sequence",
             relaySequenceRole: "gap_and_duplicate_diagnosis_only",

@@ -78,9 +78,9 @@ describe("legacy 285A selector and comparison retirement", () => {
         direction,
       })
     );
-    expect(rows).toHaveLength(164);
+    expect(rows).toHaveLength(157);
     expect(sha256Stable(rows)).toBe(
-      "e016f51ca8433de49b8b86d0902f1f1322f569fc05a505dc5b646eb5ed5a86b4"
+      "abab14701381c2c9380d8f18c3cbd66c829c28121291a254ea7c803bdb5a8bf3"
     );
   });
 

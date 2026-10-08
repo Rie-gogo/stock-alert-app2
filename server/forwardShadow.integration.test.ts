@@ -56,16 +56,13 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
-  TAIYO_AFTERNOON_DEPTH_VERSION,
-  TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_CURRENT_PARITY_VERSION,
-  TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
 } from "./runtimeIdentity";
+import { RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION, RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION, RETIRED_TAIYO_AFTERNOON_RR2_VERSION, RETIRED_TEL_EXECUTABLE_DEPTH_VERSION } from "./retiredSixStrategies";
 
 function minuteTime(index: number): string {
   const total = 9 * 60 + 40 + index;
@@ -164,68 +161,14 @@ describe("8035未見データ前向きシャドー統合", () => {
     expect(memory.events).toHaveLength(eventCount);
   });
 
-  it("比較基盤修正後は既存8035・現行parity・旧A・depth新版を別version・別2評価状態で並走する", async () => {
-    for (let index = 0; index < 30; index += 1) {
-      await processForwardShadowSourceEvent({
-        sourceEventId: `triple:${index + 1}`,
-        candle: {
-          symbol: "8035", tradeDate: "2026-09-18", candleTime: minuteTime(index),
-          open: 100, high: 100.1, low: 99.9, close: 100, volume: 100,
-        },
-        board: { currentPrice: 100 },
-        currentAudit: {
-          engineSequence: index + 1, resultType: "no_signal", routeId: null,
-          marginUsedBefore: 0, marginUsedAfter: 0,
-          stateHashBefore: "before", stateHashAfter: "after",
-          causalityStatus: "pass", causalityReason: "test",
-        },
-      });
-    }
+  it("8035 source eventは退役したdepth Bをdispatchしない", async () => {
     await processForwardShadowSourceEvent({
-      sourceEventId: "triple:31",
-      candle: {
-        symbol: "8035", tradeDate: "2026-09-18", candleTime: "10:10",
-        open: 100, high: 101.1, low: 99.9, close: 101, volume: 200,
-      },
-        board: { currentPrice: 101, asks: [{ price: 101.02, qty: 100_000 }], bids: [{ price: 100.98, qty: 100_000 }] },
-        currentAudit: {
-          engineSequence: 31, resultType: "entry", routeId: "8035_open_direction_breakout_long",
-          marginUsedBefore: 0, marginUsedAfter: 2_700_000,
-          stateHashBefore: "before", stateHashAfter: "after",
-          causalityStatus: "violation", causalityReason: "bar_close_fill",
-          boardObservedAtMs: 1_000, relayAssembledAtMs: 1_000, relaySentAtMs: 1_050, cloudReceivedAtMs: 1_100,
-          decisionStartedAtMs: 1_100, decisionCompletedAtMs: 1_200,
-      },
+      sourceEventId: "retired-depth:8035",
+      candle: { symbol: "8035", tradeDate: "2026-10-08", candleTime: "10:00", open: 100, high: 101.1, low: 99.9, close: 101, volume: 200 },
+      board: { currentPrice: 101, asks: [{ price: 101.02, qty: 100_000 }], bids: [{ price: 100.98, qty: 100_000 }] },
     });
-    await processForwardShadowSourceEvent({
-      sourceEventId: "triple:32",
-      candle: {
-        symbol: "8035", tradeDate: "2026-09-18", candleTime: "10:11",
-        open: 101, high: 101.2, low: 100.9, close: 101.1, volume: 100,
-      },
-        board: { currentPrice: 101.05, asks: [{ price: 101.05, qty: 100_000 }], bids: [{ price: 101.03, qty: 100_000 }] },
-        currentAudit: {
-        engineSequence: 32, resultType: "hold", routeId: null,
-        marginUsedBefore: 2_700_000, marginUsedAfter: 2_700_000,
-          stateHashBefore: "before", stateHashAfter: "after",
-          causalityStatus: "pass", causalityReason: "no_fill_price_used",
-          boardObservedAtMs: 2_000, relayAssembledAtMs: 2_000, relaySentAtMs: 2_050, cloudReceivedAtMs: 2_100,
-          decisionStartedAtMs: 2_100, decisionCompletedAtMs: 2_200,
-      },
-    });
-
-    const versions = new Set(memory.trades.map(item => item.strategyVersion));
-    expect(versions).toEqual(new Set([
-      FORWARD_STRATEGY_VERSION,
-      TEL_CURRENT_PARITY_VERSION,
-      TEL_EXECUTABLE_CONFIRM_VERSION,
-      TEL_EXECUTABLE_DEPTH_VERSION,
-    ]));
-    for (const version of versions) {
-      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
-      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
-      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
-    }
+    expect(memory.events.some(item => item.strategyVersion === RETIRED_TEL_EXECUTABLE_DEPTH_VERSION)).toBe(false);
+    expect(memory.states.has(`${RETIRED_TEL_EXECUTABLE_DEPTH_VERSION}:signal_quality`)).toBe(false);
   });
 
   it("9984現行source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
@@ -336,74 +279,15 @@ describe("8035未見データ前向きシャドー統合", () => {
     }
   });
 
-  it("6976後場反転SHORT source eventをA/Bの別version・別2評価状態へ同時配信する", async () => {
-    let sequence = 0;
-    const currentAudit = () => {
-      sequence += 1;
-      return {
-        engineSequence: sequence, resultType: "no_signal", routeId: null,
-        marginUsedBefore: 0, marginUsedAfter: 0,
-        stateHashBefore: "before", stateHashAfter: "after",
-        causalityStatus: "pass", causalityReason: "test",
-        boardObservedAtMs: 1_000 + sequence * 1_000,
-        relayAssembledAtMs: 1_050 + sequence * 1_000,
-        relaySentAtMs: 1_100 + sequence * 1_000,
-        cloudReceivedAtMs: 50_000 + sequence * 1_000,
-        decisionStartedAtMs: 50_050 + sequence * 1_000,
-        decisionCompletedAtMs: 50_100 + sequence * 1_000,
-      };
-    };
-    for (let index = 0; index < 20; index += 1) {
-      await processForwardShadowSourceEvent({
-        sourceEventId: `taiyo-afternoon:morning:${index}`,
-        candle: {
-          symbol: "6976", tradeDate: "2026-09-08", candleTime: `11:${String(index).padStart(2, "0")}`,
-          open: index === 0 ? 100 : 104, high: 104.2, low: index === 0 ? 99.8 : 103.8, close: 104, volume: 100,
-        },
-        board: null,
-        currentAudit: currentAudit(),
-      });
-    }
-    for (let index = 0; index < 9; index += 1) {
-      const close = 103 - index * 0.25;
-      await processForwardShadowSourceEvent({
-        sourceEventId: `taiyo-afternoon:prefix:${index}`,
-        candle: {
-          symbol: "6976", tradeDate: "2026-09-08", candleTime: `12:${String(50 + index).padStart(2, "0")}`,
-          open: close + 0.1, high: close + 0.2, low: close - 0.1, close, volume: 100,
-        },
-        board: null,
-        currentAudit: currentAudit(),
-      });
-    }
+  it("6976 source eventは退役した後場SHORT A/Bをdispatchしない", async () => {
     await processForwardShadowSourceEvent({
-      sourceEventId: "taiyo-afternoon:trigger",
-      candle: { symbol: "6976", tradeDate: "2026-09-08", candleTime: "13:00", open: 100.9, high: 101, low: 100.1, close: 100.2, volume: 150 },
-      board: null,
-      currentAudit: currentAudit(),
+      sourceEventId: "retired-short:6976",
+      candle: { symbol: "6976", tradeDate: "2026-10-08", candleTime: "13:01", open: 100, high: 100.2, low: 99, close: 99.1, volume: 200 },
+      board: { bids: [{ price: 99, qty: 100 }], asks: [{ price: 99.2, qty: 100 }] },
     });
-    await processForwardShadowSourceEvent({
-      sourceEventId: "taiyo-afternoon:confirm",
-      candle: { symbol: "6976", tradeDate: "2026-09-08", candleTime: "13:01", open: 99.8, high: 99.9, low: 98.9, close: 99, volume: 120 },
-      board: null,
-      currentAudit: currentAudit(),
-    });
-    await processForwardShadowSourceEvent({
-      sourceEventId: "taiyo-afternoon:depth",
-      candle: { symbol: "6976", tradeDate: "2026-09-08", candleTime: "13:02", open: 98.98, high: 99.1, low: 98.8, close: 98.95, volume: 100 },
-      board: { bids: [{ price: 98.96, qty: 60 }, { price: 98.94, qty: 40 }], asks: [{ price: 98.98, qty: 100 }] },
-      currentAudit: currentAudit(),
-    });
-
-    expect(new Set(memory.trades.map(item => item.strategyVersion))).toEqual(new Set([
-      TAIYO_AFTERNOON_RR2_VERSION,
-      TAIYO_AFTERNOON_DEPTH_VERSION,
-    ]));
-    expect(memory.trades).toHaveLength(4);
-    for (const version of [TAIYO_AFTERNOON_RR2_VERSION, TAIYO_AFTERNOON_DEPTH_VERSION]) {
-      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
-      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
-      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
+    for (const version of [RETIRED_TAIYO_AFTERNOON_RR2_VERSION, RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION]) {
+      expect(memory.events.some(item => item.strategyVersion === version)).toBe(false);
+      expect(memory.states.has(`${version}:signal_quality`)).toBe(false);
     }
   });
 
@@ -453,7 +337,7 @@ describe("8035未見データ前向きシャドー統合", () => {
     }
   });
 
-  it("6976後場LONG source eventを現行・既存SHORTから独立したA/B各2評価状態へ配信する", async () => {
+  it("6976後場LONG source eventを回復勝率Bだけの2評価状態へ配信する", async () => {
     await processForwardShadowSourceEvent({
       sourceEventId: "taiyo-long:open",
       candle: { symbol: "6976", tradeDate: "2026-09-14", candleTime: "09:00", open: 100, high: 100, low: 99.8, close: 100, volume: 100 },
@@ -482,14 +366,10 @@ describe("8035未見データ前向きシャドー統合", () => {
       board: null,
     });
 
-    for (const version of [TAIYO_AFTERNOON_LONG_RR2_VERSION, TAIYO_AFTERNOON_LONG_WINRATE_VERSION]) {
-      expect(memory.trades.filter(item => item.strategyVersion === version)).toHaveLength(2);
-      expect(memory.states.has(`${version}:signal_quality`)).toBe(true);
-      expect(memory.states.has(`${version}:capital_constrained`)).toBe(true);
-    }
-    expect(memory.trades.filter(item => item.strategyVersion === TAIYO_AFTERNOON_LONG_RR2_VERSION)[0]).toMatchObject({
-      side: "long", slPct: "0.8", tpPct: "1.6",
-    });
+    expect(memory.trades.filter(item => item.strategyVersion === TAIYO_AFTERNOON_LONG_WINRATE_VERSION)).toHaveLength(2);
+    expect(memory.states.has(`${TAIYO_AFTERNOON_LONG_WINRATE_VERSION}:signal_quality`)).toBe(true);
+    expect(memory.states.has(`${TAIYO_AFTERNOON_LONG_WINRATE_VERSION}:capital_constrained`)).toBe(true);
+    expect(memory.events.some(item => item.strategyVersion === RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION)).toBe(false);
     expect(memory.trades.filter(item => item.strategyVersion === TAIYO_AFTERNOON_LONG_WINRATE_VERSION)[0]).toMatchObject({
       side: "long", slPct: "1.2", tpPct: "0.3",
     });

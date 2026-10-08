@@ -23,6 +23,10 @@ import {
   ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
   ROUTE_GRANULAR_SELECTOR_VERSION,
 } from "./routeGranularNextDaySelector";
+import {
+  RETIRED_SIX_SHADOW_VERSIONS,
+  RETIRED_STOPPED_CURRENT_CANONICAL_LOGICS,
+} from "./retiredSixStrategies";
 import { sha256Stable } from "./runtimeIdentity";
 
 /**
@@ -165,6 +169,22 @@ function candidateEligible(row: Value): boolean {
 }
 
 /**
+ * A frozen D-1 selector snapshot remains immutable audit history.  If a route is
+ * explicitly retired later, only the read-model candidate set excludes it; the
+ * persisted snapshot, its original hash, and all historical materializations are
+ * left untouched.  Do not broadly intersect with today's catalog: that would
+ * incorrectly remove unrelated historical versions from the same D-1 snapshot.
+ */
+export function excludeExplicitlyRetiredRoutesFromFrozenScores(scores: Value[]): Value[] {
+  const retiredVersions = new Set<string>(RETIRED_SIX_SHADOW_VERSIONS);
+  const retiredCurrentLogics = new Set<string>(RETIRED_STOPPED_CURRENT_CANONICAL_LOGICS);
+  return scores.filter(row =>
+    !retiredVersions.has(String(row.strategyVersion ?? ""))
+    && !retiredCurrentLogics.has(String(row.canonicalLogic ?? ""))
+  );
+}
+
+/**
  * Resolve the immutable D-1 route selector snapshot when it exists. If the strict
  * upstream snapshot is unavailable, freeze a bounded code-catalog/lifecycle view.
  * This fallback never filters candidates by realised P&L.
@@ -177,11 +197,17 @@ async function resolveMarketContextV4RouteCandidatesUncached(tradeDate: string) 
   });
   const stored = object(snapshot?.resultJson);
   if (snapshot?.status === "complete" && Array.isArray(stored.scores)) {
+    const frozenScores = recordArray(stored.scores);
+    const scores = excludeExplicitlyRetiredRoutesFromFrozenScores(frozenScores);
     return {
       selectorVersion: stored.selectorVersion ?? ROUTE_GRANULAR_SELECTOR_VERSION,
-      inputHash: stored.inputHash ?? null,
+      inputHash: sha256Stable({
+        frozenInputHash: stored.inputHash ?? null,
+        retiredSixFilterVersion: "explicit-six-logic-retirement-2026-10-08",
+        scores,
+      }),
       source: "frozen_d_minus_one_route_selector_snapshot" as const,
-      scores: recordArray(stored.scores),
+      scores,
       catalogAudit: stored.catalogAudit ?? null,
     };
   }

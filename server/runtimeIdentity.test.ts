@@ -13,14 +13,17 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
-  TAIYO_AFTERNOON_DEPTH_VERSION,
-  TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   getRuntimeIdentity,
 } from "./runtimeIdentity";
+import {
+  RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION,
+  RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION,
+  RETIRED_TAIYO_AFTERNOON_RR2_VERSION,
+  RETIRED_TEL_EXECUTABLE_DEPTH_VERSION,
+} from "./retiredSixStrategies";
 
 describe("本番稼働版自己証明", () => {
   it("固定売買ロジック、10銘柄、DRY_RUN限定を自己表示する", () => {
@@ -62,9 +65,6 @@ describe("本番稼働版自己証明", () => {
       SOCIONEXT_CONFIRM_STRENGTH_VERSION,
       SUMCO_VOLUME_110_VERSION,
       SUMCO_TIME_15_VERSION,
-      TAIYO_AFTERNOON_RR2_VERSION,
-      TAIYO_AFTERNOON_DEPTH_VERSION,
-      TAIYO_AFTERNOON_LONG_RR2_VERSION,
       TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
       DISCO_SHORT_BASELINE_VERSION,
       DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -72,6 +72,14 @@ describe("本番稼働版自己証明", () => {
       DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
       DISCO_LONG_PRIOR_THREE_B_VERSION,
     ]));
+    for (const version of [
+      RETIRED_TEL_EXECUTABLE_DEPTH_VERSION,
+      RETIRED_TAIYO_AFTERNOON_RR2_VERSION,
+      RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION,
+      RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION,
+    ]) {
+      expect(identity.strategyVersions).not.toContain(version);
+    }
     expect(versions.some(version => version.length > 64)).toBe(true);
     expect(versions.every(version => version.length <= 128)).toBe(true);
   });

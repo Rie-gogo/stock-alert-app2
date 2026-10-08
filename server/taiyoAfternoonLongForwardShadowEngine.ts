@@ -254,7 +254,7 @@ export async function processTaiyoAfternoonLongForwardShadowSourceEvent(source: 
   if (!getRuntimeIdentity().tradingLogicMatchesBaseline) return { skipped: "baseline_trading_logic_mismatch" as const };
   const evaluations: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
-  for (const variant of ["rr2_10", "recovery_winrate"] as const) {
+  for (const variant of ["recovery_winrate"] as const) {
     try {
       evaluations.push(await processVariant(source, variant));
     } catch (error) {

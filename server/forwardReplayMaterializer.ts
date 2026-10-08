@@ -28,10 +28,7 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
-  TAIYO_AFTERNOON_DEPTH_VERSION,
-  TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
 } from "./runtimeIdentity";
@@ -44,11 +41,8 @@ import { auditKioxiaReversalLongReopenDay } from "./kioxiaReversalLongReopenEngi
 import { auditKioxiaCurrentReversalLongExactDay } from "./kioxiaCurrentReversalLongExactEngine";
 import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
 import { auditTelExecutableConfirmDay } from "./telExecutableConfirmEngine";
-import { TEL_EXECUTABLE_DEPTH_VERSION } from "./telExecutableConfirmDepth";
-import { auditTelExecutableConfirmDepthDay } from "./telExecutableConfirmDepthEngine";
 import { auditSoftbankForwardShadowDay } from "./softbankForwardShadowEngine";
 import { auditTaiyoForwardShadowDay } from "./taiyoForwardShadowEngine";
-import { auditTaiyoAfternoonForwardShadowDay } from "./taiyoAfternoonForwardShadowEngine";
 import { auditTaiyoAfternoonLongForwardShadowDay } from "./taiyoAfternoonLongForwardShadowEngine";
 import { auditSocionextForwardShadowDay } from "./socionextForwardShadowEngine";
 import { auditSumcoForwardShadowDay } from "./sumcoForwardShadowEngine";
@@ -75,14 +69,10 @@ export const FORWARD_REPLAY_DEFINITIONS: ReadonlyArray<{
   { version: MURATA_DEEP_REVERSAL_LONG_VERSION, symbol: "6981", run: (source, shadow, realtime) => auditMurataIndependentShadowDay(source, shadow, realtime, "deep_reversal_long") },
   { version: MURATA_MORNING_BREAKDOWN_SHORT_VERSION, symbol: "6981", run: (source, shadow, realtime) => auditMurataIndependentShadowDay(source, shadow, realtime, "morning_breakdown_short") },
   { version: TEL_EXECUTABLE_CONFIRM_VERSION, symbol: "8035", run: (source, shadow) => auditTelExecutableConfirmDay(source, shadow) },
-  { version: TEL_EXECUTABLE_DEPTH_VERSION, symbol: "8035", run: (source, shadow, realtime) => auditTelExecutableConfirmDepthDay(source, shadow, realtime) },
   { version: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", run: (source, shadow, realtime) => auditSoftbankForwardShadowDay(source, shadow, realtime, "depth_confirm") },
   { version: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", run: (source, shadow, realtime) => auditSoftbankForwardShadowDay(source, shadow, realtime, "rr2_protect") },
   { version: TAIYO_BOARD_DEMAND_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoForwardShadowDay(source, shadow, realtime, "board_demand") },
   { version: TAIYO_RR2_PROTECT_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoForwardShadowDay(source, shadow, realtime, "rr2_protect") },
-  { version: TAIYO_AFTERNOON_RR2_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonForwardShadowDay(source, shadow, realtime, "rr2_exit") },
-  { version: TAIYO_AFTERNOON_DEPTH_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonForwardShadowDay(source, shadow, realtime, "depth_execution") },
-  { version: TAIYO_AFTERNOON_LONG_RR2_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonLongForwardShadowDay(source, shadow, realtime, "rr2_10") },
   { version: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976", run: (source, shadow, realtime) => auditTaiyoAfternoonLongForwardShadowDay(source, shadow, realtime, "recovery_winrate") },
   { version: SOCIONEXT_INITIAL_STRENGTH_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "initial_strength") },
   { version: SOCIONEXT_INITIAL_STRENGTH_REOPEN_VERSION, symbol: "6526", run: (source, shadow) => auditSocionextForwardShadowDay(source, shadow, "initial_strength_reopen") },

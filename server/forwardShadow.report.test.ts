@@ -64,16 +64,13 @@ import {
   SOCIONEXT_INITIAL_STRENGTH_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
-  TAIYO_AFTERNOON_DEPTH_VERSION,
-  TAIYO_AFTERNOON_LONG_RR2_VERSION,
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
-  TAIYO_AFTERNOON_RR2_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   TEL_EXECUTABLE_DEPTH_LEGACY_VERSION,
-  TEL_EXECUTABLE_DEPTH_VERSION,
   TEL_EXECUTABLE_CONFIRM_VERSION,
 } from "./runtimeIdentity";
+import { RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION as TAIYO_AFTERNOON_DEPTH_VERSION, RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION as TAIYO_AFTERNOON_LONG_RR2_VERSION, RETIRED_TAIYO_AFTERNOON_RR2_VERSION as TAIYO_AFTERNOON_RR2_VERSION } from "./retiredSixStrategies";
 
 describe("未見データ前向きシャドー16時報告", () => {
   it("asOfDateより後の取引を過去時点の収集成績へ混ぜない", async () => {
@@ -104,29 +101,6 @@ describe("未見データ前向きシャドー16時報告", () => {
     });
   });
 
-  it("比較基盤修正後の8035候補は9月18日より前の旧世代取引を集計しない", async () => {
-    dbMock.getRtForwardShadowTrades.mockResolvedValueOnce([
-      {
-        evaluationMode: "signal_quality",
-        entryTradeDate: "2026-09-17",
-        pnl: 9_000,
-        pnlAfterAdverseExit: 8_900,
-        realizedR: "9",
-      },
-      {
-        evaluationMode: "signal_quality",
-        entryTradeDate: "2026-09-18",
-        pnl: 1_000,
-        pnlAfterAdverseExit: 900,
-        realizedR: "1",
-      },
-    ] as never);
-
-    const summaries = await getForwardShadowSummary("2026-09-18", TEL_EXECUTABLE_DEPTH_VERSION);
-    const signalQuality = summaries.find(item => item.mode === "signal_quality");
-    expect(signalQuality?.strategyCollectionStartDate).toBe("2026-09-18");
-    expect(signalQuality?.collectionMetrics).toMatchObject({ closedTrades: 1, pnl: 1_000 });
-  });
 
   it("自己証明・受信監査・2方式・残日数と残件数・注文非接続を表示する", async () => {
     const section = await formatForwardShadowDryRunReport("2026-09-03");
@@ -138,8 +112,7 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("285A 現行5経路・ATR7 0.36%未満の該当経路日次終了");
     expect(section).toContain("戦略版: candidate-8035-executable-confirm-v1");
     expect(section).toContain("8035 次イベント・ブレイク継続確認A案");
-    expect(section).toContain("戦略版: candidate-8035-executable-depth-v3-parity-reset");
-    expect(section).toContain("8035 次イベント・side別板depth VWAP継続確認A案 v3（比較基盤修正後）");
+    expect(section).not.toContain("戦略版: candidate-8035-executable-depth-v3-parity-reset");
     expect(section).toContain(`戦略版: ${SOFTBANK_DEPTH_CONFIRM_VERSION}`);
     expect(section).toContain("9984 前場10本高値更新LONG A・次イベント100株ask depth継続確認");
     expect(section).toContain(`戦略版: ${SOFTBANK_RR2_PROTECT_VERSION}`);
@@ -148,15 +121,12 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("6976 候補B・10本高値更新LONG A・同時点BPR1.30＋大口売り壁なし");
     expect(section).toContain(`戦略版: ${TAIYO_RR2_PROTECT_VERSION}`);
     expect(section).toContain("6976 候補B・10本高値更新LONG B・2R出口＋次足利益保護");
-    expect(section).toContain(`戦略版: ${TAIYO_AFTERNOON_RR2_VERSION}`);
-    expect(section).toContain("6976 後場反転SHORT A・現行入口＋45分2R出口");
-    expect(section).toContain(`戦略版: ${TAIYO_AFTERNOON_DEPTH_VERSION}`);
-    expect(section).toContain("6976 後場反転SHORT B・bid/ask100株depth実行品質");
-    expect(section).toContain(`戦略版: ${TAIYO_AFTERNOON_LONG_RR2_VERSION}`);
-    expect(section).toContain("6976 後場反転LONG A・前場2%以上下落＋確認型10分2R");
+    expect(section).not.toContain(`戦略版: ${TAIYO_AFTERNOON_RR2_VERSION}`);
+    expect(section).not.toContain(`戦略版: ${TAIYO_AFTERNOON_DEPTH_VERSION}`);
+    expect(section).not.toContain(`戦略版: ${TAIYO_AFTERNOON_LONG_RR2_VERSION}`);
     expect(section).toContain(`戦略版: ${TAIYO_AFTERNOON_LONG_WINRATE_VERSION}`);
     expect(section).toContain("6976 後場反転LONG B・安値1.5%回復確認＋30分勝率型");
-    expect(section).toContain("6976後場LONG追加Gate: 案=rr2_10");
+    expect(section).toContain("6976後場LONG追加Gate: 案=recovery_winrate");
     expect(section).toContain("6976後場LONG追加Gate: 案=recovery_winrate");
     expect(section).toContain(`戦略版: ${SOCIONEXT_INITIAL_STRENGTH_VERSION}`);
     expect(section).toContain("6526 確認型LONG A・初動始値比+0.25%未満で日次終了");
@@ -174,7 +144,7 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain(`戦略版: ${DISCO_LONG_PROFIT_PROTECTION_A_VERSION}`);
     expect(section).toContain(`戦略版: ${DISCO_LONG_PRIOR_THREE_B_VERSION}`);
     expect(section).toContain("6146 SHORT B v3・失敗リテスト＋再安値更新後の次イベントdepth確認");
-    expect(section).toContain("対象外（停止した現行経路の比較基準として収集継続）");
+    expect(section).toContain("対象外（診断・比較用として収集継続）");
     expect(section).toContain("9984追加Gate: 実現平均利益÷平均損失=");
     expect(section).toContain("6976追加Gate: 案=board_demand");
     expect(section).toContain("板需給案は追加0.80基準なし");
@@ -191,14 +161,8 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(section).toContain("3436追加Gate: 案=time_15");
     expect(section).toContain("選定用34保存日勝率=73.08%");
     expect(section).toContain("追加5日既知欠損=true");
-    expect(section).toContain("6976後場SHORT追加Gate: 案=rr2_exit");
-    expect(section).toContain("選定用51保存日取引=8");
-    expect(section).toContain("選定用勝率=87.50%");
-    expect(section).toContain("6976後場SHORT追加Gate: 案=depth_execution");
-    expect(section).toContain("選定用勝率=算定不能");
-    expect(section).toContain("depth再生日=2");
-    expect(section).toContain("正式成績利用不可=true");
-    expect(section).toContain("891万円比較=manual_comparison_required");
+    expect(section).toContain("6976後場SHORT追加Gate: 対象外");
+    expect(section).toContain("6976後場SHORT追加Gate: 対象外");
     expect(section).toContain("対象外（旧版停止・監査保持のみ）");
     expect(section).toContain("8035 現行完全再現監査");
     expect(section).toContain("現行 因果性Gate");
@@ -243,8 +207,6 @@ describe("未見データ前向きシャドー16時報告", () => {
     expect(legacy.every(item => item.decision.status === "stopped")).toBe(true);
     expect(legacy.every(item => item.decision.reason === "superseded_by_depth_v2_audit_only")).toBe(true);
 
-    const depth = await getForwardShadowSummary("2026-09-04", TEL_EXECUTABLE_DEPTH_VERSION);
-    expect(depth.every(item => item.decision.days === 0)).toBe(true);
-    expect(depth.every(item => item.decision.status === "monitoring")).toBe(true);
+
   });
 });

@@ -20,6 +20,7 @@ import {
   upsertRtStrategyVersion,
 } from "./db";
 import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
+import { retireSixShadowStrategyVersions } from "./retiredSixStrategies";
 import { applyForwardRouteParityGate, resolveForwardRouteParityGate } from "./forwardRouteParityGate";
 import {
   P0_FORMAL_EVALUATION_EARLIEST_START_DATE,
@@ -95,11 +96,7 @@ import {
 } from "./telExecutableConfirm";
 import { auditTelExecutableConfirmDay } from "./telExecutableConfirmEngine";
 import {
-  TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
-  TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
-  TEL_EXECUTABLE_DEPTH_VERSION,
 } from "./telExecutableConfirmDepth";
-import { auditTelExecutableConfirmDepthDay } from "./telExecutableConfirmDepthEngine";
 import {
   SOFTBANK_FORWARD_COLLECTION_START_DATE,
   SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
@@ -130,10 +127,7 @@ import {
   DISCO_LONG_FORWARD_LEARNING_CUTOFF_DATE,
 } from "./discoConfirmedLongForwardShadow";
 import {
-  TAIYO_AFTERNOON_COLLECTION_START_DATE,
-  TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
 } from "./taiyoAfternoonForwardShadow";
-import { auditTaiyoAfternoonForwardShadowDay } from "./taiyoAfternoonForwardShadowEngine";
 import {
   TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
   TAIYO_AFTERNOON_LONG_LEARNING_CUTOFF_DATE,
@@ -659,6 +653,7 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
 }
 
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput): Promise<Record<string, unknown>> {
+  await retireSixShadowStrategyVersions();
   if (!input.internalSkipBollingerDirectionalShadow
     && ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].includes(input.candle.symbol)) {
     const base: Record<string, unknown> = await processForwardShadowSourceEvent({
@@ -682,14 +677,12 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   if (input.candle.symbol === "8035" && !input.internalSkipTelParity) {
     const { processTelCurrentParitySourceEvent } = await import("./telCurrentParityEngine");
     const { processTelExecutableConfirmSourceEvent } = await import("./telExecutableConfirmEngine");
-    const { processTelExecutableConfirmDepthSourceEvent } = await import("./telExecutableConfirmDepthEngine");
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     for (const evaluate of [
       () => processForwardShadowSourceEvent({ ...input, internalSkipTelParity: true }),
       () => processTelCurrentParitySourceEvent(engineInput, engineInput.currentAudit?.marginUsedBefore ?? 0),
       () => processTelExecutableConfirmSourceEvent(engineInput),
-      () => processTelExecutableConfirmDepthSourceEvent(engineInput),
     ]) {
       try {
         evaluations.push(await evaluate());
@@ -749,7 +742,6 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
   }
   if (input.candle.symbol === "6976") {
     const { processTaiyoForwardShadowSourceEvent } = await import("./taiyoForwardShadowEngine");
-    const { processTaiyoAfternoonForwardShadowSourceEvent } = await import("./taiyoAfternoonForwardShadowEngine");
     const { processTaiyoAfternoonLongForwardShadowSourceEvent } = await import("./taiyoAfternoonLongForwardShadowEngine");
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
@@ -757,11 +749,6 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
       evaluations.push(await processTaiyoForwardShadowSourceEvent(input));
     } catch (error) {
       errors.push(`candidate_b_long:${String(error)}`);
-    }
-    try {
-      evaluations.push(await processTaiyoAfternoonForwardShadowSourceEvent(input));
-    } catch (error) {
-      errors.push(`afternoon_short:${String(error)}`);
     }
     try {
       evaluations.push(await processTaiyoAfternoonLongForwardShadowSourceEvent(input));
@@ -959,9 +946,6 @@ export function resolveForwardStrategyCollectionStartDate(
   strategyVersion: string,
   platformValidationDate: string,
 ) {
-  if (strategyVersion === TEL_EXECUTABLE_DEPTH_VERSION) {
-    return laterIsoDate(platformValidationDate, TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE);
-  }
   if ([DISCO_SHORT_EXECUTABLE_A_VERSION, DISCO_SHORT_RETEST_B_VERSION].includes(strategyVersion)) {
     return laterIsoDate(platformValidationDate, DISCO_SHORT_CANDIDATE_COLLECTION_START_DATE);
   }
@@ -1267,15 +1251,7 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       adoptionEligible: false,
       lifecycle: "superseded_stopped_audit_only",
     },
-    {
-      versionId: TEL_EXECUTABLE_DEPTH_VERSION,
-      symbol: "8035",
-      title: "8035 次イベント・side別板depth VWAP継続確認A案 v3（比較基盤修正後）",
-      startDate: TEL_EXECUTABLE_DEPTH_EVALUATION_START_DATE,
-      cutoffDate: TEL_EXECUTABLE_DEPTH_LEARNING_CUTOFF_DATE,
-      adoptionEligible: true,
-      lifecycle: "active_candidate",
-    },
+
     {
       versionId: SOFTBANK_DEPTH_CONFIRM_VERSION,
       symbol: "9984",
@@ -1312,34 +1288,9 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       adoptionEligible: true,
       lifecycle: "active_candidate",
     },
-    {
-      versionId: TAIYO_AFTERNOON_RR2_VERSION,
-      symbol: "6976",
-      title: "6976 後場反転SHORT A・現行入口＋45分2R出口",
-      startDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
-      cutoffDate: TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
-      adoptionEligible: true,
-      lifecycle: "active_candidate",
-    },
-    {
-      versionId: TAIYO_AFTERNOON_DEPTH_VERSION,
-      symbol: "6976",
-      title: "6976 後場反転SHORT B・bid/ask100株depth実行品質",
-      startDate: TAIYO_AFTERNOON_COLLECTION_START_DATE,
-      cutoffDate: TAIYO_AFTERNOON_LEARNING_CUTOFF_DATE,
-      adoptionEligible: true,
-      lifecycle: "active_candidate",
-    },
-    {
-      versionId: TAIYO_AFTERNOON_LONG_RR2_VERSION,
-      symbol: "6976",
-      title: "6976 後場反転LONG A・前場2%以上下落＋確認型10分2R",
-      startDate: TAIYO_AFTERNOON_LONG_COLLECTION_START_DATE,
-      cutoffDate: TAIYO_AFTERNOON_LONG_LEARNING_CUTOFF_DATE,
-      adoptionEligible: false,
-      lifecycle: "active_diagnostic_candidate",
-      keepCollectingWhenIneligible: true,
-    },
+
+
+
     {
       versionId: TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
       symbol: "6976",
@@ -1535,9 +1486,7 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
 	  採用審査: ${definition.adoptionEligible
     ? "対象（自動採用・自動置換なし）"
     : "keepCollectingWhenIneligible" in definition && definition.keepCollectingWhenIneligible
-      ? definition.lifecycle === "active_diagnostic_candidate"
-        ? "対象外（診断専用として収集継続）"
-        : "対象外（停止した現行経路の比較基準として収集継続）"
+      ? "対象外（診断・比較用として収集継続）"
       : "対象外（旧版停止・監査保持のみ）"}
 	  注文接続: なし（strategyVersion別シャドーテーブルのみ）
 	  当日シャドー判断: ${versionEventCount}件（error=${versionErrorCount}。状態連続性は別materializer）

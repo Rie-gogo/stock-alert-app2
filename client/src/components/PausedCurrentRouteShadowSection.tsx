@@ -29,9 +29,9 @@ export default function PausedCurrentRouteShadowSection({
   return (
     <Card className="bg-card border-sky-500/30" data-testid="paused-current-route-shadow-section">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">停止現行11経路・シャドー成績</CardTitle>
+        <CardTitle className="text-base">停止現行経路・シャドー成績</CardTitle>
         <p className="text-xs text-muted-foreground">
-          選択日までの累計です。9/16以降に停止した10経路と、既に停止済みの6146 SHORTを表示します。
+          選択日までの累計です。現在の比較対象として維持される停止経路だけを表示します。
           100株仮想取引であり、実口座損益や正式評価ではありません。
         </p>
       </CardHeader>

@@ -3,6 +3,7 @@ import {
   RollingMarketContextBars,
   buildIntradayContextPerformanceSelectorDecision,
   buildMarketContextPerformanceSnapshot,
+  excludeExplicitlyRetiredRoutesFromFrozenScores,
 } from "./marketContextPerformanceSelector";
 
 const premarket: any = {
@@ -61,5 +62,19 @@ describe("market context performance selector v4", () => {
     expect(snapshot.formalPerformanceUse).toBe(false);
     expect(snapshot.automaticSelection).toBe(false);
     expect(snapshot.rows).toMatchObject([{ strategyVersion: "version-a", completedTrades: 1, pnlPer100: -50, status: "observed" }]);
+  });
+
+  it("keeps immutable frozen history but excludes only the six explicitly retired routes from future v4 candidates", () => {
+    const frozen: any[] = [
+      { ...score("kept-historical", 1), strategyVersion: "candidate-3436-bollinger-directional-fixed-stop140-cooldown30-v1" },
+      { ...score("tel-long", 1), strategyVersion: "candidate-8035-executable-depth-v3-parity-reset" },
+      { ...score("taiyo-short-a", 1), strategyVersion: "candidate-6976-afternoon-short-rr2-45-v1" },
+      { ...score("taiyo-short-b", 1), strategyVersion: "candidate-6976-afternoon-short-depth-v1" },
+      { ...score("taiyo-long-a", 1), strategyVersion: "candidate-6976-afternoon-long-rr2-10-v1" },
+      { ...score("stopped-current", 1), canonicalLogic: "current-5803-afternoon-low-break-short" },
+    ];
+    const result = excludeExplicitlyRetiredRoutesFromFrozenScores(frozen);
+    expect(frozen).toHaveLength(6);
+    expect(result.map(row => row.rowId)).toEqual(["kept-historical"]);
   });
 });

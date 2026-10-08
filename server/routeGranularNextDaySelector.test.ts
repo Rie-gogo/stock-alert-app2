@@ -254,7 +254,7 @@ describe("route-granular next-day monitoring selector", () => {
     for (const forbidden of ["./realtimeSimEngine", "./sourceEventIngestion", "./forwardShadowSequence", "./orderBridge", "insertRtTrade("]) expect(source).not.toContain(forbidden);
   });
 
-  it("keeps all remediated engine routes in a code-derived catalog and quarantines old bad mappings", () => {
+  it("keeps retained routes in a code-derived catalog and excludes retired or invalid mappings", () => {
     expect(auditRouteGranularCatalog()).toMatchObject({ complete: true, requirementMissing: [], duplicateSelectableRows: [], invalidMappedSelectableRows: [] });
     const exactKioxia = ROUTE_GRANULAR_VARIANTS.find(item => item.strategyVersion === "candidate-285a-reversal-long-exact-monitoring-reopen-v2");
     const exactSocionext = ROUTE_GRANULAR_VARIANTS.find(item => item.strategyVersion === "candidate-6526-confirmed-long-exact-monitoring-reopen-v2");
@@ -264,7 +264,7 @@ describe("route-granular next-day monitoring selector", () => {
       "candidate-285a-reversal-long-monitoring-reopen-v1",
       "candidate-6526-initial-strength-monitoring-reopen-v1",
     ]);
-    expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(true);
+    expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(false);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
@@ -279,7 +279,7 @@ describe("route-granular next-day monitoring selector", () => {
       "candidate-6857-confirmed-continuation-depth",
       "candidate-6857-short-body008-depth",
     ]);
-    expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "6981" && item.candidateRouteId === "openingBreakShort")).toBe(true);
+    expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "6981" && item.candidateRouteId === "openingBreakShort")).toBe(false);
   });
 
   it("partitions 8035 shared strategy versions by child direction without double attribution", () => {

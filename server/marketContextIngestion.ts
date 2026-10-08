@@ -299,6 +299,16 @@ export async function ingestMarketContext(input: MarketContextInput) {
       intradayRegime: regime,
     });
   }
+  if (process.env.NODE_ENV !== "test" && observedQuality.status === "verified" && regime.checkpoint) {
+    // AI朝forecastのrevisionはimmutable追記だけ。受信・通常engine・既存selectorを待たせない。
+    void import("./aiDailyForecastService")
+      .then(({ evaluateAiDailyForecastMarketContextRevision }) => evaluateAiDailyForecastMarketContextRevision({
+        sourceEventId,
+        tradeDate: input.tradeDate,
+        candleTime: regime.decisionAt!,
+      }))
+      .catch(error => console.error("[AiDailyForecastRevision] detached revision append failed", error));
+  }
   return {
     accepted: row.qualityStatus !== "invalid",
     duplicate: false,

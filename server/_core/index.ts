@@ -87,6 +87,10 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     console.log(`[RuntimeIdentity] ${formatRuntimeIdentityForLog()}`);
+    // AI日次予測の10 monitoring versionを冪等登録するだけ。通常engine・注文経路には接続しない。
+    import("../aiDailyForecastShadowEngine").then(({ registerAiDailyForecastShadowLifecycle }) =>
+      registerAiDailyForecastShadowLifecycle().catch(err => console.error("[Startup] AI日次予測shadow lifecycle登録失敗:", err))
+    );
     // 再起動前に残ったcandidate/virtual outboxを、現行売買と分離したworkerで回収する。
     scheduleCurrentCandidateVirtualDrain(100);
     // 起動時にDBから当日の1分足を読み込んでcandleBuffersを復元する

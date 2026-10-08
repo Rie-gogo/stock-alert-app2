@@ -199,6 +199,8 @@ export interface ForwardSourceEventInput {
   internalSkipTelParity?: boolean;
   /** 10銘柄ボリンジャー方向判定shadowを内部再帰で一度だけ呼ぶための非永続フラグ。 */
   internalSkipBollingerDirectionalShadow?: boolean;
+  /** 朝snapshot固定AI予測shadowを内部再帰で一度だけ呼ぶための非永続フラグ。 */
+  internalSkipAiDailyForecastShadow?: boolean;
 }
 
 interface PendingEntry {
@@ -654,6 +656,23 @@ async function processMode(input: ForwardSourceEventInput, mode: ForwardEvaluati
 
 export async function processForwardShadowSourceEvent(input: ForwardSourceEventInput): Promise<Record<string, unknown>> {
   await retireSixShadowStrategyVersions();
+  if (!input.internalSkipAiDailyForecastShadow
+    && ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].includes(input.candle.symbol)) {
+    const base: Record<string, unknown> = await processForwardShadowSourceEvent({
+      ...input,
+      internalSkipAiDailyForecastShadow: true,
+    });
+    const result: Record<string, unknown> = { ...base };
+    try {
+      const { processAiDailyForecastShadowSourceEvent } = await import("./aiDailyForecastShadowEngine");
+      result.aiDailyForecastShadow = await processAiDailyForecastShadowSourceEvent(input);
+    } catch (error) {
+      // AI監視専用shadowの障害は、既存shadow・通常engine・order pathを停止させない。
+      console.error("[AiDailyForecastShadow] 独立shadow評価に失敗。既存処理は継続します:", error);
+      result.aiDailyForecastShadow = { skipped: "isolated_error" as const, error: String(error) };
+    }
+    return result;
+  }
   if (!input.internalSkipBollingerDirectionalShadow
     && ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"].includes(input.candle.symbol)) {
     const base: Record<string, unknown> = await processForwardShadowSourceEvent({
@@ -672,7 +691,7 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     return result;
   }
   const engineInput: ForwardSourceEventInput = input.internalSkipBollingerDirectionalShadow
-    ? (({ internalSkipBollingerDirectionalShadow: _skipBollinger, ...rest }) => rest)(input)
+    ? (({ internalSkipBollingerDirectionalShadow: _skipBollinger, internalSkipAiDailyForecastShadow: _skipAiForecast, ...rest }) => rest)(input)
     : input;
   if (input.candle.symbol === "8035" && !input.internalSkipTelParity) {
     const { processTelCurrentParitySourceEvent } = await import("./telCurrentParityEngine");

@@ -933,6 +933,55 @@ export type RtPremarketContextSnapshot = typeof rtPremarketContextSnapshots.$inf
 export type InsertRtPremarketContextSnapshot = typeof rtPremarketContextSnapshots.$inferInsert;
 
 /**
+ * AI日次予測のimmutableな朝snapshot。通常engine・rt_trades・注文経路と完全に分離する。
+ * 入力、決定的quant baseline、AI調整、最終予測を同じhash対象payloadとして監査する。
+ */
+export const rtAiDailyForecastSnapshots = mysqlTable("rt_ai_daily_forecast_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceSnapshotId: varchar("source_snapshot_id", { length: 160 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
+  dataCutoffDate: varchar("data_cutoff_date", { length: 10 }).notNull(),
+  modelVersion: varchar("model_version", { length: 96 }).notNull(),
+  sourceMode: mysqlEnum("ai_daily_forecast_source_mode", ["scheduled_ai_forecast", "manual_dry_run"]).notNull(),
+  macroSnapshotId: varchar("macro_snapshot_id", { length: 128 }),
+  inputHash: varchar("input_hash", { length: 64 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  qualityStatus: mysqlEnum("ai_daily_forecast_quality", ["verified", "degraded", "invalid"]).notNull(),
+  aiModelId: varchar("ai_model_id", { length: 96 }),
+  promptVersion: varchar("prompt_version", { length: 96 }).notNull(),
+  inferenceAtMs: bigint("inference_at_ms", { mode: "number" }),
+  inputJson: json("input_json").notNull(),
+  forecastJson: json("forecast_json").notNull(),
+  validationJson: json("validation_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_ai_daily_forecast_source_identity").on(table.sourceSnapshotId),
+  tradeDateCapture: index("rt_ai_daily_forecast_trade_date_capture").on(table.tradeDate, table.capturedAtMs, table.id),
+}));
+
+export type RtAiDailyForecastSnapshot = typeof rtAiDailyForecastSnapshots.$inferSelect;
+export type InsertRtAiDailyForecastSnapshot = typeof rtAiDailyForecastSnapshots.$inferInsert;
+
+/** ④日経225miniによる場中再評価。朝snapshotを更新せず追記だけを許可する。 */
+export const rtAiDailyForecastRevisions = mysqlTable("rt_ai_daily_forecast_revisions", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceSnapshotId: varchar("source_snapshot_id", { length: 160 }).notNull(),
+  revisionSourceEventId: varchar("revision_source_event_id", { length: 128 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  checkpoint: varchar("checkpoint", { length: 5 }).notNull(),
+  revisionStatus: mysqlEnum("ai_daily_forecast_revision_status", ["no_change", "market_context_invalidated", "invalid"]).notNull(),
+  resultJson: json("result_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  revisionIdentity: uniqueIndex("rt_ai_daily_forecast_revision_identity").on(table.sourceSnapshotId, table.revisionSourceEventId),
+  tradeDateCheckpoint: index("rt_ai_daily_forecast_revision_trade_date_checkpoint").on(table.tradeDate, table.checkpoint, table.id),
+}));
+
+export type RtAiDailyForecastRevision = typeof rtAiDailyForecastRevisions.$inferSelect;
+export type InsertRtAiDailyForecastRevision = typeof rtAiDailyForecastRevisions.$inferInsert;
+
+/**
  * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
  * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
  */

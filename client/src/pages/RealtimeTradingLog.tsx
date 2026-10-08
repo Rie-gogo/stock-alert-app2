@@ -39,6 +39,7 @@ import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelect
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
 import MarketContextSelectorShadowSection from "@/components/MarketContextSelectorShadowSection";
 import RelayBollingerDiagnosticsSection from "@/components/RelayBollingerDiagnosticsSection";
+import AiDailyForecastShadowSection from "@/components/AiDailyForecastShadowSection";
 import {
   Table,
   TableBody,
@@ -496,6 +497,9 @@ export default function RealtimeTradingLog() {
 
         {/* ===== 日経平均系の専用1分足で、固定時刻に未エントリー候補を再評価 ===== */}
         <MarketContextSelectorShadowSection tradeDate={selectedDate} autoRefresh={autoRefresh} />
+
+        {/* ===== 朝に凍結したAI日次予測。通常engine・注文経路と完全分離した監視専用 ===== */}
+        <AiDailyForecastShadowSection tradeDate={selectedDate} />
 
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />

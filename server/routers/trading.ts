@@ -217,57 +217,6 @@ export const tradingRouter = router({
       }
     }),
 
-  /** 285A現行・A案・B案の確定営業日ローリング比較。売買や正式Gateは更新しない。 */
-  getKioxiaMonitoringTrend: protectedProcedure
-    .input(z.object({ asOfDate: z.string()
-      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
-      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
-    .query(async ({ input }) => {
-      try {
-        const { getKioxiaMonitoringTrend } = await import("../monitoringComparisonTrend");
-        return await getKioxiaMonitoringTrend(input.asOfDate);
-      } catch {
-        console.error("[KioxiaMonitoringTrend] read failed");
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "285A現行・シャドー比較を取得できませんでした",
-        });
-      }
-    }),
-
-  /** 285Aのroute別A/B/C比較。閉場後に保存されたsnapshotだけを読む。 */
-  getKioxiaNormalizedComparisonTrend: protectedProcedure
-    .input(z.object({ asOfDate: z.string()
-      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
-      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
-    .query(async ({ input }) => {
-      try {
-        const { getKioxiaNormalizedComparisonTrend } = await import("../monitoringComparisonNormalizedTrend");
-        return await getKioxiaNormalizedComparisonTrend(input.asOfDate);
-      } catch {
-        console.error("[KioxiaNormalizedComparisonTrend] snapshot read failed");
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "285A route別の保存済み比較を取得できませんでした",
-        });
-      }
-    }),
-
-  /** 285A翌日選択器の閉場後固定snapshot。売買・自動採用・注文接続は行わない。 */
-  getKioxiaNextDaySelector: protectedProcedure
-    .input(z.object({ asOfDate: z.string()
-      .regex(RT_SIGNAL_CANDIDATE_LEDGER_DATE_PATTERN)
-      .refine(isValidRtSignalCandidateLedgerDate, "実在する日付を指定してください") }))
-    .query(async ({ input }) => {
-      try {
-        const { getKioxiaNextDaySelectorDashboard } = await import("../kioxiaNextDaySelector");
-        return await getKioxiaNextDaySelectorDashboard(input.asOfDate);
-      } catch {
-        console.error("[KioxiaNextDaySelector] snapshot read failed");
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "285A翌日選択器snapshotを取得できませんでした" });
-      }
-    }),
-
   /** 10銘柄の翌日固定選択器。closed日次snapshotだけを読む監視専用API。 */
   getTenSymbolNextDaySelector: protectedProcedure
     .input(z.object({ asOfDate: z.string()

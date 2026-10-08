@@ -16,7 +16,7 @@ import {
 } from "./db";
 import type { ForwardEvaluationMode, ForwardSourceEventInput } from "./forwardShadow";
 import { TEN_MONITORED_SYMBOLS } from "./multiSymbolMonitoringRegistry";
-import { nextTokyoEquityTradeDate } from "./kioxiaNextDaySelector";
+import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 import { parseRelayCandleProvenance } from "./relayProvenance";
 import { sha256Stable } from "./runtimeIdentity";
 import {

@@ -10,11 +10,11 @@ import {
   upsertRtDailyAuditMaterialization,
 } from "./db";
 import {
-  buildKioxiaManifestV2,
-  calculateKioxiaSelectorDailyFeature,
-  classifyKioxiaSelectorRegime,
-  nextTokyoEquityTradeDate,
-} from "./kioxiaNextDaySelector";
+  buildStrictTechnicalFeatureManifest,
+  calculateStrictTechnicalDailyFeature,
+  classifyStrictTechnicalFeatureRegime,
+} from "./technicalRegimeFeatureContract";
+import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 import {
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
@@ -178,7 +178,7 @@ export function buildTenSymbolSelectorFeature(input: {
   const featuresBySymbol: Record<string, unknown> = {};
   for (const symbol of TEN_MONITORED_SYMBOLS) {
     const events = input.eventsBySymbol[symbol] ?? [];
-    const manifest = buildKioxiaManifestV2({
+    const manifest = buildStrictTechnicalFeatureManifest({
       tradeDate: input.tradeDate,
       events,
       sourceDecisionCount: input.sourceDecisionCount,
@@ -189,14 +189,14 @@ export function buildTenSymbolSelectorFeature(input: {
     const history = input.priorFeatures
       .filter(row => row.status === "complete" && row.tradeDate < input.tradeDate)
       .map(row => object(featureBySymbol(row, symbol)?.features));
-    const feature = calculateKioxiaSelectorDailyFeature({ manifest, events, history });
+    const feature = calculateStrictTechnicalDailyFeature({ manifest, events, history });
     const eligibleHistory = input.priorFeatures
       .filter(row => row.status === "complete" && row.tradeDate < input.tradeDate)
       .map(row => featureBySymbol(row, symbol))
       .filter((row): row is RecordValue => row?.featureEligible === true)
       .map(row => object(row.features));
     const regime = feature.featureEligible === true
-      ? classifyKioxiaSelectorRegime(feature, eligibleHistory)
+      ? classifyStrictTechnicalFeatureRegime(feature, eligibleHistory)
       : { full: "unknown", trend: "unknown", volatility: "unknown", location: "unknown" };
     featuresBySymbol[symbol] = {
       symbol,

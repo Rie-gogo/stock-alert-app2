@@ -2951,11 +2951,10 @@ export type KioxiaSafeCbRouteBackfillResult = {
   idempotent: boolean;
 };
 
-// This repair touches only the active dashboard snapshots. Older comparison
-// versions are retained for audit, but must never be re-opened as if they were
-// current selector inputs.
+// This repair may refresh only the active 10-symbol dashboard snapshot. Retired
+// 285A-only comparison snapshots remain immutable audit history and are never
+// selected, reopened, or quarantined by a future attribution repair.
 const KIOXIA_SAFE_CB_ACTIVE_SNAPSHOT_VERSIONS = Object.freeze([
-  { component: "monitoring_comparison_285a", version: "monitoring-comparison-285a-route-normalized-v4" },
   { component: "monitoring_trend_10_symbols", version: "monitoring-trend-10-symbols-daily-v1" },
 ]);
 
@@ -3012,7 +3011,7 @@ export async function backfillKioxiaSafeCbShortRouteAttribution(input: {
     )),
     db.select().from(rtDailyAuditMaterializations).where(and(
       inArray(rtDailyAuditMaterializations.tradeDate, tradeDates),
-      inArray(rtDailyAuditMaterializations.component, ["monitoring_comparison_285a", "monitoring_trend_10_symbols"]),
+      inArray(rtDailyAuditMaterializations.component, ["monitoring_trend_10_symbols"]),
     )),
   ]);
   const finalityByDate = new Map(finalities.map(finality => [finality.tradeDate, finality]));

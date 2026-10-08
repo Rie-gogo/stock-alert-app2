@@ -35,8 +35,6 @@ import { Button } from "@/components/ui/button";
 import SignalCandidateLedgerSection from "@/components/SignalCandidateLedgerSection";
 import PausedCurrentRouteShadowSection from "@/components/PausedCurrentRouteShadowSection";
 import MultiSymbolMonitoringTrendSection from "@/components/MultiSymbolMonitoringTrendSection";
-import KioxiaNormalizedComparisonSection from "@/components/KioxiaNormalizedComparisonSection";
-import KioxiaNextDaySelectorSection from "@/components/KioxiaNextDaySelectorSection";
 import TenSymbolNextDaySelectorSection from "@/components/TenSymbolNextDaySelectorSection";
 import RouteGranularNextDaySelectorSection from "@/components/RouteGranularNextDaySelectorSection";
 import MarketContextSelectorShadowSection from "@/components/MarketContextSelectorShadowSection";
@@ -127,7 +125,6 @@ export default function RealtimeTradingLog() {
       utils.trading.getRtDailySummaries.invalidate(),
       utils.trading.getRtSignalCandidateLedger.invalidate({ tradeDate: selectedDate }),
       utils.trading.getMultiSymbolMonitoringTrend.invalidate({ asOfDate: selectedDate }),
-      utils.trading.getKioxiaNormalizedComparisonTrend.invalidate({ asOfDate: selectedDate }),
     ]);
     setLastRefreshed(new Date());
   }, [utils, selectedDate]);
@@ -490,12 +487,6 @@ export default function RealtimeTradingLog() {
 
         {/* ===== 閉場後snapshotによる10銘柄の最近傾向 ===== */}
         <MultiSymbolMonitoringTrendSection asOfDate={selectedDate} />
-
-        {/* ===== 285A route別の保存済み比較。日中のraw再集計は行わない ===== */}
-        <KioxiaNormalizedComparisonSection asOfDate={selectedDate} />
-
-        {/* ===== 285Aの翌日選択器。閉場後に固定した監視snapshotだけを表示 ===== */}
-        <KioxiaNextDaySelectorSection asOfDate={selectedDate} />
 
         {/* ===== 旧3行Plan表示は履歴参照専用。新規選択には使用しない。 ===== */}
         <TenSymbolNextDaySelectorSection asOfDate={selectedDate} />

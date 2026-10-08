@@ -6,12 +6,26 @@ const dbMock = vi.hoisted(() => ({
   getRtAuditTradeDateWatermark: vi.fn(async () => ({
     source: { count: 10, maxId: 10, processed: 10, processing: 0, failed: 0 },
     decision: { count: 10, maxId: 10 },
-    candidateOutbox: { processed: 10, pending: 0, processing: 0, retryableError: 0, terminal: 0 },
-    shadowOutbox: { count: 10, processed: 10, pending: 0, processing: 0, error: 0 },
+    candidateOutbox: {
+      processed: 10,
+      pending: 0,
+      processing: 0,
+      retryableError: 0,
+      terminal: 0,
+    },
+    shadowOutbox: {
+      count: 10,
+      processed: 10,
+      pending: 0,
+      processing: 0,
+      error: 0,
+    },
     unresolvedGaps: 0,
-    latestUpstreamCreatedAt: new Date("2026-09-07T06:50:00Z"),
+    latestUpstreamCreatedAt: new Date("2026-10-07T06:50:00Z"),
   })),
   getRtDailyAuditMaterialization: vi.fn(async () => null),
+  getRtMarketContextEventsForDate: vi.fn(async () => []),
+  getLatestRtPremarketContextSnapshot: vi.fn(async () => null),
   getRtPortfolioMaterializationProgress: vi.fn(async () => ({
     processedThroughEngineSequence: 10,
     sourceDecisionCount: 10,
@@ -22,54 +36,94 @@ const dbMock = vi.hoisted(() => ({
   upsertRtDailyAuditMaterialization: vi.fn(async input => input),
 }));
 const portfolioMock = vi.hoisted(() => ({
-  materializePortfolioBundleForDate: vi.fn(async () => ({ status: "processing" as const })),
+  materializePortfolioBundleForDate: vi.fn(async () => ({
+    status: "processing" as const,
+  })),
 }));
 const parityMock = vi.hoisted(() => ({
-  compareTelCurrentParityForDate: vi.fn(async () => ({ skipped: false, processed: 10, matched: 10, mismatched: 0 })),
+  compareTelCurrentParityForDate: vi.fn(async () => ({
+    skipped: false,
+    processed: 10,
+    matched: 10,
+    mismatched: 0,
+  })),
 }));
 const candidateOutcomeParityMock = vi.hoisted(() => ({
-  compareCurrentCandidateOutcomesForDate: vi.fn(async () => ({ matched: 8, mismatched: 2, incomplete: 0 })),
+  compareCurrentCandidateOutcomesForDate: vi.fn(async () => ({
+    matched: 8,
+    mismatched: 2,
+    incomplete: 0,
+  })),
 }));
 const outcomeMock = vi.hoisted(() => ({
-  buildOutcomeLabelsForDate: vi.fn(async () => ({ labels: 1, completed: 1, blocked: 0 })),
+  buildOutcomeLabelsForDate: vi.fn(async () => ({
+    labels: 1,
+    completed: 1,
+    blocked: 0,
+  })),
   buildDivergenceHypotheses: vi.fn(async () => ({ hypotheses: [] })),
 }));
 const forwardReplayMock = vi.hoisted(() => ({
-  materializeNextForwardReplayForDate: vi.fn(async () => ({ status: "complete" as const, completedVersions: 19 })),
+  materializeNextForwardReplayForDate: vi.fn(async () => ({
+    status: "complete" as const,
+    completedVersions: 19,
+  })),
 }));
 const discoPortfolioMock = vi.hoisted(() => ({
-  buildDiscoShortPortfolioComparisonForDate: vi.fn(async () => ({ scenarios: {} })),
-}));
-const monitoringComparisonMock = vi.hoisted(() => ({
-  materializeMonitoringComparisonForDate: vi.fn(async () => ({
-    comparisonGeneration: "monitoring-comparison-strict-next-depth-v1",
-    summary: { signals: 3, filled: 2, unfillable: 1 },
+  buildDiscoShortPortfolioComparisonForDate: vi.fn(async () => ({
+    scenarios: {},
   })),
 }));
 const multiSymbolMonitoringMock = vi.hoisted(() => ({
   materializeMultiSymbolMonitoringForDate: vi.fn(async () => ({
     ready: true,
     incompleteReason: null,
-    summary: { plans: 33, signals: 10, completedTrades: 10, openTrades: 0, missingTrades: 0 },
+    summary: {
+      plans: 33,
+      signals: 10,
+      completedTrades: 10,
+      openTrades: 0,
+      missingTrades: 0,
+    },
   })),
 }));
-const selectorMock = vi.hoisted(() => ({
-  materializeKioxiaManifestV2ForDate: vi.fn(async () => ({ created: false, result: {} })),
-  materializeKioxiaNextDaySelectorResultForDate: vi.fn(async () => ({ created: false, result: {} })),
-  materializeKioxiaNextDaySelectorForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
-}));
 const tenSymbolSelectorMock = vi.hoisted(() => ({
-  materializeTenSymbolSelectorFeatureForDate: vi.fn(async () => ({ created: false, result: {} })),
-  materializeTenSymbolNextDaySelectorResultForDate: vi.fn(async () => ({ created: false, result: {} })),
-  materializeTenSymbolNextDaySelectorForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
+  materializeTenSymbolSelectorFeatureForDate: vi.fn(async () => ({
+    created: false,
+    result: {},
+  })),
+  materializeTenSymbolNextDaySelectorResultForDate: vi.fn(async () => ({
+    created: false,
+    result: {},
+  })),
+  materializeTenSymbolNextDaySelectorForSourceDate: vi.fn(async () => ({
+    created: false,
+    targetDate: "2026-10-08",
+    result: {},
+  })),
 }));
-const technicalAObservationV2Mock = vi.hoisted(() => ({
-  materializeTechnicalAObservationV2FeatureForDate: vi.fn(async () => ({ created: false, materializedTradeDate: "2026-09-07", result: {} })),
-  materializeTechnicalAObservationV2PlanForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
-  materializeTechnicalAObservationV2ResultForDate: vi.fn(async () => ({ created: false, result: {} })),
+const routeGranularMonitoringMock = vi.hoisted(() => ({
+  materializeRouteGranularMonitoringForDate: vi.fn(async () => ({
+    ready: true,
+    incompleteReason: null,
+  })),
+}));
+const routeGranularSelectorMock = vi.hoisted(() => ({
+  materializeRouteGranularSelectorResultForDate: vi.fn(async () => ({
+    created: false,
+    result: {},
+  })),
+  materializeRouteGranularSelectorForSourceDate: vi.fn(async () => ({
+    created: false,
+    targetDate: "2026-10-08",
+    result: {},
+  })),
 }));
 const contextPerformanceMock = vi.hoisted(() => ({
-  materializeMarketContextPerformanceForDate: vi.fn(async () => ({ created: false, result: {} })),
+  materializeMarketContextPerformanceForDate: vi.fn(async () => ({
+    created: false,
+    result: {},
+  })),
 }));
 
 vi.mock("./db", () => dbMock);
@@ -78,65 +132,69 @@ vi.mock("./portfolioAudit", () => ({
   ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION: "minute-v2",
   PORTFOLIO_BUNDLE_COMPONENT: "portfolio_bundle",
   PORTFOLIO_MATERIALIZATION_VERSION: "portfolio-materialization-p0-v1",
-  materializePortfolioBundleForDate: portfolioMock.materializePortfolioBundleForDate,
+  materializePortfolioBundleForDate:
+    portfolioMock.materializePortfolioBundleForDate,
 }));
 vi.mock("./telParityComparison", () => parityMock);
 vi.mock("./currentCandidateOutcomeParity", () => ({
-  CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT: "current_candidate_outcome_parity",
-  CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION: "current-vs-signal-quality-outcome-v1",
-  compareCurrentCandidateOutcomesForDate: candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate,
+  CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT:
+    "current_candidate_outcome_parity",
+  CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION:
+    "current-vs-signal-quality-outcome-v1",
+  compareCurrentCandidateOutcomesForDate:
+    candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate,
 }));
 vi.mock("./outcomeDivergenceAudit", () => outcomeMock);
 vi.mock("./forwardReplayMaterializer", () => forwardReplayMock);
 vi.mock("./discoOpeningShortPortfolioComparison", () => ({
   DISCO_SHORT_PORTFOLIO_COMPONENT: "disco_short_portfolio_comparison",
   DISCO_SHORT_PORTFOLIO_VERSION: "position-b-10-symbol-891m-v1",
-  buildDiscoShortPortfolioComparisonForDate: discoPortfolioMock.buildDiscoShortPortfolioComparisonForDate,
-}));
-vi.mock("./monitoringComparisonMaterializer", () => ({
-  MONITORING_COMPARISON_COMPONENT: "monitoring_comparison_285a",
-  MONITORING_COMPARISON_MATERIALIZATION_VERSION: "monitoring-comparison-285a-strict-next-depth-materialized-v2",
-  materializeMonitoringComparisonForDate: monitoringComparisonMock.materializeMonitoringComparisonForDate,
+  buildDiscoShortPortfolioComparisonForDate:
+    discoPortfolioMock.buildDiscoShortPortfolioComparisonForDate,
 }));
 vi.mock("./multiSymbolMonitoringMaterializer", () => ({
   MULTI_SYMBOL_MONITORING_COMPONENT: "monitoring_trend_10_symbols",
-  MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION: "monitoring-trend-10-symbols-daily-v1",
-  materializeMultiSymbolMonitoringForDate: multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate,
-}));
-vi.mock("./kioxiaNextDaySelector", () => ({
-  KIOXIA_MANIFEST_V2_COMPONENT: "kioxia_manifest_v2",
-  KIOXIA_MANIFEST_V2_VERSION: "285a-session-manifest-v2",
-  KIOXIA_SELECTOR_RESULT_COMPONENT: "kioxia_next_day_selector_result",
-  KIOXIA_SELECTOR_SNAPSHOT_COMPONENT: "kioxia_next_day_selector",
-  KIOXIA_SELECTOR_VERSION: "285a-next-day-selector-v1",
-  materializeKioxiaManifestV2ForDate: selectorMock.materializeKioxiaManifestV2ForDate,
-  materializeKioxiaNextDaySelectorResultForDate: selectorMock.materializeKioxiaNextDaySelectorResultForDate,
-  materializeKioxiaNextDaySelectorForSourceDate: selectorMock.materializeKioxiaNextDaySelectorForSourceDate,
-  nextTokyoEquityTradeDate: () => "2026-09-08",
+  MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION:
+    "monitoring-trend-10-symbols-daily-v1",
+  materializeMultiSymbolMonitoringForDate:
+    multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate,
 }));
 vi.mock("./tenSymbolNextDaySelector", () => ({
   TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT: "ten_symbol_selector_feature",
   TEN_SYMBOL_SELECTOR_RESULT_COMPONENT: "ten_symbol_next_day_selector_result",
   TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT: "ten_symbol_next_day_selector",
-  TEN_SYMBOL_SELECTOR_VERSION: "ten-symbol-fixed-current-a-b-v1",
-  materializeTenSymbolSelectorFeatureForDate: tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate,
-  materializeTenSymbolNextDaySelectorResultForDate: tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate,
-  materializeTenSymbolNextDaySelectorForSourceDate: tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate,
+  TEN_SYMBOL_SELECTOR_VERSION: "ten-symbol-technical-regime-v2",
+  materializeTenSymbolSelectorFeatureForDate:
+    tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate,
+  materializeTenSymbolNextDaySelectorResultForDate:
+    tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate,
+  materializeTenSymbolNextDaySelectorForSourceDate:
+    tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate,
 }));
-vi.mock("./technicalAObservationV2", () => ({
-  TECHNICAL_A_OBSERVATION_V2_COLLECTION_START_DATE: "2026-10-05",
-  TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT: "technical_a_observation_v2_feature",
-  TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT: "technical_a_observation_v2_plan",
-  TECHNICAL_A_OBSERVATION_V2_RESULT_COMPONENT: "technical_a_observation_v2_result",
-  TECHNICAL_A_OBSERVATION_V2_VERSION: "technical-a-observation-v2",
-  materializeTechnicalAObservationV2FeatureForDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2FeatureForDate,
-  materializeTechnicalAObservationV2PlanForSourceDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2PlanForSourceDate,
-  materializeTechnicalAObservationV2ResultForDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2ResultForDate,
+vi.mock("./routeGranularMonitoringMaterializer", () => ({
+  ROUTE_GRANULAR_MONITORING_COMPONENT: "monitoring_route_granular_10_symbols",
+  ROUTE_GRANULAR_MONITORING_VERSION: "monitoring-route-granular-10-symbols-v1",
+  ROUTE_GRANULAR_MONITORING_START_DATE: "2026-10-02",
+  materializeRouteGranularMonitoringForDate:
+    routeGranularMonitoringMock.materializeRouteGranularMonitoringForDate,
+}));
+vi.mock("./routeGranularNextDaySelector", () => ({
+  ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT:
+    "route_granular_next_day_selector_result",
+  ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT:
+    "route_granular_next_day_selector",
+  ROUTE_GRANULAR_SELECTOR_VERSION:
+    "route-granular-technical-regime-authority-v5-market-affinity",
+  materializeRouteGranularSelectorResultForDate:
+    routeGranularSelectorMock.materializeRouteGranularSelectorResultForDate,
+  materializeRouteGranularSelectorForSourceDate:
+    routeGranularSelectorMock.materializeRouteGranularSelectorForSourceDate,
 }));
 vi.mock("./marketContextPerformanceSelector", () => ({
   MARKET_CONTEXT_PERFORMANCE_COMPONENT: "market_context_performance_snapshot",
   MARKET_CONTEXT_PERFORMANCE_VERSION: "market-context-performance-snapshot-v1",
-  materializeMarketContextPerformanceForDate: contextPerformanceMock.materializeMarketContextPerformanceForDate,
+  materializeMarketContextPerformanceForDate:
+    contextPerformanceMock.materializeMarketContextPerformanceForDate,
 }));
 
 import {
@@ -157,242 +215,472 @@ import {
   DISCO_SHORT_PORTFOLIO_VERSION,
 } from "./discoOpeningShortPortfolioComparison";
 import {
-  MONITORING_COMPARISON_COMPONENT,
-  MONITORING_COMPARISON_MATERIALIZATION_VERSION,
-} from "./monitoringComparisonMaterializer";
-import {
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
 } from "./multiSymbolMonitoringMaterializer";
 import {
-  KIOXIA_MANIFEST_V2_COMPONENT,
-  KIOXIA_MANIFEST_V2_VERSION,
-  KIOXIA_SELECTOR_RESULT_COMPONENT,
-  KIOXIA_SELECTOR_VERSION,
-} from "./kioxiaNextDaySelector";
-import {
   TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
   TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+  TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT,
   TEN_SYMBOL_SELECTOR_VERSION,
 } from "./tenSymbolNextDaySelector";
 import {
-  TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT,
-  TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT,
-  TECHNICAL_A_OBSERVATION_V2_VERSION,
-} from "./technicalAObservationV2";
+  ROUTE_GRANULAR_MONITORING_COMPONENT,
+  ROUTE_GRANULAR_MONITORING_VERSION,
+} from "./routeGranularMonitoringMaterializer";
+import {
+  ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+  ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
+  ROUTE_GRANULAR_SELECTOR_VERSION,
+} from "./routeGranularNextDaySelector";
 import {
   MARKET_CONTEXT_PERFORMANCE_COMPONENT,
   MARKET_CONTEXT_PERFORMANCE_VERSION,
 } from "./marketContextPerformanceSelector";
 
-function snapshot(component: string, version: string, resultJson: unknown = {}) {
-  return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
+function snapshot(
+  component: string,
+  version: string,
+  resultJson: unknown = {}
+) {
+  return {
+    component,
+    version,
+    status: "complete",
+    sourceDecisionCount: 10,
+    resultJson,
+  };
 }
 
-describe("P0 audit materializer", () => {
+function completedCore(component: string) {
+  return (
+    new Map<string, any>([
+      [
+        "portfolio_bundle",
+        snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", {
+          status: "complete",
+        }),
+      ],
+      [
+        TEL_PARITY_MATERIALIZATION_COMPONENT,
+        snapshot(
+          TEL_PARITY_MATERIALIZATION_COMPONENT,
+          TEL_PARITY_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+        snapshot(
+          CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+          CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION
+        ),
+      ],
+      [
+        DISCO_SHORT_PORTFOLIO_COMPONENT,
+        snapshot(
+          DISCO_SHORT_PORTFOLIO_COMPONENT,
+          DISCO_SHORT_PORTFOLIO_VERSION
+        ),
+      ],
+      [
+        OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+        snapshot(
+          OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+          OUTCOME_LABELS_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        DIVERGENCE_MATERIALIZATION_COMPONENT,
+        snapshot(
+          DIVERGENCE_MATERIALIZATION_COMPONENT,
+          DIVERGENCE_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        MULTI_SYMBOL_MONITORING_COMPONENT,
+        snapshot(
+          MULTI_SYMBOL_MONITORING_COMPONENT,
+          MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION
+        ),
+      ],
+    ]).get(component) ?? null
+  );
+}
+
+function closeAllCurrentStages(component: string) {
+  return (
+    new Map<string, any>([
+      [
+        "portfolio_bundle",
+        snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", {
+          status: "complete",
+        }),
+      ],
+      [
+        TEL_PARITY_MATERIALIZATION_COMPONENT,
+        snapshot(
+          TEL_PARITY_MATERIALIZATION_COMPONENT,
+          TEL_PARITY_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+        snapshot(
+          CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+          CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION
+        ),
+      ],
+      [
+        DISCO_SHORT_PORTFOLIO_COMPONENT,
+        snapshot(
+          DISCO_SHORT_PORTFOLIO_COMPONENT,
+          DISCO_SHORT_PORTFOLIO_VERSION
+        ),
+      ],
+      [
+        OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+        snapshot(
+          OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+          OUTCOME_LABELS_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        DIVERGENCE_MATERIALIZATION_COMPONENT,
+        snapshot(
+          DIVERGENCE_MATERIALIZATION_COMPONENT,
+          DIVERGENCE_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        MULTI_SYMBOL_MONITORING_COMPONENT,
+        snapshot(
+          MULTI_SYMBOL_MONITORING_COMPONENT,
+          MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION
+        ),
+      ],
+      [
+        TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+        snapshot(
+          TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+          TEN_SYMBOL_SELECTOR_VERSION
+        ),
+      ],
+      [
+        TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+        snapshot(
+          TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+          TEN_SYMBOL_SELECTOR_VERSION
+        ),
+      ],
+      [
+        ROUTE_GRANULAR_MONITORING_COMPONENT,
+        snapshot(
+          ROUTE_GRANULAR_MONITORING_COMPONENT,
+          ROUTE_GRANULAR_MONITORING_VERSION
+        ),
+      ],
+      [
+        ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+        snapshot(
+          ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+          ROUTE_GRANULAR_SELECTOR_VERSION
+        ),
+      ],
+      [
+        MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+        snapshot(
+          MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+          MARKET_CONTEXT_PERFORMANCE_VERSION
+        ),
+      ],
+    ]).get(component) ?? null
+  );
+}
+
+describe("bounded closed-date audit materializer after legacy 285A retirement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.getRtDailyAuditMaterialization.mockResolvedValue(null);
     dbMock.getRtAuditTradeDateFinality.mockResolvedValue(null);
     dbMock.acquireRtNamedWorkerLock.mockResolvedValue(true);
-    portfolioMock.materializePortfolioBundleForDate.mockResolvedValue({ status: "processing" });
-    forwardReplayMock.materializeNextForwardReplayForDate.mockResolvedValue({ status: "complete", completedVersions: 19 });
-  });
-
-  it("portfolio batchが未完了なら同じ実行でparity/outcomeへ進まない", async () => {
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-07T07:00:00Z"),
-    });
-    expect(result).toMatchObject({ status: "processing", component: "portfolio_bundle" });
-    expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
-    expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).not.toHaveBeenCalled();
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
-  });
-
-  it("TEL parity後はcurrent対virtualの結果差監査だけをmaterializeする", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      return null;
-    });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
-    });
-    expect(result).toMatchObject({ status: "processing", component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT });
-    expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).toHaveBeenCalledWith("2026-09-07");
-    expect(forwardReplayMock.materializeNextForwardReplayForDate).not.toHaveBeenCalled();
-  });
-
-  it("完成済みportfolioを再計算せず、欠けているparity一つだけをmaterializeする", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      return null;
-    });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
-    });
-    expect(result).toMatchObject({ status: "processing", component: TEL_PARITY_MATERIALIZATION_COMPONENT });
-    expect(portfolioMock.materializePortfolioBundleForDate).not.toHaveBeenCalled();
-    expect(parityMock.compareTelCurrentParityForDate).toHaveBeenCalledTimes(1);
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
-  });
-
-  it("parity後はforward replay一つだけを進め、outcomeへ同時に進まない", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
-      return null;
+    portfolioMock.materializePortfolioBundleForDate.mockResolvedValue({
+      status: "processing",
     });
     forwardReplayMock.materializeNextForwardReplayForDate.mockResolvedValue({
+      status: "complete",
+      completedVersions: 19,
+    });
+    tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate.mockResolvedValue(
+      { created: false, targetDate: "2026-10-08", result: {} }
+    );
+    routeGranularSelectorMock.materializeRouteGranularSelectorForSourceDate.mockResolvedValue(
+      { created: false, targetDate: "2026-10-08", result: {} }
+    );
+  });
+
+  it("keeps the one-heavy-component heartbeat bound before the closed core finishes", async () => {
+    const result = await materializeNextAuditComponentForDate("2026-10-07", {
+      now: new Date("2026-10-08T00:00:00Z"),
+    });
+    expect(result).toMatchObject({
       status: "processing",
-      version: "candidate-version",
-      completedVersions: 1,
-      totalVersions: 19,
-      result: {},
+      component: "portfolio_bundle",
     });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
-    });
-    expect(result).toMatchObject({ status: "processing", component: "forward_strategy_replay" });
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
+    expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
+    expect(
+      tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate
+    ).not.toHaveBeenCalled();
   });
 
-  it("forward replay完了後は6146の10銘柄統合比較だけをmaterializeする", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
-      return null;
+  it("moves directly from the completed core to the ten-symbol feature without requiring retired 285A rows", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(
+      async ({ component }: any) => completedCore(component)
+    );
+    const result = await materializeNextAuditComponentForDate("2026-10-07", {
+      now: new Date("2026-10-08T00:00:00Z"),
     });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
+    expect(result).toMatchObject({
+      status: "processing",
+      component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
     });
-    expect(result).toMatchObject({ status: "processing", component: DISCO_SHORT_PORTFOLIO_COMPONENT });
-    expect(discoPortfolioMock.buildDiscoShortPortfolioComparisonForDate).toHaveBeenCalledWith("2026-09-07");
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
+    expect(
+      tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ tradeDate: "2026-10-07" })
+    );
+    expect(
+      routeGranularMonitoringMock.materializeRouteGranularMonitoringForDate
+    ).not.toHaveBeenCalled();
   });
 
-  it("既存比較完了後に285Aのstrict-next depth比較だけをmaterializeする", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
-      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
-      return null;
+  it("moves from closed ten-symbol snapshots to route-granular monitoring without retired 285A stages", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(
+      async ({ component }: any) => {
+        const map = new Map<string, any>([
+          [
+            "portfolio_bundle",
+            snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", {
+              status: "complete",
+            }),
+          ],
+          [
+            TEL_PARITY_MATERIALIZATION_COMPONENT,
+            snapshot(
+              TEL_PARITY_MATERIALIZATION_COMPONENT,
+              TEL_PARITY_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+            snapshot(
+              CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+              CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION
+            ),
+          ],
+          [
+            DISCO_SHORT_PORTFOLIO_COMPONENT,
+            snapshot(
+              DISCO_SHORT_PORTFOLIO_COMPONENT,
+              DISCO_SHORT_PORTFOLIO_VERSION
+            ),
+          ],
+          [
+            OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+            snapshot(
+              OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+              OUTCOME_LABELS_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            DIVERGENCE_MATERIALIZATION_COMPONENT,
+            snapshot(
+              DIVERGENCE_MATERIALIZATION_COMPONENT,
+              DIVERGENCE_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            MULTI_SYMBOL_MONITORING_COMPONENT,
+            snapshot(
+              MULTI_SYMBOL_MONITORING_COMPONENT,
+              MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+            snapshot(
+              TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+              TEN_SYMBOL_SELECTOR_VERSION
+            ),
+          ],
+          [
+            TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+            snapshot(
+              TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+              TEN_SYMBOL_SELECTOR_VERSION
+            ),
+          ],
+        ]);
+        return map.get(component) ?? null;
+      }
+    );
+    const result = await materializeNextAuditComponentForDate("2026-10-07", {
+      now: new Date("2026-10-08T00:00:00Z"),
     });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
+    expect(result).toMatchObject({
+      status: "processing",
+      component: ROUTE_GRANULAR_MONITORING_COMPONENT,
     });
-    expect(result).toMatchObject({ status: "processing", component: MONITORING_COMPARISON_COMPONENT });
-    expect(monitoringComparisonMock.materializeMonitoringComparisonForDate).toHaveBeenCalledWith("2026-09-07");
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
+    expect(
+      routeGranularMonitoringMock.materializeRouteGranularMonitoringForDate
+    ).toHaveBeenCalledWith("2026-10-07");
   });
 
-  it("全component完成後は重いbuilderを一切呼ばずcompleteを返す", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
-      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
-      if (component === MONITORING_COMPARISON_COMPONENT) return snapshot(component, MONITORING_COMPARISON_MATERIALIZATION_VERSION);
-      if (component === MULTI_SYMBOL_MONITORING_COMPONENT) return snapshot(component, MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION);
-      if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
-      if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
-      if (component === KIOXIA_MANIFEST_V2_COMPONENT) return snapshot(component, KIOXIA_MANIFEST_V2_VERSION);
-      if (component === KIOXIA_SELECTOR_RESULT_COMPONENT) return snapshot(component, KIOXIA_SELECTOR_VERSION);
-      if (component === TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
-      if (component === TEN_SYMBOL_SELECTOR_RESULT_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
-      if (component === TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT) return snapshot(component, TECHNICAL_A_OBSERVATION_V2_VERSION);
-      if (component === TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT) return snapshot(component, TECHNICAL_A_OBSERVATION_V2_VERSION);
-      if (component === MARKET_CONTEXT_PERFORMANCE_COMPONENT) return snapshot(component, MARKET_CONTEXT_PERFORMANCE_VERSION);
-      return null;
+  it("moves from closed route-granular snapshots to v4 performance evidence", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(
+      async ({ component }: any) => {
+        const map = new Map<string, any>([
+          [
+            "portfolio_bundle",
+            snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", {
+              status: "complete",
+            }),
+          ],
+          [
+            TEL_PARITY_MATERIALIZATION_COMPONENT,
+            snapshot(
+              TEL_PARITY_MATERIALIZATION_COMPONENT,
+              TEL_PARITY_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+            snapshot(
+              CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+              CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION
+            ),
+          ],
+          [
+            DISCO_SHORT_PORTFOLIO_COMPONENT,
+            snapshot(
+              DISCO_SHORT_PORTFOLIO_COMPONENT,
+              DISCO_SHORT_PORTFOLIO_VERSION
+            ),
+          ],
+          [
+            OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+            snapshot(
+              OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+              OUTCOME_LABELS_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            DIVERGENCE_MATERIALIZATION_COMPONENT,
+            snapshot(
+              DIVERGENCE_MATERIALIZATION_COMPONENT,
+              DIVERGENCE_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            MULTI_SYMBOL_MONITORING_COMPONENT,
+            snapshot(
+              MULTI_SYMBOL_MONITORING_COMPONENT,
+              MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION
+            ),
+          ],
+          [
+            TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+            snapshot(
+              TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+              TEN_SYMBOL_SELECTOR_VERSION
+            ),
+          ],
+          [
+            TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+            snapshot(
+              TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+              TEN_SYMBOL_SELECTOR_VERSION
+            ),
+          ],
+          [
+            ROUTE_GRANULAR_MONITORING_COMPONENT,
+            snapshot(
+              ROUTE_GRANULAR_MONITORING_COMPONENT,
+              ROUTE_GRANULAR_MONITORING_VERSION
+            ),
+          ],
+          [
+            ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+            snapshot(
+              ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+              ROUTE_GRANULAR_SELECTOR_VERSION
+            ),
+          ],
+        ]);
+        return map.get(component) ?? null;
+      }
+    );
+    const result = await materializeNextAuditComponentForDate("2026-10-07", {
+      now: new Date("2026-10-08T00:00:00Z"),
     });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
+    expect(result).toMatchObject({
+      status: "processing",
+      component: MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+    });
+    expect(
+      contextPerformanceMock.materializeMarketContextPerformanceForDate
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tradeDate: "2026-10-07",
+        frozenMarketEventResults: [],
+        frozenPremarketResult: null,
+      })
+    );
+  });
+
+  it("returns complete without a heavy rebuild once all retained stages are complete", async () => {
+    dbMock.getRtDailyAuditMaterialization.mockImplementation(
+      async ({ component }: any) => closeAllCurrentStages(component)
+    );
+    const result = await materializeNextAuditComponentForDate("2026-10-07", {
+      now: new Date("2026-10-08T00:00:00Z"),
     });
     expect(result).toMatchObject({ status: "complete", component: "all" });
-    expect(portfolioMock.materializePortfolioBundleForDate).not.toHaveBeenCalled();
-    expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
-    expect(candidateOutcomeParityMock.compareCurrentCandidateOutcomesForDate).not.toHaveBeenCalled();
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
-    expect(outcomeMock.buildDivergenceHypotheses).not.toHaveBeenCalled();
-    expect(selectorMock.materializeKioxiaManifestV2ForDate).not.toHaveBeenCalled();
-    expect(selectorMock.materializeKioxiaNextDaySelectorResultForDate).not.toHaveBeenCalled();
-    expect(selectorMock.materializeKioxiaNextDaySelectorForSourceDate).toHaveBeenCalledTimes(1);
-    expect(tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate).not.toHaveBeenCalled();
-    expect(tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorResultForDate).not.toHaveBeenCalled();
-    expect(tenSymbolSelectorMock.materializeTenSymbolNextDaySelectorForSourceDate).toHaveBeenCalledTimes(1);
-    expect(technicalAObservationV2Mock.materializeTechnicalAObservationV2FeatureForDate).not.toHaveBeenCalled();
-    expect(technicalAObservationV2Mock.materializeTechnicalAObservationV2PlanForSourceDate).not.toHaveBeenCalled();
+    expect(
+      tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate
+    ).not.toHaveBeenCalled();
+    expect(
+      routeGranularMonitoringMock.materializeRouteGranularMonitoringForDate
+    ).not.toHaveBeenCalled();
+    expect(
+      contextPerformanceMock.materializeMarketContextPerformanceForDate
+    ).not.toHaveBeenCalled();
   });
 
-  it("既存の全監査完了後にだけ10銘柄の日次snapshotを追加し、日中経路は呼ばない", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
-      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
-      if (component === MONITORING_COMPARISON_COMPONENT) return snapshot(component, MONITORING_COMPARISON_MATERIALIZATION_VERSION);
-      if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
-      if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
-      return null;
-    });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
-    });
-    expect(result).toMatchObject({ status: "processing", component: MULTI_SYMBOL_MONITORING_COMPONENT });
-    expect(multiSymbolMonitoringMock.materializeMultiSymbolMonitoringForDate).toHaveBeenCalledWith("2026-09-07");
-    expect(outcomeMock.buildOutcomeLabelsForDate).not.toHaveBeenCalled();
-  });
-
-  it("285A選択器まで完了後にだけ10銘柄feature snapshotを一つ進める", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockImplementation(async ({ component }) => {
-      if (component === "portfolio_bundle") return snapshot("portfolio_bundle", "portfolio-materialization-p0-v1", { status: "complete" });
-      if (component === TEL_PARITY_MATERIALIZATION_COMPONENT) return snapshot(component, TEL_PARITY_MATERIALIZATION_VERSION);
-      if (component === CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT) return snapshot(component, CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION);
-      if (component === DISCO_SHORT_PORTFOLIO_COMPONENT) return snapshot(component, DISCO_SHORT_PORTFOLIO_VERSION);
-      if (component === MONITORING_COMPARISON_COMPONENT) return snapshot(component, MONITORING_COMPARISON_MATERIALIZATION_VERSION);
-      if (component === MULTI_SYMBOL_MONITORING_COMPONENT) return snapshot(component, MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION);
-      if (component === OUTCOME_LABELS_MATERIALIZATION_COMPONENT) return snapshot(component, OUTCOME_LABELS_MATERIALIZATION_VERSION);
-      if (component === DIVERGENCE_MATERIALIZATION_COMPONENT) return snapshot(component, DIVERGENCE_MATERIALIZATION_VERSION);
-      if (component === KIOXIA_MANIFEST_V2_COMPONENT) return snapshot(component, KIOXIA_MANIFEST_V2_VERSION);
-      if (component === KIOXIA_SELECTOR_RESULT_COMPONENT) return snapshot(component, KIOXIA_SELECTOR_VERSION);
-      return null;
-    });
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
-    });
-    expect(result).toMatchObject({ status: "processing", component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT });
-    expect(tenSymbolSelectorMock.materializeTenSymbolSelectorFeatureForDate).toHaveBeenCalledWith(expect.objectContaining({ tradeDate: "2026-09-07" }));
-  });
-
-  it("closed後にwatermarkが変化した場合は全snapshotをreopenedへ戻す", async () => {
+  it("reopens all retained snapshots only when the closed-date watermark changes", async () => {
     dbMock.getRtAuditTradeDateFinality.mockResolvedValue({
-      tradeDate: "2026-09-07",
+      tradeDate: "2026-10-07",
       status: "closed",
       watermarkHash: "old-watermark",
-      closedAt: new Date("2026-09-07T07:00:00Z"),
+      closedAt: new Date("2026-10-07T07:00:00Z"),
     });
-
-    const result = await materializeNextAuditComponentForDate("2026-09-07", {
-      now: new Date("2026-09-08T00:00:00Z"),
+    const result = await materializeNextAuditComponentForDate("2026-10-07", {
+      now: new Date("2026-10-08T00:00:00Z"),
     });
-
-    expect(dbMock.reopenRtAuditMaterializationsForTradeDate).toHaveBeenCalledWith("2026-09-07");
-    expect(dbMock.upsertRtAuditTradeDateFinality).toHaveBeenCalledWith(expect.objectContaining({
-      tradeDate: "2026-09-07",
-      status: "closed",
-      reason: "watermark_changed_then_revalidated",
-    }));
-    expect(result).toMatchObject({ status: "processing", component: "portfolio_bundle" });
+    expect(
+      dbMock.reopenRtAuditMaterializationsForTradeDate
+    ).toHaveBeenCalledWith("2026-10-07");
+    expect(result).toMatchObject({
+      status: "processing",
+      component: "portfolio_bundle",
+    });
   });
 
-  it("別materializerがlease中なら重いbuilderを呼ばずworker_busyを返す", async () => {
+  it("does not start a heavy component when another audit worker holds the lease", async () => {
     dbMock.acquireRtNamedWorkerLock.mockResolvedValue(false);
-    const result = await materializeNextAuditComponentForDate("2026-09-07");
+    const result = await materializeNextAuditComponentForDate("2026-10-07");
     expect(result).toEqual({ status: "worker_busy", component: "none" });
-    expect(portfolioMock.materializePortfolioBundleForDate).not.toHaveBeenCalled();
-    expect(parityMock.compareTelCurrentParityForDate).not.toHaveBeenCalled();
+    expect(
+      portfolioMock.materializePortfolioBundleForDate
+    ).not.toHaveBeenCalled();
   });
 });

@@ -35,25 +35,10 @@ import {
 } from "./discoOpeningShortPortfolioComparison";
 import { sha256Stable } from "./runtimeIdentity";
 import {
-  MONITORING_COMPARISON_COMPONENT,
-  MONITORING_COMPARISON_MATERIALIZATION_VERSION,
-  materializeMonitoringComparisonForDate,
-} from "./monitoringComparisonMaterializer";
-import {
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
   materializeMultiSymbolMonitoringForDate,
 } from "./multiSymbolMonitoringMaterializer";
-import {
-  KIOXIA_MANIFEST_V2_COMPONENT,
-  KIOXIA_MANIFEST_V2_VERSION,
-  KIOXIA_SELECTOR_RESULT_COMPONENT,
-  KIOXIA_SELECTOR_SNAPSHOT_COMPONENT,
-  KIOXIA_SELECTOR_VERSION,
-  materializeKioxiaManifestV2ForDate,
-  materializeKioxiaNextDaySelectorForSourceDate,
-  materializeKioxiaNextDaySelectorResultForDate,
-} from "./kioxiaNextDaySelector";
 import {
   TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
   TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
@@ -309,24 +294,6 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: DISCO_SHORT_PORTFOLIO_COMPONENT, result };
   }
 
-  const monitoringComparison = await getRtDailyAuditMaterialization({
-    component: MONITORING_COMPARISON_COMPONENT,
-    version: MONITORING_COMPARISON_MATERIALIZATION_VERSION,
-    tradeDate,
-  });
-  if (monitoringComparison?.status !== "complete"
-    || monitoringComparison.sourceDecisionCount !== sourceDecisionCount) {
-    const result = await materializeMonitoringComparisonForDate(tradeDate);
-    await persistComponent({
-      component: MONITORING_COMPARISON_COMPONENT,
-      version: MONITORING_COMPARISON_MATERIALIZATION_VERSION,
-      tradeDate,
-      result,
-      processedThroughEngineSequence: processedThrough,
-      sourceDecisionCount,
-    });
-    return { status: "processing" as const, component: MONITORING_COMPARISON_COMPONENT, result };
-  }
 
   const labels = await getRtDailyAuditMaterialization({
     component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
@@ -388,48 +355,8 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: MULTI_SYMBOL_MONITORING_COMPONENT, result };
   }
 
-  // 285A selector is strictly downstream of all existing audit components. It only
-  // writes immutable monitoring snapshots and never calls the engine, queues, or orders.
-  const manifest = await getRtDailyAuditMaterialization({
-    component: KIOXIA_MANIFEST_V2_COMPONENT,
-    version: KIOXIA_MANIFEST_V2_VERSION,
-    tradeDate,
-  });
-  if (!manifest) {
-    const result = await materializeKioxiaManifestV2ForDate({
-      tradeDate,
-      sourceDecisionCount,
-      processedThroughEngineSequence: processedThrough,
-      watermark: finality.row.watermarkJson,
-    });
-    return { status: "processing" as const, component: KIOXIA_MANIFEST_V2_COMPONENT, result };
-  }
 
-  const selectorResult = await getRtDailyAuditMaterialization({
-    component: KIOXIA_SELECTOR_RESULT_COMPONENT,
-    version: KIOXIA_SELECTOR_VERSION,
-    tradeDate,
-  });
-  if (!selectorResult) {
-    const result = await materializeKioxiaNextDaySelectorResultForDate({
-      tradeDate,
-      sourceDecisionCount,
-      processedThroughEngineSequence: processedThrough,
-    });
-    return { status: "processing" as const, component: KIOXIA_SELECTOR_RESULT_COMPONENT, result };
-  }
-
-  const selectorSnapshot = await materializeKioxiaNextDaySelectorForSourceDate({
-    sourceTradeDate: tradeDate,
-    sourceDecisionCount,
-    processedThroughEngineSequence: processedThrough,
-  });
-  if (selectorSnapshot.created) {
-    const result = selectorSnapshot;
-    return { status: "processing" as const, component: KIOXIA_SELECTOR_SNAPSHOT_COMPONENT, result };
-  }
-
-  // 10銘柄版も既存監査・285A選択器の後に一日一componentずつだけ進める。
+  // 10銘柄版は既存監査の後に一日一componentずつだけ進める。
   // source / candidate / shadow hot pathには接続せず、closed watermarkの保存値だけを入力にする。
   const tenSymbolFeature = await getRtDailyAuditMaterialization({
     component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
@@ -470,7 +397,7 @@ async function materializeNextAuditComponentUnlocked(
     return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT, result: tenSymbolSnapshot };
   }
 
-  // Route-granular replacement is strictly downstream from the legacy 3-row display.
+  // Route-granular monitoring is strictly downstream from the closed 10-symbol feature snapshot.
   // It remains bounded to one audited trade date and never enters a source/worker hot path.
   if (tradeDate >= ROUTE_GRANULAR_MONITORING_START_DATE) {
     const granularMonitoring = await getRtDailyAuditMaterialization({
@@ -552,12 +479,11 @@ export async function materializeNextAuditComponentForDate(
 }
 
 export async function readAuditMaterializationsForReport(tradeDate: string) {
-  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, multiSymbolMonitoring, outcomeLabels, divergence, finality, watermark] = await Promise.all([
+  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, multiSymbolMonitoring, outcomeLabels, divergence, finality, watermark] = await Promise.all([
     getRtDailyAuditMaterialization({ component: PORTFOLIO_BUNDLE_COMPONENT, version: PORTFOLIO_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: TEL_PARITY_MATERIALIZATION_COMPONENT, version: TEL_PARITY_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DISCO_SHORT_PORTFOLIO_COMPONENT, version: DISCO_SHORT_PORTFOLIO_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: MONITORING_COMPARISON_COMPONENT, version: MONITORING_COMPARISON_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: MULTI_SYMBOL_MONITORING_COMPONENT, version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, version: OUTCOME_LABELS_MATERIALIZATION_VERSION, tradeDate }),
     getRtDailyAuditMaterialization({ component: DIVERGENCE_MATERIALIZATION_COMPONENT, version: DIVERGENCE_MATERIALIZATION_VERSION, tradeDate }),
@@ -567,7 +493,7 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
   const valid = finality?.status === "closed"
     && finality.watermarkHash === watermarkHash(watermark)
     && watermarkReady(watermark);
-  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, monitoringComparison, multiSymbolMonitoring, outcomeLabels, divergence, finality };
+  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, multiSymbolMonitoring, outcomeLabels, divergence, finality };
   const invalidate = <T extends { status: string; lastError?: string | null } | null>(row: T): T => row
     ? { ...row, status: "processing", lastError: "audit_watermark_not_closed_or_changed" } as T
     : row;
@@ -576,7 +502,6 @@ export async function readAuditMaterializationsForReport(tradeDate: string) {
     telParity: invalidate(telParity),
     candidateOutcomeParity: invalidate(candidateOutcomeParity),
     discoShortPortfolio: invalidate(discoShortPortfolio),
-    monitoringComparison: invalidate(monitoringComparison),
     multiSymbolMonitoring: invalidate(multiSymbolMonitoring),
     outcomeLabels: invalidate(outcomeLabels),
     divergence: invalidate(divergence),

@@ -76,7 +76,7 @@ describe("route-granular next-day monitoring selector", () => {
   });
 
   it("partitions fixed-target Bollinger outcomes by persisted LONG/SHORT action side", () => {
-    const strategyVersion = "candidate-285a-bollinger-directional-fixed-stop140-cooldown30-v1";
+    const strategyVersion = "candidate-285a-bollinger-directional-fixed-stop140-cooldown30-v2";
     const daily = buildRouteGranularDailySnapshot({
       tradeDate: "2026-10-05",
       candidates: [],

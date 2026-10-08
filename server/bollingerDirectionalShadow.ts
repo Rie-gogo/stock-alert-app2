@@ -1,9 +1,9 @@
 import type { ForwardEvaluationMode, ForwardSourceEventInput } from "./forwardShadow";
 import { calculateClockSafeBoardAge, calculateDepthVwap } from "./telExecutableConfirmDepth";
 
-export const BOLLINGER_DIRECTIONAL_COLLECTION_START_DATE = "2026-10-07";
-export const BOLLINGER_DIRECTIONAL_LEARNING_CUTOFF_DATE = "2026-10-06";
-export const BOLLINGER_DIRECTIONAL_FORMAL_START_DATE = "2026-10-07";
+export const BOLLINGER_DIRECTIONAL_COLLECTION_START_DATE = "2026-10-09";
+export const BOLLINGER_DIRECTIONAL_LEARNING_CUTOFF_DATE = "2026-10-08";
+export const BOLLINGER_DIRECTIONAL_FORMAL_START_DATE = "2026-10-09";
 export const BOLLINGER_DIRECTIONAL_PERIOD = 20;
 export const BOLLINGER_DIRECTIONAL_SIGMA = 2;
 export const BOLLINGER_DIRECTIONAL_STOP_PCT = 1.4;
@@ -147,6 +147,12 @@ export interface BollingerDirectionalPosition {
   tpPct: number;
   comparisonRiskPct: number;
   executionProxyKind: "ask_depth_vwap_100" | "bid_depth_vwap_100";
+  /** 受入判定に使用するWindows同一時計の板観測→relay組立時間。 */
+  sourceBoardAgeMs: number;
+  /** 配送・cloud処理を含む従来値。監査専用で、Bollinger entry可否には用いない。 */
+  deliveryBoardAgeMs: number;
+  boardAgeBasis: "board_observed_to_relay_assembled_same_clock";
+  /** 旧監査reader互換。sourceBoardAgeMsと同じ値を保存する。 */
   boardAgeMs: number;
   minimumTargetDistancePct: number;
   targetDistancePct: number;
@@ -542,6 +548,28 @@ function sharesForMode(mode: ForwardEvaluationMode, price: number) {
   return Math.max(100, Math.floor(Math.floor(3_000_000 * 0.9 / price) / 100) * 100);
 }
 
+/**
+ * Bollinger監視shadow専用の鮮度判定。Windows relay内で測定した板観測から
+ * payload組立までだけを受入に用いる。配送・cloud処理は監査に残すが、FIFO遅延を
+ * 板の古さと誤認しない。時刻欠落・未来・非因果な区間は従来どおりfail-closed。
+ */
+export function calculateBollingerSourceBoardAge(audit: ForwardSourceEventInput["currentAudit"]) {
+  const clockAge = calculateClockSafeBoardAge(audit);
+  const sourceBoardAgeMs = clockAge.boardToRelayAssemblyMs;
+  const deliveryBoardAgeMs = clockAge.boardAgeMs;
+  const causal = clockAge.causal && sourceBoardAgeMs !== null && sourceBoardAgeMs >= 0;
+  return {
+    timestampsAvailable: clockAge.timestampsAvailable,
+    causal,
+    sourceBoardAgeMs,
+    deliveryBoardAgeMs,
+    fresh: causal && sourceBoardAgeMs <= BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS,
+    boardAgeBasis: "board_observed_to_relay_assembled_same_clock" as const,
+    relayPackagingMs: clockAge.relayPackagingMs,
+    cloudProcessingMs: clockAge.cloudProcessingMs,
+  };
+}
+
 function entryFromConfirmedCandle(
   state: BollingerDirectionalState,
   input: ForwardSourceEventInput,
@@ -564,7 +592,7 @@ function entryFromConfirmedCandle(
     });
     return null;
   }
-  const clockAge = calculateClockSafeBoardAge(input.currentAudit);
+  const boardAge = calculateBollingerSourceBoardAge(input.currentAudit);
   const depth = calculateDepthVwap({ board: input.board, side: pending.side, shares: 100 });
   const entryPrice = depth?.price ?? null;
   const targetBands = calculateBollingerBands(state.candles);
@@ -577,17 +605,17 @@ function entryFromConfirmedCandle(
     : null;
   const targetDistanceAccepted = targetDistancePct !== null
     && targetDistancePct + 1e-12 >= variantConfig.minimumTargetDistancePct;
-  const accepted = clockAge.timestampsAvailable && clockAge.causal && clockAge.fresh
-    && clockAge.boardAgeMs !== null && clockAge.boardAgeMs <= BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS
+  const accepted = boardAge.timestampsAvailable && boardAge.causal && boardAge.fresh
+    && boardAge.sourceBoardAgeMs !== null && boardAge.sourceBoardAgeMs <= BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS
     && entryPrice !== null && targetPrice !== null && targetBeyondEntry && targetDistanceAccepted;
-  if (!accepted || entryPrice === null || targetPrice === null || targetDistancePct === null || clockAge.boardAgeMs === null) {
+  if (!accepted || entryPrice === null || targetPrice === null || targetDistancePct === null || boardAge.sourceBoardAgeMs === null) {
     actions.push({
       type: "entry_rejected",
       routeId: `bollinger_directional_${state.variant}_${pending.side}`,
       side: pending.side,
-      reason: !clockAge.timestampsAvailable ? "board_timestamps_unavailable"
-        : !clockAge.causal ? "board_clock_not_causal"
-          : !clockAge.fresh || (clockAge.boardAgeMs !== null && clockAge.boardAgeMs > BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS) ? "board_stale_over_5000ms"
+      reason: !boardAge.timestampsAvailable ? "board_timestamps_unavailable"
+        : !boardAge.causal ? "board_clock_not_causal"
+          : !boardAge.fresh || (boardAge.sourceBoardAgeMs !== null && boardAge.sourceBoardAgeMs > BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS) ? "board_stale_over_5000ms"
             : entryPrice === null ? "insufficient_directional_depth_100_shares"
               : targetPrice === null ? "bollinger_target_unavailable"
                 : !targetBeyondEntry ? "opposite_band_not_beyond_entry"
@@ -598,7 +626,12 @@ function entryFromConfirmedCandle(
       fixedTargetPrice: targetPrice,
       targetDistancePct,
       minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
-      boardAgeMs: clockAge.boardAgeMs,
+      sourceBoardAgeMs: boardAge.sourceBoardAgeMs,
+      deliveryBoardAgeMs: boardAge.deliveryBoardAgeMs,
+      boardAgeBasis: boardAge.boardAgeBasis,
+      boardAgeMs: boardAge.sourceBoardAgeMs,
+      relayPackagingMs: boardAge.relayPackagingMs,
+      cloudProcessingMs: boardAge.cloudProcessingMs,
       movingAverage: pending.movingAverage,
       entryQualification: pending.entryQualification,
       bollingerWidthComparison: pending.bollingerWidthComparison ?? null,
@@ -623,7 +656,10 @@ function entryFromConfirmedCandle(
     tpPct: Math.abs(targetPrice - entryPrice) / entryPrice * 100,
     comparisonRiskPct: BOLLINGER_DIRECTIONAL_STOP_PCT,
     executionProxyKind: pending.side === "long" ? "ask_depth_vwap_100" : "bid_depth_vwap_100",
-    boardAgeMs: clockAge.boardAgeMs,
+    sourceBoardAgeMs: boardAge.sourceBoardAgeMs,
+    deliveryBoardAgeMs: boardAge.deliveryBoardAgeMs!,
+    boardAgeBasis: boardAge.boardAgeBasis,
+    boardAgeMs: boardAge.sourceBoardAgeMs,
     minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
     targetDistancePct,
     entryQualification: pending.entryQualification,
@@ -644,6 +680,12 @@ function entryFromConfirmedCandle(
     bollingerWidthComparison: pending.bollingerWidthComparison ?? null,
     shares: position.shares,
     depth,
+    sourceBoardAgeMs: boardAge.sourceBoardAgeMs,
+    deliveryBoardAgeMs: boardAge.deliveryBoardAgeMs,
+    boardAgeBasis: boardAge.boardAgeBasis,
+    boardAgeMs: boardAge.sourceBoardAgeMs,
+    relayPackagingMs: boardAge.relayPackagingMs,
+    cloudProcessingMs: boardAge.cloudProcessingMs,
   });
   return position;
 }

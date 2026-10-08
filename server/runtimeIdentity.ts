@@ -112,7 +112,7 @@ export const BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS = Object.freeze({
   "9984": "candidate-9984-bollinger-directional-stop060-v1",
 } as const);
 /** 入口時点の反対側2σを固定し、SL1.40%後30分は同一銘柄を再探索しない新規shadow。 */
-export const BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS = Object.freeze({
+export const RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V1_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-fixed-stop140-cooldown30-v1",
   "3436": "candidate-3436-bollinger-directional-fixed-stop140-cooldown30-v1",
   "5803": "candidate-5803-bollinger-directional-fixed-stop140-cooldown30-v1",
@@ -180,7 +180,7 @@ export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS 
   "9984": "candidate-9984-bollinger-directional-sma20-dynamic-rsi14-gap060-stop140-cooldown30-v2",
 } as const);
 /** ①〜③を使わず、完成5分足SMA20の価格方向だけを用いるRSIなし後継版。 */
-export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS = Object.freeze({
+export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
   "3436": "candidate-3436-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
   "5803": "candidate-5803-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
@@ -193,7 +193,7 @@ export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS = Object.fr
   "9984": "candidate-9984-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v3",
 } as const);
 /** RSIなしSMA20方向に、非逆行のSMA20傾きを加えた改善A。 */
-export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS = Object.freeze({
+export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V1_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
   "3436": "candidate-3436-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
   "5803": "candidate-5803-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
@@ -206,7 +206,7 @@ export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS = Object.freeze(
   "9984": "candidate-9984-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v1",
 } as const);
 /** 改善Aに、触発時点以前だけのBB幅5本非拡大条件を加えた改善B。 */
-export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS = Object.freeze({
+export const RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V1_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
   "3436": "candidate-3436-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
   "5803": "candidate-5803-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
@@ -219,7 +219,7 @@ export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS = Objec
   "9984": "candidate-9984-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v1",
 } as const);
 /** 5分足SMA10の方向一致・同方向傾きと、入口から固定targetまで0.50%以上を要求する比較shadow。 */
-export const BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS = Object.freeze({
+export const RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V1_VERSIONS = Object.freeze({
   "285A": "candidate-285a-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v1",
   "3436": "candidate-3436-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v1",
   "5803": "candidate-5803-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v1",
@@ -231,6 +231,73 @@ export const BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS = Object.freeze(
   "8035": "candidate-8035-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v1",
   "9984": "candidate-9984-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v1",
 } as const);
+
+/** 2026-10-09 source-time board-freshness basis：旧v1の履歴を停止し、新規収集を分離する。 */
+export const BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "3436": "candidate-3436-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "5803": "candidate-5803-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "6146": "candidate-6146-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "6526": "candidate-6526-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "6857": "candidate-6857-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "6976": "candidate-6976-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "6981": "candidate-6981-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "8035": "candidate-8035-bollinger-directional-fixed-stop140-cooldown30-v2",
+  "9984": "candidate-9984-bollinger-directional-fixed-stop140-cooldown30-v2",
+} as const);
+/** 2026-10-09 source-time board-freshness basis：①〜③不使用・完成5分足SMA20。 */
+export const BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "3436": "candidate-3436-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "5803": "candidate-5803-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "6146": "candidate-6146-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "6526": "candidate-6526-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "6857": "candidate-6857-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "6976": "candidate-6976-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "6981": "candidate-6981-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "8035": "candidate-8035-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+  "9984": "candidate-9984-bollinger-directional-sma20-dynamic-gap060-stop140-cooldown30-v4",
+} as const);
+/** 2026-10-09 source-time board-freshness basis：SMA20傾き一致案。 */
+export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "3436": "candidate-3436-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "5803": "candidate-5803-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "6146": "candidate-6146-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "6526": "candidate-6526-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "6857": "candidate-6857-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "6976": "candidate-6976-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "6981": "candidate-6981-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "8035": "candidate-8035-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+  "9984": "candidate-9984-bollinger-directional-sma20-slope-gap060-stop140-cooldown30-v2",
+} as const);
+/** 2026-10-09 source-time board-freshness basis：SMA20傾き＋BB幅5本非拡大案。 */
+export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "3436": "candidate-3436-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "5803": "candidate-5803-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "6146": "candidate-6146-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "6526": "candidate-6526-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "6857": "candidate-6857-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "6976": "candidate-6976-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "6981": "candidate-6981-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "8035": "candidate-8035-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+  "9984": "candidate-9984-bollinger-directional-sma20-slope-bbwidth5-gap060-stop140-cooldown30-v2",
+} as const);
+/** 2026-10-09 source-time board-freshness basis：5分足SMA10傾き案。 */
+export const BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "3436": "candidate-3436-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "5803": "candidate-5803-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "6146": "candidate-6146-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "6526": "candidate-6526-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "6857": "candidate-6857-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "6976": "candidate-6976-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "6981": "candidate-6981-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "8035": "candidate-8035-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+  "9984": "candidate-9984-bollinger-directional-sma10-slope-gap050-stop140-cooldown30-v2",
+} as const);
+
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   FORWARD_STRATEGY_VERSION,
   FUJIKURA_FORWARD_STRATEGY_VERSION,
@@ -268,10 +335,10 @@ export const FORWARD_STRATEGY_VERSIONS = Object.freeze([
   MURATA_DEEP_REVERSAL_LONG_VERSION,
   MURATA_MORNING_BREAKDOWN_SHORT_VERSION,
   ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS),
 ]);
 export const FORWARD_AUDIT_STRATEGY_VERSIONS = Object.freeze([
   TEL_CURRENT_PARITY_VERSION,

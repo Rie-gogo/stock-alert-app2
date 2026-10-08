@@ -390,6 +390,63 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     expect(exit.closedPosition?.pnl).toBeGreaterThan(0);
   });
 
+  it("source時刻の板年齢100msならdelivery遅延約22秒でもentryし、両値を監査保存する", () => {
+    let state = seeded(VARIANT, "long");
+    state = applyBollingerDirectionalTransition(state, source("source-age-touch", "10:00", {
+      open: 97, high: 98, low: 95, close: 96,
+    }), "signal_quality").nextState;
+    const confirmation = source("source-age-confirm", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    confirmation.currentAudit = {
+      boardObservedAtMs: 1_000,
+      relayAssembledAtMs: 1_100,
+      relaySentAtMs: 1_200,
+      cloudReceivedAtMs: 2_000,
+      decisionCompletedAtMs: 24_000,
+    };
+    const entry = applyBollingerDirectionalTransition(state, confirmation, "signal_quality");
+    expect(entry.resultType).toBe("entry");
+    expect(entry.openedPosition).toMatchObject({
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 22_200,
+      boardAgeBasis: "board_observed_to_relay_assembled_same_clock",
+    });
+    expect(entry.actions[0]).toMatchObject({
+      type: "entry",
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 22_200,
+      boardAgeBasis: "board_observed_to_relay_assembled_same_clock",
+    });
+  });
+
+  it("source時刻が5001ms、時刻欠落、future board、深さ不足はBollinger entryをfail-closedにする", () => {
+    const prepare = () => {
+      let state = seeded(VARIANT, "long");
+      state = applyBollingerDirectionalTransition(state, source(`reject-touch:${Math.random()}`, "10:00", {
+        open: 97, high: 98, low: 95, close: 96,
+      }), "signal_quality").nextState;
+      return state;
+    };
+    const stale = source("source-age-stale", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    stale.currentAudit = { boardObservedAtMs: 1_000, relayAssembledAtMs: 6_001, relaySentAtMs: 6_100, cloudReceivedAtMs: 7_000, decisionCompletedAtMs: 7_100 };
+    expect(applyBollingerDirectionalTransition(prepare(), stale, "signal_quality").actions)
+      .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_stale_over_5000ms", sourceBoardAgeMs: 5_001 }));
+
+    const missing = source("source-age-missing", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    missing.currentAudit = { relayAssembledAtMs: 1_100, relaySentAtMs: 1_200, cloudReceivedAtMs: 2_000, decisionCompletedAtMs: 2_500 };
+    expect(applyBollingerDirectionalTransition(prepare(), missing, "signal_quality").actions)
+      .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_timestamps_unavailable" }));
+
+    const future = source("source-age-future", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    future.currentAudit = { boardObservedAtMs: 1_100, relayAssembledAtMs: 1_099, relaySentAtMs: 1_200, cloudReceivedAtMs: 2_000, decisionCompletedAtMs: 2_500 };
+    expect(applyBollingerDirectionalTransition(prepare(), future, "signal_quality").actions)
+      .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_clock_not_causal" }));
+
+    const shallow = source("source-age-depth", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    shallow.board = { asks: [{ price: 97.05, qty: 99 }], bids: [{ price: 96.95, qty: 99 }] };
+    expect(applyBollingerDirectionalTransition(prepare(), shallow, "signal_quality").actions)
+      .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "insufficient_directional_depth_100_shares" }));
+  });
+
   it("接触の次足が方向確認足でなければ拒否し、日次回数は消費しない", () => {
     let state = seeded(VARIANT, "long");
     state = applyBollingerDirectionalTransition(state, source("touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;

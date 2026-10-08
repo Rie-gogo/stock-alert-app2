@@ -86,7 +86,7 @@ describe("8035未見データ前向きシャドー統合", () => {
     // 基準案のversion登録だけを強制失敗させ、独立variantの継続を確認する。
     const result: any = await processForwardShadowSourceEvent({
       sourceEventId: "bollinger-isolation:1",
-      candle: { symbol: "285A", tradeDate: "2026-10-07", candleTime: "09:00", open: 100, high: 100.1, low: 99.9, close: 100, volume: 100 },
+      candle: { symbol: "285A", tradeDate: "2026-10-09", candleTime: "09:00", open: 100, high: 100.1, low: 99.9, close: 100, volume: 100 },
       board: null,
     });
     const evaluations = result.bollingerDirectionalShadow.evaluations;

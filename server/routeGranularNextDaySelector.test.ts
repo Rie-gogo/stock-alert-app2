@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { ROUTE_GRANULAR_VARIANTS, auditRouteGranularCatalog } from "./routeGranularMonitoringRegistry";
 import { buildRouteGranularDailySnapshot } from "./routeGranularMonitoringMaterializer";
-import { buildRouteGranularSelectorSnapshot, ROUTE_GRANULAR_SELECTOR_CONFIG, ROUTE_GRANULAR_SELECTOR_VERSION } from "./routeGranularNextDaySelector";
+import {
+  buildRouteGranularSelectorSnapshot,
+  filterRouteGranularSelectorResultForRead,
+  filterRouteGranularSelectorSnapshotForRead,
+  ROUTE_GRANULAR_SELECTOR_CONFIG,
+  ROUTE_GRANULAR_SELECTOR_VERSION,
+} from "./routeGranularNextDaySelector";
 
 const planB = "forward-shadow-285a-five-routes-atr036-route-daily-end-v1";
 const currentVersion = "current-10-symbol-candidates-v3-low-win-routes-shadow-only";
@@ -307,6 +313,54 @@ describe("route-granular next-day monitoring selector", () => {
     expect(snapshot.catalogAudit.complete).toBe(false);
     expect(snapshot.selections.every((selection: any) => selection.decision === "no_selection")).toBe(true);
     expect(snapshot.scores.every((score: any) => score.exclusionReasons.includes("route_catalog_incomplete_or_unresolved"))).toBe(true);
+  });
+
+  it("保存済みroute snapshotとD結果から4 shadow version・2停止current routeをread-timeで除外する", () => {
+    const retiredVersions = [
+      "candidate-8035-executable-depth-v3-parity-reset",
+      "candidate-6976-afternoon-short-rr2-45-v1",
+      "candidate-6976-afternoon-short-depth-v1",
+      "candidate-6976-afternoon-long-rr2-10-v1",
+    ];
+    const historicalSnapshot: any = {
+      variants: [
+        { rowId: "kept", symbol: "6976", routeGroupId: "afternoon_reversal_long", canonicalLogic: "candidate-6976-afternoon-long-recovery-winrate", strategyVersion: "candidate-6976-afternoon-long-recovery-winrate-v1" },
+        ...retiredVersions.map((strategyVersion, index) => ({ rowId: `retired:${index}`, symbol: index === 0 ? "8035" : "6976", routeGroupId: "afternoon_reversal_short", canonicalLogic: "retired", strategyVersion })),
+        { rowId: "current-5803", symbol: "5803", routeGroupId: "afternoon_low_break_short", canonicalLogic: "current-5803-afternoon-low-break-short", strategyVersion: "current" },
+        { rowId: "current-6981", symbol: "6981", routeGroupId: "opening_break_short", canonicalLogic: "current-6981-opening-break-short", strategyVersion: "current" },
+      ],
+      scores: [],
+      selections: [
+        { symbol: "5803", routeGroupId: "afternoon_low_break_short", selectedRowId: "current-5803", selectedCanonicalLogic: "current-5803-afternoon-low-break-short" },
+        { symbol: "6981", routeGroupId: "opening_break_short", selectedRowId: "current-6981", selectedCanonicalLogic: "current-6981-opening-break-short" },
+      ],
+      symbolSelections: [
+        { symbol: "5803", selectedRowId: "current-5803", selectedRouteGroupId: "afternoon_low_break_short", selectedCanonicalLogic: "current-5803-afternoon-low-break-short" },
+        { symbol: "6976", selectedRowId: "kept", selectedStrategyVersion: "candidate-6976-afternoon-long-recovery-winrate-v1" },
+      ],
+      catalogAudit: { complete: true, requirementMissing: ["5803:afternoon_low_break_short", "kept"] },
+    };
+    historicalSnapshot.scores = historicalSnapshot.variants;
+    const historicalResult: any = {
+      results: [
+        { symbol: "5803", routeGroupId: "afternoon_low_break_short", selectedRowId: "current-5803", variants: [historicalSnapshot.variants.at(-2)] },
+        { symbol: "6976", routeGroupId: "afternoon_reversal_long", selectedRowId: "kept", selected: historicalSnapshot.variants[0], variants: [historicalSnapshot.variants[0], historicalSnapshot.variants[4]] },
+      ],
+      symbolResults: [
+        { symbol: "5803", selectedRowId: "current-5803", variants: [historicalSnapshot.variants.at(-2)] },
+        { symbol: "6976", selectedRowId: "kept", selected: historicalSnapshot.variants[0], variants: [historicalSnapshot.variants[0], historicalSnapshot.variants[4]] },
+      ],
+    };
+    const projectedSnapshot = filterRouteGranularSelectorSnapshotForRead(historicalSnapshot);
+    const projectedResult = filterRouteGranularSelectorResultForRead(historicalResult);
+    const retiredText = [...retiredVersions, "current-5803-afternoon-low-break-short", "current-6981-opening-break-short", "afternoon_low_break_short", "opening_break_short"];
+    for (const identifier of retiredText) {
+      expect(JSON.stringify(historicalSnapshot)).toContain(identifier);
+      expect(JSON.stringify(projectedSnapshot)).not.toContain(identifier);
+      expect(JSON.stringify(projectedResult)).not.toContain(identifier);
+    }
+    expect(JSON.stringify(projectedSnapshot)).toContain("candidate-6976-afternoon-long-recovery-winrate-v1");
+    expect(JSON.stringify(projectedResult)).toContain("candidate-6976-afternoon-long-recovery-winrate-v1");
   });
 
   it("reports an active lifecycle orphan instead of silently selecting around it", () => {

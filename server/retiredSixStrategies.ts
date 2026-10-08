@@ -27,6 +27,11 @@ export const RETIRED_STOPPED_CURRENT_CANONICAL_LOGICS = Object.freeze([
   "current-6981-opening-break-short",
 ] as const);
 
+export const RETIRED_STOPPED_CURRENT_ROUTE_GROUPS = Object.freeze([
+  "afternoon_low_break_short",
+  "opening_break_short",
+] as const);
+
 export const RETIRED_SIX_SHADOW_STATUS_REASON =
   "retired_by_explicit_six_logic_retirement_2026_10_08";
 
@@ -50,4 +55,42 @@ export async function retireSixShadowStrategyVersions(): Promise<void> {
 
 export function resetSixShadowRetirementForTest(): void {
   retirementApplied = false;
+}
+
+type RetiredSelectorCandidate = {
+  strategyVersion?: unknown;
+  canonicalLogic?: unknown;
+  routeGroupId?: unknown;
+  symbol?: unknown;
+};
+
+const retiredVersions = new Set<string>(RETIRED_SIX_SHADOW_VERSIONS);
+const retiredCurrentLogics = new Set<string>(RETIRED_STOPPED_CURRENT_CANONICAL_LOGICS);
+const retiredCurrentRouteGroups = new Set<string>(RETIRED_STOPPED_CURRENT_ROUTE_GROUPS);
+
+/** Read-time only: immutable historical rows are never rewritten or deleted. */
+export function isExplicitlyRetiredSelectorCandidate(value: RetiredSelectorCandidate): boolean {
+  return retiredVersions.has(String(value.strategyVersion ?? ""))
+    || retiredCurrentLogics.has(String(value.canonicalLogic ?? ""))
+    || isExplicitlyRetiredSelectorRouteGroup(value.symbol, value.routeGroupId);
+}
+
+export function isExplicitlyRetiredSelectorRouteGroup(symbol: unknown, routeGroupId: unknown): boolean {
+  const normalizedSymbol = String(symbol ?? "");
+  const normalizedGroup = String(routeGroupId ?? "");
+  return retiredCurrentRouteGroups.has(normalizedGroup)
+    && (normalizedSymbol === "5803" || normalizedSymbol === "6981");
+}
+
+export function isExplicitlyRetiredSelectorPlanId(planId: unknown): boolean {
+  const normalized = String(planId ?? "");
+  return RETIRED_SIX_SHADOW_VERSIONS.some(version => normalized === `shadow:${version}` || normalized.includes(version));
+}
+
+/** Prevent retired identifiers from leaking via diagnostic arrays in historical payloads. */
+export function containsExplicitlyRetiredSelectorIdentifier(value: unknown): boolean {
+  const text = String(value ?? "");
+  return RETIRED_SIX_SHADOW_VERSIONS.some(version => text.includes(version))
+    || RETIRED_STOPPED_CURRENT_CANONICAL_LOGICS.some(logic => text.includes(logic))
+    || RETIRED_STOPPED_CURRENT_ROUTE_GROUPS.some(group => text.includes(group));
 }

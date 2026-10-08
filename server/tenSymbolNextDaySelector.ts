@@ -45,6 +45,10 @@ import {
   FORWARD_STRATEGY_VERSION,
   sha256Stable,
 } from "./runtimeIdentity";
+import {
+  isExplicitlyRetiredSelectorCandidate,
+  isExplicitlyRetiredSelectorPlanId,
+} from "./retiredSixStrategies";
 
 export const TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT = "ten_symbol_selector_feature";
 export const TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT = "ten_symbol_next_day_selector";
@@ -139,6 +143,56 @@ type Lifecycle = { lifecycle: string | null; purpose: string | null };
 function object(value: unknown): RecordValue { return value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {}; }
 function finite(value: unknown): number | null { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null; }
+
+/**
+ * Historical selector rows are immutable evidence. This creates a presentation
+ * projection only, so explicitly retired candidates cannot be returned, shown,
+ * or selected from a pre-retirement snapshot.
+ */
+export function filterTenSymbolSelectorSnapshotForRead(snapshot: unknown): RecordValue {
+  const source = object(snapshot);
+  const scores = Array.isArray(source.scores)
+    ? source.scores.map(object).filter(row => !isExplicitlyRetiredSelectorCandidate(row))
+    : [];
+  const visiblePlanIds = new Set(scores.map(row => String(row.planId ?? "")));
+  const selections = Array.isArray(source.selections)
+    ? source.selections.map(object).map(selection => {
+      const selectedPlanId = String(selection.selectedPlanId ?? "");
+      if (!isExplicitlyRetiredSelectorPlanId(selectedPlanId) && visiblePlanIds.has(selectedPlanId)) return selection;
+      return {
+        ...selection,
+        selectedPlanId: null,
+        selectedSlot: null,
+        decision: "no_selection",
+        reason: "retired_selector_candidate_excluded_at_read_time",
+      };
+    })
+    : [];
+  const slots = Array.isArray(source.slots)
+    ? source.slots.map(object).filter(row => !isExplicitlyRetiredSelectorCandidate(row))
+    : [];
+  return { ...source, slots, scores, selections };
+}
+
+export function filterTenSymbolSelectorResultForRead(result: unknown): RecordValue {
+  const source = object(result);
+  const results = Array.isArray(source.results)
+    ? source.results.map(object).map(row => {
+      const fixed = Array.isArray(row.fixed)
+        ? row.fixed.map(object).filter(item => !isExplicitlyRetiredSelectorPlanId(item.planId) && !isExplicitlyRetiredSelectorCandidate(item))
+        : [];
+      const selectedPlanId = String(row.selectedPlanId ?? "");
+      const selected = object(row.selected);
+      const selectedVisible = !isExplicitlyRetiredSelectorPlanId(selectedPlanId)
+        && !isExplicitlyRetiredSelectorCandidate(selected)
+        && fixed.some(item => String(item.planId ?? "") === selectedPlanId);
+      return selectedVisible
+        ? { ...row, fixed }
+        : { ...row, fixed, selectedPlanId: null, selected: null, decision: "no_selection" };
+    })
+    : [];
+  return { ...source, results };
+}
 function dailySnapshot(row: DailyRow): MultiSymbolMonitoringDailySnapshot | null {
   const result = object(row.resultJson);
   return row.status === "complete" && result.ready === true && Array.isArray(result.plans)
@@ -513,12 +567,16 @@ export async function getTenSymbolNextDaySelectorDashboard(asOfDate: string) {
     getRtDailyAuditMaterializationsForRange({ component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, fromDate: TEN_SYMBOL_SELECTOR_FEATURE_START_DATE, toDate: asOfDate }),
     getRtDailyAuditMaterializationsForRange({ component: TEN_SYMBOL_SELECTOR_RESULT_COMPONENT, version: TEN_SYMBOL_SELECTOR_VERSION, fromDate: TEN_SYMBOL_SELECTOR_FEATURE_START_DATE, toDate: asOfDate }),
   ]);
-  const immutableResults = results.filter(row => row.status === "complete").map(row => row.resultJson);
+  const immutableResults = results
+    .filter(row => row.status === "complete")
+    .map(row => filterTenSymbolSelectorResultForRead(row.resultJson));
   return {
     selectorVersion: TEN_SYMBOL_SELECTOR_VERSION,
     configHash: TEN_SYMBOL_SELECTOR_CONFIG_HASH,
     slots: TEN_SYMBOL_SELECTOR_SLOTS,
-    snapshots: snapshots.filter(row => row.status === "complete").map(row => row.resultJson),
+    snapshots: snapshots
+      .filter(row => row.status === "complete")
+      .map(row => filterTenSymbolSelectorSnapshotForRead(row.resultJson)),
     results: immutableResults,
     aggregate: aggregateSelectorOutcomes(immutableResults),
     dataSource: "immutable_closed_daily_snapshots_only",

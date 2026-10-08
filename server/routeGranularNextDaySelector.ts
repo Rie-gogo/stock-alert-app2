@@ -4,6 +4,11 @@ import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 import { ROUTE_GRANULAR_VARIANTS, type RouteGranularVariant } from "./routeGranularMonitoringRegistry";
 import { ROUTE_GRANULAR_MONITORING_COMPONENT, ROUTE_GRANULAR_MONITORING_START_DATE, ROUTE_GRANULAR_MONITORING_VERSION, type RouteGranularDailyPlan, type RouteGranularDailySnapshot } from "./routeGranularMonitoringMaterializer";
 import { sha256Stable } from "./runtimeIdentity";
+import {
+  containsExplicitlyRetiredSelectorIdentifier,
+  isExplicitlyRetiredSelectorCandidate,
+  isExplicitlyRetiredSelectorRouteGroup,
+} from "./retiredSixStrategies";
 import { TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, TEN_SYMBOL_SELECTOR_VERSION } from "./tenSymbolNextDaySelector";
 import { buildTechnicalMarketRegimeTimeline, TECHNICAL_MARKET_REGIME_VERSION, type TechnicalMarketRegime } from "./technicalMarketRegime";
 
@@ -47,6 +52,71 @@ type Value = Record<string, unknown>;
 type Lifecycle = { lifecycle: string | null; purpose: string | null };
 function object(value: unknown): Value { return value && typeof value === "object" && !Array.isArray(value) ? value as Value : {}; }
 function finite(value: unknown): number | null { const n = Number(value); return Number.isFinite(n) ? n : null; }
+
+/** Historical snapshots remain untouched; this is the public read projection. */
+export function filterRouteGranularSelectorSnapshotForRead(snapshot: unknown): Value {
+  const source = object(snapshot);
+  const scores = Array.isArray(source.scores)
+    ? source.scores.map(object).filter(row => !isExplicitlyRetiredSelectorCandidate(row))
+    : [];
+  const visibleRowIds = new Set(scores.map(row => String(row.rowId ?? "")));
+  const selections = Array.isArray(source.selections)
+    ? source.selections.map(object)
+      .filter(row => !isExplicitlyRetiredSelectorRouteGroup(row.symbol, row.routeGroupId))
+      .map(row => {
+        const selectedRowId = String(row.selectedRowId ?? "");
+        const retired = isExplicitlyRetiredSelectorCandidate(row) || !visibleRowIds.has(selectedRowId);
+        return retired
+          ? { ...row, selectedRowId: null, selectedCanonicalLogic: null, selectedStrategyVersion: null, decision: "no_selection", reason: "retired_selector_candidate_excluded_at_read_time" }
+          : row;
+      })
+    : [];
+  const symbolSelections = Array.isArray(source.symbolSelections)
+    ? source.symbolSelections.map(object).map(row => {
+      const selectedRowId = String(row.selectedRowId ?? "");
+      const retired = isExplicitlyRetiredSelectorCandidate(row) || !visibleRowIds.has(selectedRowId);
+      return retired
+        ? { ...row, selectedRowId: null, selectedRouteGroupId: null, selectedCanonicalLogic: null, selectedStrategyVersion: null, expectedDailyPnlPer100: null, decision: "no_selection", reason: "retired_selector_candidate_excluded_at_read_time" }
+        : row;
+    })
+    : [];
+  const variants = Array.isArray(source.variants)
+    ? source.variants.map(object).filter(row => !isExplicitlyRetiredSelectorCandidate(row))
+    : [];
+  const catalogAudit = object(source.catalogAudit);
+  const filteredAudit = Object.fromEntries(Object.entries(catalogAudit).map(([key, value]) => [
+    key,
+    Array.isArray(value) ? value.filter(item => !containsExplicitlyRetiredSelectorIdentifier(item)) : value,
+  ]));
+  return { ...source, variants, scores, selections, symbolSelections, catalogAudit: filteredAudit };
+}
+
+export function filterRouteGranularSelectorResultForRead(result: unknown): Value {
+  const source = object(result);
+  const filterRows = (rows: unknown[]) => rows.map(object)
+    .filter(row => !isExplicitlyRetiredSelectorCandidate(row));
+  const results = Array.isArray(source.results)
+    ? source.results.map(object)
+      .filter(row => !isExplicitlyRetiredSelectorRouteGroup(row.symbol, row.routeGroupId))
+      .map(row => {
+        const variants = filterRows(Array.isArray(row.variants) ? row.variants : []);
+        const selectedRowId = String(row.selectedRowId ?? "");
+        return variants.some(item => String(item.rowId ?? "") === selectedRowId)
+          ? { ...row, variants }
+          : { ...row, variants, selectedRowId: null, selected: null, decision: "no_selection" };
+      })
+    : [];
+  const symbolResults = Array.isArray(source.symbolResults)
+    ? source.symbolResults.map(object).map(row => {
+      const variants = filterRows(Array.isArray(row.variants) ? row.variants : []);
+      const selectedRowId = String(row.selectedRowId ?? "");
+      return variants.some(item => String(item.rowId ?? "") === selectedRowId)
+        ? { ...row, variants }
+        : { ...row, variants, selectedRowId: null, selected: null, decision: "no_selection" };
+    })
+    : [];
+  return { ...source, results, symbolResults };
+}
 function plan(snapshot: RouteGranularDailySnapshot | null, rowId: string): RouteGranularDailyPlan | null { return snapshot?.plans.find(item => item.rowId === rowId) ?? null; }
 function snapshot(row: Row): RouteGranularDailySnapshot | null { const item = object(row.resultJson); return row.status === "complete" && item.ready === true && Array.isArray(item.plans) ? item as unknown as RouteGranularDailySnapshot : null; }
 function feature(row: Row, symbol: string): Value {
@@ -413,5 +483,18 @@ export async function getRouteGranularSelectorDashboard(asOfDate: string) {
     getRtDailyAuditMaterializationsForRange({ component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, fromDate: ROUTE_GRANULAR_MONITORING_START_DATE, toDate: asOfDate }),
     getRtDailyAuditMaterializationsForRange({ component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, fromDate: ROUTE_GRANULAR_MONITORING_START_DATE, toDate: asOfDate }),
   ]);
-  return { selectorVersion: ROUTE_GRANULAR_SELECTOR_VERSION, configHash: ROUTE_GRANULAR_SELECTOR_CONFIG_HASH, variants: ROUTE_GRANULAR_VARIANTS, snapshots: snapshots.filter(row => row.status === "complete").map(row => row.resultJson), results: results.filter(row => row.status === "complete").map(row => row.resultJson), dataSource: "immutable_closed_route_granular_snapshots_only", decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review", aggregatePlanTrendAuthority: false, recentTrendAuthority: false, automaticSelection: false, automaticAdoption: false, orderInstructionConnection: false };
+  return {
+    selectorVersion: ROUTE_GRANULAR_SELECTOR_VERSION,
+    configHash: ROUTE_GRANULAR_SELECTOR_CONFIG_HASH,
+    variants: ROUTE_GRANULAR_VARIANTS,
+    snapshots: snapshots.filter(row => row.status === "complete").map(row => filterRouteGranularSelectorSnapshotForRead(row.resultJson)),
+    results: results.filter(row => row.status === "complete").map(row => filterRouteGranularSelectorResultForRead(row.resultJson)),
+    dataSource: "immutable_closed_route_granular_snapshots_only",
+    decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review",
+    aggregatePlanTrendAuthority: false,
+    recentTrendAuthority: false,
+    automaticSelection: false,
+    automaticAdoption: false,
+    orderInstructionConnection: false,
+  };
 }

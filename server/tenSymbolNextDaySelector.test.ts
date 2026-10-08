@@ -3,6 +3,8 @@ import {
   TEN_SYMBOL_SELECTOR_SLOTS,
   buildTenSymbolSelectorResult,
   buildTenSymbolSelectorSnapshot,
+  filterTenSymbolSelectorResultForRead,
+  filterTenSymbolSelectorSnapshotForRead,
   selectNextPendingTenSymbolFeatureDate,
 } from "./tenSymbolNextDaySelector";
 
@@ -118,6 +120,39 @@ describe("10銘柄翌日選択器の固定運用契約", () => {
     const row = result.results.find((item: any) => item.symbol === "285A")!;
     expect(row.selected).toMatchObject({ planId: "current:285A", outcome: "observed", pnlPer100: 100 });
     expect(row.fixed).toHaveLength(3);
+  });
+
+  it("保存済みsnapshotとD結果から退役8035 depth Bをread-timeで除外し、履歴入力を変えない", () => {
+    const retiredVersion = "candidate-8035-executable-depth-v3-parity-reset";
+    const historicalSnapshot: any = {
+      slots: [
+        { symbol: "8035", slot: "A", planId: "shadow:kept", strategyVersion: "kept", canonicalLogic: "kept" },
+        { symbol: "8035", slot: "B", planId: `shadow:${retiredVersion}`, strategyVersion: retiredVersion, canonicalLogic: "candidate-8035-executable-depth" },
+      ],
+      scores: [
+        { symbol: "8035", slot: "A", planId: "shadow:kept", strategyVersion: "kept", canonicalLogic: "kept", selectable: true },
+        { symbol: "8035", slot: "B", planId: `shadow:${retiredVersion}`, strategyVersion: retiredVersion, canonicalLogic: "candidate-8035-executable-depth", selectable: true },
+      ],
+      selections: [{ symbol: "8035", selectedPlanId: `shadow:${retiredVersion}`, selectedSlot: "B", decision: "reference_only" }],
+    };
+    const historicalResult: any = {
+      results: [{
+        symbol: "8035", selectedPlanId: `shadow:${retiredVersion}`, decision: "reference_only",
+        selected: { planId: `shadow:${retiredVersion}`, strategyVersion: retiredVersion },
+        fixed: [
+          { planId: "shadow:kept", strategyVersion: "kept" },
+          { planId: `shadow:${retiredVersion}`, strategyVersion: retiredVersion },
+        ],
+      }],
+    };
+    const projectedSnapshot = filterTenSymbolSelectorSnapshotForRead(historicalSnapshot);
+    const projectedResult = filterTenSymbolSelectorResultForRead(historicalResult);
+    expect(JSON.stringify(historicalSnapshot)).toContain(retiredVersion);
+    expect(JSON.stringify(historicalResult)).toContain(retiredVersion);
+    expect(JSON.stringify(projectedSnapshot)).not.toContain(retiredVersion);
+    expect(JSON.stringify(projectedResult)).not.toContain(retiredVersion);
+    expect(projectedSnapshot.selections).toMatchObject([{ selectedPlanId: null, decision: "no_selection" }]);
+    expect(projectedResult.results).toMatchObject([{ selectedPlanId: null, selected: null, decision: "no_selection" }]);
   });
 
   it("通常取引・注文・hot pathへ接続しない", async () => {

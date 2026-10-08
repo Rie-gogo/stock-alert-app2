@@ -5,9 +5,16 @@ const dbMock = vi.hoisted(() => ({
   getRtDailyAuditMaterialization: vi.fn(),
   getRtPremarketContextSnapshot: vi.fn(),
   insertRtPremarketContextSnapshot: vi.fn(),
+  listRtStrategyVersionsForCatalogAudit: vi.fn(async () => []),
+}));
+
+const selectorWorkerMock = vi.hoisted(() => ({
+  enqueuePremarketContextSelectorWorker: vi.fn(),
+  marketContextSelectorWorkerEnabled: vi.fn(() => true),
 }));
 
 vi.mock("./db", () => dbMock);
+vi.mock("./marketContextSelectorWorker", () => selectorWorkerMock);
 
 import { ingestPremarketContext } from "./premarketContextIngestion";
 import { tradingRouter } from "./routers/trading";
@@ -68,11 +75,13 @@ describe("premarket context immutable snapshot ingress", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.getRtDailyAuditMaterialization.mockResolvedValue(null);
+    dbMock.listRtStrategyVersionsForCatalogAudit.mockResolvedValue([]);
     dbMock.getRtPremarketContextSnapshot.mockResolvedValue(null);
     dbMock.insertRtPremarketContextSnapshot.mockImplementation(async (row: Record<string, unknown>) => stored(
       String(row.inputHash),
       row.qualityStatus as "verified" | "degraded" | "invalid",
     ));
+    selectorWorkerMock.marketContextSelectorWorkerEnabled.mockReturnValue(true);
   });
 
   it("keeps a same-ID identical retry idempotent and rejects different content without writing", async () => {
@@ -181,27 +190,7 @@ describe("premarket context immutable snapshot ingress", () => {
     expect(dbMock.insertRtPremarketContextSnapshot).not.toHaveBeenCalled();
   });
 
-  it("①〜③を08:30時点の経路選択シャドーへ渡す", async () => {
-    dbMock.getRtDailyAuditMaterialization.mockResolvedValue({
-      resultJson: {
-        selectorVersion: "route-v3",
-        inputHash: "frozen-route-input",
-        scores: [
-          {
-            symbol: "285A",
-            rowId: "285a-long-a",
-            canonicalLogic: "candidate-long-a",
-            strategyVersion: "candidate-long-a-v1",
-            direction: "long",
-            marketContextEligible: true,
-            marketContextEvidenceLevel: "provisional",
-            marketContextExpectedDailyPnlPer100: 150,
-            marketContextCompletedTrades: 3,
-            marketContextRecent10CompletedTrades: 1,
-          },
-        ],
-      },
-    });
+  it("①〜③のimmutable snapshotを先に保存し、08:30選択はworkerへ分離する", async () => {
     await ingestPremarketContext(input);
     expect(dbMock.insertRtPremarketContextSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       oseDayClose: null,
@@ -216,14 +205,15 @@ describe("premarket context immutable snapshot ingress", () => {
         }),
       }),
       resultJson: expect.objectContaining({
-        selectorReason: "premarket_0830_selector_shadow_recorded",
-        selectorShadow: expect.objectContaining({
-          decisionAt: "08:30",
-          decisionStage: "premarket_0830",
-          selections: [expect.objectContaining({ symbol: "285A", selectedRowId: "285a-long-a" })],
-        }),
+        selectorReason: "selector_scheduled_receive_priority",
+        selectorWorker: expect.objectContaining({ status: "scheduled", checkpoint: "08:30", receivePriorityIsolation: true }),
       }),
     }));
+    expect(selectorWorkerMock.enqueuePremarketContextSelectorWorker).toHaveBeenCalledWith(expect.objectContaining({
+      sourceSnapshotId: input.sourceSnapshotId,
+      tradeDate: input.tradeDate,
+    }));
+    expect(dbMock.getRtDailyAuditMaterialization).not.toHaveBeenCalled();
   });
 
   it("does not import trading engines, shadow dispatch, candidate workers, or order routing", async () => {

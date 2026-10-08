@@ -1,19 +1,17 @@
 import {
-  getRtDailyAuditMaterialization,
   getRtPremarketContextSnapshot,
   insertRtPremarketContextSnapshot,
 } from "./db";
 import {
-  buildPremarketMarketContextSelectorShadowDecision,
   classifyPremarketContext,
   premarketCmeIngressViolation,
   PREMARKET_CONTEXT_RULE_VERSION,
   type PremarketContextInput,
 } from "./marketContextSelectorShadow";
 import {
-  ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
-  ROUTE_GRANULAR_SELECTOR_VERSION,
-} from "./routeGranularNextDaySelector";
+  enqueuePremarketContextSelectorWorker,
+  marketContextSelectorWorkerEnabled,
+} from "./marketContextSelectorWorker";
 import { sha256Stable } from "./runtimeIdentity";
 
 export type PremarketContextSubmission = PremarketContextInput & {
@@ -78,21 +76,7 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
     };
   }
   const regime = classifyPremarketContext(canonicalInput);
-  const routeSnapshot = regime.qualityStatus !== "invalid"
-    ? await getRtDailyAuditMaterialization({
-      component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
-      version: ROUTE_GRANULAR_SELECTOR_VERSION,
-      tradeDate: input.tradeDate,
-    })
-    : null;
-  const selectorShadow = routeSnapshot
-    ? buildPremarketMarketContextSelectorShadowDecision({
-      tradeDate: input.tradeDate,
-      sourceSnapshotId,
-      premarketRegime: regime,
-      routeSelectorSnapshot: routeSnapshot.resultJson,
-    })
-    : null;
+  const shouldScheduleSelector = regime.qualityStatus !== "invalid" && marketContextSelectorWorkerEnabled();
   const resultJson = {
     monitoringOnly: true,
     currentEngineConnection: false,
@@ -102,12 +86,16 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
     orderInstructionConnection: false,
     automaticAdoption: false,
     regime,
-    selectorReason: selectorShadow
-      ? "premarket_0830_selector_shadow_recorded"
+    selectorReason: shouldScheduleSelector
+      ? "selector_scheduled_receive_priority"
       : regime.qualityStatus === "invalid"
         ? "premarket_snapshot_invalid"
-        : "route_selector_snapshot_missing",
-    selectorShadow,
+        : "selector_not_scheduled_feature_disabled",
+    selectorWorker: {
+      status: shouldScheduleSelector ? "scheduled" : "not_scheduled",
+      checkpoint: "08:30",
+      receivePriorityIsolation: true,
+    },
   };
   const row = await insertRtPremarketContextSnapshot({
     sourceSnapshotId,
@@ -146,6 +134,13 @@ export async function ingestPremarketContext(input: PremarketContextSubmission) 
       qualityStatus: row.qualityStatus,
       result: row.resultJson,
     };
+  }
+  if (shouldScheduleSelector) {
+    enqueuePremarketContextSelectorWorker({
+      sourceSnapshotId,
+      tradeDate: input.tradeDate,
+      premarketRegime: regime,
+    });
   }
   return {
     accepted: row.qualityStatus !== "invalid",

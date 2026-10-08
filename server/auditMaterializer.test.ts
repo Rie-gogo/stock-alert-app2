@@ -68,6 +68,9 @@ const technicalAObservationV2Mock = vi.hoisted(() => ({
   materializeTechnicalAObservationV2PlanForSourceDate: vi.fn(async () => ({ created: false, targetDate: "2026-09-08", result: {} })),
   materializeTechnicalAObservationV2ResultForDate: vi.fn(async () => ({ created: false, result: {} })),
 }));
+const contextPerformanceMock = vi.hoisted(() => ({
+  materializeMarketContextPerformanceForDate: vi.fn(async () => ({ created: false, result: {} })),
+}));
 
 vi.mock("./db", () => dbMock);
 vi.mock("./portfolioAudit", () => ({
@@ -130,6 +133,11 @@ vi.mock("./technicalAObservationV2", () => ({
   materializeTechnicalAObservationV2PlanForSourceDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2PlanForSourceDate,
   materializeTechnicalAObservationV2ResultForDate: technicalAObservationV2Mock.materializeTechnicalAObservationV2ResultForDate,
 }));
+vi.mock("./marketContextPerformanceSelector", () => ({
+  MARKET_CONTEXT_PERFORMANCE_COMPONENT: "market_context_performance_snapshot",
+  MARKET_CONTEXT_PERFORMANCE_VERSION: "market-context-performance-snapshot-v1",
+  materializeMarketContextPerformanceForDate: contextPerformanceMock.materializeMarketContextPerformanceForDate,
+}));
 
 import {
   DIVERGENCE_MATERIALIZATION_COMPONENT,
@@ -172,6 +180,10 @@ import {
   TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT,
   TECHNICAL_A_OBSERVATION_V2_VERSION,
 } from "./technicalAObservationV2";
+import {
+  MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+  MARKET_CONTEXT_PERFORMANCE_VERSION,
+} from "./marketContextPerformanceSelector";
 
 function snapshot(component: string, version: string, resultJson: unknown = {}) {
   return { component, version, status: "complete", sourceDecisionCount: 10, resultJson };
@@ -293,6 +305,7 @@ describe("P0 audit materializer", () => {
       if (component === TEN_SYMBOL_SELECTOR_RESULT_COMPONENT) return snapshot(component, TEN_SYMBOL_SELECTOR_VERSION);
       if (component === TECHNICAL_A_OBSERVATION_V2_FEATURE_COMPONENT) return snapshot(component, TECHNICAL_A_OBSERVATION_V2_VERSION);
       if (component === TECHNICAL_A_OBSERVATION_V2_PLAN_COMPONENT) return snapshot(component, TECHNICAL_A_OBSERVATION_V2_VERSION);
+      if (component === MARKET_CONTEXT_PERFORMANCE_COMPONENT) return snapshot(component, MARKET_CONTEXT_PERFORMANCE_VERSION);
       return null;
     });
     const result = await materializeNextAuditComponentForDate("2026-09-07", {

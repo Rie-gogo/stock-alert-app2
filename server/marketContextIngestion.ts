@@ -1,20 +1,19 @@
 import {
-  getRtDailyAuditMaterialization,
   getRtMarketContextEvent,
   getRtMarketContextEventsForDate,
-  getLatestRtPremarketContextSnapshot,
   insertRtMarketContextEvent,
 } from "./db";
 import {
-  buildMarketContextSelectorShadowDecision,
   classifyIntradayMarketContext,
   type MarketContextBar,
-  type PremarketMarketRegime,
 } from "./marketContextSelectorShadow";
 import {
-  ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
-  ROUTE_GRANULAR_SELECTOR_VERSION,
-} from "./routeGranularNextDaySelector";
+  RollingMarketContextBars,
+} from "./marketContextPerformanceSelector";
+import {
+  enqueueMarketContextSelectorWorker,
+  marketContextSelectorWorkerEnabled,
+} from "./marketContextSelectorWorker";
 import { sha256Stable } from "./runtimeIdentity";
 
 export type MarketContextInput = {
@@ -44,6 +43,10 @@ export type MarketContextInput = {
 export const MARKET_CONTEXT_MINI_INSTRUMENT = "nikkei225_mini_front" as const;
 export const MARKET_CONTEXT_DAY_SESSION_START = "08:45";
 export const MARKET_CONTEXT_DAY_SESSION_END = "15:45";
+
+// One bounded, isolated mini timeline per relay process. A restart hydrates once
+// from the dedicated market-context table; normal 10-symbol ingestion is untouched.
+const rollingBarsByInstrument = new Map<string, RollingMarketContextBars>();
 
 /**
  * Public relay input is deliberately not OAuth-gated so it can use the existing
@@ -206,48 +209,33 @@ export async function ingestMarketContext(input: MarketContextInput) {
   }
 
   const observedQuality = quality(input, cloudReceivedAtMs);
-  const priorRows = observedQuality.status === "verified"
-    ? await getRtMarketContextEventsForDate({
-      tradeDate: input.tradeDate,
-      instrumentKey: input.instrumentKey,
-      verifiedOnly: true,
-    })
-    : [];
   const currentBar = toBar(canonicalPayload);
+  let rolling = rollingBarsByInstrument.get(input.instrumentKey);
+  if (!rolling || rolling.tradeDate() !== input.tradeDate) {
+    rolling = new RollingMarketContextBars();
+    if (observedQuality.status === "verified") {
+      const priorRows = await getRtMarketContextEventsForDate({
+        tradeDate: input.tradeDate,
+        instrumentKey: input.instrumentKey,
+        verifiedOnly: true,
+      });
+      rolling.hydrate(priorRows.map(toBar));
+    }
+    rollingBarsByInstrument.set(input.instrumentKey, rolling);
+  }
+  if (observedQuality.status === "verified") rolling.append(currentBar);
   const regime = observedQuality.status === "verified"
-    ? classifyIntradayMarketContext([...priorRows.map(toBar), currentBar])
+    ? classifyIntradayMarketContext(rolling.bars())
     : classifyIntradayMarketContext([]);
 
-  let selectorShadow: ReturnType<typeof buildMarketContextSelectorShadowDecision> | null = null;
-  let selectorReason = regime.checkpoint ? "route_selector_snapshot_missing" : "not_a_fixed_checkpoint";
-  if (observedQuality.status === "verified" && regime.checkpoint) {
-    const [routeSnapshot, premarketSnapshot] = await Promise.all([
-      getRtDailyAuditMaterialization({
-        component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
-        version: ROUTE_GRANULAR_SELECTOR_VERSION,
-        tradeDate: input.tradeDate,
-      }),
-      getLatestRtPremarketContextSnapshot({ tradeDate: input.tradeDate, usableOnly: true }),
-    ]);
-    if (routeSnapshot) {
-      const premarketResult = premarketSnapshot?.resultJson && typeof premarketSnapshot.resultJson === "object"
-        ? premarketSnapshot.resultJson as Record<string, unknown>
-        : null;
-      const premarketRegime = premarketResult?.regime && typeof premarketResult.regime === "object"
-        ? premarketResult.regime as PremarketMarketRegime
-        : null;
-      selectorShadow = buildMarketContextSelectorShadowDecision({
-        tradeDate: input.tradeDate,
-        sourceEventId,
-        regime,
-        premarketRegime,
-        routeSelectorSnapshot: routeSnapshot.resultJson,
-      });
-      selectorReason = premarketRegime
-        ? "premarket_and_intraday_fixed_checkpoint_selector_shadow_recorded"
-        : "intraday_only_fixed_checkpoint_selector_shadow_recorded";
-    }
-  }
+  const shouldScheduleSelector = observedQuality.status === "verified"
+    && regime.checkpoint
+    && marketContextSelectorWorkerEnabled();
+  const selectorReason = shouldScheduleSelector
+    ? "selector_scheduled_receive_priority"
+    : regime.checkpoint
+      ? "selector_not_scheduled_feature_disabled_or_quality_not_verified"
+      : "not_a_fixed_checkpoint";
 
   const resultJson = {
     monitoringOnly: true,
@@ -259,7 +247,12 @@ export async function ingestMarketContext(input: MarketContextInput) {
     quality: observedQuality,
     regime,
     selectorReason,
-    selectorShadow,
+    selectorWorker: {
+      status: shouldScheduleSelector ? "scheduled" : "not_scheduled",
+      checkpoint: regime.checkpoint ? regime.decisionAt : null,
+      reason: selectorReason,
+      receivePriorityIsolation: true,
+    },
   };
   const row = await insertRtMarketContextEvent({
     sourceEventId,
@@ -297,6 +290,14 @@ export async function ingestMarketContext(input: MarketContextInput) {
       qualityStatus: row.qualityStatus,
       result: row.resultJson,
     };
+  }
+  if (shouldScheduleSelector) {
+    enqueueMarketContextSelectorWorker({
+      sourceEventId,
+      tradeDate: input.tradeDate,
+      checkpoint: regime.decisionAt as "09:05" | "09:15" | "10:00" | "12:35" | "13:30",
+      intradayRegime: regime,
+    });
   }
   return {
     accepted: row.qualityStatus !== "invalid",

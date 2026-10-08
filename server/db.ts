@@ -685,6 +685,33 @@ export async function insertRtMarketContextEvent(
   return row;
 }
 
+/**
+ * The raw market-context event is immutable. A detached selector worker may append
+ * one result only while the saved event is still explicitly marked as scheduled.
+ * Payload, sequence, timestamps, quality, and an already-finalized result remain
+ * untouched, so a repeated worker cannot overwrite a frozen checkpoint decision.
+ */
+export async function finalizeRtMarketContextSelectorResult(input: {
+  sourceEventId: string;
+  selectorResult: Record<string, unknown>;
+}): Promise<RtMarketContextEvent | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const current = await getRtMarketContextEvent(input.sourceEventId);
+  if (!current) return null;
+  const existing = current.resultJson && typeof current.resultJson === "object" && !Array.isArray(current.resultJson)
+    ? current.resultJson as Record<string, unknown>
+    : {};
+  const worker = existing.selectorWorker && typeof existing.selectorWorker === "object"
+    ? existing.selectorWorker as Record<string, unknown>
+    : {};
+  if (worker.status !== "scheduled" || existing.contextPerformanceSelectorV4 || existing.selectorShadow) return current;
+  await db.update(rtMarketContextEvents)
+    .set({ resultJson: { ...existing, ...input.selectorResult } })
+    .where(eq(rtMarketContextEvents.sourceEventId, input.sourceEventId));
+  return getRtMarketContextEvent(input.sourceEventId);
+}
+
 export async function getRtMarketContextEventsForDate(input: {
   tradeDate: string;
   instrumentKey?: string;
@@ -757,6 +784,28 @@ export async function insertRtPremarketContextSnapshot(
   const row = await getRtPremarketContextSnapshot(data.sourceSnapshotId);
   if (!row) throw new Error("premarket_context_snapshot_insert_missing");
   return row;
+}
+
+/** Appends one detached selector result without changing the immutable premarket input or regime. */
+export async function finalizeRtPremarketContextSelectorResult(input: {
+  sourceSnapshotId: string;
+  selectorResult: Record<string, unknown>;
+}): Promise<RtPremarketContextSnapshot | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const current = await getRtPremarketContextSnapshot(input.sourceSnapshotId);
+  if (!current) return null;
+  const existing = current.resultJson && typeof current.resultJson === "object" && !Array.isArray(current.resultJson)
+    ? current.resultJson as Record<string, unknown>
+    : {};
+  const worker = existing.selectorWorker && typeof existing.selectorWorker === "object"
+    ? existing.selectorWorker as Record<string, unknown>
+    : {};
+  if (worker.status !== "scheduled" || existing.contextPerformanceSelectorV4 || existing.selectorShadow) return current;
+  await db.update(rtPremarketContextSnapshots)
+    .set({ resultJson: { ...existing, ...input.selectorResult } })
+    .where(eq(rtPremarketContextSnapshots.sourceSnapshotId, input.sourceSnapshotId));
+  return getRtPremarketContextSnapshot(input.sourceSnapshotId);
 }
 
 export async function getLatestRtPremarketContextSnapshot(input: {

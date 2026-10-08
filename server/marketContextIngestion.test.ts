@@ -7,10 +7,18 @@ const dbMock = vi.hoisted(() => ({
   getLatestRtMarketContextEventForInstrumentDate: vi.fn(),
   getLatestRtMarketContextEventForRelaySession: vi.fn(),
   getLatestRtPremarketContextSnapshot: vi.fn(),
+  getRtDailyAuditMaterialization: vi.fn(),
   insertRtMarketContextEvent: vi.fn(),
+  listRtStrategyVersionsForCatalogAudit: vi.fn(async () => []),
+}));
+
+const selectorWorkerMock = vi.hoisted(() => ({
+  enqueueMarketContextSelectorWorker: vi.fn(),
+  marketContextSelectorWorkerEnabled: vi.fn(() => true),
 }));
 
 vi.mock("./db", () => dbMock);
+vi.mock("./marketContextSelectorWorker", () => selectorWorkerMock);
 
 import {
   ingestMarketContext,
@@ -66,6 +74,8 @@ describe("market-context ingress boundary", () => {
     dbMock.getLatestRtMarketContextEventForInstrumentDate.mockResolvedValue(null);
     dbMock.getLatestRtMarketContextEventForRelaySession.mockResolvedValue(null);
     dbMock.getLatestRtPremarketContextSnapshot.mockResolvedValue(null);
+    dbMock.getRtDailyAuditMaterialization.mockResolvedValue(null);
+    dbMock.listRtStrategyVersionsForCatalogAudit.mockResolvedValue([]);
     dbMock.insertRtMarketContextEvent.mockImplementation(async (row: Record<string, unknown>) => persisted({
       sourceEventId: row.sourceEventId,
       relaySessionId: row.relaySessionId,
@@ -75,6 +85,7 @@ describe("market-context ingress boundary", () => {
       resultJson: row.resultJson,
       qualityStatus: row.qualityStatus,
     }));
+    selectorWorkerMock.marketContextSelectorWorkerEnabled.mockReturnValue(true);
   });
 
   it("accepts only the Nikkei 225 mini day/night feed during the declared day session", () => {
@@ -134,6 +145,42 @@ describe("market-context ingress boundary", () => {
       sourceEventId: input.sourceEventId,
       eventSeq: input.eventSeq,
     }));
+  });
+
+  it("hydrates the bounded mini timeline once per instrument/day rather than rereading it for every minute", async () => {
+    const day = "2030-10-01";
+    await ingestMarketContext({ ...input, tradeDate: day, candleTime: "09:00", sourceEventId: "relay-bounded:market:1", relaySessionId: "relay-bounded", eventSeq: 1 });
+    await ingestMarketContext({ ...input, tradeDate: day, candleTime: "09:01", sourceEventId: "relay-bounded:market:2", relaySessionId: "relay-bounded", eventSeq: 2 });
+    expect(dbMock.getRtMarketContextEventsForDate).toHaveBeenCalledTimes(1);
+    expect(dbMock.getRtMarketContextEventsForDate).toHaveBeenCalledWith({
+      tradeDate: day,
+      instrumentKey: "nikkei225_mini_front",
+      verifiedOnly: true,
+    });
+  });
+
+  it("saves a 09:05 mini bar first and only schedules the detached v4 worker", async () => {
+    // 09:05の固定判断は09:04までの確定足を使うが、ingressはworkerを待たない。
+    const v4Input = { ...input, tradeDate: "2026-10-06", candleTime: "09:04", sourceEventId: "relay-v4:market:104", relaySessionId: "relay-v4", eventSeq: 104 };
+    dbMock.getRtMarketContextEventsForDate.mockResolvedValue([
+      { ...v4Input, candleTime: "09:00", open: 49998, high: 50001, low: 49997, close: 50000 },
+      { ...v4Input, candleTime: "09:01", open: 50000, high: 50003, low: 49999, close: 50001 },
+      { ...v4Input, candleTime: "09:02", open: 50001, high: 50005, low: 50000, close: 50004 },
+      { ...v4Input, candleTime: "09:03", open: 50004, high: 50007, low: 50003, close: 50006 },
+    ]);
+    const result = await ingestMarketContext({ ...v4Input, open: 50005, close: 50009, high: 50010, low: 50004 });
+    expect(result).toMatchObject({ accepted: true });
+    expect(dbMock.insertRtMarketContextEvent).toHaveBeenCalledWith(expect.objectContaining({
+      resultJson: expect.objectContaining({
+        selectorReason: "selector_scheduled_receive_priority",
+        selectorWorker: expect.objectContaining({ status: "scheduled", checkpoint: "09:05", receivePriorityIsolation: true }),
+      }),
+    }));
+    expect(selectorWorkerMock.enqueueMarketContextSelectorWorker).toHaveBeenCalledWith(expect.objectContaining({
+      sourceEventId: "relay-v4:market:104", checkpoint: "09:05",
+    }));
+    expect(dbMock.getRtDailyAuditMaterialization).not.toHaveBeenCalled();
+    expect(dbMock.getLatestRtPremarketContextSnapshot).not.toHaveBeenCalled();
   });
 
   it("fails closed if a concurrent insert exposes a mismatched immutable source identity", async () => {

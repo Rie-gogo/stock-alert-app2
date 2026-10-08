@@ -1197,38 +1197,78 @@ export const tradingRouter = router({
       limit: z.number().int().min(1).max(240).default(90),
     }))
     .query(async ({ input }) => {
-      const { getLatestRtMarketContextEvents, getLatestRtPremarketContextSnapshot } = await import("../db");
+      const {
+        getLatestRtMarketContextEvents,
+        getLatestRtPremarketContextSnapshot,
+        getRtDailyAuditMaterialization,
+      } = await import("../db");
+      const {
+        MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+        MARKET_CONTEXT_PERFORMANCE_VERSION,
+        MARKET_CONTEXT_PERFORMANCE_SELECTOR_VERSION,
+      } = await import("../marketContextPerformanceSelector");
       const [events, premarket] = await Promise.all([
         getLatestRtMarketContextEvents(input),
         getLatestRtPremarketContextSnapshot({ tradeDate: input.tradeDate }),
       ]);
-      const decisions = events.filter(event => {
+      const v3HistoryDecisions = events.filter(event => {
         const result = event.resultJson && typeof event.resultJson === "object"
           ? event.resultJson as Record<string, unknown>
           : {};
         return result.selectorShadow !== null && result.selectorShadow !== undefined;
       });
+      const v4Decisions = events.filter(event => {
+        const result = event.resultJson && typeof event.resultJson === "object"
+          ? event.resultJson as Record<string, unknown>
+          : {};
+        return result.contextPerformanceSelectorV4 !== null && result.contextPerformanceSelectorV4 !== undefined;
+      });
       const premarketResult = premarket?.resultJson && typeof premarket.resultJson === "object"
         ? premarket.resultJson as Record<string, unknown>
         : {};
+      const latestResult = events[0]?.resultJson && typeof events[0].resultJson === "object"
+        ? events[0].resultJson as Record<string, unknown>
+        : {};
+      const performanceSnapshot = await getRtDailyAuditMaterialization({
+        component: MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+        version: MARKET_CONTEXT_PERFORMANCE_VERSION,
+        tradeDate: input.tradeDate,
+      });
       const verifiedMarketEvents = events.filter(event => event.qualityStatus === "verified").length;
       return {
-        version: "market-context-selector-shadow-v3-market-affinity-monitoring",
+        version: MARKET_CONTEXT_PERFORMANCE_SELECTOR_VERSION,
         tradeDate: input.tradeDate,
         monitoringOnly: true,
         automaticAdoption: false,
         orderInstructionConnection: false,
         premarket,
         latest: events[0] ?? null,
-        decisions,
+        // Keep compatibility rows explicit and separate: v3 must never be folded
+        // into v4 context-conditioned performance or selection displays.
+        v3History: {
+          version: "market-context-selector-shadow-v3-market-affinity-monitoring",
+          premarketDecision: premarketResult.selectorShadow ?? null,
+          decisions: v3HistoryDecisions,
+          displayOnly: true,
+          usedForV4: false,
+        },
+        v4: {
+          premarketDecision: premarketResult.contextPerformanceSelectorV4 ?? null,
+          decisions: v4Decisions,
+          latestSelectorWorker: latestResult.selectorWorker ?? premarketResult.selectorWorker ?? null,
+          performanceSnapshot: performanceSnapshot?.resultJson ?? null,
+          performanceStatus: performanceSnapshot?.status ?? "not_materialized",
+        },
         events,
         readiness: {
           premarketSnapshotPresent: Boolean(premarket),
           premarketUsable: premarket?.qualityStatus === "verified" || premarket?.qualityStatus === "degraded",
-          premarketSelectorRecorded: premarketResult.selectorShadow !== null && premarketResult.selectorShadow !== undefined,
+          premarketSelectorRecorded: premarketResult.contextPerformanceSelectorV4 !== null && premarketResult.contextPerformanceSelectorV4 !== undefined,
           marketContextEventCount: events.length,
           verifiedMarketContextEventCount: verifiedMarketEvents,
-          intradaySelectorDecisionCount: decisions.length,
+          intradaySelectorDecisionCount: v4Decisions.length,
+          selectorWorkerStatus: latestResult.selectorWorker ?? premarketResult.selectorWorker ?? null,
+          performanceSnapshotStatus: performanceSnapshot?.status ?? "not_materialized",
           missingInputs: [
             ...(!premarket ? ["premarket_1_to_3"] : []),
             ...(verifiedMarketEvents === 0 ? ["nikkei225_mini_4"] : []),

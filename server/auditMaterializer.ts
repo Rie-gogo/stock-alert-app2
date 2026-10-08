@@ -4,6 +4,8 @@ import {
   getRtAuditTradeDateFinality,
   getRtAuditTradeDateWatermark,
   getRtDailyAuditMaterialization,
+  getRtMarketContextEventsForDate,
+  getLatestRtPremarketContextSnapshot,
   getRtPortfolioMaterializationProgress,
   reopenRtAuditMaterializationsForTradeDate,
   releaseRtNamedWorkerLock,
@@ -74,6 +76,11 @@ import {
   ROUTE_GRANULAR_MONITORING_VERSION,
   materializeRouteGranularMonitoringForDate,
 } from "./routeGranularMonitoringMaterializer";
+import {
+  MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+  MARKET_CONTEXT_PERFORMANCE_VERSION,
+  materializeMarketContextPerformanceForDate,
+} from "./marketContextPerformanceSelector";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
 export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
@@ -493,6 +500,29 @@ async function materializeNextAuditComponentUnlocked(
     }
     const granularSnapshot = await materializeRouteGranularSelectorForSourceDate({ sourceTradeDate: tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough, watermark: finality.row.watermarkJson });
     if (granularSnapshot.created) return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, result: granularSnapshot };
+  }
+
+  // v4 performance evidence is strictly the final downstream component. It reads
+  // frozen context decisions plus a closed route-granular daily snapshot; it never
+  // joins source/candidate/shadow hot paths or influences v3 selection history.
+  const contextPerformance = await getRtDailyAuditMaterialization({
+    component: MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+    version: MARKET_CONTEXT_PERFORMANCE_VERSION,
+    tradeDate,
+  });
+  if (!contextPerformance) {
+    const [marketEvents, premarket] = await Promise.all([
+      getRtMarketContextEventsForDate({ tradeDate, instrumentKey: "nikkei225_mini_front", verifiedOnly: false }),
+      getLatestRtPremarketContextSnapshot({ tradeDate, usableOnly: false }),
+    ]);
+    const result = await materializeMarketContextPerformanceForDate({
+      tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+      frozenMarketEventResults: marketEvents,
+      frozenPremarketResult: premarket?.resultJson ?? null,
+    });
+    return { status: "processing" as const, component: MARKET_CONTEXT_PERFORMANCE_COMPONENT, result };
   }
 
   return {

@@ -37,6 +37,12 @@ export default function RelayBollingerDiagnosticsSection({ tradeDate }: Props) {
               <Metric label="queue backlog" value={data.queue.backlogCount.toLocaleString()} danger={data.queue.backlogCount > 0} />
               <Metric label="shadow errors" value={data.shadow.errorEvents.toLocaleString()} danger={data.shadow.errorEvents > 0} />
             </div>
+            <div className="rounded border border-border p-3 space-y-1">
+              <div className="font-medium">閉場後queue・日次集計finality</div>
+              <div className="text-muted-foreground">finality={data.aggregation.finalityStatus}（{data.aggregation.finalityReason}） / materialized cutoff={data.aggregation.materializedCutoff ?? "未生成"} / snapshot={data.aggregation.materializationStatus}</div>
+              <div className="text-muted-foreground">最終processed source: {data.queue.lastProcessed ? `${data.queue.lastProcessed.candleTime} / seq=${data.queue.lastProcessed.engineSequence}` : "未処理"}、watermark={data.aggregation.watermarkHash?.slice(0, 12) ?? "—"}</div>
+              {data.aggregation.state !== "materialized" && <div className="text-amber-400">集計未完了: {data.aggregation.notMaterializedReason ?? "理由未記録"}（発火0とは別の状態です）</div>}
+            </div>
             <div className="overflow-x-auto rounded border border-border">
               <table className="w-full min-w-[780px] text-xs">
                 <thead className="bg-muted/40 text-muted-foreground"><tr>

@@ -431,6 +431,12 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
       }
     }
 
+    // 次の受信イベントを待たず、既存CAS/lease outbox workerで引け後tailを回収する。
+    // watermarkが未完ならcoordinatorはsnapshot生成を禁止したまま状態を返す。
+    const { finalizeClosedTradeDateTail } = await import("./closedTradeDateTailDrain");
+    const tailDrain = await finalizeClosedTradeDateTail({ tradeDate: todayStr, now });
+    console.log("[rt-daily-report] closed trade-date tail drain", tailDrain);
+
     // 当日の取引ログを取得
     const trades = await getRtTradesForDate(todayStr);
     const summary = await getRtDailySummary(todayStr);
@@ -441,13 +447,13 @@ export async function rtDailyReportHandler(req: Request, res: Response) {
     // 取引がない場合はスキップ
     if (trades.length === 0 && !summary && forwardShadowEventCount === 0) {
       console.log(`[rt-daily-report] No trades for ${todayStr}, skipping report.`);
-      return res.json({ ok: true, skipped: "no-trades", tradeDate: todayStr });
+      return res.json({ ok: true, skipped: "no-trades", tradeDate: todayStr, tailDrain });
     }
 
     // 既にレポート送信済みの場合はスキップ
     if (summary?.reportSent) {
       console.log(`[rt-daily-report] Report already sent for ${todayStr}, skipping.`);
-      return res.json({ ok: true, skipped: "already-sent", tradeDate: todayStr });
+      return res.json({ ok: true, skipped: "already-sent", tradeDate: todayStr, tailDrain });
     }
 
     // 決済済みトレードを集計
@@ -606,6 +612,7 @@ ${score0Section}
         totalPnl,
         tradesCount: closedTrades.length,
         winRate,
+        tailDrain,
         ...delivery,
       });
     }
@@ -616,6 +623,7 @@ ${score0Section}
       totalPnl,
       tradesCount: closedTrades.length,
       winRate,
+      tailDrain,
       ...delivery,
     });
 

@@ -1,6 +1,6 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { rtForwardShadowEvents, rtRealtimeDecisionEvents, rtShadowDispatchQueue, rtSourceEvents } from "../drizzle/schema";
+import { rtAuditTradeDateFinality, rtDailyAuditMaterializations, rtForwardShadowEvents, rtRealtimeDecisionEvents, rtShadowDispatchQueue, rtSourceEvents } from "../drizzle/schema";
 import {
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS,
@@ -46,7 +46,7 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
     return { available: false as const, tradeDate, reason: "database_unavailable" as const };
   }
 
-  const [sources, decisions, queueRows, shadowRows, rejectedShadowRows, variantModeAggregateRows] = await Promise.all([
+  const [sources, decisions, queueRows, shadowRows, rejectedShadowRows, variantModeAggregateRows, finalityRows, monitoringRows, lastProcessedRows] = await Promise.all([
     db.select({
       symbol: rtSourceEvents.symbol,
       candleTime: rtSourceEvents.candleTime,
@@ -107,6 +107,15 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
       rtForwardShadowEvents.strategyVersion,
       rtForwardShadowEvents.evaluationMode,
     ),
+    db.select({ status: rtAuditTradeDateFinality.status, reason: rtAuditTradeDateFinality.reason, watermarkHash: rtAuditTradeDateFinality.watermarkHash, latestUpstreamCreatedAt: rtAuditTradeDateFinality.latestUpstreamCreatedAt, closedAt: rtAuditTradeDateFinality.closedAt })
+      .from(rtAuditTradeDateFinality).where(eq(rtAuditTradeDateFinality.tradeDate, tradeDate)).limit(1),
+    db.select({ status: rtDailyAuditMaterializations.status, version: rtDailyAuditMaterializations.version, generatedAt: rtDailyAuditMaterializations.generatedAt, lastError: rtDailyAuditMaterializations.lastError })
+      .from(rtDailyAuditMaterializations).where(and(eq(rtDailyAuditMaterializations.tradeDate, tradeDate), eq(rtDailyAuditMaterializations.component, "monitoring_trend_10_symbols")))
+      .orderBy(desc(rtDailyAuditMaterializations.id)).limit(1),
+    db.select({ engineSequence: rtShadowDispatchQueue.engineSequence, sourceEventId: rtShadowDispatchQueue.sourceEventId, candleTime: rtSourceEvents.candleTime, sourceCreatedAt: rtSourceEvents.createdAt, processedAt: rtShadowDispatchQueue.processedAt })
+      .from(rtShadowDispatchQueue).innerJoin(rtSourceEvents, eq(rtShadowDispatchQueue.sourceEventId, rtSourceEvents.sourceEventId))
+      .where(and(eq(rtSourceEvents.tradeDate, tradeDate), eq(rtShadowDispatchQueue.status, "processed")))
+      .orderBy(desc(rtShadowDispatchQueue.engineSequence)).limit(1),
   ]);
 
   const bySymbol = new Map<string, typeof sources>();
@@ -163,6 +172,10 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
   for (const row of decisions) decisionCounts.set(row.resultType, (decisionCounts.get(row.resultType) ?? 0) + 1);
   const queueCounts = new Map<string, number>();
   for (const row of queueRows) queueCounts.set(row.status, (queueCounts.get(row.status) ?? 0) + 1);
+  const finality = finalityRows[0] ?? null;
+  const monitoring = monitoringRows[0] ?? null;
+  const lastProcessed = lastProcessedRows[0] ?? null;
+  const aggregationReady = finality?.status === "closed" && monitoring?.status === "complete";
   const variantModeStatus = variantModeAggregateRows.flatMap(row => {
     const statuses: Array<[string, number]> = [
       ["processed_no_signal", Number(row.processedNoSignal)],
@@ -216,6 +229,20 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
       maxAttemptCount: queueRows.length ? Math.max(...queueRows.map(row => row.attemptCount)) : 0,
       errorCount: queueRows.filter(row => Boolean(row.lastError) || row.status === "error").length,
       backlogCount: queueRows.filter(row => row.status === "pending" || row.status === "processing").length,
+      lastProcessed: lastProcessed ? { engineSequence: lastProcessed.engineSequence, sourceEventId: lastProcessed.sourceEventId, candleTime: lastProcessed.candleTime, sourceCreatedAt: lastProcessed.sourceCreatedAt, processedAt: lastProcessed.processedAt } : null,
+    },
+    aggregation: {
+      finalityStatus: finality?.status ?? "not_started",
+      finalityReason: finality?.reason ?? "finality_row_missing",
+      watermarkHash: finality?.watermarkHash ?? null,
+      latestUpstreamCreatedAt: finality?.latestUpstreamCreatedAt ?? null,
+      closedAt: finality?.closedAt ?? null,
+      materializedCutoff: monitoring?.status === "complete" ? tradeDate : null,
+      materializationVersion: monitoring?.version ?? null,
+      materializationStatus: monitoring?.status ?? "not_generated",
+      materializationError: monitoring?.lastError ?? null,
+      state: aggregationReady ? "materialized" : "not_materialized",
+      notMaterializedReason: aggregationReady ? null : finality?.status !== "closed" ? finality?.reason ?? "audit_finality_not_closed" : monitoring?.lastError ?? "monitoring_snapshot_not_generated",
     },
   };
 }

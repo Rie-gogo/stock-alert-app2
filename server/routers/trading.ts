@@ -68,6 +68,35 @@ const relayCandleProvenanceInput = z.object({
   relayAssembledAtMs: z.number().int().nonnegative().nullable().optional(),
 }).optional();
 
+/** Immutable relay board snapshot. CurrentPriceTime remains source-price audit data. */
+const candleBoardInput = z.object({
+  symbol: z.string().optional(),
+  symbolName: z.string(),
+  currentPrice: z.number(),
+  currentPriceTime: z.string(),
+  relayObservedAtMs: z.number().int().nonnegative().optional(),
+  asks: z.array(z.object({ price: z.number(), qty: z.number() })),
+  bids: z.array(z.object({ price: z.number(), qty: z.number() })),
+  marketOrderSellQty: z.number().default(0),
+  marketOrderBuyQty: z.number().default(0),
+  overSellQty: z.number().default(0),
+  underBuyQty: z.number().default(0),
+  vwap: z.number().default(0),
+  largeAskWallRatio: z.number().optional(),
+  largeBidWallRatio: z.number().optional(),
+  largeAskWallPrice: z.number().nullable().optional(),
+  largeBidWallPrice: z.number().nullable().optional(),
+  nearAskWallPct: z.number().nullable().optional(),
+  nearBidWallPct: z.number().nullable().optional(),
+  marketOrderDirection: z.enum(["buy", "sell", "neutral"]).optional(),
+  askCancelDetected: z.boolean().optional(),
+  bidCancelDetected: z.boolean().optional(),
+  icebergAskDetected: z.boolean().optional(),
+  icebergBidDetected: z.boolean().optional(),
+  totalAskQty: z.number().optional(),
+  totalBidQty: z.number().optional(),
+});
+
 const marketContextInput = z.object({
   // Existing Windows relay transport remains public, but this endpoint accepts
   // only the dynamically resolved Nikkei 225 mini day/night instrument.
@@ -1065,6 +1094,7 @@ export const tradingRouter = router({
         symbolName: z.string(),
         currentPrice: z.number(),
         currentPriceTime: z.string(),
+        relayObservedAtMs: z.number().int().nonnegative().optional(),
         asks: z.array(z.object({ price: z.number(), qty: z.number() })),
         bids: z.array(z.object({ price: z.number(), qty: z.number() })),
         marketOrderSellQty: z.number().default(0),
@@ -1283,11 +1313,13 @@ export const tradingRouter = router({
         relaySentAtMs: z.number().int().nonnegative().optional(),
         correctedEventId: z.string().min(1).max(128).optional(),
         provenance: relayCandleProvenanceInput,
+        // Canonical/shadow board only; the current engine keeps its existing input.
+        board: candleBoardInput.nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {
       const { ingestSourceCandle } = await import("../sourceEventIngestion");
-      return ingestSourceCandle(input);
+      return ingestSourceCandle({ ...input, currentEngineBoard: null });
     }),
 
   /**
@@ -1316,35 +1348,7 @@ export const tradingRouter = router({
         correctedEventId: z.string().min(1).max(128).optional(),
         provenance: relayCandleProvenanceInput,
         // 板情報データ（オプション：取得できなかった場合はnull）
-        board: z
-          .object({
-            symbolName: z.string(),
-            currentPrice: z.number(),
-            currentPriceTime: z.string(),
-            asks: z.array(z.object({ price: z.number(), qty: z.number() })),
-            bids: z.array(z.object({ price: z.number(), qty: z.number() })),
-            marketOrderSellQty: z.number().default(0),
-            marketOrderBuyQty: z.number().default(0),
-            overSellQty: z.number().default(0),
-            underBuyQty: z.number().default(0),
-            vwap: z.number().default(0),
-            // v5拡張フィールド（パターン6.14対応）
-            largeAskWallRatio: z.number().optional(),
-            largeBidWallRatio: z.number().optional(),
-            largeAskWallPrice: z.number().nullable().optional(),
-            largeBidWallPrice: z.number().nullable().optional(),
-            nearAskWallPct: z.number().nullable().optional(),
-            nearBidWallPct: z.number().nullable().optional(),
-            marketOrderDirection: z.enum(["buy", "sell", "neutral"]).optional(),
-            askCancelDetected: z.boolean().optional(),
-            bidCancelDetected: z.boolean().optional(),
-            icebergAskDetected: z.boolean().optional(),
-            icebergBidDetected: z.boolean().optional(),
-            totalAskQty: z.number().optional(),
-            totalBidQty: z.number().optional(),
-          })
-          .nullable()
-          .optional(),
+        board: candleBoardInput.nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {

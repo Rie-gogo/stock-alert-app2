@@ -19,17 +19,22 @@ import { createForwardShadowLockOwnerToken } from "./forwardShadowLock";
 import { TEN_MONITORED_SYMBOLS } from "./multiSymbolMonitoringRegistry";
 import {
   BASELINE_STRATEGY_GIT_SHA,
-  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V1_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V2_VERSIONS,
   BOLLINGER_DIRECTIONAL_NO_STOP_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V1_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V5_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V3_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V1_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V3_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V1_VERSIONS,
+  RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS,
   BOLLINGER_DIRECTIONAL_STOP_060_VERSIONS,
   RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS,
@@ -77,29 +82,29 @@ const ensuredVersions = new Set<string>();
 const frozenPlanCache = new Map<string, Promise<BollingerDirectionalPlan>>();
 let retiredSupersededVersions = false;
 
-type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS;
+type BollingerSymbol = keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS;
 
 export function bollingerDirectionalStrategyVersion(symbol: BollingerSymbol, variant: BollingerDirectionalVariant) {
   if (variant === "fixed_stop_140_cooldown_30_sma20_gap060") return BOLLINGER_DIRECTIONAL_SMA20_GAP_060_VERSIONS[symbol];
   if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060") return RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_VERSIONS[symbol];
-  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3") return BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS[symbol];
-  if (variant === "fixed_stop_140_cooldown_30_sma20_slope_gap060") return BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS[symbol];
-  if (variant === "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060") return BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS[symbol];
-  if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") return BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS[symbol];
-  return BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3") return BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V5_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_slope_gap060") return BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V3_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060") return BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V3_VERSIONS[symbol];
+  if (variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050") return BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS[symbol];
+  return BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS[symbol];
 }
 
 export function bollingerDirectionalLifecycleStrategyId(symbol: BollingerSymbol, variant: BollingerDirectionalVariant): string {
   // rt_strategy_versions.strategy_id は64文字。versionIdは完全なまま監査に残す。
   return variant === "fixed_stop_140_cooldown_30_sma20_dynamic_gap060_v3"
-    ? `${symbol.toLowerCase()}-bb-sma20-dynamic-v4`
+    ? `${symbol.toLowerCase()}-bb-sma20-dynamic-v5`
     : variant === "fixed_stop_140_cooldown_30_sma20_slope_gap060"
-    ? `${symbol.toLowerCase()}-bb-sma20-slope-a-v2`
+    ? `${symbol.toLowerCase()}-bb-sma20-slope-a-v3`
     : variant === "fixed_stop_140_cooldown_30_sma20_slope_bbwidth5_gap060"
-    ? `${symbol.toLowerCase()}-bb-sma20-slope-width-b-v2`
+    ? `${symbol.toLowerCase()}-bb-sma20-slope-width-b-v3`
     : variant === "fixed_stop_140_cooldown_30_sma10_slope_gap050"
-    ? `${symbol.toLowerCase()}-bb-sma10-slope-v2`
-    : `${symbol.toLowerCase()}-bb-fixed-stop-v2`;
+    ? `${symbol.toLowerCase()}-bb-sma10-slope-v3`
+    : `${symbol.toLowerCase()}-bb-fixed-stop-v3`;
 }
 
 async function retireSupersededVersions() {
@@ -114,10 +119,15 @@ async function retireSupersededVersions() {
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI14_GAP_060_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V1_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V2_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V1_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V1_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS) as string[]),
     ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V1_VERSIONS) as string[]),
+    ...(Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS) as string[]),
   ];
   for (const versionId of historicalVersions) {
     const row = await getRtStrategyVersion(versionId);
@@ -128,17 +138,22 @@ async function retireSupersededVersions() {
       const isRetiredRsi22Long = (Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_RSI22LONG_GAP_060_VERSIONS) as readonly string[]).includes(versionId);
       const sourceTimeFreshnessRetiredVersions: string[] = [
         ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V1_VERSIONS),
+        ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V2_VERSIONS),
         ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V3_VERSIONS),
+        ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS),
         ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V1_VERSIONS),
+        ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS),
         ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V1_VERSIONS),
+        ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS),
         ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V1_VERSIONS),
+        ...Object.values(RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS),
       ];
       const isSourceTimeFreshnessRetirement = sourceTimeFreshnessRetiredVersions.includes(versionId);
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
         statusReason: isSourceTimeFreshnessRetirement
-          ? "retired_replaced_by_source_time_board_freshness_fix_2026_10_09"
+          ? "retired_replaced_by_relay_websocket_received_board_freshness_fix_2026_10_09"
           : isRetiredRsi22Long
           ? "retired_replaced_by_sma20_direction_slope_variants_without_rsi_2026_10_08"
           : isRetiredRsi14
@@ -188,7 +203,9 @@ async function ensureVersion(symbol: BollingerSymbol, variant: BollingerDirectio
       short: "upper_2sigma_touch_then_next_bearish_candle",
       execution: "confirmation_event_directional_depth_vwap_100",
       maximumBoardAgeMs: BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS,
-      boardAgeAcceptanceBasis: "board_observed_to_relay_assembled_same_clock",
+      boardObservationBasisRequired: "relay_websocket_received_at_ms",
+      boardAgeAcceptanceBasis: "relay_observed_to_relay_assembled_same_windows_clock",
+      currentPriceTimeUse: "boardSourcePriceTimeMs_audit_only_not_entry_acceptance",
       sourceBoardAgeField: "sourceBoardAgeMs",
       deliveryBoardAgeAuditField: "deliveryBoardAgeMs",
       deliveryBoardAgeUse: "audit_only_not_entry_acceptance",

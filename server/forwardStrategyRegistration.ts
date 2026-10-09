@@ -30,7 +30,7 @@ function permitsDynamicTechnicalLevels(input: { versionId: string; configJson: u
 }
 
 function permitsFixedEntryBollingerLevels(input: { versionId: string; configJson: unknown; eligibleForAdoption?: boolean }): boolean {
-  if (!input.versionId.match(/^candidate-(285a|3436|5803|6146|6526|6857|6976|6981|8035|9984)-bollinger-directional-(fixed-stop140-cooldown30|sma20-dynamic-gap060-stop140-cooldown30|sma20-slope-gap060-stop140-cooldown30|sma20-slope-bbwidth5-gap060-stop140-cooldown30|sma10-slope-gap050-stop140-cooldown30)-v[1234]$/)
+  if (!input.versionId.match(/^candidate-(285a|3436|5803|6146|6526|6857|6976|6981|8035|9984)-bollinger-directional-(fixed-stop140-cooldown30-v3|sma20-dynamic-gap060-stop140-cooldown30-v5|sma20-slope-gap060-stop140-cooldown30-v3|sma20-slope-bbwidth5-gap060-stop140-cooldown30-v3|sma10-slope-gap050-stop140-cooldown30-v3)$/)
     || !input.configJson || typeof input.configJson !== "object") return false;
   const policy = (input.configJson as Record<string, unknown>).riskRewardPolicy;
   return Boolean(policy && typeof policy === "object"

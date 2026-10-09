@@ -2,11 +2,11 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { rtAuditTradeDateFinality, rtDailyAuditMaterializations, rtForwardShadowEvents, rtRealtimeDecisionEvents, rtShadowDispatchQueue, rtSourceEvents } from "../drizzle/schema";
 import {
-  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS,
-  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS,
+  BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V5_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V3_VERSIONS,
+  BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V3_VERSIONS,
 } from "./runtimeIdentity";
 
 const FIXED_SESSION_MINUTES = [
@@ -15,11 +15,11 @@ const FIXED_SESSION_MINUTES = [
 ];
 const BOLLINGER_SYMBOLS = ["285A", "3436", "5803", "6146", "6526", "6857", "6976", "6981", "8035", "9984"];
 const ACTIVE_BOLLINGER_STRATEGY_VERSIONS = [
-  ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V2_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS),
-  ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V5_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V3_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V3_VERSIONS),
+  ...Object.values(BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS),
 ] as string[];
 
 function minuteToClock(value: number) {
@@ -40,6 +40,14 @@ function parseActions(value: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
+function relayObservedAtMsFromCanonicalPayload(value: unknown): number | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const board = (value as Record<string, unknown>).board;
+  if (!board || typeof board !== "object" || Array.isArray(board)) return null;
+  const observed = (board as Record<string, unknown>).relayObservedAtMs;
+  return Number.isInteger(observed) && (observed as number) >= 0 ? observed as number : null;
+}
+
 export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
   const db = await getDb();
   if (!db) {
@@ -51,6 +59,7 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
       symbol: rtSourceEvents.symbol,
       candleTime: rtSourceEvents.candleTime,
       sourceEventId: rtSourceEvents.sourceEventId,
+      payloadJson: rtSourceEvents.payloadJson,
       relayReceivedAtMs: rtSourceEvents.relayReceivedAtMs,
       cloudReceivedAtMs: rtSourceEvents.cloudReceivedAtMs,
       status: rtSourceEvents.status,
@@ -129,6 +138,7 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
     const received = rows
       .filter(row => row.relayReceivedAtMs !== null && row.cloudReceivedAtMs !== null)
       .map(row => Number(row.cloudReceivedAtMs) - Number(row.relayReceivedAtMs));
+    const relayObservedAtMs = rows.map(row => relayObservedAtMsFromCanonicalPayload(row.payloadJson)).filter((value): value is number => value !== null);
     const missing = FIXED_SESSION_MINUTES.filter(minute => !timeSet.has(minuteToClock(minute)));
     const gaps: string[] = [];
     let gapStart: number | null = null;
@@ -150,6 +160,12 @@ export async function getRelayBollingerDiagnosticsSnapshot(tradeDate: string) {
       missingFixedSessionMinutes: missing.length,
       missingRanges: gaps,
       processingFailed: rows.filter(row => row.status === "failed").length,
+      relayObservedAt: {
+        receivedEvents: relayObservedAtMs.length,
+        missingEvents: rows.length - relayObservedAtMs.length,
+        firstMs: relayObservedAtMs.length ? Math.min(...relayObservedAtMs) : null,
+        lastMs: relayObservedAtMs.length ? Math.max(...relayObservedAtMs) : null,
+      },
       averageRelayToCloudMs: received.length ? Math.round(received.reduce((sum, value) => sum + value, 0) / received.length) : null,
       maxRelayToCloudMs: received.length ? Math.max(...received) : null,
     };

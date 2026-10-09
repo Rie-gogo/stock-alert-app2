@@ -127,6 +127,8 @@ export type AuditedCurrentEngineResult = {
     causalityStatus: "pass" | "violation" | "unverified" | "not_applicable";
     causalityReason: string;
     boardObservedAtMs: number | null;
+    boardObservationBasis: BoardObservationBasis;
+    boardSourcePriceTimeMs: number | null;
     relayAssembledAtMs: number | null;
     relaySentAtMs: number | null;
     cloudReceivedAtMs: number | null;
@@ -747,6 +749,21 @@ export function parseBoardObservedAtMs(tradeDate: string, value: string | null |
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+export type BoardObservationBasis = "relay_websocket_received_at_ms" | "legacy_current_price_time" | "unavailable";
+
+/** CurrentPriceTime is source-price audit evidence only; WS receipt time is the board observation for new relays. */
+export function resolveBoardObservation(input: {
+  tradeDate: string;
+  board: Omit<KabuOrderBook, "symbol" | "receivedAt"> | null;
+}): { boardObservedAtMs: number | null; boardObservationBasis: BoardObservationBasis; boardSourcePriceTimeMs: number | null } {
+  const boardSourcePriceTimeMs = parseBoardObservedAtMs(input.tradeDate, input.board?.currentPriceTime);
+  const relayObservedAtMs = input.board?.relayObservedAtMs;
+  if (Number.isInteger(relayObservedAtMs) && (relayObservedAtMs ?? -1) >= 0) {
+    return { boardObservedAtMs: relayObservedAtMs ?? null, boardObservationBasis: "relay_websocket_received_at_ms", boardSourcePriceTimeMs };
+  }
+  return { boardObservedAtMs: boardSourcePriceTimeMs, boardObservationBasis: boardSourcePriceTimeMs === null ? "unavailable" : "legacy_current_price_time", boardSourcePriceTimeMs };
+}
+
 function nonNegativeDelta(later: number | null | undefined, earlier: number | null | undefined): number | null {
   if (later === null || later === undefined || earlier === null || earlier === undefined) return null;
   return Math.max(0, later - earlier);
@@ -805,12 +822,14 @@ export async function processCurrentEngineAudited(input: {
     });
     const executablePriceProxy = result.executionPrice ?? input.board?.currentPrice ?? null;
     const simulatedBarFillPrice = result.executionPriceSource ? null : latestTrade?.price ?? null;
-    const boardObservedAtMs = parseBoardObservedAtMs(input.candle.tradeDate, input.board?.currentPriceTime);
+    const { boardObservedAtMs, boardObservationBasis, boardSourcePriceTimeMs } = resolveBoardObservation({ tradeDate: input.candle.tradeDate, board: input.board });
     const availabilityTimeline = {
       sourceEventId: input.sourceEvent.sourceEventId,
       candleLogicalAt: `${input.candle.tradeDate}T${input.candle.candleTime}:00+09:00`,
-      boardObservedAt: input.board?.currentPriceTime ?? null,
+      boardObservationBasis,
       boardObservedAtMs,
+      boardSourcePriceTime: input.board?.currentPriceTime ?? null,
+      boardSourcePriceTimeMs,
       relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
       relaySentAtMs: input.sourceEvent.relaySentAtMs,
       cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,
@@ -996,6 +1015,8 @@ export async function processCurrentEngineAudited(input: {
           causalityStatus: causality.status,
           causalityReason: causality.reason,
           boardObservedAtMs,
+          boardObservationBasis,
+          boardSourcePriceTimeMs,
           relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
           relaySentAtMs: input.sourceEvent.relaySentAtMs,
           cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,
@@ -1019,6 +1040,8 @@ export async function processCurrentEngineAudited(input: {
           causalityStatus: causality.status,
           causalityReason: causality.reason,
           boardObservedAtMs,
+          boardObservationBasis,
+          boardSourcePriceTimeMs,
           relayAssembledAtMs: input.sourceEvent.relayReceivedAtMs,
           relaySentAtMs: input.sourceEvent.relaySentAtMs,
           cloudReceivedAtMs: input.sourceEvent.cloudReceivedAtMs,

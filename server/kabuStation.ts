@@ -20,6 +20,8 @@ export type KabuOrderBook = {
   symbolName: string;
   currentPrice: number;
   currentPriceTime: string;
+  /** Windows relay WebSocket callback receipt time; absent for legacy payloads. */
+  relayObservedAtMs?: number;
   asks: OrderBookEntry[]; // 売気配 (ask1〜ask10)
   bids: OrderBookEntry[]; // 買気配 (bid1〜bid10)
   marketOrderSellQty: number; // 売成行数量
@@ -444,6 +446,7 @@ export function parseKabuPushData(raw: Record<string, unknown>): KabuOrderBook |
     const symbolName = String(raw.SymbolName ?? "");
     const currentPrice = Number(raw.CurrentPrice ?? 0);
     const currentPriceTime = String(raw.CurrentPriceTime ?? "");
+    const relayObservedAtMs = Number(raw.relayObservedAtMs);
 
     const asks: OrderBookEntry[] = [];
     const bids: OrderBookEntry[] = [];
@@ -471,6 +474,7 @@ export function parseKabuPushData(raw: Record<string, unknown>): KabuOrderBook |
       symbolName,
       currentPrice,
       currentPriceTime,
+      ...(Number.isInteger(relayObservedAtMs) && relayObservedAtMs >= 0 ? { relayObservedAtMs } : {}),
       asks,
       bids,
       marketOrderSellQty: Number(raw.MarketOrderSellQty ?? 0),

@@ -91,6 +91,11 @@ async function startServer() {
     import("../aiDailyForecastShadowEngine").then(({ registerAiDailyForecastShadowLifecycle }) =>
       registerAiDailyForecastShadowLifecycle().catch(err => console.error("[Startup] AI日次予測shadow lifecycle登録失敗:", err))
     );
+    // relay受信時刻基準のBollinger 5案×10銘柄を登録し、旧50版を停止する。
+    // source event、shadow event/trade、通常engine、注文経路は作成・変更しない。
+    import("../bollingerDirectionalShadowEngine").then(({ registerBollingerDirectionalShadowLifecycle }) =>
+      registerBollingerDirectionalShadowLifecycle().catch(err => console.error("[Startup] Bollinger shadow lifecycle登録失敗:", err))
+    );
     // 再起動前に残ったcandidate/virtual outboxを、現行売買と分離したworkerで回収する。
     scheduleCurrentCandidateVirtualDrain(100);
     // 起動時にDBから当日の1分足を読み込んでcandleBuffersを復元する

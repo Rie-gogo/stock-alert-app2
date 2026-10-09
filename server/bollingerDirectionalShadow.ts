@@ -1,9 +1,9 @@
 import type { ForwardEvaluationMode, ForwardSourceEventInput } from "./forwardShadow";
-import { calculateClockSafeBoardAge, calculateDepthVwap } from "./telExecutableConfirmDepth";
+import { calculateDepthVwap } from "./telExecutableConfirmDepth";
 
-export const BOLLINGER_DIRECTIONAL_COLLECTION_START_DATE = "2026-10-09";
-export const BOLLINGER_DIRECTIONAL_LEARNING_CUTOFF_DATE = "2026-10-08";
-export const BOLLINGER_DIRECTIONAL_FORMAL_START_DATE = "2026-10-09";
+export const BOLLINGER_DIRECTIONAL_COLLECTION_START_DATE = "2026-10-13";
+export const BOLLINGER_DIRECTIONAL_LEARNING_CUTOFF_DATE = "2026-10-09";
+export const BOLLINGER_DIRECTIONAL_FORMAL_START_DATE = "2026-10-13";
 export const BOLLINGER_DIRECTIONAL_PERIOD = 20;
 export const BOLLINGER_DIRECTIONAL_SIGMA = 2;
 export const BOLLINGER_DIRECTIONAL_STOP_PCT = 1.4;
@@ -151,7 +151,8 @@ export interface BollingerDirectionalPosition {
   sourceBoardAgeMs: number;
   /** 配送・cloud処理を含む従来値。監査専用で、Bollinger entry可否には用いない。 */
   deliveryBoardAgeMs: number;
-  boardAgeBasis: "board_observed_to_relay_assembled_same_clock";
+  boardObservationBasis: "relay_websocket_received_at_ms";
+  boardAgeBasis: "relay_observed_to_relay_assembled_same_windows_clock";
   /** 旧監査reader互換。sourceBoardAgeMsと同じ値を保存する。 */
   boardAgeMs: number;
   minimumTargetDistancePct: number;
@@ -554,19 +555,30 @@ function sharesForMode(mode: ForwardEvaluationMode, price: number) {
  * 板の古さと誤認しない。時刻欠落・未来・非因果な区間は従来どおりfail-closed。
  */
 export function calculateBollingerSourceBoardAge(audit: ForwardSourceEventInput["currentAudit"]) {
-  const clockAge = calculateClockSafeBoardAge(audit);
-  const sourceBoardAgeMs = clockAge.boardToRelayAssemblyMs;
-  const deliveryBoardAgeMs = clockAge.boardAgeMs;
-  const causal = clockAge.causal && sourceBoardAgeMs !== null && sourceBoardAgeMs >= 0;
+  const boardObservationBasis = audit?.boardObservationBasis ?? "unavailable";
+  const boardObservedAtMs = audit?.boardObservedAtMs ?? null;
+  const relayAssembledAtMs = audit?.relayAssembledAtMs ?? null;
+  const relaySentAtMs = audit?.relaySentAtMs ?? null;
+  const cloudReceivedAtMs = audit?.cloudReceivedAtMs ?? null;
+  const decisionCompletedAtMs = audit?.decisionCompletedAtMs ?? null;
+  const timestampsAvailable = boardObservationBasis === "relay_websocket_received_at_ms"
+    && Number.isInteger(boardObservedAtMs) && (boardObservedAtMs ?? -1) >= 0
+    && Number.isInteger(relayAssembledAtMs) && (relayAssembledAtMs ?? -1) >= 0;
+  const sourceBoardAgeMs = timestampsAvailable ? relayAssembledAtMs! - boardObservedAtMs! : null;
+  const causal = sourceBoardAgeMs !== null && sourceBoardAgeMs >= 0;
+  const deliveryBoardAgeMs = causal && Number.isInteger(relaySentAtMs) && (relaySentAtMs ?? -1) >= 0
+    && Number.isInteger(cloudReceivedAtMs) && (cloudReceivedAtMs ?? -1) >= 0
+    && Number.isInteger(decisionCompletedAtMs) && (decisionCompletedAtMs ?? -1) >= 0
+    && relaySentAtMs! >= relayAssembledAtMs! && decisionCompletedAtMs! >= cloudReceivedAtMs!
+    ? relaySentAtMs! - boardObservedAtMs! + decisionCompletedAtMs! - cloudReceivedAtMs! : null;
   return {
-    timestampsAvailable: clockAge.timestampsAvailable,
-    causal,
-    sourceBoardAgeMs,
-    deliveryBoardAgeMs,
+    observationBasisAccepted: boardObservationBasis === "relay_websocket_received_at_ms",
+    timestampsAvailable, causal, sourceBoardAgeMs, deliveryBoardAgeMs,
     fresh: causal && sourceBoardAgeMs <= BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS,
-    boardAgeBasis: "board_observed_to_relay_assembled_same_clock" as const,
-    relayPackagingMs: clockAge.relayPackagingMs,
-    cloudProcessingMs: clockAge.cloudProcessingMs,
+    boardObservationBasis,
+    boardAgeBasis: "relay_observed_to_relay_assembled_same_windows_clock" as const,
+    relayPackagingMs: relaySentAtMs !== null && relayAssembledAtMs !== null ? relaySentAtMs - relayAssembledAtMs : null,
+    cloudProcessingMs: decisionCompletedAtMs !== null && cloudReceivedAtMs !== null ? decisionCompletedAtMs - cloudReceivedAtMs : null,
   };
 }
 
@@ -605,7 +617,7 @@ function entryFromConfirmedCandle(
     : null;
   const targetDistanceAccepted = targetDistancePct !== null
     && targetDistancePct + 1e-12 >= variantConfig.minimumTargetDistancePct;
-  const accepted = boardAge.timestampsAvailable && boardAge.causal && boardAge.fresh
+  const accepted = boardAge.observationBasisAccepted && boardAge.timestampsAvailable && boardAge.causal && boardAge.fresh
     && boardAge.sourceBoardAgeMs !== null && boardAge.sourceBoardAgeMs <= BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS
     && entryPrice !== null && targetPrice !== null && targetBeyondEntry && targetDistanceAccepted;
   if (!accepted || entryPrice === null || targetPrice === null || targetDistancePct === null || boardAge.sourceBoardAgeMs === null) {
@@ -613,7 +625,8 @@ function entryFromConfirmedCandle(
       type: "entry_rejected",
       routeId: `bollinger_directional_${state.variant}_${pending.side}`,
       side: pending.side,
-      reason: !boardAge.timestampsAvailable ? "board_timestamps_unavailable"
+      reason: !boardAge.observationBasisAccepted ? "board_observation_basis_not_relay_websocket_received_at_ms"
+        : !boardAge.timestampsAvailable ? "board_timestamps_unavailable"
         : !boardAge.causal ? "board_clock_not_causal"
           : !boardAge.fresh || (boardAge.sourceBoardAgeMs !== null && boardAge.sourceBoardAgeMs > BOLLINGER_DIRECTIONAL_MAX_BOARD_AGE_MS) ? "board_stale_over_5000ms"
             : entryPrice === null ? "insufficient_directional_depth_100_shares"
@@ -628,6 +641,7 @@ function entryFromConfirmedCandle(
       minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
       sourceBoardAgeMs: boardAge.sourceBoardAgeMs,
       deliveryBoardAgeMs: boardAge.deliveryBoardAgeMs,
+      boardObservationBasis: boardAge.boardObservationBasis,
       boardAgeBasis: boardAge.boardAgeBasis,
       boardAgeMs: boardAge.sourceBoardAgeMs,
       relayPackagingMs: boardAge.relayPackagingMs,
@@ -658,6 +672,7 @@ function entryFromConfirmedCandle(
     executionProxyKind: pending.side === "long" ? "ask_depth_vwap_100" : "bid_depth_vwap_100",
     sourceBoardAgeMs: boardAge.sourceBoardAgeMs,
     deliveryBoardAgeMs: boardAge.deliveryBoardAgeMs!,
+    boardObservationBasis: "relay_websocket_received_at_ms",
     boardAgeBasis: boardAge.boardAgeBasis,
     boardAgeMs: boardAge.sourceBoardAgeMs,
     minimumTargetDistancePct: variantConfig.minimumTargetDistancePct,
@@ -682,6 +697,7 @@ function entryFromConfirmedCandle(
     depth,
     sourceBoardAgeMs: boardAge.sourceBoardAgeMs,
     deliveryBoardAgeMs: boardAge.deliveryBoardAgeMs,
+    boardObservationBasis: boardAge.boardObservationBasis,
     boardAgeBasis: boardAge.boardAgeBasis,
     boardAgeMs: boardAge.sourceBoardAgeMs,
     relayPackagingMs: boardAge.relayPackagingMs,

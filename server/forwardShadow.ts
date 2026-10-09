@@ -189,6 +189,8 @@ export interface ForwardSourceEventInput {
     causalityStatus: string;
     causalityReason: string;
     boardObservedAtMs: number | null;
+    boardObservationBasis?: "relay_websocket_received_at_ms" | "legacy_current_price_time" | "unavailable";
+    boardSourcePriceTimeMs?: number | null;
     relayAssembledAtMs: number | null;
     relaySentAtMs?: number | null;
     cloudReceivedAtMs: number | null;

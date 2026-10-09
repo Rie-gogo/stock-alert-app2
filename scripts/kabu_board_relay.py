@@ -65,7 +65,7 @@ CLOUD_CANDLE_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushCandle"
 CLOUD_CANDLE_WITH_BOARD_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushCandleWithBoard"
 CLOUD_MARKET_CONTEXT_URL = f"{CLOUD_BASE_URL}/api/trpc/trading.pushMarketContext"
 # Windowsで実際に配備したファイルを確認した後だけ設定する。クラウド側で推測しない。
-RELAY_VERSION = "kabu-board-relay-v6.0-durable-fifo"
+RELAY_VERSION = "kabu-board-relay-v6.1-board-receive-time"
 RELAY_SOURCE_TREE_HASH = os.environ.get("STOCK_ALERT_RELAY_SOURCE_TREE_HASH", "unavailable")
 RELAY_SPOOL_PATH = os.environ.get("STOCK_ALERT_RELAY_SPOOL_PATH", "kabu_relay_candle_outbox.sqlite3")
 CANDLE_DELIVERY_MAX_BACKOFF_SECONDS = 30
@@ -294,7 +294,7 @@ def register_push_symbols(token: str) -> bool:
         return False
 
 
-def parse_board_data(raw: dict) -> dict | None:
+def parse_board_data(raw: dict, relay_observed_at_ms: int) -> dict | None:
     """kabu STATION APIの板データをWebアプリ用に変換する"""
     try:
         symbol = str(raw.get("Symbol", ""))
@@ -332,6 +332,9 @@ def parse_board_data(raw: dict) -> dict | None:
             "symbolName": str(raw.get("SymbolName", symbol)),
             "currentPrice": float(raw.get("CurrentPrice", 0)),
             "currentPriceTime": str(raw.get("CurrentPriceTime", "")),
+            # CurrentPriceTime is the last trade time, not the board snapshot
+            # observation time. This is sampled exactly once at WS receipt.
+            "relayObservedAtMs": relay_observed_at_ms,
             "asks": asks,
             "bids": bids,
             "marketOrderSellQty": int(raw.get("MarketOrderSellQty", 0)),
@@ -378,12 +381,13 @@ def send_board_to_cloud(board_data: dict) -> bool:
 
 def on_message(ws, message):
     """WebSocketからメッセージを受信したとき"""
+    relay_observed_at_ms = int(time.time() * 1000)
     try:
         raw = json.loads(message)
         if market_context_reference and str(raw.get("Symbol", "")) == market_context_reference["Symbol"]:
             update_market_context_accum(raw)
             return
-        board_data = parse_board_data(raw)
+        board_data = parse_board_data(raw, relay_observed_at_ms)
         if board_data:
             with latest_board_lock:
                 latest_board_by_symbol[board_data["symbol"]] = board_data
@@ -661,7 +665,9 @@ def _candle_delivery_loop():
         attempted = relay_spool.record_attempt(item.source_event_id)
         payload = {**attempted.payload, "relaySentAtMs": int(time.time() * 1000)}
         try:
-            board = payload.pop("board", None)
+            # Keep the immutable WS board snapshot in the normal pushCandle
+            # source-event payload after refreshing the independent cache.
+            board = payload.get("board")
             # Existing pushOrderBook cache is refreshed immediately before the
             # normal pushCandle endpoint.  This preserves the no-OrderBridge
             # source-event path while failing closed when board refresh fails.

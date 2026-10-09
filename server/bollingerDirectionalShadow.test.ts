@@ -5,6 +5,7 @@ import {
   bollingerDirectionalVariantConfig,
   buildBollingerIntradaySmaDirectionPlan,
   buildBollingerDirectionalPlan,
+  calculateBollingerSourceBoardAge,
   calculateBollingerBands,
   calculateBollingerDirectionalMovingAverage,
   calculatePriorBollingerWidthComparison,
@@ -49,6 +50,7 @@ function source(id: string, candleTime: string, candle: { open: number; high: nu
       : { asks: [{ price: price + 0.1, qty: 100 }], bids: [{ price, qty: 100 }] },
     currentAudit: {
       boardObservedAtMs: 1_000,
+      boardObservationBasis: "relay_websocket_received_at_ms",
       relayAssembledAtMs: 1_100,
       relaySentAtMs: 1_200,
       cloudReceivedAtMs: 2_000,
@@ -398,6 +400,7 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     const confirmation = source("source-age-confirm", "10:01", { open: 96, high: 98, low: 96, close: 97 });
     confirmation.currentAudit = {
       boardObservedAtMs: 1_000,
+      boardObservationBasis: "relay_websocket_received_at_ms",
       relayAssembledAtMs: 1_100,
       relaySentAtMs: 1_200,
       cloudReceivedAtMs: 2_000,
@@ -408,13 +411,15 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     expect(entry.openedPosition).toMatchObject({
       sourceBoardAgeMs: 100,
       deliveryBoardAgeMs: 22_200,
-      boardAgeBasis: "board_observed_to_relay_assembled_same_clock",
+      boardObservationBasis: "relay_websocket_received_at_ms",
+      boardAgeBasis: "relay_observed_to_relay_assembled_same_windows_clock",
     });
     expect(entry.actions[0]).toMatchObject({
       type: "entry",
       sourceBoardAgeMs: 100,
       deliveryBoardAgeMs: 22_200,
-      boardAgeBasis: "board_observed_to_relay_assembled_same_clock",
+      boardObservationBasis: "relay_websocket_received_at_ms",
+      boardAgeBasis: "relay_observed_to_relay_assembled_same_windows_clock",
     });
   });
 
@@ -427,17 +432,17 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
       return state;
     };
     const stale = source("source-age-stale", "10:01", { open: 96, high: 98, low: 96, close: 97 });
-    stale.currentAudit = { boardObservedAtMs: 1_000, relayAssembledAtMs: 6_001, relaySentAtMs: 6_100, cloudReceivedAtMs: 7_000, decisionCompletedAtMs: 7_100 };
+    stale.currentAudit = { boardObservedAtMs: 1_000, boardObservationBasis: "relay_websocket_received_at_ms", relayAssembledAtMs: 6_001, relaySentAtMs: 6_100, cloudReceivedAtMs: 7_000, decisionCompletedAtMs: 7_100 };
     expect(applyBollingerDirectionalTransition(prepare(), stale, "signal_quality").actions)
       .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_stale_over_5000ms", sourceBoardAgeMs: 5_001 }));
 
     const missing = source("source-age-missing", "10:01", { open: 96, high: 98, low: 96, close: 97 });
     missing.currentAudit = { relayAssembledAtMs: 1_100, relaySentAtMs: 1_200, cloudReceivedAtMs: 2_000, decisionCompletedAtMs: 2_500 };
     expect(applyBollingerDirectionalTransition(prepare(), missing, "signal_quality").actions)
-      .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_timestamps_unavailable" }));
+      .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_observation_basis_not_relay_websocket_received_at_ms" }));
 
     const future = source("source-age-future", "10:01", { open: 96, high: 98, low: 96, close: 97 });
-    future.currentAudit = { boardObservedAtMs: 1_100, relayAssembledAtMs: 1_099, relaySentAtMs: 1_200, cloudReceivedAtMs: 2_000, decisionCompletedAtMs: 2_500 };
+    future.currentAudit = { boardObservedAtMs: 1_100, boardObservationBasis: "relay_websocket_received_at_ms", relayAssembledAtMs: 1_099, relaySentAtMs: 1_200, cloudReceivedAtMs: 2_000, decisionCompletedAtMs: 2_500 };
     expect(applyBollingerDirectionalTransition(prepare(), future, "signal_quality").actions)
       .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_clock_not_causal" }));
 
@@ -445,6 +450,25 @@ describe("①〜③方向・1分足ボリンジャー並行shadow", () => {
     shallow.board = { asks: [{ price: 97.05, qty: 99 }], bids: [{ price: 96.95, qty: 99 }] };
     expect(applyBollingerDirectionalTransition(prepare(), shallow, "signal_quality").actions)
       .toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "insufficient_directional_depth_100_shares" }));
+  });
+
+  it("CurrentPriceTimeが古くてもrelayObservedAtMs基準のWindows同一時計差が新しければentry可能", () => {
+    const audit = { boardObservedAtMs: 1_000, boardObservationBasis: "relay_websocket_received_at_ms" as const, boardSourcePriceTimeMs: 1, relayAssembledAtMs: 1_100, relaySentAtMs: 1_200, cloudReceivedAtMs: 99_000, decisionCompletedAtMs: 100_000 };
+    expect(calculateBollingerSourceBoardAge(audit)).toMatchObject({ fresh: true, sourceBoardAgeMs: 100, boardObservationBasis: "relay_websocket_received_at_ms" });
+    let state = seeded(VARIANT, "long");
+    state = applyBollingerDirectionalTransition(state, source("old-price-touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
+    const confirmation = source("old-price-confirm", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    confirmation.board.currentPriceTime = "08:00:00";
+    confirmation.currentAudit = audit;
+    expect(applyBollingerDirectionalTransition(state, confirmation, "signal_quality").resultType).toBe("entry");
+  });
+
+  it("legacy CurrentPriceTime基準のpayloadは板が深くてもBollinger entry不可", () => {
+    let state = seeded(VARIANT, "long");
+    state = applyBollingerDirectionalTransition(state, source("legacy-touch", "10:00", { open: 97, high: 98, low: 95, close: 96 }), "signal_quality").nextState;
+    const legacy = source("legacy-confirm", "10:01", { open: 96, high: 98, low: 96, close: 97 });
+    legacy.currentAudit = { boardObservedAtMs: 1_000, boardObservationBasis: "legacy_current_price_time", boardSourcePriceTimeMs: 1_000, relayAssembledAtMs: 1_100, relaySentAtMs: 1_200, cloudReceivedAtMs: 1_300, decisionCompletedAtMs: 1_400 };
+    expect(applyBollingerDirectionalTransition(state, legacy, "signal_quality").actions).toContainEqual(expect.objectContaining({ type: "entry_rejected", reason: "board_observation_basis_not_relay_websocket_received_at_ms" }));
   });
 
   it("接触の次足が方向確認足でなければ拒否し、日次回数は消費しない", () => {

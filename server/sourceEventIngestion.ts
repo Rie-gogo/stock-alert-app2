@@ -12,7 +12,7 @@ import { updateOrderBook, type KabuOrderBook } from "./kabuStation";
 import { enqueueForwardShadow, scheduleForwardShadowDispatchDrain } from "./forwardShadowSequence";
 import { scheduleCurrentCandidateVirtualDrain } from "./currentCandidateVirtualSequence";
 import { processCandle, type RtCandle1Min } from "./realtimeSimEngine";
-import { parseBoardObservedAtMs, processCurrentEngineAudited } from "./realtimeDecisionAudit";
+import { processCurrentEngineAudited, resolveBoardObservation } from "./realtimeDecisionAudit";
 import { sha256Stable } from "./runtimeIdentity";
 import { parseRelayCandleProvenance, type RelayCandleProvenance } from "./relayProvenance";
 
@@ -30,6 +30,8 @@ export interface SourceEventMetadata {
 
 export interface IngestCandleInput extends RtCandle1Min, SourceEventMetadata {
   board?: Omit<KabuOrderBook, "symbol" | "receivedAt"> | null;
+  /** Internal only: normal pushCandle preserves its board for audit/shadow without changing current-engine input. */
+  currentEngineBoard?: Omit<KabuOrderBook, "symbol" | "receivedAt"> | null;
 }
 
 const SOURCE_EVENT_LEASE_MS = 60_000;
@@ -140,6 +142,8 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
             causalityStatus: persistedAudit.causalityStatus,
             causalityReason: persistedAudit.causalityReason ?? "",
             boardObservedAtMs: availability.boardObservedAtMs ?? null,
+            boardObservationBasis: availability.boardObservationBasis ?? "unavailable",
+            boardSourcePriceTimeMs: availability.boardSourcePriceTimeMs ?? null,
             relayAssembledAtMs: persistedAudit.resultJson && typeof persistedAudit.resultJson === "object"
               ? availability.relayAssembledAtMs ?? null
               : null,
@@ -287,10 +291,15 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
       board: input.board ?? null,
       inputHash: metadata.serverPayloadHash,
       run: async () => {
-        if (input.board) {
+        const boardObservation = resolveBoardObservation({
+          tradeDate: input.tradeDate,
+          board: input.board ?? null,
+        });
+        const currentEngineBoard = input.currentEngineBoard === undefined ? input.board ?? null : input.currentEngineBoard;
+        if (currentEngineBoard) {
           updateOrderBook({
             symbol: input.symbol,
-            ...input.board,
+            ...currentEngineBoard,
             receivedAt: Date.now(),
           } as KabuOrderBook);
         }
@@ -307,9 +316,9 @@ export async function ingestSourceCandle(input: IngestCandleInput) {
           },
           {
             sourceEventId: sourceEvent.sourceEventId,
-            board: input.board ?? null,
+            board: currentEngineBoard,
             currentAudit: {
-              boardObservedAtMs: parseBoardObservedAtMs(input.tradeDate, input.board?.currentPriceTime),
+              ...boardObservation,
               relayAssembledAtMs: sourceEvent.relayReceivedAtMs,
               relaySentAtMs: sourceEvent.relaySentAtMs,
               cloudReceivedAtMs: sourceEvent.cloudReceivedAtMs,

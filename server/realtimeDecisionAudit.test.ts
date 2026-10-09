@@ -83,6 +83,7 @@ vi.mock("./currentVirtualMarketContext", () => marketContextMock);
 import {
   drainCurrentCandidateVirtualQueue,
   processCurrentEngineAudited,
+  resolveBoardObservation,
   resolveRealtimeRouteId,
 } from "./realtimeDecisionAudit";
 
@@ -96,6 +97,13 @@ describe("監査route固定化", () => {
     ["ソシオネクスト確認型10本高値更新LONG", "socionext_confirmed_long"],
   ])("%s を %s へ固定する", (reason, expected) => {
     expect(resolveRealtimeRouteId(reason)).toBe(expected);
+  });
+});
+
+describe("板観測時刻の監査分類", () => {
+  it("relayObservedAtMs欠落の旧boardはCurrentPriceTimeを監査根拠としてのみ分類する", () => {
+    expect(resolveBoardObservation({ tradeDate: "2026-10-13", board: { currentPrice: 100, currentPriceTime: "09:00:00" } as never })).toMatchObject({ boardObservationBasis: "legacy_current_price_time", boardObservedAtMs: new Date("2026-10-13T09:00:00+09:00").getTime() });
+    expect(resolveBoardObservation({ tradeDate: "2026-10-13", board: { currentPrice: 100, currentPriceTime: "" } as never })).toMatchObject({ boardObservationBasis: "unavailable", boardObservedAtMs: null });
   });
 });
 
@@ -128,7 +136,7 @@ describe("現行実時判断監査", () => {
         relayReceivedAtMs: 1_000, relaySentAtMs: 1_010, cloudReceivedAtMs: 1_020,
       } as never,
       candle: { symbol: "8035", tradeDate: "2026-09-07", candleTime: "10:00", open: 99, high: 101, low: 98, close: 100, volume: 100 },
-      board: { currentPrice: 100.2, currentPriceTime: "10:00:30" } as never,
+      board: { currentPrice: 100.2, currentPriceTime: "08:00:00", relayObservedAtMs: 900 } as never,
       inputHash: "hash",
       run,
     });
@@ -143,7 +151,7 @@ describe("現行実時判断監査", () => {
       brokerExecutionPrice: null,
       causalityStatus: "violation",
       resultJson: expect.objectContaining({
-        availabilityTimeline: expect.objectContaining({ relayAssembledAtMs: 1_000, relaySentAtMs: 1_010, cloudReceivedAtMs: 1_020 }),
+        availabilityTimeline: expect.objectContaining({ boardObservedAtMs: 900, boardObservationBasis: "relay_websocket_received_at_ms", boardSourcePriceTimeMs: new Date("2026-09-07T08:00:00+09:00").getTime(), relayAssembledAtMs: 1_000, relaySentAtMs: 1_010, cloudReceivedAtMs: 1_020 }),
         priceLabels: expect.objectContaining({ brokerExecutionPrice: "unavailable_in_dry_run" }),
       }),
       candidateDescriptorJson: expect.objectContaining({ side: "long", routeId: "telShortBreak" }),

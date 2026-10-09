@@ -36,7 +36,11 @@ vi.mock("./realtimeSimEngine", () => ({ processCandle: processCandleMock }));
 vi.mock("./realtimeDecisionAudit", () => ({
   processCurrentEngineAudited: auditedCurrentMock,
   drainCurrentCandidateVirtualQueue: candidateDrainMock,
-  parseBoardObservedAtMs: vi.fn(() => 123_456),
+  resolveBoardObservation: vi.fn(() => ({
+    boardObservedAtMs: 123_456,
+    boardObservationBasis: "relay_websocket_received_at_ms",
+    boardSourcePriceTimeMs: null,
+  })),
 }));
 vi.mock("./forwardShadowSequence", () => ({
   enqueueForwardShadow: shadowMock,
@@ -119,6 +123,15 @@ describe("受信イベントの一度きり処理", () => {
       payloadJson: expect.objectContaining({ provenance: expect.objectContaining({ valueSource: "ws_aggregated" }) }),
     }));
     expect(processCandleMock).toHaveBeenCalledWith(expect.not.objectContaining({ provenance: expect.anything() }), expect.anything());
+  });
+
+  it("通常pushCandle相当ではimmutable boardをcanonical source eventとshadowへ残し、現行engineへは渡さない", async () => {
+    dbMock.claimRtSourceEvent.mockResolvedValue(true);
+    const board = { symbol: "8035", symbolName: "TEST", currentPrice: 100, currentPriceTime: "09:00:00", relayObservedAtMs: 1_000, asks: [{ price: 100.1, qty: 100 }], bids: [{ price: 99.9, qty: 100 }], marketOrderSellQty: 0, marketOrderBuyQty: 0, overSellQty: 0, underBuyQty: 0, vwap: 100 };
+    await ingestSourceCandle({ ...input, board, currentEngineBoard: null });
+    expect(dbMock.claimRtSourceEvent).toHaveBeenCalledWith(expect.objectContaining({ payloadJson: expect.objectContaining({ board }) }));
+    expect(processCandleMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ board: null }));
+    expect(shadowMock).toHaveBeenCalledWith(expect.objectContaining({ board }));
   });
 
   it("同じイベントIDの再送は現行エンジンを再実行せず、candidateは独立workerに任せてシャドーerrorだけを冪等再試行する", async () => {

@@ -64,14 +64,14 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     expect(source).not.toContain("getRtForwardShadowTrades");
   });
 
-  it("固定component/versionを維持する", () => {
+  it("AI固定行を含む新materialization versionを使用する", () => {
     expect(MULTI_SYMBOL_MONITORING_COMPONENT).toBe("monitoring_trend_10_symbols");
-    expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v1");
+    expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v2-ai-daily-forecast");
   });
 
-  it("6857と6981は現行・独立2案・固定目標ボリンジャー5案を発火ゼロでも固定表示する", () => {
+  it("6857と6981は現行・独立2案・Bollinger 5案・AI案を発火ゼロでも固定表示する", () => {
     const advantest = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6857");
-    expect(advantest).toHaveLength(8);
+    expect(advantest).toHaveLength(9);
     expect(advantest.map(plan => plan.label)).toEqual([
       "現行（証拠金ブロック含む）",
       "A案：高値失速SHORT・陰線実体0.08%＋次イベント板",
@@ -81,9 +81,10 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "ボリンジャー方向判定 改善A：完成5分足SMA20方向＋傾き一致・最低戻し余地0.60%",
       "ボリンジャー方向判定 改善B：SMA20傾き一致＋BB幅5本非拡大・最低戻し余地0.60%",
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
+      "AI日次予測shadow",
     ]);
     const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6981");
-    expect(murata).toHaveLength(8);
+    expect(murata).toHaveLength(9);
     expect(murata.map(plan => plan.label)).toEqual([
       "現行（証拠金ブロック含む）",
       "A案：深い下落後の確認反発LONG",
@@ -93,6 +94,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "ボリンジャー方向判定 改善A：完成5分足SMA20方向＋傾き一致・最低戻し余地0.60%",
       "ボリンジャー方向判定 改善B：SMA20傾き一致＋BB幅5本非拡大・最低戻し余地0.60%",
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
+      "AI日次予測shadow",
     ]);
   });
 });

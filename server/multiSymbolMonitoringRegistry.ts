@@ -2,6 +2,7 @@ import { ACTIVE_ENTRY_SYMBOLS, NAME_BY_SYMBOL } from "../shared/stocks";
 import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
+  AI_DAILY_FORECAST_VERSIONS,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS,
@@ -104,6 +105,15 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
     symbol,
     label: "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
     purpose: "candidate" as const,
+    eligibleForAdoption: false,
+  })),
+  // 専用AI予測カードとは別に、案単位の実績を固定行で監査する。
+  // causality_audit lifecycleのまま、選択器・自動採用には渡さない。
+  ...TEN_MONITORED_SYMBOLS.map(symbol => ({
+    strategyVersion: AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS],
+    symbol,
+    label: "AI日次予測shadow",
+    purpose: "diagnostic" as const,
     eligibleForAdoption: false,
   })),
 ];

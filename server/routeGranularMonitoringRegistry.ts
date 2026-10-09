@@ -3,6 +3,7 @@ import { CURRENT_SIGNAL_CANDIDATE_VERSION } from "./currentSignalCandidateRegist
 import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
+  AI_DAILY_FORECAST_VERSIONS,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V4_VERSIONS,
@@ -50,7 +51,7 @@ export type RouteGranularVariant = Readonly<{
   shadowRouteId?: string;
   /** A dual-direction strategyVersion is partitioned by persisted action side. */
   shadowSide?: "long" | "short";
-  lifecycleRequirement: "current_candidate_ledger" | "stopped_current" | "monitoring_candidate" | "invalid_mapping" | "unavailable" | "unclassified";
+  lifecycleRequirement: "current_candidate_ledger" | "stopped_current" | "monitoring_candidate" | "monitoring_display_only" | "invalid_mapping" | "unavailable" | "unclassified";
   unavailableReason: string | null;
 }>;
 
@@ -70,6 +71,15 @@ function shadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "orig
     symbolName: name(input.symbol), origin: "forward_shadow", lifecycleRequirement: "monitoring_candidate", unavailableReason: null,
   };
 }
+/** AI fixed rows are visible in route monitoring but never become selector or v4 candidates. */
+function displayOnlyShadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+  return {
+    ...input,
+    rowId: `shadow:${input.strategyVersion}:${input.routeGroupId}:${input.shadowRouteId ?? input.shadowSide ?? "single"}`,
+    symbolName: name(input.symbol), origin: "forward_shadow", lifecycleRequirement: "monitoring_display_only", unavailableReason: "monitoring_display_only_not_selector_candidate",
+  };
+}
+
 function unavailable(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "strategyVersion" | "canonicalLogic" | "lifecycleRequirement">): RouteGranularVariant {
   return {
     ...input,
@@ -221,6 +231,22 @@ for (const config of bollingerRouteConfigs) {
   }
 }
 
+// One immutable AI snapshot version per symbol, separated strictly by persisted action side.
+for (const symbol of Object.keys(AI_DAILY_FORECAST_VERSIONS)) {
+  const strategyVersion = AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS];
+  for (const direction of ["long", "short"] as const) {
+    variants.push(displayOnlyShadow({
+      symbol,
+      routeGroupId: `ai_daily_forecast_${direction}`,
+      direction,
+      label: `AI日次予測shadow ${direction.toUpperCase()}`,
+      canonicalLogic: `${symbol.toLowerCase()}_ai_daily_forecast_snapshot_v1`,
+      strategyVersion,
+      shadowSide: direction,
+    }));
+  }
+}
+
 export const ROUTE_GRANULAR_VARIANTS = Object.freeze(variants);
 export const ROUTE_GRANULAR_SYMBOLS = Object.freeze(Array.from(new Set(variants.map(item => item.symbol))).sort());
 export const ROUTE_GRANULAR_GROUPS = Object.freeze(Array.from(new Set(variants.map(item => `${item.symbol}:${item.routeGroupId}`))).sort());
@@ -243,7 +269,32 @@ const AUTHORITATIVE_ROUTE_REQUIREMENTS = Object.freeze([
   { symbol: "8035", strategyVersion: FORWARD_STRATEGY_VERSION, shadowSide: "short", direction: "short", routeGroupId: "open_direction_breakout_short", lifecycleRequirement: "monitoring_candidate" },
 ]);
 
-function matchesRequirement(variant: RouteGranularVariant, requirement: typeof AUTHORITATIVE_ROUTE_REQUIREMENTS[number]) {
+const AI_DISPLAY_ONLY_ROUTE_REQUIREMENTS = Object.freeze(
+  Object.keys(AI_DAILY_FORECAST_VERSIONS).flatMap(symbol => {
+    const strategyVersion = AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS];
+    return (["long", "short"] as const).map(direction => ({
+      symbol,
+      strategyVersion,
+      shadowSide: direction,
+      direction,
+      routeGroupId: `ai_daily_forecast_${direction}`,
+      lifecycleRequirement: "monitoring_display_only" as const,
+    }));
+  }),
+);
+
+type RouteCatalogRequirement = Readonly<{
+  symbol: string;
+  routeGroupId: string;
+  direction: string;
+  lifecycleRequirement: string;
+  candidateRouteId?: string;
+  strategyVersion?: string;
+  shadowRouteId?: string;
+  shadowSide?: string;
+}>;
+
+function matchesRequirement(variant: RouteGranularVariant, requirement: RouteCatalogRequirement) {
   return variant.symbol === requirement.symbol
     && variant.routeGroupId === requirement.routeGroupId
     && variant.direction === requirement.direction
@@ -273,6 +324,13 @@ export function auditRouteGranularCatalog(input: readonly RouteGranularVariant[]
   const requirementMissing = AUTHORITATIVE_ROUTE_REQUIREMENTS
     .filter(requirement => !input.some(variant => matchesRequirement(variant, requirement)))
     .map(requirement => `${requirement.symbol}:${requirement.routeGroupId}:${requirement.strategyVersion ?? requirement.candidateRouteId ?? "unknown"}:${requirement.direction}`);
+  const displayOnlyRequirementMissing = AI_DISPLAY_ONLY_ROUTE_REQUIREMENTS
+    .filter(requirement => !input.some(variant => matchesRequirement(variant, requirement)))
+    .map(requirement => `${requirement.symbol}:${requirement.routeGroupId}:${requirement.strategyVersion}:${requirement.direction}`);
+  const displayOnlyRows = input.filter(item => item.lifecycleRequirement === "monitoring_display_only");
+  const displayOnlyDuplicateRows = Array.from(new Set(displayOnlyRows
+    .map(item => `${item.symbol}:${item.routeGroupId}:${item.strategyVersion ?? "unknown"}:${item.shadowSide ?? item.direction}`)
+    .filter((key, _index, values) => values.filter(value => value === key).length > 1)));
   const selectable = input.filter(item => item.lifecycleRequirement === "current_candidate_ledger" || item.lifecycleRequirement === "monitoring_candidate");
   const duplicateSelectableRows = Array.from(new Set(selectable
     .map(item => `${item.symbol}:${item.routeGroupId}:${item.strategyVersion ?? item.candidateRouteId ?? "unknown"}:${item.shadowRouteId ?? item.shadowSide ?? item.direction}`)
@@ -286,9 +344,11 @@ export function auditRouteGranularCatalog(input: readonly RouteGranularVariant[]
     .map(row => row.versionId)
     .sort();
   return {
-    complete: requirementMissing.length === 0 && duplicateSelectableRows.length === 0 && invalidMappedSelectableRows.length === 0 && orphanMonitoringCandidateVersions.length === 0,
+    complete: requirementMissing.length === 0 && displayOnlyRequirementMissing.length === 0 && duplicateSelectableRows.length === 0 && displayOnlyDuplicateRows.length === 0 && invalidMappedSelectableRows.length === 0 && orphanMonitoringCandidateVersions.length === 0,
     requirementMissing,
+    displayOnlyRequirementMissing,
     duplicateSelectableRows,
+    displayOnlyDuplicateRows,
     invalidMappedSelectableRows,
     orphanMonitoringCandidateVersions,
     catalogHashSource: "authoritative_current_and_dispatch_route_requirements_v1",

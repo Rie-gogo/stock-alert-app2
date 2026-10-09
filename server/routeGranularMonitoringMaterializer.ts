@@ -10,7 +10,7 @@ import { resolveMonitoringCandidateVirtualGeneration } from "./multiSymbolMonito
 import { ROUTE_GRANULAR_VARIANTS, auditRouteGranularCatalog, type RouteGranularVariant } from "./routeGranularMonitoringRegistry";
 
 export const ROUTE_GRANULAR_MONITORING_COMPONENT = "monitoring_route_granular_10_symbols";
-export const ROUTE_GRANULAR_MONITORING_VERSION = "monitoring-route-granular-10-symbols-v1";
+export const ROUTE_GRANULAR_MONITORING_VERSION = "monitoring-route-granular-10-symbols-v2-ai-daily-forecast";
 export const ROUTE_GRANULAR_MONITORING_START_DATE = "2026-10-02";
 
 type Action = Record<string, unknown>;

@@ -44,7 +44,7 @@ function dailyRow(tradeDate: string, pnl: number) {
 
 describe("route-granular next-day monitoring selector", () => {
   it("declares technical market state as authority and recent trend as a safety gate", () => {
-    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-technical-regime-authority-v5-market-affinity");
+    expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-technical-regime-authority-v6-ai-display-only");
     expect(ROUTE_GRANULAR_SELECTOR_CONFIG).toMatchObject({
       decisionAuthority: "technical_market_regime_conditional_route_performance_manual_review",
       aggregatePlanTrendAuthority: false,
@@ -261,7 +261,14 @@ describe("route-granular next-day monitoring selector", () => {
   });
 
   it("keeps retained routes in a code-derived catalog and excludes retired or invalid mappings", () => {
-    expect(auditRouteGranularCatalog()).toMatchObject({ complete: true, requirementMissing: [], duplicateSelectableRows: [], invalidMappedSelectableRows: [] });
+    expect(auditRouteGranularCatalog()).toMatchObject({
+      complete: true,
+      requirementMissing: [],
+      displayOnlyRequirementMissing: [],
+      duplicateSelectableRows: [],
+      displayOnlyDuplicateRows: [],
+      invalidMappedSelectableRows: [],
+    });
     const exactKioxia = ROUTE_GRANULAR_VARIANTS.find(item => item.strategyVersion === "candidate-285a-reversal-long-exact-monitoring-reopen-v2");
     const exactSocionext = ROUTE_GRANULAR_VARIANTS.find(item => item.strategyVersion === "candidate-6526-confirmed-long-exact-monitoring-reopen-v2");
     expect(exactKioxia?.canonicalLogic).toBe("candidate-285a-current-reversal-long-exact-monitoring-reopen");
@@ -272,6 +279,8 @@ describe("route-granular next-day monitoring selector", () => {
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(false);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
+      "6857_ai_daily_forecast_snapshot_v1",
+      "6857_ai_daily_forecast_snapshot_v1",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_sma10_slope_gap050_stop140_cooldown30",

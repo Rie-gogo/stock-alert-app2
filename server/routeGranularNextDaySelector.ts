@@ -14,7 +14,7 @@ import { buildTechnicalMarketRegimeTimeline, TECHNICAL_MARKET_REGIME_VERSION, ty
 
 export const ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT = "route_granular_next_day_selector";
 export const ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT = "route_granular_next_day_selector_result";
-export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v5-market-affinity";
+export const ROUTE_GRANULAR_SELECTOR_VERSION = "route-granular-technical-regime-authority-v6-ai-display-only";
 export const ROUTE_GRANULAR_SELECTOR_CONFIG = Object.freeze({
   version: ROUTE_GRANULAR_SELECTOR_VERSION,
   variants: ROUTE_GRANULAR_VARIANTS,
@@ -132,6 +132,7 @@ function featuresBySymbol(row: Row): Record<string, unknown> {
 }
 function isLifecycleEligible(item: RouteGranularVariant, lifecycles: Record<string, Lifecycle>) {
   if (item.lifecycleRequirement === "current_candidate_ledger") return { eligible: true, reason: null };
+  if (item.lifecycleRequirement === "monitoring_display_only") return { eligible: false, reason: "monitoring_display_only_not_selector_candidate" };
   if (item.lifecycleRequirement !== "monitoring_candidate" || !item.strategyVersion) return { eligible: false, reason: item.unavailableReason ?? "not_selectable" };
   const observed = lifecycles[item.strategyVersion];
   const eligible = observed?.lifecycle === "monitoring" && observed?.purpose === "candidate";

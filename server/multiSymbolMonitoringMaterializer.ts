@@ -28,9 +28,9 @@ import {
 import { collectRouteAttributionMappingVersions } from "./kioxiaRouteAttribution";
 
 export const MULTI_SYMBOL_MONITORING_COMPONENT = "monitoring_trend_10_symbols";
-export const MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION = "monitoring-trend-10-symbols-daily-v1";
+export const MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION = "monitoring-trend-10-symbols-daily-v2-ai-daily-forecast";
 export const MULTI_SYMBOL_MONITORING_START_DATE = "2026-09-07";
-const MULTI_SYMBOL_MONITORING_BACKFILL_LOCK = "monitoring-trend-10-symbol-backfill-v1";
+const MULTI_SYMBOL_MONITORING_BACKFILL_LOCK = "monitoring-trend-10-symbol-backfill-v2-ai-daily-forecast";
 
 // 監視snapshotだけは、過去に保存済みのcandidate/virtual世代を同じ組で読む。
 // 現行v2 virtual engineだけで読むと、v1だった9/7〜9/10の現行候補が

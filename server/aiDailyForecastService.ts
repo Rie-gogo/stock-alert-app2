@@ -13,6 +13,11 @@ import {
 } from "../drizzle/schema";
 import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 import { sha256Stable } from "./runtimeIdentity";
+import {
+  buildLearningApplicationAudit,
+  type LearningApplicationAudit,
+} from "./aiForecastLearningAudit";
+import { AI_FORECAST_LEARNING_MODEL_VERSION } from "./aiForecastLearningContract";
 
 export const AI_DAILY_FORECAST_VERSION = "ai-daily-forecast-v1";
 export const AI_DAILY_FORECAST_SYMBOLS = [
@@ -449,6 +454,7 @@ export type AiDailyForecastInput = {
     payloadHash: string;
     learning: unknown;
   } | null;
+  learningApplicationAudit: LearningApplicationAudit;
   symbols: Array<{
     symbol: AiDailyForecastSymbol;
     baseline: QuantBaseline;
@@ -485,7 +491,7 @@ export async function buildAiDailyForecastInput(input: {
           lt(rtAiForecastLearningSnapshots.asOfDate, input.tradeDate),
           eq(
             rtAiForecastLearningSnapshots.modelVersion,
-            "ai-forecast-learning-v1"
+            AI_FORECAST_LEARNING_MODEL_VERSION
           ),
           eq(rtAiForecastLearningSnapshots.qualityStatus, "verified")
         )
@@ -543,8 +549,29 @@ export async function buildAiDailyForecastInput(input: {
   }
   if (symbolInputs.some(item => item.baseline.direction === "insufficient"))
     reasons.push("one_or_more_symbols_insufficient_history");
-  if (!learningSnapshot)
-    reasons.push("verified_learning_snapshot_before_trade_date_missing");
+  const learningReason = !learningSnapshot
+    ? "verified_learning_snapshot_before_trade_date_missing"
+    : null;
+  const learningApplicationAudit = buildLearningApplicationAudit({
+    checkpoint: "08:30",
+    baselines: symbolInputs.map(item => ({
+      symbol: item.symbol,
+      baseline: item.baseline,
+    })),
+    macroRegime:
+      macroSnapshot && typeof macroSnapshot.regimeState === "string"
+        ? macroSnapshot.regimeState
+        : null,
+    learningSnapshot: learningSnapshot
+      ? {
+          sourceSnapshotId: learningSnapshot.sourceSnapshotId,
+          asOfDate: learningSnapshot.asOfDate,
+          modelVersion: learningSnapshot.modelVersion,
+          payloadHash: learningSnapshot.payloadHash,
+          learning: learningSnapshot.learningJson,
+        }
+      : null,
+  });
   const prepared = {
     tradeDate: input.tradeDate,
     dataCutoffDate,
@@ -570,10 +597,11 @@ export async function buildAiDailyForecastInput(input: {
           learning: learningSnapshot.learningJson,
         }
       : null,
+    learningApplicationAudit,
     symbols: symbolInputs,
     inputQuality:
       reasons.length === 0 ? ("verified" as const) : ("degraded" as const),
-    qualityReasonCodes: reasons,
+    qualityReasonCodes: learningReason ? [...reasons, learningReason] : reasons,
   };
   return { ...prepared, inputHash: aiDailyForecastInputHash(prepared) };
 }
@@ -878,6 +906,7 @@ export async function ingestAiDailyForecastSubmission(
     quantBaseline: prepared.symbols.map(item => item.baseline),
     aiFinalForecast: validation.output,
     generatorMetadata: submission.generatorMetadata ?? {},
+    learningApplicationAudit: prepared.learningApplicationAudit,
     validation: {
       inputQuality: prepared.inputQuality,
       inputReasons: prepared.qualityReasonCodes,

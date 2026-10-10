@@ -55,6 +55,19 @@ const input: AiDailyForecastInput = {
   capturedAtMs: 1,
   macroSnapshot: null,
   macroSnapshotId: null,
+  learningApplicationAudit: {
+    schemaVersion: "ai-forecast-learning-application-v4",
+    checkpoint: "08:30",
+    learningMode: "cold_start",
+    learningApplied: false,
+    learningExampleCount: 0,
+    coldStartReason: "verified_learning_snapshot_before_trade_date_missing",
+    sourceLearningSnapshot: null,
+    frozenQuantBaseline: { id: "test", hash: "test" },
+    automaticRuleMutation: false,
+    symbols: [],
+    priorPlanDifference: { status: "not_applicable" },
+  },
   inputQuality: "verified",
   qualityReasonCodes: [],
   symbols: AI_DAILY_FORECAST_SYMBOLS.map(symbol => ({
@@ -330,13 +343,19 @@ describe("AI daily forecast deterministic contract", () => {
     expect(result.closed?.reason).toBe("ai_direction_revision_exit");
   });
 
-  it("fails closed when the immutable daily snapshot lacks a verified D-1 learning snapshot", () => {
+  it("学習実績0件でもcold-start監査がある不変snapshotは計画を作れる", () => {
     const snapshot = {
       sourceSnapshotId: "ai-daily-forecast:2026-10-14:test",
       qualityStatus: "verified",
-      inputJson: {},
-      forecastJson: { aiFinalForecast: { forecasts: [] } },
+      inputJson: { learningApplicationAudit: input.learningApplicationAudit },
+      forecastJson: {
+        quantBaseline: [{ symbol: "285A", atr5: 2 }],
+        aiFinalForecast: { forecasts: [forecast("285A")] },
+      },
     };
-    expect(selectAiDailyPlanForTest(snapshot, "285A")).toBeNull();
+    expect(selectAiDailyPlanForTest(snapshot, "285A")).toMatchObject({
+      symbol: "285A",
+      checkpoint: "08:30",
+    });
   });
 });

@@ -19,9 +19,15 @@ import {
 } from "./aiDailyForecastService";
 import {
   AI_DAILY_FORECAST_VERSIONS,
+  RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
   sha256Stable,
 } from "./runtimeIdentity";
+import {
+  buildLearningApplicationAudit,
+  type LearningApplicationAudit,
+} from "./aiForecastLearningAudit";
 
 export const AI_INTRADAY_FORECAST_VERSION = "ai-intraday-forecast-v2-learning";
 export const AI_INTRADAY_CHECKPOINTS = [
@@ -297,6 +303,7 @@ export type AiIntradayForecastInput = {
     symbol: AiDailyForecastSymbol;
     performance: ReturnType<typeof summarizeLearning>;
   }>;
+  learningApplicationAudit: LearningApplicationAudit;
   inputQuality: "verified" | "degraded" | "invalid";
   qualityReasonCodes: string[];
   inputHash?: string;
@@ -370,8 +377,10 @@ export async function buildAiIntradayForecastInput(input: {
   const firstMarket = marketRows[0];
   const versions = [
     ...Object.values(RETIRED_AI_DAILY_FORECAST_V1_VERSIONS),
+    ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
     ...Object.values(AI_DAILY_FORECAST_VERSIONS),
-  ];
+  ] as string[];
   const learningRows = await db
     .select()
     .from(rtForwardShadowTrades)
@@ -410,6 +419,21 @@ export async function buildAiIntradayForecastInput(input: {
         `intraday_minute_missing:${item.symbol}:${item.summary.missingMinuteCount}`
       );
   if (!market) reasons.push("nikkei225_mini_missing_at_checkpoint");
+  const frozenMacro = object(priorData.macroSnapshot);
+  const learningApplicationAudit = buildLearningApplicationAudit({
+    checkpoint: input.checkpoint,
+    baselines: summaries.map(item => ({
+      symbol: item.symbol,
+      baseline: priorData.symbols.find(row => row.symbol === item.symbol)!
+        .baseline,
+      technical: item.summary,
+    })),
+    macroRegime:
+      typeof frozenMacro.regimeState === "string"
+        ? frozenMacro.regimeState
+        : null,
+    learningSnapshot: priorData.learningSnapshot ?? null,
+  });
   const prepared: AiIntradayForecastInput = {
     tradeDate: input.tradeDate,
     checkpoint: input.checkpoint,
@@ -447,6 +471,7 @@ export async function buildAiIntradayForecastInput(input: {
       symbol,
       performance: summarizeLearning(learningRows, symbol),
     })),
+    learningApplicationAudit,
     inputQuality: reasons.length === 0 ? "verified" : "degraded",
     qualityReasonCodes: Array.from(new Set(reasons)),
   };
@@ -662,6 +687,7 @@ export async function ingestAiIntradayForecastSubmission(
     promptVersion: submission.promptVersion,
     aiFinalForecast: validation.output,
     generatorMetadata: submission.generatorMetadata ?? {},
+    learningApplicationAudit: prepared.learningApplicationAudit,
     validation: {
       inputQuality: prepared.inputQuality,
       inputReasons: prepared.qualityReasonCodes,

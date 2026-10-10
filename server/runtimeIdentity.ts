@@ -565,12 +565,21 @@ export const RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS = Object.freeze({
 } as const);
 
 /** 詳細学習snapshotをD-1まで参照するv3。通常売買・自動採用・注文instructionには接続しない。 */
-export const AI_DAILY_FORECAST_VERSIONS = Object.freeze(
+export const RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS = Object.freeze(
   Object.fromEntries(
     Object.entries(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS).map(
       ([symbol, version]) => [symbol, version.replace(/-v2$/, "-v3")]
     )
   ) as Record<keyof typeof RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS, string>
+);
+
+/** 詳細学習診断を是正したv4。通常売買・自動採用・注文instructionには接続しない。 */
+export const AI_DAILY_FORECAST_VERSIONS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS).map(
+      ([symbol, version]) => [symbol, version.replace(/-v3$/, "-v4")]
+    )
+  ) as Record<keyof typeof RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS, string>
 );
 
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([

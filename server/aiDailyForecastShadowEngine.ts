@@ -24,6 +24,7 @@ import {
   FORWARD_EVALUATION_POLICY,
   RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -187,13 +188,13 @@ function planFromSnapshot(
 ): Plan | null {
   if (!snapshot || snapshot.qualityStatus === "invalid") return null;
   const frozenInput = object(snapshot.inputJson);
-  const learning = frozenInput.learningSnapshot;
-  if (
-    !learning ||
-    !object(learning).sourceSnapshotId ||
-    object(learning).modelVersion !== "ai-forecast-learning-v1"
-  )
-    return null;
+  const learningAudit = object(frozenInput.learningApplicationAudit);
+  const coldStartAllowed =
+    learningAudit.learningMode === "cold_start" &&
+    learningAudit.learningApplied === false;
+  const learnedValid =
+    object(frozenInput.learningSnapshot).sourceSnapshotId !== undefined;
+  if (!coldStartAllowed && !learnedValid) return null;
   const payload = object(snapshot.forecastJson);
   const output = object(payload.aiFinalForecast);
   const forecasts = Array.isArray(output.forecasts) ? output.forecasts : [];
@@ -811,7 +812,7 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
   };
   await upsertRtStrategyVersion({
     versionId: version,
-    strategyId: `${symbol.toLowerCase()}-ai-adaptive-v2`,
+    strategyId: `${symbol.toLowerCase()}-ai-adaptive-v4`,
     baselineGitSha: BASELINE_STRATEGY_GIT_SHA,
     buildGitSha: identity.buildGitSha ?? identity.runtimeBuildIdentifier,
     sourceTreeHash: identity.sourceTreeHash,
@@ -832,13 +833,14 @@ export async function registerAiDailyForecastShadowLifecycle() {
   for (const versionId of [
     ...Object.values(RETIRED_AI_DAILY_FORECAST_V1_VERSIONS),
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
   ]) {
     const existing = await getRtStrategyVersion(versionId);
     if (existing && existing.status !== "stopped")
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: "retired_replaced_by_ai_forecast_learning_v3_2026_10_14",
+        statusReason: "retired_replaced_by_ai_forecast_learning_v4_2026_10_10",
       });
   }
   for (const symbol of AI_DAILY_FORECAST_SYMBOLS) await ensureVersion(symbol);

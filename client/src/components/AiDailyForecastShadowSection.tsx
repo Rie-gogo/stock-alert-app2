@@ -92,6 +92,11 @@ export default function AiDailyForecastShadowSection({
     ? asRecord(latestIntraday.forecastJson)
     : {};
   const intradayFinal = asRecord(intradayPayload.aiFinalForecast);
+  const learningAudit = asRecord(
+    latestIntraday
+      ? intradayPayload.learningApplicationAudit
+      : payload.learningApplicationAudit
+  );
   const activeForecasts = latestIntraday
     ? asRecord(intradayFinal.forecast).forecasts
     : morningForecasts;
@@ -158,16 +163,25 @@ export default function AiDailyForecastShadowSection({
         </div>
         <div className="text-xs text-muted-foreground">
           詳細学習:{" "}
-          {learningSnapshot.sourceSnapshotId ? (
+          {learningAudit.learningMode === "cold_start" ? (
+            <span className="text-amber-300">
+              cold_start（実績0件でも凍結08:30 baselineのみで監視計画を生成）
+            </span>
+          ) : learningSnapshot.sourceSnapshotId ? (
             <span className="text-emerald-300">
               {String(learningSnapshot.asOfDate)}確定snapshot（
               {String(learningSnapshot.modelVersion)}）
             </span>
           ) : (
             <span className="text-amber-300">
-              D-1 verified learning snapshot未生成のため no_trade / fail-closed
+              学習snapshot未生成（市場データが有効ならcold-start計画、それ以外はfail-closed）
             </span>
           )}
+          。学習適用:{" "}
+          {learningAudit.learningApplied === true
+            ? "類似事例を監査参照"
+            : "自動適用なし"}
+          ／事例数: {String(learningAudit.learningExampleCount ?? 0)}
           。損失タグ・MFE/MAE・反実仮想は診断専用で、同日意思決定へは混入しません。
         </div>
         <div className="overflow-x-auto">

@@ -6,6 +6,7 @@ import {
   rtCandles,
   rtForwardShadowEvents,
   rtForwardShadowTrades,
+  rtMarketContextEvents,
   type InsertRtAiForecastLearningSnapshot,
 } from "../drizzle/schema";
 import { getDb } from "./db";
@@ -13,14 +14,16 @@ import {
   AI_DAILY_FORECAST_SYMBOLS,
   type AiDailyForecastSymbol,
 } from "./aiDailyForecastService";
+import { AI_FORECAST_LEARNING_MODEL_VERSION } from "./aiForecastLearningContract";
 import {
   AI_DAILY_FORECAST_VERSIONS,
   RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
   sha256Stable,
 } from "./runtimeIdentity";
 
-export const AI_FORECAST_LEARNING_MODEL_VERSION = "ai-forecast-learning-v1";
+export { AI_FORECAST_LEARNING_MODEL_VERSION } from "./aiForecastLearningContract";
 export const AI_FORECAST_LEARNING_COMPONENT = "ai_forecast_learning_snapshot";
 export const AI_FORECAST_LEARNING_MATERIALIZATION_VERSION =
   "ai-forecast-learning-materialized-v1";
@@ -31,6 +34,32 @@ const finite = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+export function calculateOpeningGapPct(
+  dayOpen: number | null,
+  previousClose: number | null
+) {
+  if (
+    dayOpen === null ||
+    previousClose === null ||
+    !Number.isFinite(dayOpen) ||
+    !Number.isFinite(previousClose) ||
+    previousClose <= 0
+  )
+    return null;
+  return round((dayOpen / previousClose - 1) * 100);
+}
+export function selectCausalMiniEvent<
+  T extends { candleTime: string; qualityStatus: string },
+>(events: readonly T[], entryCandleTime: string) {
+  return (
+    events
+      .filter(
+        item =>
+          item.candleTime <= entryCandleTime && item.qualityStatus !== "invalid"
+      )
+      .at(-1) ?? null
+  );
+}
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -56,7 +85,7 @@ type CauseCandidate = {
   tag: string;
   usesFuture: boolean;
   evidence: Record<string, unknown>;
-  judgementVersion: "ai-forecast-learning-v1";
+  judgementVersion: "ai-forecast-learning-v2";
 };
 
 type LearningExample = {
@@ -267,25 +296,29 @@ function outcomeFromCandles(
     exitReason: string | null;
     pnl: unknown;
     realizedR: unknown;
-  }
+  },
+  plan: {
+    firstTarget: number | null;
+    stretchTarget: number | null;
+    stopPrice: number | null;
+  },
+  relatedEvents: Array<typeof rtForwardShadowEvents.$inferSelect>
 ) {
-  const entryIndex = candles.findIndex(
+  const ordered = [...candles].sort((left, right) =>
+    left.candleTime.localeCompare(right.candleTime)
+  );
+  const entryIndex = ordered.findIndex(
     candle => candle.candleTime === trade.entryCandleTime
   );
-  const remaining = entryIndex < 0 ? [] : candles.slice(entryIndex);
+  const exitIndex = trade.exitCandleTime
+    ? ordered.findIndex(candle => candle.candleTime === trade.exitCandleTime)
+    : -1;
+  const held =
+    entryIndex < 0 || exitIndex < entryIndex
+      ? []
+      : ordered.slice(entryIndex, exitIndex + 1);
+  const postExit = exitIndex >= 0 ? ordered.slice(exitIndex + 1) : [];
   const entryPrice = finite(trade.entryPrice);
-  const favorable =
-    remaining.length && entryPrice !== null
-      ? trade.side === "long"
-        ? Math.max(...remaining.map(candle => candle.high))
-        : Math.min(...remaining.map(candle => candle.low))
-      : null;
-  const adverse =
-    remaining.length && entryPrice !== null
-      ? trade.side === "long"
-        ? Math.min(...remaining.map(candle => candle.low))
-        : Math.max(...remaining.map(candle => candle.high))
-      : null;
   const pct = (price: number | null) =>
     entryPrice && price !== null
       ? round(
@@ -294,13 +327,90 @@ function outcomeFromCandles(
             : entryPrice / price - 1) * 100
         )
       : null;
+  const favorable =
+    held.length && entryPrice !== null
+      ? trade.side === "long"
+        ? Math.max(...held.map(candle => candle.high))
+        : Math.min(...held.map(candle => candle.low))
+      : null;
+  const adverse =
+    held.length && entryPrice !== null
+      ? trade.side === "long"
+        ? Math.min(...held.map(candle => candle.low))
+        : Math.max(...held.map(candle => candle.high))
+      : null;
+  const returnReasons: string[] = [];
   const returnAt = (minutes: number) => {
     if (entryIndex < 0 || entryPrice === null) return null;
-    const candle = candles[entryIndex + minutes];
-    return candle ? pct(candle.close) : null;
+    const value = minute(trade.entryCandleTime);
+    if (value === null) return null;
+    const expected = value + minutes;
+    const target = `${String(Math.floor(expected / 60)).padStart(2, "0")}:${String(expected % 60).padStart(2, "0")}`;
+    const candle = ordered.find(item => item.candleTime === target);
+    if (!candle) {
+      returnReasons.push(`return_${minutes}m_exact_candle_missing`);
+      return null;
+    }
+    return pct(candle.close);
   };
-  const exitMinute = minute(trade.exitCandleTime);
-  const entryMinute = minute(trade.entryCandleTime);
+  const reachedAt = (kind: "target" | "stop" | "stretch") => {
+    const price =
+      kind === "target"
+        ? plan.firstTarget
+        : kind === "stretch"
+          ? plan.stretchTarget
+          : plan.stopPrice;
+    if (price === null || held.length === 0) return null;
+    const matching = held.find(candle =>
+      trade.side === "long"
+        ? kind === "stop"
+          ? candle.low <= price
+          : candle.high >= price
+        : kind === "stop"
+          ? candle.high >= price
+          : candle.low <= price
+    );
+    return matching?.candleTime ?? null;
+  };
+  const eventActions = relatedEvents.flatMap(event => {
+    const actions = Array.isArray(record(event.decisionJson).actions)
+      ? (record(event.decisionJson).actions as unknown[]).map(record)
+      : [];
+    return actions.map(action => ({ event, action }));
+  });
+  const zoneEvidence = eventActions.find(
+    item => item.action.type === "zone_touched"
+  );
+  const entryEvidence = eventActions.find(item => item.action.type === "entry");
+  const exitEvidence = eventActions.filter(item => item.action.type === "exit");
+  const targetEvidence = exitEvidence.find(item =>
+    ["first_target", "target", "take_profit"].includes(
+      String(item.action.reason)
+    )
+  );
+  const stopEvidence = exitEvidence.find(
+    item => String(item.action.reason) === "stop_loss"
+  );
+  const stretchEvidence = exitEvidence.find(item =>
+    ["stretch_target", "second_target"].includes(String(item.action.reason))
+  );
+  const targetReachedAt = reachedAt("target");
+  const stopReachedAt = reachedAt("stop");
+  const stretchTargetReachedAt = reachedAt("stretch");
+  const sameBar = targetReachedAt !== null && targetReachedAt === stopReachedAt;
+  const stopIndex = stopReachedAt
+    ? ordered.findIndex(candle => candle.candleTime === stopReachedAt)
+    : -1;
+  const laterTarget =
+    stopIndex >= 0 && plan.firstTarget !== null
+      ? ordered
+          .slice(stopIndex + 1)
+          .some(candle =>
+            trade.side === "long"
+              ? candle.high >= plan.firstTarget!
+              : candle.low <= plan.firstTarget!
+          )
+      : null;
   return {
     diagnosisOnly: true,
     exitTime: trade.exitCandleTime,
@@ -309,8 +419,12 @@ function outcomeFromCandles(
     pnl: finite(trade.pnl),
     realizedR: finite(trade.realizedR),
     holdingMinutes:
-      entryMinute !== null && exitMinute !== null
-        ? Math.max(0, exitMinute - entryMinute)
+      entryIndex >= 0 && exitIndex >= entryIndex
+        ? Math.max(
+            0,
+            (minute(ordered[exitIndex]!.candleTime) ?? 0) -
+              (minute(ordered[entryIndex]!.candleTime) ?? 0)
+          )
         : null,
     mfePct: pct(favorable),
     maePct: pct(adverse),
@@ -321,17 +435,54 @@ function outcomeFromCandles(
       m15: returnAt(15),
       m30: returnAt(30),
     },
-    targetReachedAt: null,
-    stopReachedAt: null,
-    targetAndStopSameCandle: false,
-    stopThenOriginalTarget: false,
-    zoneTouched: true,
-    confirmationEstablished: true,
-    firstTargetReached: trade.exitReason === "first_target",
-    stretchTargetReached: false,
-    counterfactual: {
+    reasonCodes: [
+      ...(entryIndex < 0 ? ["entry_candle_missing"] : []),
+      ...(exitIndex < entryIndex ? ["exit_candle_missing"] : []),
+      ...(sameBar ? ["same_bar_order_ambiguous"] : []),
+      ...(zoneEvidence ? [] : ["zone_touch_event_evidence_missing"]),
+      ...(entryEvidence ? [] : ["confirmation_event_evidence_missing"]),
+      ...(targetEvidence || stopEvidence
+        ? []
+        : ["target_stop_event_evidence_missing"]),
+      ...returnReasons,
+    ],
+    targetReachedAt: targetEvidence?.event.candleTime ?? null,
+    stopReachedAt: stopEvidence?.event.candleTime ?? null,
+    targetAndStopSameCandle:
+      targetEvidence && stopEvidence
+        ? targetEvidence.event.sourceEventId ===
+          stopEvidence.event.sourceEventId
+        : null,
+    stopThenOriginalTarget: null,
+    zoneTouched: zoneEvidence ? true : null,
+    zoneTouchTime: zoneEvidence?.event.candleTime ?? null,
+    zoneTouchSourceEventId: zoneEvidence?.event.sourceEventId ?? null,
+    confirmationEstablished: entryEvidence ? true : null,
+    confirmationTime: entryEvidence?.event.candleTime ?? null,
+    confirmationSourceEventId: entryEvidence?.event.sourceEventId ?? null,
+    firstTargetReached: targetEvidence ? true : null,
+    stretchTargetReached: stretchEvidence ? true : null,
+    postExitCounterfactual: {
       diagnosisOnly: true,
-      checkpointChangeImpact: "not_inferred",
+      estimatedTargetReachedAt: targetReachedAt,
+      estimatedStopReachedAt: stopReachedAt,
+      estimatedStretchTargetReachedAt: stretchTargetReachedAt,
+      targetAndStopSameCandle: sameBar ? true : null,
+      stopThenOriginalTarget: laterTarget,
+      mfePct: postExit.length
+        ? pct(
+            trade.side === "long"
+              ? Math.max(...postExit.map(candle => candle.high))
+              : Math.min(...postExit.map(candle => candle.low))
+          )
+        : null,
+      maePct: postExit.length
+        ? pct(
+            trade.side === "long"
+              ? Math.min(...postExit.map(candle => candle.low))
+              : Math.max(...postExit.map(candle => candle.high))
+          )
+        : null,
     },
   };
 }
@@ -386,7 +537,7 @@ export function deriveCauseCandidates(input: {
       tag,
       usesFuture,
       evidence,
-      judgementVersion: "ai-forecast-learning-v1",
+      judgementVersion: AI_FORECAST_LEARNING_MODEL_VERSION,
     });
   if (input.expectedRR !== null && input.expectedRR < 1)
     add("low_expected_rr", false, { expectedRR: input.expectedRR });
@@ -395,7 +546,6 @@ export function deriveCauseCandidates(input: {
       gapPct: input.gapPct,
     });
   if (
-    input.symbol === "285A" &&
     input.entry.sessionHighUpdated !== true &&
     input.entry.sessionLowUpdated !== true
   )
@@ -563,6 +713,46 @@ function learningBySymbol(examples: LearningExample[]) {
         ),
         row => String((row as LearningExample & { causeTag: string }).causeTag)
       ),
+      analogCases: rows.map(row => {
+        const entry = record(row.entry);
+        const one = record(entry.oneMinute);
+        const bb = record(one.bollinger20);
+        return {
+          identity: {
+            tradeDate: row.tradeDate,
+            symbol: row.symbol,
+            entryCandleTime: record(entry.candle).candleTime ?? null,
+          },
+          side: row.side,
+          checkpoint: row.checkpoint,
+          gapBucket: bucket(
+            finite(entry.gapPct),
+            [-1.5, -0.3, 0.3, 1.5],
+            ["large_down", "down", "flat", "up", "large_up"]
+          ),
+          fiveMinuteSma20Direction: String(
+            entry.fiveMinuteSma20Direction ?? "unavailable"
+          ),
+          bbPositionBucket: bucket(
+            finite(bb.zScore),
+            [-1, 1, 2],
+            ["lower", "middle", "upper", "outer"]
+          ),
+          rsiBucket: bucket(
+            finite(one.rsi14),
+            [30, 45, 55, 70],
+            ["oversold", "low", "neutral", "high", "overbought"]
+          ),
+          macroRegime: row.macroRegime ?? "unavailable",
+          expectedRrBucket: bucket(
+            finite(entry.expectedRR),
+            [1, 1.5, 2],
+            ["below_1", "1_to_1_5", "1_5_to_2", "at_least_2"]
+          ),
+          pnl: row.diagnosisOnly.pnl,
+          realizedR: row.diagnosisOnly.realizedR,
+        };
+      }),
       examples: compactExamples(rows),
     };
   });
@@ -627,75 +817,102 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
   const versions = [
     ...Object.values(RETIRED_AI_DAILY_FORECAST_V1_VERSIONS),
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
     ...Object.values(AI_DAILY_FORECAST_VERSIONS),
   ] as string[];
-  const [trades, events, candles, dailySnapshots, intradaySnapshots] =
-    await Promise.all([
-      db
-        .select()
-        .from(rtForwardShadowTrades)
-        .where(
-          and(
-            inArray(rtForwardShadowTrades.strategyVersion, versions),
-            eq(rtForwardShadowTrades.evaluationMode, "signal_quality"),
-            lte(rtForwardShadowTrades.entryTradeDate, asOfDate)
-          )
+  const [
+    trades,
+    events,
+    candles,
+    dailySnapshots,
+    intradaySnapshots,
+    marketEvents,
+  ] = await Promise.all([
+    db
+      .select()
+      .from(rtForwardShadowTrades)
+      .where(
+        and(
+          inArray(rtForwardShadowTrades.strategyVersion, versions),
+          eq(rtForwardShadowTrades.evaluationMode, "signal_quality"),
+          lte(rtForwardShadowTrades.entryTradeDate, asOfDate)
         )
-        .orderBy(
-          asc(rtForwardShadowTrades.entryTradeDate),
-          asc(rtForwardShadowTrades.id)
-        ),
-      db
-        .select()
-        .from(rtForwardShadowEvents)
-        .where(
-          and(
-            inArray(rtForwardShadowEvents.strategyVersion, versions),
-            eq(rtForwardShadowEvents.evaluationMode, "signal_quality"),
-            lte(rtForwardShadowEvents.tradeDate, asOfDate)
-          )
+      )
+      .orderBy(
+        asc(rtForwardShadowTrades.entryTradeDate),
+        asc(rtForwardShadowTrades.id)
+      ),
+    db
+      .select()
+      .from(rtForwardShadowEvents)
+      .where(
+        and(
+          inArray(rtForwardShadowEvents.strategyVersion, versions),
+          eq(rtForwardShadowEvents.evaluationMode, "signal_quality"),
+          lte(rtForwardShadowEvents.tradeDate, asOfDate)
         )
-        .orderBy(
-          asc(rtForwardShadowEvents.tradeDate),
-          asc(rtForwardShadowEvents.id)
-        ),
-      db
-        .select()
-        .from(rtCandles)
-        .where(
-          and(
-            inArray(rtCandles.symbol, [...AI_DAILY_FORECAST_SYMBOLS]),
-            lte(rtCandles.tradeDate, asOfDate)
-          )
+      )
+      .orderBy(
+        asc(rtForwardShadowEvents.tradeDate),
+        asc(rtForwardShadowEvents.id)
+      ),
+    db
+      .select()
+      .from(rtCandles)
+      .where(
+        and(
+          inArray(rtCandles.symbol, [...AI_DAILY_FORECAST_SYMBOLS]),
+          lte(rtCandles.tradeDate, asOfDate)
         )
-        .orderBy(
-          asc(rtCandles.tradeDate),
-          asc(rtCandles.candleTime),
-          asc(rtCandles.id)
-        ),
-      db
-        .select()
-        .from(rtAiDailyForecastSnapshots)
-        .where(lte(rtAiDailyForecastSnapshots.tradeDate, asOfDate))
-        .orderBy(
-          asc(rtAiDailyForecastSnapshots.tradeDate),
-          asc(rtAiDailyForecastSnapshots.id)
-        ),
-      db
-        .select()
-        .from(rtAiIntradayForecastSnapshots)
-        .where(lte(rtAiIntradayForecastSnapshots.tradeDate, asOfDate))
-        .orderBy(
-          asc(rtAiIntradayForecastSnapshots.tradeDate),
-          asc(rtAiIntradayForecastSnapshots.id)
-        ),
-    ]);
+      )
+      .orderBy(
+        asc(rtCandles.tradeDate),
+        asc(rtCandles.candleTime),
+        asc(rtCandles.id)
+      ),
+    db
+      .select()
+      .from(rtAiDailyForecastSnapshots)
+      .where(lte(rtAiDailyForecastSnapshots.tradeDate, asOfDate))
+      .orderBy(
+        asc(rtAiDailyForecastSnapshots.tradeDate),
+        asc(rtAiDailyForecastSnapshots.id)
+      ),
+    db
+      .select()
+      .from(rtAiIntradayForecastSnapshots)
+      .where(lte(rtAiIntradayForecastSnapshots.tradeDate, asOfDate))
+      .orderBy(
+        asc(rtAiIntradayForecastSnapshots.tradeDate),
+        asc(rtAiIntradayForecastSnapshots.id)
+      ),
+    db
+      .select()
+      .from(rtMarketContextEvents)
+      .where(lte(rtMarketContextEvents.tradeDate, asOfDate))
+      .orderBy(
+        asc(rtMarketContextEvents.tradeDate),
+        asc(rtMarketContextEvents.candleTime),
+        asc(rtMarketContextEvents.id)
+      ),
+  ]);
   const eventByEntry = new Map(
     events.map(event => [
       `${event.strategyVersion}:${event.sourceEventId}`,
       event,
     ])
   );
+  const eventsByTradeVersion = new Map<
+    string,
+    Array<typeof rtForwardShadowEvents.$inferSelect>
+  >();
+  for (const event of events) {
+    const key = `${event.strategyVersion}:${event.tradeDate}:${event.symbol}`;
+    eventsByTradeVersion.set(key, [
+      ...(eventsByTradeVersion.get(key) ?? []),
+      event,
+    ]);
+  }
   const candlesByDaySymbol = new Map<string, Candle[]>();
   for (const row of candles) {
     const key = `${row.tradeDate}:${row.symbol}`;
@@ -717,6 +934,22 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
   const intradayById = new Map(
     intradaySnapshots.map(row => [row.sourceRevisionId, row])
   );
+  const datesBySymbol = new Map<string, string[]>();
+  for (const key of Array.from(candlesByDaySymbol.keys())) {
+    const [tradeDate, symbol] = key.split(":");
+    datesBySymbol.set(symbol!, [
+      ...(datesBySymbol.get(symbol!) ?? []),
+      tradeDate!,
+    ]);
+  }
+  for (const [symbol, dates] of Array.from(datesBySymbol.entries()))
+    datesBySymbol.set(symbol, Array.from(new Set(dates)).sort());
+  const miniByDate = new Map<string, typeof marketEvents>();
+  for (const event of marketEvents)
+    miniByDate.set(event.tradeDate, [
+      ...(miniByDate.get(event.tradeDate) ?? []),
+      event,
+    ]);
   return trades.flatMap(trade => {
     if (
       !symbols.has(trade.symbol) ||
@@ -743,10 +976,23 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
       stopReference
     );
     const dayOpen = finite(technical.sessionOpen);
-    const gapPct =
-      dayOpen && dayCandles.length
-        ? round((dayOpen / dayCandles[0]!.open - 1) * 100)
-        : null;
+    const dates = datesBySymbol.get(trade.symbol) ?? [];
+    const previousDate = dates
+      .filter(date => date < trade.entryTradeDate)
+      .at(-1);
+    const previousClose = previousDate
+      ? (candlesByDaySymbol
+          .get(`${previousDate}:${trade.symbol}`)
+          ?.sort((left, right) =>
+            left.candleTime.localeCompare(right.candleTime)
+          )
+          .at(-1)?.close ?? null)
+      : null;
+    const gapPct = calculateOpeningGapPct(dayOpen, previousClose);
+    const mini = selectCausalMiniEvent(
+      miniByDate.get(trade.entryTradeDate) ?? [],
+      trade.entryCandleTime
+    );
     const entry = {
       tradeDate: trade.entryTradeDate,
       symbol: trade.symbol,
@@ -782,11 +1028,26 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
       ...metric,
       ...technical,
       gapPct,
+      gapReasonCodes: previousClose ? [] : ["previous_close_unavailable"],
       nikkei225Mini: {
-        observedAt: null,
-        qualityStatus: null,
-        direction: null,
-        changeFromOpenPct: null,
+        sourceEventId: mini?.sourceEventId ?? null,
+        candleTime: mini?.candleTime ?? null,
+        observedAt: mini?.observedAtMs ?? null,
+        qualityStatus: mini?.qualityStatus ?? null,
+        open: mini ? Number(mini.open) : null,
+        last: mini ? Number(mini.close) : null,
+        changeFromOpenPct:
+          mini && Number(mini.open) > 0
+            ? round((Number(mini.close) / Number(mini.open) - 1) * 100)
+            : null,
+        direction:
+          mini && Number(mini.close) > Number(mini.open)
+            ? "up"
+            : mini && Number(mini.close) < Number(mini.open)
+              ? "down"
+              : mini
+                ? "flat"
+                : null,
       },
       macroRegime: plan.macroRegime,
       macroConfidence: plan.macroConfidence,
@@ -796,7 +1057,22 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
         plan.plan.openPositionAction ??
         "keep",
     } satisfies LearningFeature;
-    const diagnosisOnly = outcomeFromCandles(dayCandles, trade);
+    const diagnosisOnly = outcomeFromCandles(
+      dayCandles,
+      trade,
+      {
+        firstTarget,
+        stretchTarget: finite(plan.plan.stretchTarget ?? planRow.stretchTarget),
+        stopPrice: stopReference,
+      },
+      (
+        eventsByTradeVersion.get(
+          `${trade.strategyVersion}:${trade.entryTradeDate}:${trade.symbol}`
+        ) ?? []
+      ).filter(
+        item => !trade.exitCandleTime || item.candleTime <= trade.exitCandleTime
+      )
+    );
     const causes = deriveCauseCandidates({
       symbol: trade.symbol,
       side: trade.side,
@@ -808,9 +1084,11 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
     });
     return [
       {
-        source: trade.strategyVersion.includes("-v3")
-          ? "current_v3"
-          : "reference_v1_v2",
+        source:
+          trade.strategyVersion.includes("-v3") ||
+          trade.strategyVersion.includes("-v4")
+            ? "current_v3"
+            : "reference_v1_v2",
         tradeDate: trade.entryTradeDate,
         symbol: trade.symbol,
         side: trade.side,
@@ -865,6 +1143,9 @@ export function buildLearningPayloadForTest(input: {
       capitalConstrainedSeparate: true,
       referenceVersionsRetained: true,
       automaticRuleMutation: false,
+      learningMode: input.examples.length === 0 ? "cold_start" : "learned",
+      coldStartReason:
+        input.examples.length === 0 ? "learning_examples_unavailable" : null,
     },
   };
   return trimToLimit(payload);
@@ -948,10 +1229,14 @@ export async function materializeAiForecastLearningSnapshotForDate(
 ) {
   const examples = await loadExamples(asOfDate);
   const built = buildLearningPayloadForTest({ asOfDate, examples });
-  const qualityStatus = examples.length === 0 ? "invalid" : built.qualityStatus;
+  const qualityStatus = built.qualityStatus;
   const qualityReasonCodes =
     examples.length === 0
-      ? [...built.reasons, "learning_examples_unavailable"]
+      ? [
+          ...built.reasons,
+          "learning_examples_unavailable",
+          "learning_mode_cold_start",
+        ]
       : built.reasons;
   const input = {
     asOfDate,
@@ -987,6 +1272,9 @@ export async function materializeAiForecastLearningSnapshotForDate(
 
 export const _aiForecastLearningTest = {
   snapshotFromCandles,
+  calculateOpeningGapPct,
+  selectCausalMiniEvent,
+  outcomeFromCandles,
   deriveCauseCandidates,
   buildLearningPayloadForTest,
   expectedMetrics,

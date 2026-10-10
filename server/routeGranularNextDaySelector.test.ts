@@ -279,8 +279,8 @@ describe("route-granular next-day monitoring selector", () => {
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(false);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
-      "6857_ai_daily_forecast_snapshot_v1",
-      "6857_ai_daily_forecast_snapshot_v1",
+      "6857_ai_adaptive_forecast_v2",
+      "6857_ai_adaptive_forecast_v2",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_sma10_slope_gap050_stop140_cooldown30",

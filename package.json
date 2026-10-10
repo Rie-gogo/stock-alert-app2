@@ -12,6 +12,8 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
+    "ai:intraday:fetch": "node scripts/fetch-ai-intraday-forecast-input.mjs",
+    "ai:intraday:ingest": "node scripts/ingest-ai-intraday-forecast.mjs",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {

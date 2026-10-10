@@ -112,7 +112,7 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   ...TEN_MONITORED_SYMBOLS.map(symbol => ({
     strategyVersion: AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS],
     symbol,
-    label: "AI日次予測shadow",
+    label: "AI適応予測shadow（08:30＋30分更新）",
     purpose: "diagnostic" as const,
     eligibleForAdoption: false,
   })),

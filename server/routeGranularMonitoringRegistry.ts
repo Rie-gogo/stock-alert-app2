@@ -231,7 +231,7 @@ for (const config of bollingerRouteConfigs) {
   }
 }
 
-// One immutable AI snapshot version per symbol, separated strictly by persisted action side.
+// One immutable AI adaptive-plan version per symbol, separated strictly by persisted action side.
 for (const symbol of Object.keys(AI_DAILY_FORECAST_VERSIONS)) {
   const strategyVersion = AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS];
   for (const direction of ["long", "short"] as const) {
@@ -239,8 +239,8 @@ for (const symbol of Object.keys(AI_DAILY_FORECAST_VERSIONS)) {
       symbol,
       routeGroupId: `ai_daily_forecast_${direction}`,
       direction,
-      label: `AI日次予測shadow ${direction.toUpperCase()}`,
-      canonicalLogic: `${symbol.toLowerCase()}_ai_daily_forecast_snapshot_v1`,
+      label: `AI適応予測shadow ${direction.toUpperCase()}`,
+      canonicalLogic: `${symbol.toLowerCase()}_ai_adaptive_forecast_v2`,
       strategyVersion,
       shadowSide: direction,
     }));

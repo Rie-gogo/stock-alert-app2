@@ -75,14 +75,14 @@ describe("AI daily forecast monitoring registry", () => {
   it("uses non-destructive v2 materialization versions while preserving the AI strategy version generation", () => {
     expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v2-ai-daily-forecast");
     expect(ROUTE_GRANULAR_MONITORING_VERSION).toBe("monitoring-route-granular-10-symbols-v2-ai-daily-forecast");
-    expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-daily-forecast-v1"))).toBe(true);
+    expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v2"))).toBe(true);
   });
 
   it("adds exactly one immutable AI plan per monitored symbol even when no event has fired", () => {
     const plans = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => aiVersions.has(plan.strategyVersion));
     expect(plans).toHaveLength(10);
     expect(plans.map(plan => plan.symbol).sort()).toEqual([...TEN_MONITORED_SYMBOLS].sort());
-    expect(plans.every(plan => plan.label === "AI日次予測shadow" && plan.purpose === "diagnostic" && plan.eligibleForAdoption === false)).toBe(true);
+    expect(plans.every(plan => plan.label === "AI適応予測shadow（08:30＋30分更新）" && plan.purpose === "diagnostic" && plan.eligibleForAdoption === false)).toBe(true);
 
     const snapshot = buildMultiSymbolMonitoringDailySnapshot({
       tradeDate: "2026-10-09",

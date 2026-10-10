@@ -1,6 +1,6 @@
 # AI日次予測（10銘柄）— 既存08:30 Codexタスク連携契約
 
-> **役割分離**: 予測主体は既存の平日08:30 Codex定期タスクです。Stock Alert AppはLLMを呼び出しません。アプリはD-1 inputのread-only返却、外部生成JSONの検証・immutable保存、場中shadow固定参照、UI表示だけを担当します。
+> **役割分離**: 予測主体は平日08:30および場中30分ごとのCodex定期タスクです。Stock Alert AppはLLMを呼び出しません。アプリは因果的inputの返却、外部生成JSONの検証・immutable保存、shadow参照、UI表示だけを担当します。
 
 ## 対象・安全境界
 
@@ -75,17 +75,47 @@ node scripts/ingest-ai-daily-forecast.mjs /secure/path/ai-forecast.json
 
 アプリは input hash、quant baseline完全一致、10銘柄一意性、価格順、方向整合、0.75 ATR例外理由、source IDの冪等性を検証します。失敗時は**保存しません**。
 
-## 4. 場中shadowと④revision
+## 4. 場中shadowと30分AI revision
 
-保存に成功した `aiFinalForecast` だけを、同日・銘柄ごとの独立shadowが固定参照します。
+08:30計画の保存後、`09:30 / 10:00 / 10:30 / 11:00 / 11:30 / 12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00` にAIが再判断します。12:30ではなく12:35なのは、後場最初の確定5分足を入力に含めるためです。
+
+各checkpointでは次を取得します。SecretはPOST bodyだけで送り、URL・ログ・JSONへ残しません。
+
+```bash
+AI_DAILY_FORECAST_INGEST_KEY="$AI_DAILY_FORECAST_INGEST_KEY" \
+node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM --out /secure/path/ai-intraday-input.json
+```
+
+- cutoffは必ずcheckpointの1分前（12:35だけ12:34）
+- 当日1分足、欠損状況、完全な5分足、SMA・RSI・Bollinger
+- その時点までの日経225mini
+- 08:30計画と直前の場中計画
+- 前営業日までに決済済みの当AI shadow成績、直近損失、exit理由
+
+AIは「今すぐ注文するか」ではなく、次のcheckpointまでの方向、entry帯、確認価格、目標、損切り参照、entry有効時間、強制決済時刻を10銘柄ごとに更新します。出力は `forecast` と10件の `controls` を持ち、`planDecision=maintained|adjusted|disabled`、`changeReason`、`openPositionAction` を必須とします。
+
+過去の損失は次回判断の根拠に含めますが、1件の損失だけで閾値を自動変更しません。AIは調整理由を明示し、アプリは前向きshadowとして保存します。自動採用、実注文接続、通常ロジックの書換えは行いません。
+
+生成JSONは次で送ります。
+
+```bash
+AI_DAILY_FORECAST_INGEST_KEY="$AI_DAILY_FORECAST_INGEST_KEY" \
+node scripts/ingest-ai-intraday-forecast.mjs /secure/path/ai-intraday-forecast.json
+```
+
+`sourceRevisionId` は `ai-intraday-forecast:YYYY-MM-DD:HHMM:<一意suffix>` とします。同じ朝snapshot・同じcheckpointは最初の1件だけを凍結し、後から上書きできません。
+
+保存に成功した有効計画だけを、同日・銘柄ごとの独立shadowが参照します。
 
 1. zoneに触れる
 2. **別イベント**で `confirmPrice` を確認
 3. そのイベント時点の因果的・方向別depth VWAP（板観測→relay組立が0〜5秒）で仮想entry
-4. `firstTarget`、forecast boundary + 0.15 ATRによるSL、SL優先、15:20日次決済を記録
+4. `firstTarget`、forecast boundary + 0.15 ATRによるSL、SL優先、指定時刻（最遅15:20）決済を記録
 
-`signal_quality`（100株）と`capital_constrained`は別state・別event・別tradeとして保存します。影響が不利な④日経225mini checkpointは `09:05 / 09:15 / 10:00 / 12:35 / 13:30` にrevisionとして追記するだけで、朝snapshotは更新しません。
+新計画で未entryの方向・価格帯が変わった場合、旧touchは破棄して新計画から再判定します。保有中は、損切りを緩めず、同方向かつ `tighten_only` の場合だけ価格を安全側へ更新します。方向転換時の決済は、AIが `exit_next_event_if_direction_changed` を明示した場合だけ、次のsource eventで仮想決済します。
+
+`signal_quality`（100株）と`capital_constrained`は別state・別event・別tradeとして保存します。旧④日経225mini revisionは最初の09:30 AI計画までの補助安全判定として残し、AI場中計画が生成された後は、その計画内の日経225mini評価が優先されます。朝snapshotも過去の場中計画も更新しません。
 
 ## 5. スケジュール
 
-このリリースでは**Manusのscheduleを新設・変更しません**。既存の平日08:30 Codexタスクは、endpoint公開と手動受入が終わった後に利用者側でこの契約へ更新します。
+この実装はscheduleそのものを勝手に作成・変更しません。endpoint公開、migration、手動受入が成功した後に、平日08:30と上記11 checkpointのCodexタスクを利用者確認のうえで登録します。Windows relayや通常10銘柄の受信処理からAIを呼び出してはいけません。

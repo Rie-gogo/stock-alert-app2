@@ -982,6 +982,39 @@ export type RtAiDailyForecastRevision = typeof rtAiDailyForecastRevisions.$infer
 export type InsertRtAiDailyForecastRevision = typeof rtAiDailyForecastRevisions.$inferInsert;
 
 /**
+ * 30分ごとのAI場中計画。朝snapshotを変更せず、各checkpointの時点までに
+ * 確定した足・過去のAI shadow成績だけを入力としてimmutableに追記する。
+ */
+export const rtAiIntradayForecastSnapshots = mysqlTable("rt_ai_intraday_forecast_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceRevisionId: varchar("source_revision_id", { length: 180 }).notNull(),
+  morningSourceSnapshotId: varchar("morning_source_snapshot_id", { length: 160 }).notNull(),
+  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+  checkpoint: varchar("checkpoint", { length: 5 }).notNull(),
+  cutoffCandleTime: varchar("cutoff_candle_time", { length: 5 }).notNull(),
+  capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
+  modelVersion: varchar("model_version", { length: 96 }).notNull(),
+  sourceMode: mysqlEnum("ai_intraday_forecast_source_mode", ["scheduled_ai_forecast", "manual_dry_run"]).notNull(),
+  inputHash: varchar("input_hash", { length: 64 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  qualityStatus: mysqlEnum("ai_intraday_forecast_quality", ["verified", "degraded", "invalid"]).notNull(),
+  aiModelId: varchar("ai_model_id", { length: 96 }),
+  promptVersion: varchar("prompt_version", { length: 96 }).notNull(),
+  inferenceAtMs: bigint("inference_at_ms", { mode: "number" }),
+  inputJson: json("input_json").notNull(),
+  forecastJson: json("forecast_json").notNull(),
+  validationJson: json("validation_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({
+  sourceIdentity: uniqueIndex("rt_ai_intraday_forecast_source_identity").on(table.sourceRevisionId),
+  checkpointIdentity: uniqueIndex("rt_ai_intraday_forecast_checkpoint_identity").on(table.morningSourceSnapshotId, table.checkpoint),
+  tradeDateCheckpoint: index("rt_ai_intraday_forecast_trade_date_checkpoint").on(table.tradeDate, table.checkpoint, table.id),
+}));
+
+export type RtAiIntradayForecastSnapshot = typeof rtAiIntradayForecastSnapshots.$inferSelect;
+export type InsertRtAiIntradayForecastSnapshot = typeof rtAiIntradayForecastSnapshots.$inferInsert;
+
+/**
  * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
  * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
  */

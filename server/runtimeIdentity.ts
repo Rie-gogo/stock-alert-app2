@@ -312,8 +312,8 @@ export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V3_VERSIONS = Object.free
 export const BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V3_VERSIONS = Object.freeze(Object.fromEntries(Object.entries(RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS).map(([symbol, version]) => [symbol, version.replace(/-v2$/, "-v3")])) as Record<keyof typeof RETIRED_BOLLINGER_DIRECTIONAL_SMA20_SLOPE_BBWIDTH5_GAP_060_V2_VERSIONS, string>);
 export const BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS = Object.freeze(Object.fromEntries(Object.entries(RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS).map(([symbol, version]) => [symbol, version.replace(/-v2$/, "-v3")])) as Record<keyof typeof RETIRED_BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V2_VERSIONS, string>);
 
-/** 朝snapshot固定AI予測shadow。通常売買・自動採用・注文instructionには接続しない。 */
-export const AI_DAILY_FORECAST_VERSIONS = Object.freeze({
+/** 08:30朝snapshot固定版。履歴保持のみとし、30分適応版への移行時に停止する。 */
+export const RETIRED_AI_DAILY_FORECAST_V1_VERSIONS = Object.freeze({
   "285A": "candidate-285a-ai-daily-forecast-v1",
   "3436": "candidate-3436-ai-daily-forecast-v1",
   "5803": "candidate-5803-ai-daily-forecast-v1",
@@ -324,6 +324,20 @@ export const AI_DAILY_FORECAST_VERSIONS = Object.freeze({
   "6981": "candidate-6981-ai-daily-forecast-v1",
   "8035": "candidate-8035-ai-daily-forecast-v1",
   "9984": "candidate-9984-ai-daily-forecast-v1",
+} as const);
+
+/** 08:30＋30分ごとのAI適応予測shadow。通常売買・自動採用・注文instructionには接続しない。 */
+export const AI_DAILY_FORECAST_VERSIONS = Object.freeze({
+  "285A": "candidate-285a-ai-adaptive-forecast-v2",
+  "3436": "candidate-3436-ai-adaptive-forecast-v2",
+  "5803": "candidate-5803-ai-adaptive-forecast-v2",
+  "6146": "candidate-6146-ai-adaptive-forecast-v2",
+  "6526": "candidate-6526-ai-adaptive-forecast-v2",
+  "6857": "candidate-6857-ai-adaptive-forecast-v2",
+  "6976": "candidate-6976-ai-adaptive-forecast-v2",
+  "6981": "candidate-6981-ai-adaptive-forecast-v2",
+  "8035": "candidate-8035-ai-adaptive-forecast-v2",
+  "9984": "candidate-9984-ai-adaptive-forecast-v2",
 } as const);
 
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([

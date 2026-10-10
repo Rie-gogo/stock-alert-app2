@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { timingSafeEqual } from "node:crypto";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import {
   getDailyReportByDate,
@@ -194,6 +195,13 @@ const premarketContextInput = z.object({
 const premarketAutomationInput = premarketContextInput.safeExtend({
   ingestKey: z.string().min(32).max(256),
 });
+const aiIntradayCheckpointInput = z.enum(["09:30", "10:00", "10:30", "11:00", "11:30", "12:35", "13:00", "13:30", "14:00", "14:30", "15:00"]);
+function authorizeAiForecastSender(provided: string) {
+  const expected = process.env.AI_DAILY_FORECAST_INGEST_KEY;
+  if (!expected) return false;
+  const left = Buffer.from(provided, "utf8"); const right = Buffer.from(expected, "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 export const tradingRouter = router({
   /** D-1のみを返す日次AI予測のread-only input API。通常engineや注文には接続しない。 */
@@ -210,12 +218,26 @@ export const tradingRouter = router({
       const { getAiDailyForecastDashboard } = await import("../aiDailyForecastService");
       return getAiDailyForecastDashboard(input.tradeDate);
     }),
+  /** 画面表示用。場中AI計画の保存内容はログイン済み利用者だけが読める。 */
+  getAiIntradayForecastDashboard: protectedProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getAiIntradayForecastDashboardRows } = await import("../aiIntradayForecastService");
+      return { intradaySnapshots: await getAiIntradayForecastDashboardRows(input.tradeDate) };
+    }),
+  /** sender専用。Secret一致時だけ、指定checkpointまでの確定足と過去成績を返す。 */
+  prepareAiIntradayForecastInput: publicProcedure
+    .input(z.object({ ingestKey: z.string().min(32).max(256), tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkpoint: aiIntradayCheckpointInput }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast input authorization failed" });
+      const { buildAiIntradayForecastInput } = await import("../aiIntradayForecastService");
+      return buildAiIntradayForecastInput({ tradeDate: input.tradeDate, checkpoint: input.checkpoint });
+    }),
   /** Secretの存在確認専用。予測生成・DB書込み・model呼出しは行わない。 */
   validateAiDailyForecastIngestAuth: publicProcedure
     .input(z.object({ ingestKey: z.string().min(32).max(256) }))
     .query(({ input }) => {
-      const key = process.env.AI_DAILY_FORECAST_INGEST_KEY;
-      if (!key || input.ingestKey !== key) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI forecast ingest authorization failed" });
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI forecast ingest authorization failed" });
       return { accepted: true, capability: "ai_daily_forecast_sender_only" as const };
     }),
   /** 08:30後のCodex専用senderだけが実行する、外部生成JSONのingest endpoint。 */
@@ -234,8 +256,7 @@ export const tradingRouter = router({
       generatorMetadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input }) => {
-      const key = process.env.AI_DAILY_FORECAST_INGEST_KEY;
-      if (!key || input.ingestKey !== key) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI forecast ingest authorization failed" });
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI forecast ingest authorization failed" });
       const { ingestAiDailyForecastSubmission } = await import("../aiDailyForecastService");
       const snapshot = await ingestAiDailyForecastSubmission(input);
       return {
@@ -245,6 +266,28 @@ export const tradingRouter = router({
         qualityStatus: snapshot.qualityStatus,
         aiModelId: snapshot.aiModelId,
       };
+    }),
+  /** 30分ごとのAI計画をimmutableに追記する。通常受信・通常engine・注文経路には接続しない。 */
+  ingestAiIntradayForecast: publicProcedure
+    .input(z.object({
+      ingestKey: z.string().min(32).max(256),
+      sourceRevisionId: z.string().min(1).max(180),
+      morningSourceSnapshotId: z.string().min(1).max(160),
+      tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      checkpoint: aiIntradayCheckpointInput,
+      capturedAtMs: z.number().int().positive(),
+      sourceMode: z.enum(["scheduled_ai_forecast", "manual_dry_run"]).default("manual_dry_run"),
+      inputHash: z.string().regex(/^[a-f0-9]{64}$/),
+      aiFinalForecast: z.unknown(),
+      generatorId: z.string().min(1).max(96),
+      promptVersion: z.string().min(1).max(96),
+      generatorMetadata: z.record(z.string(), z.unknown()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast ingest authorization failed" });
+      const { ingestAiIntradayForecastSubmission } = await import("../aiIntradayForecastService");
+      const snapshot = await ingestAiIntradayForecastSubmission(input);
+      return { sourceRevisionId: snapshot.sourceRevisionId, morningSourceSnapshotId: snapshot.morningSourceSnapshotId, tradeDate: snapshot.tradeDate, checkpoint: snapshot.checkpoint, cutoffCandleTime: snapshot.cutoffCandleTime, qualityStatus: snapshot.qualityStatus, aiModelId: snapshot.aiModelId };
     }),
   /**
    * 手動更新だけで読む、relay→source→decision→shadowの保存済み監査診断。

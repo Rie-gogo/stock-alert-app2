@@ -253,6 +253,13 @@
       "when": 1791605682875,
       "tag": "0035_ai_intraday_forecast_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1791625199363,
+      "tag": "0036_thin_ultimates",
+      "breakpoints": true
     }
   ]
 }

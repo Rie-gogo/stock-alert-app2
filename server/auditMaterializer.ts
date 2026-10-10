@@ -26,7 +26,10 @@ import {
   CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
   compareCurrentCandidateOutcomesForDate,
 } from "./currentCandidateOutcomeParity";
-import { buildDivergenceHypotheses, buildOutcomeLabelsForDate } from "./outcomeDivergenceAudit";
+import {
+  buildDivergenceHypotheses,
+  buildOutcomeLabelsForDate,
+} from "./outcomeDivergenceAudit";
 import { materializeNextForwardReplayForDate } from "./forwardReplayMaterializer";
 import {
   DISCO_SHORT_PORTFOLIO_COMPONENT,
@@ -66,32 +69,45 @@ import {
   MARKET_CONTEXT_PERFORMANCE_VERSION,
   materializeMarketContextPerformanceForDate,
 } from "./marketContextPerformanceSelector";
+import {
+  AI_FORECAST_LEARNING_COMPONENT,
+  AI_FORECAST_LEARNING_MATERIALIZATION_VERSION,
+  materializeAiForecastLearningSnapshotForDate,
+} from "./aiForecastLearningService";
 
 export const TEL_PARITY_MATERIALIZATION_COMPONENT = "tel_current_parity";
-export const TEL_PARITY_MATERIALIZATION_VERSION = "baseline-8035-current-parity-materialized-v1";
+export const TEL_PARITY_MATERIALIZATION_VERSION =
+  "baseline-8035-current-parity-materialized-v1";
 export const OUTCOME_LABELS_MATERIALIZATION_COMPONENT = "outcome_labels";
-export const OUTCOME_LABELS_MATERIALIZATION_VERSION = "current-outcome-labels-materialized-v1";
+export const OUTCOME_LABELS_MATERIALIZATION_VERSION =
+  "current-outcome-labels-materialized-v1";
 export const DIVERGENCE_MATERIALIZATION_COMPONENT = "divergence_hypotheses";
-export const DIVERGENCE_MATERIALIZATION_VERSION = "current-divergence-materialized-v1";
+export const DIVERGENCE_MATERIALIZATION_VERSION =
+  "current-divergence-materialized-v1";
 const AUDIT_MATERIALIZER_LOCK_NAME = "audit-materializer-p0-v1";
 const UPSTREAM_QUIET_PERIOD_MS = 5 * 60 * 1000;
 
 function jstTradeDate(now = new Date()): string {
-  return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 }
 
 function canCloseTradeDate(tradeDate: string, now = new Date()): boolean {
   const today = jstTradeDate(now);
   if (tradeDate < today) return true;
   if (tradeDate > today) return false;
-  const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16);
+  const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(11, 16);
   return jstTime >= "15:31";
 }
 
 function stableWatermark(watermark: RtAuditTradeDateWatermark) {
   return {
     ...watermark,
-    latestUpstreamCreatedAt: watermark.latestUpstreamCreatedAt?.toISOString() ?? null,
+    latestUpstreamCreatedAt:
+      watermark.latestUpstreamCreatedAt?.toISOString() ?? null,
   };
 }
 
@@ -100,22 +116,24 @@ function watermarkHash(watermark: RtAuditTradeDateWatermark): string {
 }
 
 function watermarkReady(watermark: RtAuditTradeDateWatermark): boolean {
-  return watermark.source.count > 0
-    && watermark.source.processed === watermark.source.count
-    && watermark.source.processing === 0
-    && watermark.source.failed === 0
-    && watermark.decision.count === watermark.source.count
-    && watermark.candidateOutbox.processed === watermark.decision.count
-    && watermark.candidateOutbox.pending === 0
-    && watermark.candidateOutbox.processing === 0
-    && watermark.candidateOutbox.retryableError === 0
-    && watermark.candidateOutbox.terminal === 0
-    && watermark.shadowOutbox.count === watermark.source.count
-    && watermark.shadowOutbox.processed === watermark.shadowOutbox.count
-    && watermark.shadowOutbox.pending === 0
-    && watermark.shadowOutbox.processing === 0
-    && watermark.shadowOutbox.error === 0
-    && watermark.unresolvedGaps === 0;
+  return (
+    watermark.source.count > 0 &&
+    watermark.source.processed === watermark.source.count &&
+    watermark.source.processing === 0 &&
+    watermark.source.failed === 0 &&
+    watermark.decision.count === watermark.source.count &&
+    watermark.candidateOutbox.processed === watermark.decision.count &&
+    watermark.candidateOutbox.pending === 0 &&
+    watermark.candidateOutbox.processing === 0 &&
+    watermark.candidateOutbox.retryableError === 0 &&
+    watermark.candidateOutbox.terminal === 0 &&
+    watermark.shadowOutbox.count === watermark.source.count &&
+    watermark.shadowOutbox.processed === watermark.shadowOutbox.count &&
+    watermark.shadowOutbox.pending === 0 &&
+    watermark.shadowOutbox.processing === 0 &&
+    watermark.shadowOutbox.error === 0 &&
+    watermark.unresolvedGaps === 0
+  );
 }
 
 async function ensureTradeDateFinality(tradeDate: string, now = new Date()) {
@@ -124,16 +142,31 @@ async function ensureTradeDateFinality(tradeDate: string, now = new Date()) {
     getRtAuditTradeDateWatermark(tradeDate),
   ]);
   const hash = watermarkHash(watermark);
-  const changed = Boolean(existing?.watermarkHash && existing.watermarkHash !== hash);
+  const changed = Boolean(
+    existing?.watermarkHash && existing.watermarkHash !== hash
+  );
   if (changed && existing?.status === "closed") {
     await reopenRtAuditMaterializationsForTradeDate(tradeDate);
   }
-  const quietPeriodSatisfied = watermark.latestUpstreamCreatedAt !== null
-    && now.getTime() - watermark.latestUpstreamCreatedAt.getTime() >= UPSTREAM_QUIET_PERIOD_MS;
-  const ready = canCloseTradeDate(tradeDate, now) && quietPeriodSatisfied && watermarkReady(watermark);
-  const status = ready ? "closed" as const : changed ? "reopened" as const : existing?.status === "reopened" ? "reopened" as const : "open" as const;
+  const quietPeriodSatisfied =
+    watermark.latestUpstreamCreatedAt !== null &&
+    now.getTime() - watermark.latestUpstreamCreatedAt.getTime() >=
+      UPSTREAM_QUIET_PERIOD_MS;
+  const ready =
+    canCloseTradeDate(tradeDate, now) &&
+    quietPeriodSatisfied &&
+    watermarkReady(watermark);
+  const status = ready
+    ? ("closed" as const)
+    : changed
+      ? ("reopened" as const)
+      : existing?.status === "reopened"
+        ? ("reopened" as const)
+        : ("open" as const);
   const reason = ready
-    ? changed ? "watermark_changed_then_revalidated" : "upstream_closed_and_watermark_complete"
+    ? changed
+      ? "watermark_changed_then_revalidated"
+      : "upstream_closed_and_watermark_complete"
     : !canCloseTradeDate(tradeDate, now)
       ? "before_close_time"
       : !quietPeriodSatisfied
@@ -145,7 +178,7 @@ async function ensureTradeDateFinality(tradeDate: string, now = new Date()) {
     watermarkHash: hash,
     watermarkJson: stableWatermark(watermark),
     latestUpstreamCreatedAt: watermark.latestUpstreamCreatedAt,
-    closedAt: ready ? changed ? now : existing?.closedAt ?? now : null,
+    closedAt: ready ? (changed ? now : (existing?.closedAt ?? now)) : null,
     reason,
   });
   return { row, watermark, hash, ready };
@@ -178,7 +211,7 @@ async function persistComponent(input: {
  */
 async function materializeNextAuditComponentUnlocked(
   tradeDate: string,
-  options: { now?: Date; maxTimelineItems?: number; maxMinutes?: number } = {},
+  options: { now?: Date; maxTimelineItems?: number; maxMinutes?: number } = {}
 ) {
   const finality = await ensureTradeDateFinality(tradeDate, options.now);
   const finalizeDay = finality.ready && finality.row.status === "closed";
@@ -187,13 +220,14 @@ async function materializeNextAuditComponentUnlocked(
     version: PORTFOLIO_MATERIALIZATION_VERSION,
     tradeDate,
   });
-  const portfolio = existingPortfolio?.status === "complete"
-    ? existingPortfolio.resultJson as { status: "complete" }
-    : await materializePortfolioBundleForDate(tradeDate, {
-        finalizeDay,
-        maxTimelineItems: options.maxTimelineItems ?? 250,
-        maxMinutes: options.maxMinutes ?? 30,
-      });
+  const portfolio =
+    existingPortfolio?.status === "complete"
+      ? (existingPortfolio.resultJson as { status: "complete" })
+      : await materializePortfolioBundleForDate(tradeDate, {
+          finalizeDay,
+          maxTimelineItems: options.maxTimelineItems ?? 250,
+          maxMinutes: options.maxMinutes ?? 30,
+        });
   const actualProgress = await getRtPortfolioMaterializationProgress({
     portfolioVersion: ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION,
     mode: "actual_receipt",
@@ -206,11 +240,11 @@ async function materializeNextAuditComponentUnlocked(
   });
   const processedThrough = Math.min(
     actualProgress?.processedThroughEngineSequence ?? 0,
-    minuteProgress?.processedThroughEngineSequence ?? 0,
+    minuteProgress?.processedThroughEngineSequence ?? 0
   );
   const sourceDecisionCount = Math.max(
     actualProgress?.sourceDecisionCount ?? 0,
-    minuteProgress?.sourceDecisionCount ?? 0,
+    minuteProgress?.sourceDecisionCount ?? 0
   );
   if (existingPortfolio?.status !== "complete") {
     await upsertRtDailyAuditMaterialization({
@@ -226,7 +260,11 @@ async function materializeNextAuditComponentUnlocked(
     });
   }
   if (!finalizeDay || portfolio.status !== "complete") {
-    return { status: "processing" as const, component: PORTFOLIO_BUNDLE_COMPONENT, portfolio };
+    return {
+      status: "processing" as const,
+      component: PORTFOLIO_BUNDLE_COMPONENT,
+      portfolio,
+    };
   }
 
   const telParity = await getRtDailyAuditMaterialization({
@@ -234,7 +272,10 @@ async function materializeNextAuditComponentUnlocked(
     version: TEL_PARITY_MATERIALIZATION_VERSION,
     tradeDate,
   });
-  if (telParity?.status !== "complete" || telParity.sourceDecisionCount !== sourceDecisionCount) {
+  if (
+    telParity?.status !== "complete" ||
+    telParity.sourceDecisionCount !== sourceDecisionCount
+  ) {
     const result = await compareTelCurrentParityForDate(tradeDate);
     await persistComponent({
       component: TEL_PARITY_MATERIALIZATION_COMPONENT,
@@ -244,7 +285,11 @@ async function materializeNextAuditComponentUnlocked(
       processedThroughEngineSequence: processedThrough,
       sourceDecisionCount,
     });
-    return { status: "processing" as const, component: TEL_PARITY_MATERIALIZATION_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: TEL_PARITY_MATERIALIZATION_COMPONENT,
+      result,
+    };
   }
 
   const candidateOutcomeParity = await getRtDailyAuditMaterialization({
@@ -252,8 +297,10 @@ async function materializeNextAuditComponentUnlocked(
     version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
     tradeDate,
   });
-  if (candidateOutcomeParity?.status !== "complete"
-    || candidateOutcomeParity.sourceDecisionCount !== sourceDecisionCount) {
+  if (
+    candidateOutcomeParity?.status !== "complete" ||
+    candidateOutcomeParity.sourceDecisionCount !== sourceDecisionCount
+  ) {
     const result = await compareCurrentCandidateOutcomesForDate(tradeDate);
     await persistComponent({
       component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
@@ -263,7 +310,11 @@ async function materializeNextAuditComponentUnlocked(
       processedThroughEngineSequence: processedThrough,
       sourceDecisionCount,
     });
-    return { status: "processing" as const, component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+      result,
+    };
   }
 
   const forwardReplay = await materializeNextForwardReplayForDate({
@@ -272,7 +323,11 @@ async function materializeNextAuditComponentUnlocked(
     sourceDecisionCount,
   });
   if (forwardReplay.status !== "complete") {
-    return { status: "processing" as const, component: "forward_strategy_replay", result: forwardReplay };
+    return {
+      status: "processing" as const,
+      component: "forward_strategy_replay",
+      result: forwardReplay,
+    };
   }
 
   const discoShortPortfolio = await getRtDailyAuditMaterialization({
@@ -280,8 +335,10 @@ async function materializeNextAuditComponentUnlocked(
     version: DISCO_SHORT_PORTFOLIO_VERSION,
     tradeDate,
   });
-  if (discoShortPortfolio?.status !== "complete"
-    || discoShortPortfolio.sourceDecisionCount !== sourceDecisionCount) {
+  if (
+    discoShortPortfolio?.status !== "complete" ||
+    discoShortPortfolio.sourceDecisionCount !== sourceDecisionCount
+  ) {
     const result = await buildDiscoShortPortfolioComparisonForDate(tradeDate);
     await persistComponent({
       component: DISCO_SHORT_PORTFOLIO_COMPONENT,
@@ -291,16 +348,22 @@ async function materializeNextAuditComponentUnlocked(
       processedThroughEngineSequence: processedThrough,
       sourceDecisionCount,
     });
-    return { status: "processing" as const, component: DISCO_SHORT_PORTFOLIO_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: DISCO_SHORT_PORTFOLIO_COMPONENT,
+      result,
+    };
   }
-
 
   const labels = await getRtDailyAuditMaterialization({
     component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
     version: OUTCOME_LABELS_MATERIALIZATION_VERSION,
     tradeDate,
   });
-  if (labels?.status !== "complete" || labels.sourceDecisionCount !== sourceDecisionCount) {
+  if (
+    labels?.status !== "complete" ||
+    labels.sourceDecisionCount !== sourceDecisionCount
+  ) {
     const result = await buildOutcomeLabelsForDate(tradeDate);
     await persistComponent({
       component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
@@ -310,7 +373,11 @@ async function materializeNextAuditComponentUnlocked(
       processedThroughEngineSequence: processedThrough,
       sourceDecisionCount,
     });
-    return { status: "processing" as const, component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+      result,
+    };
   }
 
   const divergence = await getRtDailyAuditMaterialization({
@@ -318,7 +385,10 @@ async function materializeNextAuditComponentUnlocked(
     version: DIVERGENCE_MATERIALIZATION_VERSION,
     tradeDate,
   });
-  if (divergence?.status !== "complete" || divergence.sourceDecisionCount !== sourceDecisionCount) {
+  if (
+    divergence?.status !== "complete" ||
+    divergence.sourceDecisionCount !== sourceDecisionCount
+  ) {
     const result = await buildDivergenceHypotheses(tradeDate);
     await persistComponent({
       component: DIVERGENCE_MATERIALIZATION_COMPONENT,
@@ -328,7 +398,11 @@ async function materializeNextAuditComponentUnlocked(
       processedThroughEngineSequence: processedThrough,
       sourceDecisionCount,
     });
-    return { status: "processing" as const, component: DIVERGENCE_MATERIALIZATION_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: DIVERGENCE_MATERIALIZATION_COMPONENT,
+      result,
+    };
   }
 
   // 最近傾向は翌日以降に使う表示専用情報なので、既存の全監査component完了後に最後に生成する。
@@ -338,8 +412,10 @@ async function materializeNextAuditComponentUnlocked(
     version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
     tradeDate,
   });
-  if (multiSymbolMonitoring?.status !== "complete"
-    || multiSymbolMonitoring.sourceDecisionCount !== sourceDecisionCount) {
+  if (
+    multiSymbolMonitoring?.status !== "complete" ||
+    multiSymbolMonitoring.sourceDecisionCount !== sourceDecisionCount
+  ) {
     const result = await materializeMultiSymbolMonitoringForDate(tradeDate);
     await upsertRtDailyAuditMaterialization({
       component: MULTI_SYMBOL_MONITORING_COMPONENT,
@@ -352,9 +428,12 @@ async function materializeNextAuditComponentUnlocked(
       lastError: result.incompleteReason,
       generatedAt: result.ready ? new Date() : null,
     });
-    return { status: "processing" as const, component: MULTI_SYMBOL_MONITORING_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: MULTI_SYMBOL_MONITORING_COMPONENT,
+      result,
+    };
   }
-
 
   // 10銘柄版は既存監査の後に一日一componentずつだけ進める。
   // source / candidate / shadow hot pathには接続せず、closed watermarkの保存値だけを入力にする。
@@ -370,7 +449,11 @@ async function materializeNextAuditComponentUnlocked(
       processedThroughEngineSequence: processedThrough,
       watermark: finality.row.watermarkJson,
     });
-    return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: TEN_SYMBOL_SELECTOR_FEATURE_COMPONENT,
+      result,
+    };
   }
 
   const tenSymbolResult = await getRtDailyAuditMaterialization({
@@ -384,17 +467,26 @@ async function materializeNextAuditComponentUnlocked(
       sourceDecisionCount,
       processedThroughEngineSequence: processedThrough,
     });
-    return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_RESULT_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: TEN_SYMBOL_SELECTOR_RESULT_COMPONENT,
+      result,
+    };
   }
 
-  const tenSymbolSnapshot = await materializeTenSymbolNextDaySelectorForSourceDate({
-    sourceTradeDate: tradeDate,
-    sourceDecisionCount,
-    processedThroughEngineSequence: processedThrough,
-    watermark: finality.row.watermarkJson,
-  });
+  const tenSymbolSnapshot =
+    await materializeTenSymbolNextDaySelectorForSourceDate({
+      sourceTradeDate: tradeDate,
+      sourceDecisionCount,
+      processedThroughEngineSequence: processedThrough,
+      watermark: finality.row.watermarkJson,
+    });
   if (tenSymbolSnapshot.created) {
-    return { status: "processing" as const, component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT, result: tenSymbolSnapshot };
+    return {
+      status: "processing" as const,
+      component: TEN_SYMBOL_SELECTOR_SNAPSHOT_COMPONENT,
+      result: tenSymbolSnapshot,
+    };
   }
 
   // Route-granular monitoring is strictly downstream from the closed 10-symbol feature snapshot.
@@ -418,15 +510,42 @@ async function materializeNextAuditComponentUnlocked(
         lastError: result.incompleteReason,
         generatedAt: result.ready ? new Date() : null,
       });
-      return { status: "processing" as const, component: ROUTE_GRANULAR_MONITORING_COMPONENT, result };
+      return {
+        status: "processing" as const,
+        component: ROUTE_GRANULAR_MONITORING_COMPONENT,
+        result,
+      };
     }
-    const granularResult = await getRtDailyAuditMaterialization({ component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, version: ROUTE_GRANULAR_SELECTOR_VERSION, tradeDate });
+    const granularResult = await getRtDailyAuditMaterialization({
+      component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+      version: ROUTE_GRANULAR_SELECTOR_VERSION,
+      tradeDate,
+    });
     if (!granularResult) {
-      const result = await materializeRouteGranularSelectorResultForDate({ tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough });
-      return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT, result };
+      const result = await materializeRouteGranularSelectorResultForDate({
+        tradeDate,
+        sourceDecisionCount,
+        processedThroughEngineSequence: processedThrough,
+      });
+      return {
+        status: "processing" as const,
+        component: ROUTE_GRANULAR_SELECTOR_RESULT_COMPONENT,
+        result,
+      };
     }
-    const granularSnapshot = await materializeRouteGranularSelectorForSourceDate({ sourceTradeDate: tradeDate, sourceDecisionCount, processedThroughEngineSequence: processedThrough, watermark: finality.row.watermarkJson });
-    if (granularSnapshot.created) return { status: "processing" as const, component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT, result: granularSnapshot };
+    const granularSnapshot =
+      await materializeRouteGranularSelectorForSourceDate({
+        sourceTradeDate: tradeDate,
+        sourceDecisionCount,
+        processedThroughEngineSequence: processedThrough,
+        watermark: finality.row.watermarkJson,
+      });
+    if (granularSnapshot.created)
+      return {
+        status: "processing" as const,
+        component: ROUTE_GRANULAR_SELECTOR_SNAPSHOT_COMPONENT,
+        result: granularSnapshot,
+      };
   }
 
   // v4 performance evidence is strictly the final downstream component. It reads
@@ -439,7 +558,11 @@ async function materializeNextAuditComponentUnlocked(
   });
   if (!contextPerformance) {
     const [marketEvents, premarket] = await Promise.all([
-      getRtMarketContextEventsForDate({ tradeDate, instrumentKey: "nikkei225_mini_front", verifiedOnly: false }),
+      getRtMarketContextEventsForDate({
+        tradeDate,
+        instrumentKey: "nikkei225_mini_front",
+        verifiedOnly: false,
+      }),
       getLatestRtPremarketContextSnapshot({ tradeDate, usableOnly: false }),
     ]);
     const result = await materializeMarketContextPerformanceForDate({
@@ -449,7 +572,43 @@ async function materializeNextAuditComponentUnlocked(
       frozenMarketEventResults: marketEvents,
       frozenPremarketResult: premarket?.resultJson ?? null,
     });
-    return { status: "processing" as const, component: MARKET_CONTEXT_PERFORMANCE_COMPONENT, result };
+    return {
+      status: "processing" as const,
+      component: MARKET_CONTEXT_PERFORMANCE_COMPONENT,
+      result,
+    };
+  }
+
+  // AI detailed learning is a final closed-date-only append. It reads retained shadow
+  // history and produces one immutable D snapshot; it never joins market-hour paths.
+  const learning = await getRtDailyAuditMaterialization({
+    component: AI_FORECAST_LEARNING_COMPONENT,
+    version: AI_FORECAST_LEARNING_MATERIALIZATION_VERSION,
+    tradeDate,
+  });
+  if (!learning) {
+    const result =
+      await materializeAiForecastLearningSnapshotForDate(tradeDate);
+    await upsertRtDailyAuditMaterialization({
+      component: AI_FORECAST_LEARNING_COMPONENT,
+      version: AI_FORECAST_LEARNING_MATERIALIZATION_VERSION,
+      tradeDate,
+      status:
+        result.qualityStatus === "invalid" ? "incomplete_source" : "complete",
+      processedThroughEngineSequence: processedThrough,
+      sourceDecisionCount,
+      resultJson: result,
+      lastError:
+        result.qualityStatus === "invalid"
+          ? result.qualityReasonCodes.join(",")
+          : null,
+      generatedAt: result.qualityStatus === "invalid" ? null : new Date(),
+    });
+    return {
+      status: "processing" as const,
+      component: AI_FORECAST_LEARNING_COMPONENT,
+      result,
+    };
   }
 
   return {
@@ -462,7 +621,7 @@ async function materializeNextAuditComponentUnlocked(
 
 export async function materializeNextAuditComponentForDate(
   tradeDate: string,
-  options: { now?: Date; maxTimelineItems?: number; maxMinutes?: number } = {},
+  options: { now?: Date; maxTimelineItems?: number; maxMinutes?: number } = {}
 ) {
   const ownerToken = `audit-materializer:${randomUUID()}`;
   const acquired = await acquireRtNamedWorkerLock({
@@ -479,24 +638,82 @@ export async function materializeNextAuditComponentForDate(
 }
 
 export async function readAuditMaterializationsForReport(tradeDate: string) {
-  const [portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, multiSymbolMonitoring, outcomeLabels, divergence, finality, watermark] = await Promise.all([
-    getRtDailyAuditMaterialization({ component: PORTFOLIO_BUNDLE_COMPONENT, version: PORTFOLIO_MATERIALIZATION_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: TEL_PARITY_MATERIALIZATION_COMPONENT, version: TEL_PARITY_MATERIALIZATION_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT, version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: DISCO_SHORT_PORTFOLIO_COMPONENT, version: DISCO_SHORT_PORTFOLIO_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: MULTI_SYMBOL_MONITORING_COMPONENT, version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT, version: OUTCOME_LABELS_MATERIALIZATION_VERSION, tradeDate }),
-    getRtDailyAuditMaterialization({ component: DIVERGENCE_MATERIALIZATION_COMPONENT, version: DIVERGENCE_MATERIALIZATION_VERSION, tradeDate }),
+  const [
+    portfolio,
+    telParity,
+    candidateOutcomeParity,
+    discoShortPortfolio,
+    multiSymbolMonitoring,
+    outcomeLabels,
+    divergence,
+    finality,
+    watermark,
+  ] = await Promise.all([
+    getRtDailyAuditMaterialization({
+      component: PORTFOLIO_BUNDLE_COMPONENT,
+      version: PORTFOLIO_MATERIALIZATION_VERSION,
+      tradeDate,
+    }),
+    getRtDailyAuditMaterialization({
+      component: TEL_PARITY_MATERIALIZATION_COMPONENT,
+      version: TEL_PARITY_MATERIALIZATION_VERSION,
+      tradeDate,
+    }),
+    getRtDailyAuditMaterialization({
+      component: CURRENT_CANDIDATE_OUTCOME_PARITY_COMPONENT,
+      version: CURRENT_CANDIDATE_OUTCOME_PARITY_VERSION,
+      tradeDate,
+    }),
+    getRtDailyAuditMaterialization({
+      component: DISCO_SHORT_PORTFOLIO_COMPONENT,
+      version: DISCO_SHORT_PORTFOLIO_VERSION,
+      tradeDate,
+    }),
+    getRtDailyAuditMaterialization({
+      component: MULTI_SYMBOL_MONITORING_COMPONENT,
+      version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+      tradeDate,
+    }),
+    getRtDailyAuditMaterialization({
+      component: OUTCOME_LABELS_MATERIALIZATION_COMPONENT,
+      version: OUTCOME_LABELS_MATERIALIZATION_VERSION,
+      tradeDate,
+    }),
+    getRtDailyAuditMaterialization({
+      component: DIVERGENCE_MATERIALIZATION_COMPONENT,
+      version: DIVERGENCE_MATERIALIZATION_VERSION,
+      tradeDate,
+    }),
     getRtAuditTradeDateFinality(tradeDate),
     getRtAuditTradeDateWatermark(tradeDate),
   ]);
-  const valid = finality?.status === "closed"
-    && finality.watermarkHash === watermarkHash(watermark)
-    && watermarkReady(watermark);
-  if (valid) return { portfolio, telParity, candidateOutcomeParity, discoShortPortfolio, multiSymbolMonitoring, outcomeLabels, divergence, finality };
-  const invalidate = <T extends { status: string; lastError?: string | null } | null>(row: T): T => row
-    ? { ...row, status: "processing", lastError: "audit_watermark_not_closed_or_changed" } as T
-    : row;
+  const valid =
+    finality?.status === "closed" &&
+    finality.watermarkHash === watermarkHash(watermark) &&
+    watermarkReady(watermark);
+  if (valid)
+    return {
+      portfolio,
+      telParity,
+      candidateOutcomeParity,
+      discoShortPortfolio,
+      multiSymbolMonitoring,
+      outcomeLabels,
+      divergence,
+      finality,
+    };
+  const invalidate = <
+    T extends { status: string; lastError?: string | null } | null,
+  >(
+    row: T
+  ): T =>
+    row
+      ? ({
+          ...row,
+          status: "processing",
+          lastError: "audit_watermark_not_closed_or_changed",
+        } as T)
+      : row;
   return {
     portfolio: invalidate(portfolio),
     telParity: invalidate(telParity),

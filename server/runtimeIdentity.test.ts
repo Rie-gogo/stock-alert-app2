@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AI_DAILY_FORECAST_VERSIONS,
   BASELINE_STRATEGY_GIT_SHA,
   DISCO_SHORT_BASELINE_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
@@ -16,6 +17,7 @@ import {
   TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
+  RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
   getRuntimeIdentity,
 } from "./runtimeIdentity";
 import {
@@ -82,5 +84,13 @@ describe("本番稼働版自己証明", () => {
     }
     expect(versions.some(version => version.length > 64)).toBe(true);
     expect(versions.every(version => version.length <= 128)).toBe(true);
+  });
+
+  it("AI詳細学習v3だけをactive registryへ含め、v2は履歴専用として残す", () => {
+    const identity = getRuntimeIdentity();
+    expect(identity.strategyVersions).toEqual(expect.arrayContaining(Object.values(AI_DAILY_FORECAST_VERSIONS)));
+    for (const version of Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS)) {
+      expect(identity.strategyVersions).not.toContain(version);
+    }
   });
 });

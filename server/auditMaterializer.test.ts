@@ -125,8 +125,27 @@ const contextPerformanceMock = vi.hoisted(() => ({
     result: {},
   })),
 }));
+const learningMock = vi.hoisted(() => ({
+  materializeAiForecastLearningSnapshotForDate: vi.fn(async () => ({
+    row: {
+      id: 1,
+      sourceSnapshotId:
+        "ai-forecast-learning:2026-10-07:ai-forecast-learning-v1",
+    },
+    examples: 0,
+    qualityStatus: "verified" as const,
+    qualityReasonCodes: [],
+  })),
+}));
 
 vi.mock("./db", () => dbMock);
+vi.mock("./aiForecastLearningService", () => ({
+  AI_FORECAST_LEARNING_COMPONENT: "ai_forecast_learning_snapshot",
+  AI_FORECAST_LEARNING_MATERIALIZATION_VERSION:
+    "ai-forecast-learning-materialized-v1",
+  materializeAiForecastLearningSnapshotForDate:
+    learningMock.materializeAiForecastLearningSnapshotForDate,
+}));
 vi.mock("./portfolioAudit", () => ({
   ALL_CANDIDATE_RECEIPT_PORTFOLIO_VERSION: "receipt-v2",
   ALL_CANDIDATE_MINUTE_PORTFOLIO_VERSION: "minute-v2",
@@ -391,6 +410,13 @@ function closeAllCurrentStages(component: string) {
         snapshot(
           MARKET_CONTEXT_PERFORMANCE_COMPONENT,
           MARKET_CONTEXT_PERFORMANCE_VERSION
+        ),
+      ],
+      [
+        "ai_forecast_learning_snapshot",
+        snapshot(
+          "ai_forecast_learning_snapshot",
+          "ai-forecast-learning-materialized-v1"
         ),
       ],
     ]).get(component) ?? null

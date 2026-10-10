@@ -40,25 +40,34 @@ export const dailyReports = mysqlTable("daily_reports", {
   /** 対象日 (YYYY-MM-DD) */
   reportDate: varchar("reportDate", { length: 10 }).notNull().unique(),
   /** 総元金（円） */
-  totalInitialCapital: bigint("totalInitialCapital", { mode: "number" }).notNull(),
+  totalInitialCapital: bigint("totalInitialCapital", {
+    mode: "number",
+  }).notNull(),
   /** 検証後評価額合計（円） */
   totalFinalBalance: bigint("totalFinalBalance", { mode: "number" }).notNull(),
   /** 総合損益額（円） */
   totalProfitAmount: bigint("totalProfitAmount", { mode: "number" }).notNull(),
   /** 総合利益率（小数） */
-  totalProfitRate: decimal("totalProfitRate", { precision: 10, scale: 6 }).notNull(),
+  totalProfitRate: decimal("totalProfitRate", {
+    precision: 10,
+    scale: 6,
+  }).notNull(),
   /** 全銘柄の勝ちトレード数 */
   totalWinCount: int("totalWinCount").notNull().default(0),
   /** 全銘柄の負けトレード数 */
   totalLossCount: int("totalLossCount").notNull().default(0),
   /** 全体勝率（小数） */
-  overallWinRate: decimal("overallWinRate", { precision: 10, scale: 6 }).notNull().default("0"),
+  overallWinRate: decimal("overallWinRate", { precision: 10, scale: 6 })
+    .notNull()
+    .default("0"),
   /** 使用したRSI上限パラメータ */
   rsiUpper: int("rsiUpper").notNull().default(70),
   /** 使用したRSI下限パラメータ */
   rsiLower: int("rsiLower").notNull().default(30),
   /** 使用した損切り率（%） */
-  stopLossPercent: decimal("stopLossPercent", { precision: 5, scale: 2 }).notNull().default("1.5"),
+  stopLossPercent: decimal("stopLossPercent", { precision: 5, scale: 2 })
+    .notNull()
+    .default("1.5"),
   /** AIによる総合分析コメント */
   aiSummary: text("aiSummary"),
   /** スケジューラーによる自動生成かどうか */
@@ -96,7 +105,9 @@ export const stockReports = mysqlTable("stock_reports", {
   /** 勝ちトレード数 */
   winCount: int("winCount").notNull().default(0),
   /** 勝率（小数） */
-  winRate: decimal("winRate", { precision: 10, scale: 6 }).notNull().default("0"),
+  winRate: decimal("winRate", { precision: 10, scale: 6 })
+    .notNull()
+    .default("0"),
   /** 取引履歴 JSON */
   trades: json("trades").notNull().$type<TradeRecord[]>(),
   /** 損失原因リスト JSON */
@@ -152,13 +163,19 @@ export const algorithmImprovements = mysqlTable("algorithm_improvements", {
   /** 改善前のRSI下限 */
   prevRsiLower: int("prevRsiLower").notNull(),
   /** 改善前の損切り率 */
-  prevStopLossPercent: decimal("prevStopLossPercent", { precision: 5, scale: 2 }).notNull(),
+  prevStopLossPercent: decimal("prevStopLossPercent", {
+    precision: 5,
+    scale: 2,
+  }).notNull(),
   /** 改善後のRSI上限 */
   newRsiUpper: int("newRsiUpper").notNull(),
   /** 改善後のRSI下限 */
   newRsiLower: int("newRsiLower").notNull(),
   /** 改善後の損切り率 */
-  newStopLossPercent: decimal("newStopLossPercent", { precision: 5, scale: 2 }).notNull(),
+  newStopLossPercent: decimal("newStopLossPercent", {
+    precision: 5,
+    scale: 2,
+  }).notNull(),
   /** 改善理由（AIによる分析） */
   improvementReason: text("improvementReason").notNull(),
   /** 適用日 */
@@ -166,7 +183,8 @@ export const algorithmImprovements = mysqlTable("algorithm_improvements", {
 });
 
 export type AlgorithmImprovement = typeof algorithmImprovements.$inferSelect;
-export type InsertAlgorithmImprovement = typeof algorithmImprovements.$inferInsert;
+export type InsertAlgorithmImprovement =
+  typeof algorithmImprovements.$inferInsert;
 
 /**
  * 現在のアルゴリズムパラメータ設定（1レコードのみ）
@@ -178,13 +196,19 @@ export const algorithmConfig = mysqlTable("algorithm_config", {
   /** RSI売られすぎ閾値 */
   rsiLower: int("rsiLower").notNull().default(30),
   /** 損切り率（%） */
-  stopLossPercent: decimal("stopLossPercent", { precision: 5, scale: 2 }).notNull().default("1.5"),
+  stopLossPercent: decimal("stopLossPercent", { precision: 5, scale: 2 })
+    .notNull()
+    .default("1.5"),
   /** 大口判定の基準出来高 */
   largeVolumeThreshold: int("largeVolumeThreshold").notNull().default(8000),
   /** 累計勝率（直近30日） */
-  recentWinRate: decimal("recentWinRate", { precision: 10, scale: 6 }).notNull().default("0"),
+  recentWinRate: decimal("recentWinRate", { precision: 10, scale: 6 })
+    .notNull()
+    .default("0"),
   /** 累計損益率（直近30日） */
-  recentProfitRate: decimal("recentProfitRate", { precision: 10, scale: 6 }).notNull().default("0"),
+  recentProfitRate: decimal("recentProfitRate", { precision: 10, scale: 6 })
+    .notNull()
+    .default("0"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -235,7 +259,9 @@ export type InsertPaperTrade = typeof paperTrades.$inferInsert;
 export const kabuPlanSettings = mysqlTable("kabu_plan_settings", {
   id: int("id").autoincrement().primaryKey(),
   /** 現在のプラン種別 */
-  planType: mysqlEnum("planType", ["normal", "professional", "premium"]).notNull().default("professional"),
+  planType: mysqlEnum("planType", ["normal", "professional", "premium"])
+    .notNull()
+    .default("professional"),
   /** プラン有効期限（YYYY-MM-DD） */
   planExpiresAt: varchar("planExpiresAt", { length: 10 }).notNull(),
   /** リマインドメール送信済みフラグ */
@@ -279,34 +305,40 @@ export const rtCandles = mysqlTable("rt_candles", {
 });
 
 export interface BoardSnapshot {
-  buyPressureRatio: number;   // 買い板合計 / 売り板合計
-  largeBuyWall: boolean;      // 大口買い壁あり
-  largeSellWall: boolean;     // 大口売り壁あり
-  marketOrderRatio: number;   // 成行注文比率
-  signal: "buy_pressure" | "sell_pressure" | "large_buy_wall" | "large_sell_wall" | "market_surge" | "neutral";
+  buyPressureRatio: number; // 買い板合計 / 売り板合計
+  largeBuyWall: boolean; // 大口買い壁あり
+  largeSellWall: boolean; // 大口売り壁あり
+  marketOrderRatio: number; // 成行注文比率
+  signal:
+    | "buy_pressure"
+    | "sell_pressure"
+    | "large_buy_wall"
+    | "large_sell_wall"
+    | "market_surge"
+    | "neutral";
   // v5拡張フィールド（パターン6.14対応）
-  largeAskWallRatio?: number;        // 売り板の最大注文 / 平均注文 の倍率
-  largeBidWallRatio?: number;        // 買い板の最大注文 / 平均注文 の倍率
+  largeAskWallRatio?: number; // 売り板の最大注文 / 平均注文 の倍率
+  largeBidWallRatio?: number; // 買い板の最大注文 / 平均注文 の倍率
   largeAskWallPrice?: number | null; // 大口売り注文の価格
   largeBidWallPrice?: number | null; // 大口買い注文の価格
-  nearAskWallPct?: number | null;    // 現値から大口売り注文までの距離（%）
-  nearBidWallPct?: number | null;    // 現値から大口買い注文までの距離（%）
+  nearAskWallPct?: number | null; // 現値から大口売り注文までの距離（%）
+  nearBidWallPct?: number | null; // 現値から大口買い注文までの距離（%）
   marketOrderDirection?: "buy" | "sell" | "neutral"; // 成り行き注文の方向
-  askCancelDetected?: boolean;       // 売り板の大口キャンセル検出
-  bidCancelDetected?: boolean;       // 買い板の大口キャンセル検出
-  icebergAskDetected?: boolean;      // 売りアイスバーグ注文検出
-  icebergBidDetected?: boolean;      // 買いアイスバーグ注文検出
-  totalAskQty?: number;              // 売り板合計数量
-  totalBidQty?: number;              // 買い板合計数量
+  askCancelDetected?: boolean; // 売り板の大口キャンセル検出
+  bidCancelDetected?: boolean; // 買い板の大口キャンセル検出
+  icebergAskDetected?: boolean; // 売りアイスバーグ注文検出
+  icebergBidDetected?: boolean; // 買いアイスバーグ注文検出
+  totalAskQty?: number; // 売り板合計数量
+  totalBidQty?: number; // 買い板合計数量
   // v8拡張: 10秒リングバッファ集約結果
-  icebergAskCount?: number;          // 直近1分間のアイスバーグ検出回数（ask側）
-  icebergBidCount?: number;          // 直近1分間のアイスバーグ検出回数（bid側）
-  cancelAskCount?: number;           // 直近1分間のキャンセル検出回数（ask側）
-  cancelBidCount?: number;           // 直近1分間のキャンセル検出回数（bid側）
-  avgBprIn10s?: number;              // 直近1分間のBPR平均（10秒間隔集約）
-  bprDeltaIn10s?: number;            // 直近1分間のBPR変化幅
+  icebergAskCount?: number; // 直近1分間のアイスバーグ検出回数（ask側）
+  icebergBidCount?: number; // 直近1分間のアイスバーグ検出回数（bid側）
+  cancelAskCount?: number; // 直近1分間のキャンセル検出回数（ask側）
+  cancelBidCount?: number; // 直近1分間のキャンセル検出回数（bid側）
+  avgBprIn10s?: number; // 直近1分間のBPR平均（10秒間隔集約）
+  bprDeltaIn10s?: number; // 直近1分間のBPR変化幅
   largeTradeDirection?: "buy" | "sell" | "neutral"; // 大口約定方向推定（10秒集約）
-  boardSampleCount?: number;         // 集約サンプル数
+  boardSampleCount?: number; // 集約サンプル数
 }
 
 export type RtCandle = typeof rtCandles.$inferSelect;
@@ -383,48 +415,81 @@ export type InsertRtDailySummary = typeof rtDailySummaries.$inferInsert;
  * 日次レポート通知の一回限りdelivery control。
  * 通常16時報告とread-only再送は、同じtradeDate/reportKindを原子的にclaimする。
  */
-export const rtReportDeliveryControls = mysqlTable("rt_report_delivery_controls", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  reportKind: varchar("report_kind", { length: 64 }).notNull(),
-  status: mysqlEnum("rt_report_delivery_status", ["pending", "claimed", "sending", "sent", "failed", "unknown"]).notNull().default("pending"),
-  leaseOwner: varchar("lease_owner", { length: 128 }),
-  leaseExpiresAt: timestamp("lease_expires_at"),
-  attemptCount: int("attempt_count").notNull().default(0),
-  lastError: text("last_error"),
-  payloadHash: varchar("payload_hash", { length: 64 }),
-  sendStartedAt: timestamp("send_started_at"),
-  sentAt: timestamp("sent_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  deliveryIdentity: uniqueIndex("rt_report_delivery_identity").on(table.tradeDate, table.reportKind),
-}));
+export const rtReportDeliveryControls = mysqlTable(
+  "rt_report_delivery_controls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    reportKind: varchar("report_kind", { length: 64 }).notNull(),
+    status: mysqlEnum("rt_report_delivery_status", [
+      "pending",
+      "claimed",
+      "sending",
+      "sent",
+      "failed",
+      "unknown",
+    ])
+      .notNull()
+      .default("pending"),
+    leaseOwner: varchar("lease_owner", { length: 128 }),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attemptCount: int("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    payloadHash: varchar("payload_hash", { length: 64 }),
+    sendStartedAt: timestamp("send_started_at"),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    deliveryIdentity: uniqueIndex("rt_report_delivery_identity").on(
+      table.tradeDate,
+      table.reportKind
+    ),
+  })
+);
 
-export type RtReportDeliveryControl = typeof rtReportDeliveryControls.$inferSelect;
-export type InsertRtReportDeliveryControl = typeof rtReportDeliveryControls.$inferInsert;
+export type RtReportDeliveryControl =
+  typeof rtReportDeliveryControls.$inferSelect;
+export type InsertRtReportDeliveryControl =
+  typeof rtReportDeliveryControls.$inferInsert;
 
 /**
  * 通常16時handlerのEOD position復元・強制決済を通知deliveryとは別に保護する。
  */
-export const rtEodExecutionControls = mysqlTable("rt_eod_execution_controls", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  executionKind: varchar("execution_kind", { length: 64 }).notNull(),
-  status: mysqlEnum("rt_eod_execution_status", ["pending", "processing", "complete", "failed"]).notNull().default("pending"),
-  leaseOwner: varchar("lease_owner", { length: 128 }),
-  leaseExpiresAt: timestamp("lease_expires_at"),
-  attemptCount: int("attempt_count").notNull().default(0),
-  lastError: text("last_error"),
-  completedAt: timestamp("completed_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  executionIdentity: uniqueIndex("rt_eod_execution_identity").on(table.tradeDate, table.executionKind),
-}));
+export const rtEodExecutionControls = mysqlTable(
+  "rt_eod_execution_controls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    executionKind: varchar("execution_kind", { length: 64 }).notNull(),
+    status: mysqlEnum("rt_eod_execution_status", [
+      "pending",
+      "processing",
+      "complete",
+      "failed",
+    ])
+      .notNull()
+      .default("pending"),
+    leaseOwner: varchar("lease_owner", { length: 128 }),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    attemptCount: int("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    executionIdentity: uniqueIndex("rt_eod_execution_identity").on(
+      table.tradeDate,
+      table.executionKind
+    ),
+  })
+);
 
 export type RtEodExecutionControl = typeof rtEodExecutionControls.$inferSelect;
-export type InsertRtEodExecutionControl = typeof rtEodExecutionControls.$inferInsert;
+export type InsertRtEodExecutionControl =
+  typeof rtEodExecutionControls.$inferInsert;
 
 /**
  * 自動売買: 発注指示テーブル
@@ -463,7 +528,11 @@ export const orderInstructions = mysqlTable("order_instructions", {
    * exit: 決済（期限なし、必ず実行）
    * force_close: 大引け強制決済（期限なし、必ず実行）
    */
-  instructionType: mysqlEnum("oi_instruction_type", ["entry", "exit", "force_close"]).notNull(),
+  instructionType: mysqlEnum("oi_instruction_type", [
+    "entry",
+    "exit",
+    "force_close",
+  ]).notNull(),
 
   /** 注文数量（株） */
   qty: int("qty").notNull().default(100),
@@ -477,13 +546,25 @@ export const orderInstructions = mysqlTable("order_instructions", {
    * expired: 期限切れ（entryのみ、60秒超過）
    * cancelled: 緊急停止等でキャンセル
    */
-  status: mysqlEnum("oi_status", ["pending", "sent", "executed", "failed", "expired", "cancelled"]).notNull().default("pending"),
+  status: mysqlEnum("oi_status", [
+    "pending",
+    "sent",
+    "executed",
+    "failed",
+    "expired",
+    "cancelled",
+  ])
+    .notNull()
+    .default("pending"),
 
   /** シグナル理由（realtimeSimEngineのreason） */
   reason: text("reason").notNull(),
 
   /** 参照価格（シグナル発生時の価格、実際の約定価格ではない） */
-  referencePrice: decimal("referencePrice", { precision: 12, scale: 2 }).notNull(),
+  referencePrice: decimal("referencePrice", {
+    precision: 12,
+    scale: 2,
+  }).notNull(),
 
   /** 期限切れ日時（entryのみ: createdAt + 60秒、exit/force_closeはnull） */
   expiresAt: timestamp("expiresAt"),
@@ -536,7 +617,9 @@ export const autoTradeDaily = mysqlTable("auto_trade_daily", {
   tradeCount: int("tradeCount").notNull().default(0),
 
   /** 日次損失上限（円、負の値）- これを超えたら新規エントリー停止 */
-  dailyLossLimit: bigint("dailyLossLimit", { mode: "number" }).notNull().default(-100000),
+  dailyLossLimit: bigint("dailyLossLimit", { mode: "number" })
+    .notNull()
+    .default(-100000),
 
   /** 取引有効フラグ（falseで全発注停止） */
   tradingEnabled: boolean("tradingEnabled").notNull().default(true),
@@ -579,7 +662,9 @@ export const rt3peakSignals = mysqlTable("rt_3peak_signals", {
   /** 決済時刻 (HH:MM) */
   exitTime: varchar("exitTime", { length: 5 }),
   /** 決済理由: tp/sl/eod/pending */
-  exitReason: mysqlEnum("exit_reason_3peak", ["tp", "sl", "eod", "pending"]).notNull().default("pending"),
+  exitReason: mysqlEnum("exit_reason_3peak", ["tp", "sl", "eod", "pending"])
+    .notNull()
+    .default("pending"),
   /** 仮想損益（円） */
   virtualPnl: bigint("virtualPnl", { mode: "number" }),
   /** 仮想株数 */
@@ -622,231 +707,348 @@ export type InsertRtScore0Block = typeof rtScore0Blocks.$inferInsert;
  * 6976候補B DRY_RUN監査イベント。
  * 確認失敗・ATR/証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
  */
-export const rtTaiyoCandidateBEvents = mysqlTable("rt_taiyo_candidate_b_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  eventType: mysqlEnum("taiyo_candidate_b_event_type", ["confirmation_rejected", "engine_rejected"]).notNull(),
-  side: mysqlEnum("taiyo_candidate_b_event_side", ["long", "short"]).notNull(),
-  triggerTime: varchar("trigger_time", { length: 5 }).notNull(),
-  rejectionCodes: json("rejection_codes").$type<string[] | null>(),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_taiyo_candidate_b_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.eventType,
-    table.side,
-    table.triggerTime,
-  ),
-}));
+export const rtTaiyoCandidateBEvents = mysqlTable(
+  "rt_taiyo_candidate_b_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    eventType: mysqlEnum("taiyo_candidate_b_event_type", [
+      "confirmation_rejected",
+      "engine_rejected",
+    ]).notNull(),
+    side: mysqlEnum("taiyo_candidate_b_event_side", [
+      "long",
+      "short",
+    ]).notNull(),
+    triggerTime: varchar("trigger_time", { length: 5 }).notNull(),
+    rejectionCodes: json("rejection_codes").$type<string[] | null>(),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex("rt_taiyo_candidate_b_event_identity").on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.eventType,
+      table.side,
+      table.triggerTime
+    ),
+  })
+);
 
-export type RtTaiyoCandidateBEvent = typeof rtTaiyoCandidateBEvents.$inferSelect;
-export type InsertRtTaiyoCandidateBEvent = typeof rtTaiyoCandidateBEvents.$inferInsert;
+export type RtTaiyoCandidateBEvent =
+  typeof rtTaiyoCandidateBEvents.$inferSelect;
+export type InsertRtTaiyoCandidateBEvent =
+  typeof rtTaiyoCandidateBEvents.$inferInsert;
 
 /**
  * 6526確認型LONG DRY_RUN監査イベント。
  * 確認失敗・ATR/証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
  */
-export const rtSocionextConfirmedLongEvents = mysqlTable("rt_socionext_confirmed_long_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  eventType: mysqlEnum("socionext_confirmed_long_event_type", ["confirmation_rejected", "engine_rejected"]).notNull(),
-  side: mysqlEnum("socionext_confirmed_long_event_side", ["long"]).notNull(),
-  triggerTime: varchar("trigger_time", { length: 5 }).notNull(),
-  rejectionCodes: json("rejection_codes").$type<string[] | null>(),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_socionext_confirmed_long_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.eventType,
-    table.side,
-    table.triggerTime,
-  ),
-}));
+export const rtSocionextConfirmedLongEvents = mysqlTable(
+  "rt_socionext_confirmed_long_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    eventType: mysqlEnum("socionext_confirmed_long_event_type", [
+      "confirmation_rejected",
+      "engine_rejected",
+    ]).notNull(),
+    side: mysqlEnum("socionext_confirmed_long_event_side", ["long"]).notNull(),
+    triggerTime: varchar("trigger_time", { length: 5 }).notNull(),
+    rejectionCodes: json("rejection_codes").$type<string[] | null>(),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex("rt_socionext_confirmed_long_event_identity").on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.eventType,
+      table.side,
+      table.triggerTime
+    ),
+  })
+);
 
-export type RtSocionextConfirmedLongEvent = typeof rtSocionextConfirmedLongEvents.$inferSelect;
-export type InsertRtSocionextConfirmedLongEvent = typeof rtSocionextConfirmedLongEvents.$inferInsert;
+export type RtSocionextConfirmedLongEvent =
+  typeof rtSocionextConfirmedLongEvents.$inferSelect;
+export type InsertRtSocionextConfirmedLongEvent =
+  typeof rtSocionextConfirmedLongEvents.$inferInsert;
 
 /**
  * 3436専用SHORT DRY_RUN監査イベント。
  * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
  */
-export const rtSumcoBreakdownShortEvents = mysqlTable("rt_sumco_breakdown_short_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  eventType: mysqlEnum("sumco_breakdown_short_event_type", ["engine_rejected"]).notNull(),
-  side: mysqlEnum("sumco_breakdown_short_event_side", ["short"]).notNull(),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_sumco_breakdown_short_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.eventType,
-    table.side,
-  ),
-}));
+export const rtSumcoBreakdownShortEvents = mysqlTable(
+  "rt_sumco_breakdown_short_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    eventType: mysqlEnum("sumco_breakdown_short_event_type", [
+      "engine_rejected",
+    ]).notNull(),
+    side: mysqlEnum("sumco_breakdown_short_event_side", ["short"]).notNull(),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex("rt_sumco_breakdown_short_event_identity").on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.eventType,
+      table.side
+    ),
+  })
+);
 
-export type RtSumcoBreakdownShortEvent = typeof rtSumcoBreakdownShortEvents.$inferSelect;
-export type InsertRtSumcoBreakdownShortEvent = typeof rtSumcoBreakdownShortEvents.$inferInsert;
+export type RtSumcoBreakdownShortEvent =
+  typeof rtSumcoBreakdownShortEvents.$inferSelect;
+export type InsertRtSumcoBreakdownShortEvent =
+  typeof rtSumcoBreakdownShortEvents.$inferInsert;
 
 /**
  * 9984専用LONG DRY_RUN監査イベント。
  * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
  */
-export const rtSoftbankBreakoutLongEvents = mysqlTable("rt_softbank_breakout_long_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  eventType: mysqlEnum("softbank_breakout_long_event_type", ["engine_rejected"]).notNull(),
-  side: mysqlEnum("softbank_breakout_long_event_side", ["long"]).notNull(),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_softbank_breakout_long_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.eventType,
-    table.side,
-  ),
-}));
+export const rtSoftbankBreakoutLongEvents = mysqlTable(
+  "rt_softbank_breakout_long_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    eventType: mysqlEnum("softbank_breakout_long_event_type", [
+      "engine_rejected",
+    ]).notNull(),
+    side: mysqlEnum("softbank_breakout_long_event_side", ["long"]).notNull(),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex("rt_softbank_breakout_long_event_identity").on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.eventType,
+      table.side
+    ),
+  })
+);
 
-export type RtSoftbankBreakoutLongEvent = typeof rtSoftbankBreakoutLongEvents.$inferSelect;
-export type InsertRtSoftbankBreakoutLongEvent = typeof rtSoftbankBreakoutLongEvents.$inferInsert;
+export type RtSoftbankBreakoutLongEvent =
+  typeof rtSoftbankBreakoutLongEvents.$inferSelect;
+export type InsertRtSoftbankBreakoutLongEvent =
+  typeof rtSoftbankBreakoutLongEvents.$inferInsert;
 
 /**
  * 285A確認型前場LONG DRY_RUN監査イベント。
  * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
  */
-export const rtKioxiaConfirmedMorningLongEvents = mysqlTable("rt_kioxia_confirmed_morning_long_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  eventType: mysqlEnum("kioxia_confirmed_morning_long_event_type", ["engine_rejected"]).notNull(),
-  side: mysqlEnum("kioxia_confirmed_morning_long_event_side", ["long"]).notNull(),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_kioxia_confirmed_morning_long_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.eventType,
-    table.side,
-  ),
-}));
+export const rtKioxiaConfirmedMorningLongEvents = mysqlTable(
+  "rt_kioxia_confirmed_morning_long_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    eventType: mysqlEnum("kioxia_confirmed_morning_long_event_type", [
+      "engine_rejected",
+    ]).notNull(),
+    side: mysqlEnum("kioxia_confirmed_morning_long_event_side", [
+      "long",
+    ]).notNull(),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex(
+      "rt_kioxia_confirmed_morning_long_event_identity"
+    ).on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.eventType,
+      table.side
+    ),
+  })
+);
 
-export type RtKioxiaConfirmedMorningLongEvent = typeof rtKioxiaConfirmedMorningLongEvents.$inferSelect;
-export type InsertRtKioxiaConfirmedMorningLongEvent = typeof rtKioxiaConfirmedMorningLongEvents.$inferInsert;
+export type RtKioxiaConfirmedMorningLongEvent =
+  typeof rtKioxiaConfirmedMorningLongEvents.$inferSelect;
+export type InsertRtKioxiaConfirmedMorningLongEvent =
+  typeof rtKioxiaConfirmedMorningLongEvents.$inferInsert;
 
 /**
  * 8035始値方向付き短期ブレイク DRY_RUN監査イベント。
  * ATR・証拠金等の共通ゲート拒否を再起動後も16時報告へ復元する。
  */
-export const rtTelOpenDirectionBreakoutEvents = mysqlTable("rt_tel_open_direction_breakout_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  eventType: mysqlEnum("tel_open_direction_breakout_event_type", ["engine_rejected"]).notNull(),
-  side: mysqlEnum("tel_open_direction_breakout_event_side", ["long", "short"]).notNull(),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_tel_open_direction_breakout_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.eventType,
-    table.side,
-  ),
-}));
+export const rtTelOpenDirectionBreakoutEvents = mysqlTable(
+  "rt_tel_open_direction_breakout_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    eventType: mysqlEnum("tel_open_direction_breakout_event_type", [
+      "engine_rejected",
+    ]).notNull(),
+    side: mysqlEnum("tel_open_direction_breakout_event_side", [
+      "long",
+      "short",
+    ]).notNull(),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex(
+      "rt_tel_open_direction_breakout_event_identity"
+    ).on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.eventType,
+      table.side
+    ),
+  })
+);
 
-export type RtTelOpenDirectionBreakoutEvent = typeof rtTelOpenDirectionBreakoutEvents.$inferSelect;
-export type InsertRtTelOpenDirectionBreakoutEvent = typeof rtTelOpenDirectionBreakoutEvents.$inferInsert;
+export type RtTelOpenDirectionBreakoutEvent =
+  typeof rtTelOpenDirectionBreakoutEvents.$inferSelect;
+export type InsertRtTelOpenDirectionBreakoutEvent =
+  typeof rtTelOpenDirectionBreakoutEvents.$inferInsert;
 
 /**
  * 285A SHORTガード DRY_RUN監査イベント。
  * 反転SHORTのBPR不足、安全CB SHORTの出来高不足による当日終了を再起動後も復元する。
  */
-export const rtKioxiaShortGuardEvents = mysqlTable("rt_kioxia_short_guard_events", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  guardType: mysqlEnum("kioxia_short_guard_type", ["reversal_short_bpr", "safe_cb_volume"]).notNull(),
-  side: mysqlEnum("kioxia_short_guard_side", ["short"]).notNull(),
-  observedValue: decimal("observed_value", { precision: 12, scale: 6 }).notNull(),
-  thresholdValue: decimal("threshold_value", { precision: 12, scale: 6 }).notNull(),
-  averageVolume: decimal("average_volume", { precision: 16, scale: 4 }),
-  zeroVolumeBars: int("zero_volume_bars").notNull().default(0),
-  detail: text("detail"),
-  referencePrice: decimal("reference_price", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_kioxia_short_guard_event_identity").on(
-    table.tradeDate,
-    table.symbol,
-    table.candleTime,
-    table.guardType,
-  ),
-}));
+export const rtKioxiaShortGuardEvents = mysqlTable(
+  "rt_kioxia_short_guard_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    guardType: mysqlEnum("kioxia_short_guard_type", [
+      "reversal_short_bpr",
+      "safe_cb_volume",
+    ]).notNull(),
+    side: mysqlEnum("kioxia_short_guard_side", ["short"]).notNull(),
+    observedValue: decimal("observed_value", {
+      precision: 12,
+      scale: 6,
+    }).notNull(),
+    thresholdValue: decimal("threshold_value", {
+      precision: 12,
+      scale: 6,
+    }).notNull(),
+    averageVolume: decimal("average_volume", { precision: 16, scale: 4 }),
+    zeroVolumeBars: int("zero_volume_bars").notNull().default(0),
+    detail: text("detail"),
+    referencePrice: decimal("reference_price", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex("rt_kioxia_short_guard_event_identity").on(
+      table.tradeDate,
+      table.symbol,
+      table.candleTime,
+      table.guardType
+    ),
+  })
+);
 
-export type RtKioxiaShortGuardEvent = typeof rtKioxiaShortGuardEvents.$inferSelect;
-export type InsertRtKioxiaShortGuardEvent = typeof rtKioxiaShortGuardEvents.$inferInsert;
+export type RtKioxiaShortGuardEvent =
+  typeof rtKioxiaShortGuardEvents.$inferSelect;
+export type InsertRtKioxiaShortGuardEvent =
+  typeof rtKioxiaShortGuardEvents.$inferInsert;
 
 /**
  * Windows relayから受信した生イベントの追記専用監査ログ。
  * source_event_idだけを一意にし、訂正足は新しいイベントとして保存する。
  */
-export const rtSourceEvents = mysqlTable("rt_source_events", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
-  eventSeq: int("event_seq").notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
-  payloadJson: json("payload_json").notNull(),
-  relayReceivedAtMs: bigint("relay_received_at_ms", { mode: "number" }),
-  relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
-  cloudReceivedAtMs: bigint("cloud_received_at_ms", { mode: "number" }),
-  correctedEventId: varchar("corrected_event_id", { length: 128 }),
-  status: mysqlEnum("rt_source_event_status", ["processing", "processed", "failed", "payload_mismatch"]).notNull().default("processing"),
-  processingStage: mysqlEnum("rt_source_processing_stage", ["claimed", "engine_started", "engine_completed"]).notNull().default("claimed"),
-  claimToken: varchar("claim_token", { length: 64 }),
-  leaseUntil: timestamp("lease_until"),
-  attemptCount: int("attempt_count").notNull().default(0),
-  resultAction: varchar("result_action", { length: 32 }),
-  resultJson: json("result_json"),
-  errorDetail: text("error_detail"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  processedAt: timestamp("processed_at"),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_source_events_source_identity").on(table.sourceEventId),
-}));
+export const rtSourceEvents = mysqlTable(
+  "rt_source_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
+    eventSeq: int("event_seq").notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    payloadJson: json("payload_json").notNull(),
+    relayReceivedAtMs: bigint("relay_received_at_ms", { mode: "number" }),
+    relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
+    cloudReceivedAtMs: bigint("cloud_received_at_ms", { mode: "number" }),
+    correctedEventId: varchar("corrected_event_id", { length: 128 }),
+    status: mysqlEnum("rt_source_event_status", [
+      "processing",
+      "processed",
+      "failed",
+      "payload_mismatch",
+    ])
+      .notNull()
+      .default("processing"),
+    processingStage: mysqlEnum("rt_source_processing_stage", [
+      "claimed",
+      "engine_started",
+      "engine_completed",
+    ])
+      .notNull()
+      .default("claimed"),
+    claimToken: varchar("claim_token", { length: 64 }),
+    leaseUntil: timestamp("lease_until"),
+    attemptCount: int("attempt_count").notNull().default(0),
+    resultAction: varchar("result_action", { length: 32 }),
+    resultJson: json("result_json"),
+    errorDetail: text("error_detail"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    processedAt: timestamp("processed_at"),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_source_events_source_identity").on(
+      table.sourceEventId
+    ),
+  })
+);
 
 export type RtSourceEvent = typeof rtSourceEvents.$inferSelect;
 export type InsertRtSourceEvent = typeof rtSourceEvents.$inferInsert;
@@ -855,191 +1057,374 @@ export type InsertRtSourceEvent = typeof rtSourceEvents.$inferInsert;
  * 日経平均等の市場環境専用1分足。
  * 通常銘柄のsource eventと分離し、現行engine・shadow dispatch・注文へ流さない。
  */
-export const rtMarketContextEvents = mysqlTable("rt_market_context_events", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
-  eventSeq: int("event_seq").notNull(),
-  instrumentKey: varchar("instrument_key", { length: 32 }).notNull(),
-  providerSymbol: varchar("provider_symbol", { length: 32 }).notNull(),
-  productType: mysqlEnum("market_context_product_type", ["index", "future"]).notNull(),
-  contractMonth: varchar("contract_month", { length: 7 }),
-  marketSession: mysqlEnum("market_context_session", ["cash", "day", "night", "day_night"]).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  open: decimal("open", { precision: 16, scale: 6 }).notNull(),
-  high: decimal("high", { precision: 16, scale: 6 }).notNull(),
-  low: decimal("low", { precision: 16, scale: 6 }).notNull(),
-  close: decimal("close", { precision: 16, scale: 6 }).notNull(),
-  volume: bigint("volume", { mode: "number" }),
-  previousClose: decimal("previous_close", { precision: 16, scale: 6 }),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
-  relayPayloadHash: varchar("relay_payload_hash", { length: 64 }),
-  payloadJson: json("payload_json").notNull(),
-  observedAtMs: bigint("observed_at_ms", { mode: "number" }),
-  relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
-  cloudReceivedAtMs: bigint("cloud_received_at_ms", { mode: "number" }).notNull(),
-  correctedEventId: varchar("corrected_event_id", { length: 128 }),
-  qualityStatus: mysqlEnum("market_context_quality_status", ["verified", "degraded", "invalid"]).notNull(),
-  resultJson: json("result_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_market_context_source_identity").on(table.sourceEventId),
-  instrumentDateTime: index("rt_market_context_instrument_date_time").on(table.instrumentKey, table.tradeDate, table.candleTime, table.id),
-  tradeDateQuality: index("rt_market_context_trade_date_quality").on(table.tradeDate, table.qualityStatus, table.id),
-}));
+export const rtMarketContextEvents = mysqlTable(
+  "rt_market_context_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
+    eventSeq: int("event_seq").notNull(),
+    instrumentKey: varchar("instrument_key", { length: 32 }).notNull(),
+    providerSymbol: varchar("provider_symbol", { length: 32 }).notNull(),
+    productType: mysqlEnum("market_context_product_type", [
+      "index",
+      "future",
+    ]).notNull(),
+    contractMonth: varchar("contract_month", { length: 7 }),
+    marketSession: mysqlEnum("market_context_session", [
+      "cash",
+      "day",
+      "night",
+      "day_night",
+    ]).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    open: decimal("open", { precision: 16, scale: 6 }).notNull(),
+    high: decimal("high", { precision: 16, scale: 6 }).notNull(),
+    low: decimal("low", { precision: 16, scale: 6 }).notNull(),
+    close: decimal("close", { precision: 16, scale: 6 }).notNull(),
+    volume: bigint("volume", { mode: "number" }),
+    previousClose: decimal("previous_close", { precision: 16, scale: 6 }),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    relayPayloadHash: varchar("relay_payload_hash", { length: 64 }),
+    payloadJson: json("payload_json").notNull(),
+    observedAtMs: bigint("observed_at_ms", { mode: "number" }),
+    relaySentAtMs: bigint("relay_sent_at_ms", { mode: "number" }),
+    cloudReceivedAtMs: bigint("cloud_received_at_ms", {
+      mode: "number",
+    }).notNull(),
+    correctedEventId: varchar("corrected_event_id", { length: 128 }),
+    qualityStatus: mysqlEnum("market_context_quality_status", [
+      "verified",
+      "degraded",
+      "invalid",
+    ]).notNull(),
+    resultJson: json("result_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_market_context_source_identity").on(
+      table.sourceEventId
+    ),
+    instrumentDateTime: index("rt_market_context_instrument_date_time").on(
+      table.instrumentKey,
+      table.tradeDate,
+      table.candleTime,
+      table.id
+    ),
+    tradeDateQuality: index("rt_market_context_trade_date_quality").on(
+      table.tradeDate,
+      table.qualityStatus,
+      table.id
+    ),
+  })
+);
 
 export type RtMarketContextEvent = typeof rtMarketContextEvents.$inferSelect;
-export type InsertRtMarketContextEvent = typeof rtMarketContextEvents.$inferInsert;
+export type InsertRtMarketContextEvent =
+  typeof rtMarketContextEvents.$inferInsert;
 
 /**
  * 08:30時点の①NYダウ・②CME日経225先物・③USD/JPYを凍結した監視用snapshot。
  * AI文章ではなく数値・時刻・出典・品質を保存し、場中④との統合判断にだけ使う。
  */
-export const rtPremarketContextSnapshots = mysqlTable("rt_premarket_context_snapshots", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceSnapshotId: varchar("source_snapshot_id", { length: 128 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
-  collectorVersion: varchar("collector_version", { length: 96 }).notNull(),
-  sourceMode: mysqlEnum("premarket_source_mode", ["scheduled_research", "provider_api", "manual_review"]).notNull(),
-  dowSessionDate: varchar("dow_session_date", { length: 10 }),
-  dowClose: decimal("dow_close", { precision: 16, scale: 6 }),
-  dowChangePct: decimal("dow_change_pct", { precision: 10, scale: 6 }),
-  cmeProviderSymbol: varchar("cme_provider_symbol", { length: 32 }),
-  cmeContractMonth: varchar("cme_contract_month", { length: 7 }),
-  cmeCurrency: mysqlEnum("cme_currency", ["JPY", "USD"]),
-  cmeQuote: decimal("cme_quote", { precision: 16, scale: 6 }),
-  oseDayClose: decimal("ose_day_close", { precision: 16, scale: 6 }),
-  cmeBasisPct: decimal("cme_basis_pct", { precision: 10, scale: 6 }),
-  usdJpyPrevious: decimal("usd_jpy_previous", { precision: 16, scale: 6 }),
-  usdJpyCurrent: decimal("usd_jpy_current", { precision: 16, scale: 6 }),
-  usdJpyChangePct: decimal("usd_jpy_change_pct", { precision: 10, scale: 6 }),
-  inputHash: varchar("input_hash", { length: 64 }).notNull(),
-  ruleVersion: varchar("rule_version", { length: 96 }).notNull(),
-  qualityStatus: mysqlEnum("premarket_quality_status", ["verified", "degraded", "invalid"]).notNull(),
-  regimeState: mysqlEnum("premarket_regime_state", ["strong_up", "up", "mixed", "down", "strong_down", "unavailable"]).notNull(),
-  confidence: mysqlEnum("premarket_confidence", ["high", "medium", "low", "unavailable"]).notNull(),
-  inputJson: json("input_json").notNull(),
-  resultJson: json("result_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_premarket_context_source_identity").on(table.sourceSnapshotId),
-  tradeDateCapture: index("rt_premarket_context_trade_date_capture").on(table.tradeDate, table.capturedAtMs, table.id),
-  tradeDateQuality: index("rt_premarket_context_trade_date_quality").on(table.tradeDate, table.qualityStatus, table.id),
-}));
+export const rtPremarketContextSnapshots = mysqlTable(
+  "rt_premarket_context_snapshots",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceSnapshotId: varchar("source_snapshot_id", { length: 128 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
+    collectorVersion: varchar("collector_version", { length: 96 }).notNull(),
+    sourceMode: mysqlEnum("premarket_source_mode", [
+      "scheduled_research",
+      "provider_api",
+      "manual_review",
+    ]).notNull(),
+    dowSessionDate: varchar("dow_session_date", { length: 10 }),
+    dowClose: decimal("dow_close", { precision: 16, scale: 6 }),
+    dowChangePct: decimal("dow_change_pct", { precision: 10, scale: 6 }),
+    cmeProviderSymbol: varchar("cme_provider_symbol", { length: 32 }),
+    cmeContractMonth: varchar("cme_contract_month", { length: 7 }),
+    cmeCurrency: mysqlEnum("cme_currency", ["JPY", "USD"]),
+    cmeQuote: decimal("cme_quote", { precision: 16, scale: 6 }),
+    oseDayClose: decimal("ose_day_close", { precision: 16, scale: 6 }),
+    cmeBasisPct: decimal("cme_basis_pct", { precision: 10, scale: 6 }),
+    usdJpyPrevious: decimal("usd_jpy_previous", { precision: 16, scale: 6 }),
+    usdJpyCurrent: decimal("usd_jpy_current", { precision: 16, scale: 6 }),
+    usdJpyChangePct: decimal("usd_jpy_change_pct", { precision: 10, scale: 6 }),
+    inputHash: varchar("input_hash", { length: 64 }).notNull(),
+    ruleVersion: varchar("rule_version", { length: 96 }).notNull(),
+    qualityStatus: mysqlEnum("premarket_quality_status", [
+      "verified",
+      "degraded",
+      "invalid",
+    ]).notNull(),
+    regimeState: mysqlEnum("premarket_regime_state", [
+      "strong_up",
+      "up",
+      "mixed",
+      "down",
+      "strong_down",
+      "unavailable",
+    ]).notNull(),
+    confidence: mysqlEnum("premarket_confidence", [
+      "high",
+      "medium",
+      "low",
+      "unavailable",
+    ]).notNull(),
+    inputJson: json("input_json").notNull(),
+    resultJson: json("result_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_premarket_context_source_identity").on(
+      table.sourceSnapshotId
+    ),
+    tradeDateCapture: index("rt_premarket_context_trade_date_capture").on(
+      table.tradeDate,
+      table.capturedAtMs,
+      table.id
+    ),
+    tradeDateQuality: index("rt_premarket_context_trade_date_quality").on(
+      table.tradeDate,
+      table.qualityStatus,
+      table.id
+    ),
+  })
+);
 
-export type RtPremarketContextSnapshot = typeof rtPremarketContextSnapshots.$inferSelect;
-export type InsertRtPremarketContextSnapshot = typeof rtPremarketContextSnapshots.$inferInsert;
+export type RtPremarketContextSnapshot =
+  typeof rtPremarketContextSnapshots.$inferSelect;
+export type InsertRtPremarketContextSnapshot =
+  typeof rtPremarketContextSnapshots.$inferInsert;
 
 /**
  * AI日次予測のimmutableな朝snapshot。通常engine・rt_trades・注文経路と完全に分離する。
  * 入力、決定的quant baseline、AI調整、最終予測を同じhash対象payloadとして監査する。
  */
-export const rtAiDailyForecastSnapshots = mysqlTable("rt_ai_daily_forecast_snapshots", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceSnapshotId: varchar("source_snapshot_id", { length: 160 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
-  dataCutoffDate: varchar("data_cutoff_date", { length: 10 }).notNull(),
-  modelVersion: varchar("model_version", { length: 96 }).notNull(),
-  sourceMode: mysqlEnum("ai_daily_forecast_source_mode", ["scheduled_ai_forecast", "manual_dry_run"]).notNull(),
-  macroSnapshotId: varchar("macro_snapshot_id", { length: 128 }),
-  inputHash: varchar("input_hash", { length: 64 }).notNull(),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
-  qualityStatus: mysqlEnum("ai_daily_forecast_quality", ["verified", "degraded", "invalid"]).notNull(),
-  aiModelId: varchar("ai_model_id", { length: 96 }),
-  promptVersion: varchar("prompt_version", { length: 96 }).notNull(),
-  inferenceAtMs: bigint("inference_at_ms", { mode: "number" }),
-  inputJson: json("input_json").notNull(),
-  forecastJson: json("forecast_json").notNull(),
-  validationJson: json("validation_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_ai_daily_forecast_source_identity").on(table.sourceSnapshotId),
-  tradeDateCapture: index("rt_ai_daily_forecast_trade_date_capture").on(table.tradeDate, table.capturedAtMs, table.id),
-}));
+export const rtAiDailyForecastSnapshots = mysqlTable(
+  "rt_ai_daily_forecast_snapshots",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceSnapshotId: varchar("source_snapshot_id", { length: 160 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
+    dataCutoffDate: varchar("data_cutoff_date", { length: 10 }).notNull(),
+    modelVersion: varchar("model_version", { length: 96 }).notNull(),
+    sourceMode: mysqlEnum("ai_daily_forecast_source_mode", [
+      "scheduled_ai_forecast",
+      "manual_dry_run",
+    ]).notNull(),
+    macroSnapshotId: varchar("macro_snapshot_id", { length: 128 }),
+    inputHash: varchar("input_hash", { length: 64 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    qualityStatus: mysqlEnum("ai_daily_forecast_quality", [
+      "verified",
+      "degraded",
+      "invalid",
+    ]).notNull(),
+    aiModelId: varchar("ai_model_id", { length: 96 }),
+    promptVersion: varchar("prompt_version", { length: 96 }).notNull(),
+    inferenceAtMs: bigint("inference_at_ms", { mode: "number" }),
+    inputJson: json("input_json").notNull(),
+    forecastJson: json("forecast_json").notNull(),
+    validationJson: json("validation_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_ai_daily_forecast_source_identity").on(
+      table.sourceSnapshotId
+    ),
+    tradeDateCapture: index("rt_ai_daily_forecast_trade_date_capture").on(
+      table.tradeDate,
+      table.capturedAtMs,
+      table.id
+    ),
+  })
+);
 
-export type RtAiDailyForecastSnapshot = typeof rtAiDailyForecastSnapshots.$inferSelect;
-export type InsertRtAiDailyForecastSnapshot = typeof rtAiDailyForecastSnapshots.$inferInsert;
+export type RtAiDailyForecastSnapshot =
+  typeof rtAiDailyForecastSnapshots.$inferSelect;
+export type InsertRtAiDailyForecastSnapshot =
+  typeof rtAiDailyForecastSnapshots.$inferInsert;
 
 /** ④日経225miniによる場中再評価。朝snapshotを更新せず追記だけを許可する。 */
-export const rtAiDailyForecastRevisions = mysqlTable("rt_ai_daily_forecast_revisions", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceSnapshotId: varchar("source_snapshot_id", { length: 160 }).notNull(),
-  revisionSourceEventId: varchar("revision_source_event_id", { length: 128 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  checkpoint: varchar("checkpoint", { length: 5 }).notNull(),
-  revisionStatus: mysqlEnum("ai_daily_forecast_revision_status", ["no_change", "market_context_invalidated", "invalid"]).notNull(),
-  resultJson: json("result_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  revisionIdentity: uniqueIndex("rt_ai_daily_forecast_revision_identity").on(table.sourceSnapshotId, table.revisionSourceEventId),
-  tradeDateCheckpoint: index("rt_ai_daily_forecast_revision_trade_date_checkpoint").on(table.tradeDate, table.checkpoint, table.id),
-}));
+export const rtAiDailyForecastRevisions = mysqlTable(
+  "rt_ai_daily_forecast_revisions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceSnapshotId: varchar("source_snapshot_id", { length: 160 }).notNull(),
+    revisionSourceEventId: varchar("revision_source_event_id", {
+      length: 128,
+    }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    checkpoint: varchar("checkpoint", { length: 5 }).notNull(),
+    revisionStatus: mysqlEnum("ai_daily_forecast_revision_status", [
+      "no_change",
+      "market_context_invalidated",
+      "invalid",
+    ]).notNull(),
+    resultJson: json("result_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    revisionIdentity: uniqueIndex("rt_ai_daily_forecast_revision_identity").on(
+      table.sourceSnapshotId,
+      table.revisionSourceEventId
+    ),
+    tradeDateCheckpoint: index(
+      "rt_ai_daily_forecast_revision_trade_date_checkpoint"
+    ).on(table.tradeDate, table.checkpoint, table.id),
+  })
+);
 
-export type RtAiDailyForecastRevision = typeof rtAiDailyForecastRevisions.$inferSelect;
-export type InsertRtAiDailyForecastRevision = typeof rtAiDailyForecastRevisions.$inferInsert;
+export type RtAiDailyForecastRevision =
+  typeof rtAiDailyForecastRevisions.$inferSelect;
+export type InsertRtAiDailyForecastRevision =
+  typeof rtAiDailyForecastRevisions.$inferInsert;
 
 /**
  * 30分ごとのAI場中計画。朝snapshotを変更せず、各checkpointの時点までに
  * 確定した足・過去のAI shadow成績だけを入力としてimmutableに追記する。
  */
-export const rtAiIntradayForecastSnapshots = mysqlTable("rt_ai_intraday_forecast_snapshots", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceRevisionId: varchar("source_revision_id", { length: 180 }).notNull(),
-  morningSourceSnapshotId: varchar("morning_source_snapshot_id", { length: 160 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  checkpoint: varchar("checkpoint", { length: 5 }).notNull(),
-  cutoffCandleTime: varchar("cutoff_candle_time", { length: 5 }).notNull(),
-  capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
-  modelVersion: varchar("model_version", { length: 96 }).notNull(),
-  sourceMode: mysqlEnum("ai_intraday_forecast_source_mode", ["scheduled_ai_forecast", "manual_dry_run"]).notNull(),
-  inputHash: varchar("input_hash", { length: 64 }).notNull(),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
-  qualityStatus: mysqlEnum("ai_intraday_forecast_quality", ["verified", "degraded", "invalid"]).notNull(),
-  aiModelId: varchar("ai_model_id", { length: 96 }),
-  promptVersion: varchar("prompt_version", { length: 96 }).notNull(),
-  inferenceAtMs: bigint("inference_at_ms", { mode: "number" }),
-  inputJson: json("input_json").notNull(),
-  forecastJson: json("forecast_json").notNull(),
-  validationJson: json("validation_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_ai_intraday_forecast_source_identity").on(table.sourceRevisionId),
-  checkpointIdentity: uniqueIndex("rt_ai_intraday_forecast_checkpoint_identity").on(table.morningSourceSnapshotId, table.checkpoint),
-  tradeDateCheckpoint: index("rt_ai_intraday_forecast_trade_date_checkpoint").on(table.tradeDate, table.checkpoint, table.id),
-}));
+export const rtAiIntradayForecastSnapshots = mysqlTable(
+  "rt_ai_intraday_forecast_snapshots",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceRevisionId: varchar("source_revision_id", { length: 180 }).notNull(),
+    morningSourceSnapshotId: varchar("morning_source_snapshot_id", {
+      length: 160,
+    }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    checkpoint: varchar("checkpoint", { length: 5 }).notNull(),
+    cutoffCandleTime: varchar("cutoff_candle_time", { length: 5 }).notNull(),
+    capturedAtMs: bigint("captured_at_ms", { mode: "number" }).notNull(),
+    modelVersion: varchar("model_version", { length: 96 }).notNull(),
+    sourceMode: mysqlEnum("ai_intraday_forecast_source_mode", [
+      "scheduled_ai_forecast",
+      "manual_dry_run",
+    ]).notNull(),
+    inputHash: varchar("input_hash", { length: 64 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    qualityStatus: mysqlEnum("ai_intraday_forecast_quality", [
+      "verified",
+      "degraded",
+      "invalid",
+    ]).notNull(),
+    aiModelId: varchar("ai_model_id", { length: 96 }),
+    promptVersion: varchar("prompt_version", { length: 96 }).notNull(),
+    inferenceAtMs: bigint("inference_at_ms", { mode: "number" }),
+    inputJson: json("input_json").notNull(),
+    forecastJson: json("forecast_json").notNull(),
+    validationJson: json("validation_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_ai_intraday_forecast_source_identity").on(
+      table.sourceRevisionId
+    ),
+    checkpointIdentity: uniqueIndex(
+      "rt_ai_intraday_forecast_checkpoint_identity"
+    ).on(table.morningSourceSnapshotId, table.checkpoint),
+    tradeDateCheckpoint: index(
+      "rt_ai_intraday_forecast_trade_date_checkpoint"
+    ).on(table.tradeDate, table.checkpoint, table.id),
+  })
+);
 
-export type RtAiIntradayForecastSnapshot = typeof rtAiIntradayForecastSnapshots.$inferSelect;
-export type InsertRtAiIntradayForecastSnapshot = typeof rtAiIntradayForecastSnapshots.$inferInsert;
+export type RtAiIntradayForecastSnapshot =
+  typeof rtAiIntradayForecastSnapshots.$inferSelect;
+export type InsertRtAiIntradayForecastSnapshot =
+  typeof rtAiIntradayForecastSnapshots.$inferInsert;
+
+/**
+ * 閉場finality後に一度だけ追記するAI shadow詳細学習snapshot。
+ * 同日中の意思決定は参照せず、翌営業日以降の入力だけが読み取る。
+ */
+export const rtAiForecastLearningSnapshots = mysqlTable(
+  "rt_ai_forecast_learning_snapshots",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceSnapshotId: varchar("source_snapshot_id", { length: 180 }).notNull(),
+    asOfDate: varchar("as_of_date", { length: 10 }).notNull(),
+    modelVersion: varchar("model_version", { length: 96 }).notNull(),
+    generatedAtMs: bigint("generated_at_ms", { mode: "number" }).notNull(),
+    inputHash: varchar("input_hash", { length: 64 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    qualityStatus: mysqlEnum("ai_forecast_learning_quality", [
+      "verified",
+      "degraded",
+      "invalid",
+    ]).notNull(),
+    qualityReasonCodesJson: json("quality_reason_codes_json").notNull(),
+    learningJson: json("learning_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_ai_forecast_learning_source_identity").on(
+      table.sourceSnapshotId
+    ),
+    asOfModelIdentity: uniqueIndex(
+      "rt_ai_forecast_learning_asof_model_identity"
+    ).on(table.asOfDate, table.modelVersion),
+    usableBeforeTradeDate: index(
+      "rt_ai_forecast_learning_usable_before_trade_date"
+    ).on(table.modelVersion, table.qualityStatus, table.asOfDate, table.id),
+  })
+);
+
+export type RtAiForecastLearningSnapshot =
+  typeof rtAiForecastLearningSnapshots.$inferSelect;
+export type InsertRtAiForecastLearningSnapshot =
+  typeof rtAiForecastLearningSnapshots.$inferInsert;
 
 /**
  * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
  * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
  */
-export const rtShadowDispatchQueue = mysqlTable("rt_shadow_dispatch_queue", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  engineSequence: int("engine_sequence").notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  inputJson: json("input_json").notNull(),
-  status: mysqlEnum("rt_shadow_dispatch_status", ["pending", "processing", "processed", "error"]).notNull().default("pending"),
-  claimToken: varchar("claim_token", { length: 64 }),
-  leaseUntil: timestamp("lease_until"),
-  attemptCount: int("attempt_count").notNull().default(0),
-  lastError: text("last_error"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  processedAt: timestamp("processed_at"),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_shadow_dispatch_source_identity").on(table.sourceEventId),
-  engineSequenceIdentity: uniqueIndex("rt_shadow_dispatch_engine_sequence_identity").on(table.engineSequence),
-  activeStatusSequence: index("rt_shadow_dispatch_active_status_sequence").on(table.status, table.engineSequence),
-}));
+export const rtShadowDispatchQueue = mysqlTable(
+  "rt_shadow_dispatch_queue",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    engineSequence: int("engine_sequence").notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    inputJson: json("input_json").notNull(),
+    status: mysqlEnum("rt_shadow_dispatch_status", [
+      "pending",
+      "processing",
+      "processed",
+      "error",
+    ])
+      .notNull()
+      .default("pending"),
+    claimToken: varchar("claim_token", { length: 64 }),
+    leaseUntil: timestamp("lease_until"),
+    attemptCount: int("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    processedAt: timestamp("processed_at"),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_shadow_dispatch_source_identity").on(
+      table.sourceEventId
+    ),
+    engineSequenceIdentity: uniqueIndex(
+      "rt_shadow_dispatch_engine_sequence_identity"
+    ).on(table.engineSequence),
+    activeStatusSequence: index("rt_shadow_dispatch_active_status_sequence").on(
+      table.status,
+      table.engineSequence
+    ),
+  })
+);
 
 export type RtShadowDispatchQueue = typeof rtShadowDispatchQueue.$inferSelect;
-export type InsertRtShadowDispatchQueue = typeof rtShadowDispatchQueue.$inferInsert;
+export type InsertRtShadowDispatchQueue =
+  typeof rtShadowDispatchQueue.$inferInsert;
 
 /** 収集開始前に固定する前向き評価の戦略版。 */
 export const rtStrategyVersions = mysqlTable("rt_strategy_versions", {
@@ -1051,10 +1436,26 @@ export const rtStrategyVersions = mysqlTable("rt_strategy_versions", {
   configHash: varchar("config_hash", { length: 64 }).notNull(),
   configJson: json("config_json").notNull(),
   learningCutoffDate: varchar("learning_cutoff_date", { length: 10 }).notNull(),
-  evaluationStartDate: varchar("evaluation_start_date", { length: 10 }).notNull(),
-  evaluationPurpose: mysqlEnum("rt_strategy_evaluation_purpose", ["candidate", "parity_only", "causality_audit"]).notNull().default("candidate"),
+  evaluationStartDate: varchar("evaluation_start_date", {
+    length: 10,
+  }).notNull(),
+  evaluationPurpose: mysqlEnum("rt_strategy_evaluation_purpose", [
+    "candidate",
+    "parity_only",
+    "causality_audit",
+  ])
+    .notNull()
+    .default("candidate"),
   eligibleForAdoption: boolean("eligible_for_adoption").notNull().default(true),
-  status: mysqlEnum("rt_strategy_version_status", ["monitoring", "interim_continue", "eligible", "stopped", "insufficient"]).notNull().default("monitoring"),
+  status: mysqlEnum("rt_strategy_version_status", [
+    "monitoring",
+    "interim_continue",
+    "eligible",
+    "stopped",
+    "insufficient",
+  ])
+    .notNull()
+    .default("monitoring"),
   statusReason: text("status_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
@@ -1064,334 +1465,558 @@ export type RtStrategyVersion = typeof rtStrategyVersions.$inferSelect;
 export type InsertRtStrategyVersion = typeof rtStrategyVersions.$inferInsert;
 
 /** 戦略版・受信イベント・評価方式ごとの一度きりの判断記録。 */
-export const rtForwardShadowEvents = mysqlTable("rt_forward_shadow_events", {
-  id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  evaluationMode: mysqlEnum("rt_forward_evaluation_mode", ["signal_quality", "capital_constrained"]).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  resultType: mysqlEnum("rt_forward_result_type", ["no_signal", "pending", "entry", "hold", "exit", "rejected", "error"]).notNull(),
-  decisionJson: json("decision_json").notNull(),
-  stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
-  stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
-  claimToken: varchar("claim_token", { length: 64 }),
-  claimUntil: timestamp("claim_until"),
-  attemptCount: int("attempt_count").notNull().default(1),
-  lastError: text("last_error"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  eventIdentity: uniqueIndex("rt_forward_shadow_event_identity").on(
-    table.strategyVersion,
-    table.sourceEventId,
-    table.evaluationMode,
-  ),
-}));
+export const rtForwardShadowEvents = mysqlTable(
+  "rt_forward_shadow_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    evaluationMode: mysqlEnum("rt_forward_evaluation_mode", [
+      "signal_quality",
+      "capital_constrained",
+    ]).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    resultType: mysqlEnum("rt_forward_result_type", [
+      "no_signal",
+      "pending",
+      "entry",
+      "hold",
+      "exit",
+      "rejected",
+      "error",
+    ]).notNull(),
+    decisionJson: json("decision_json").notNull(),
+    stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
+    stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
+    claimToken: varchar("claim_token", { length: 64 }),
+    claimUntil: timestamp("claim_until"),
+    attemptCount: int("attempt_count").notNull().default(1),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    eventIdentity: uniqueIndex("rt_forward_shadow_event_identity").on(
+      table.strategyVersion,
+      table.sourceEventId,
+      table.evaluationMode
+    ),
+  })
+);
 
 export type RtForwardShadowEvent = typeof rtForwardShadowEvents.$inferSelect;
-export type InsertRtForwardShadowEvent = typeof rtForwardShadowEvents.$inferInsert;
+export type InsertRtForwardShadowEvent =
+  typeof rtForwardShadowEvents.$inferInsert;
 
 /** 全発火版と資金制約版が独立して復元する状態スナップショット。 */
-export const rtForwardShadowStates = mysqlTable("rt_forward_shadow_states", {
-  id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
-  evaluationMode: mysqlEnum("rt_forward_state_mode", ["signal_quality", "capital_constrained"]).notNull(),
-  stateJson: json("state_json").notNull(),
-  stateHash: varchar("state_hash", { length: 64 }).notNull(),
-  lastSourceEventId: varchar("last_source_event_id", { length: 128 }),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  stateIdentity: uniqueIndex("rt_forward_shadow_state_identity").on(table.strategyVersion, table.evaluationMode),
-}));
+export const rtForwardShadowStates = mysqlTable(
+  "rt_forward_shadow_states",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
+    evaluationMode: mysqlEnum("rt_forward_state_mode", [
+      "signal_quality",
+      "capital_constrained",
+    ]).notNull(),
+    stateJson: json("state_json").notNull(),
+    stateHash: varchar("state_hash", { length: 64 }).notNull(),
+    lastSourceEventId: varchar("last_source_event_id", { length: 128 }),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    stateIdentity: uniqueIndex("rt_forward_shadow_state_identity").on(
+      table.strategyVersion,
+      table.evaluationMode
+    ),
+  })
+);
 
 export type RtForwardShadowState = typeof rtForwardShadowStates.$inferSelect;
-export type InsertRtForwardShadowState = typeof rtForwardShadowStates.$inferInsert;
+export type InsertRtForwardShadowState =
+  typeof rtForwardShadowStates.$inferInsert;
 
 /** strategyVersion・評価方式単位の短時間リース。複数サーバーでも状態更新を直列化する。 */
-export const rtForwardShadowLocks = mysqlTable("rt_forward_shadow_locks", {
-  id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
-  evaluationMode: mysqlEnum("rt_forward_lock_mode", ["signal_quality", "capital_constrained"]).notNull(),
-  ownerToken: varchar("owner_token", { length: 64 }),
-  leaseUntil: timestamp("lease_until"),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  lockIdentity: uniqueIndex("rt_forward_shadow_lock_identity").on(table.strategyVersion, table.evaluationMode),
-}));
+export const rtForwardShadowLocks = mysqlTable(
+  "rt_forward_shadow_locks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
+    evaluationMode: mysqlEnum("rt_forward_lock_mode", [
+      "signal_quality",
+      "capital_constrained",
+    ]).notNull(),
+    ownerToken: varchar("owner_token", { length: 64 }),
+    leaseUntil: timestamp("lease_until"),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    lockIdentity: uniqueIndex("rt_forward_shadow_lock_identity").on(
+      table.strategyVersion,
+      table.evaluationMode
+    ),
+  })
+);
 
 export type RtForwardShadowLock = typeof rtForwardShadowLocks.$inferSelect;
-export type InsertRtForwardShadowLock = typeof rtForwardShadowLocks.$inferInsert;
+export type InsertRtForwardShadowLock =
+  typeof rtForwardShadowLocks.$inferInsert;
 
 /** 次足始値を使った前向きシャドー取引。orderBridgeから完全分離する。 */
-export const rtForwardShadowTrades = mysqlTable("rt_forward_shadow_trades", {
-  id: int("id").autoincrement().primaryKey(),
-  strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
-  evaluationMode: mysqlEnum("rt_forward_trade_mode", ["signal_quality", "capital_constrained"]).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  side: mysqlEnum("rt_forward_trade_side", ["long", "short"]).notNull(),
-  entrySourceEventId: varchar("entry_source_event_id", { length: 128 }).notNull(),
-  entryTradeDate: varchar("entry_trade_date", { length: 10 }).notNull(),
-  signalCandleTime: varchar("signal_candle_time", { length: 5 }).notNull(),
-  entryCandleTime: varchar("entry_candle_time", { length: 5 }).notNull(),
-  theoreticalSignalPrice: decimal("theoretical_signal_price", { precision: 12, scale: 4 }).notNull(),
-  entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
-  shares: int("shares").notNull(),
-  slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
-  tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
-  exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
-  exitTradeDate: varchar("exit_trade_date", { length: 10 }),
-  exitCandleTime: varchar("exit_candle_time", { length: 5 }),
-  exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
-  exitReason: varchar("exit_reason", { length: 64 }),
-  pnl: int("pnl"),
-  pnlAfterAdverseExit: int("pnl_after_adverse_exit"),
-  realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  closedAt: timestamp("closed_at"),
-}, table => ({
-  tradeIdentity: uniqueIndex("rt_forward_shadow_trade_identity").on(
-    table.strategyVersion,
-    table.evaluationMode,
-    table.entrySourceEventId,
-  ),
-}));
+export const rtForwardShadowTrades = mysqlTable(
+  "rt_forward_shadow_trades",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    strategyVersion: varchar("strategy_version", { length: 128 }).notNull(),
+    evaluationMode: mysqlEnum("rt_forward_trade_mode", [
+      "signal_quality",
+      "capital_constrained",
+    ]).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    side: mysqlEnum("rt_forward_trade_side", ["long", "short"]).notNull(),
+    entrySourceEventId: varchar("entry_source_event_id", {
+      length: 128,
+    }).notNull(),
+    entryTradeDate: varchar("entry_trade_date", { length: 10 }).notNull(),
+    signalCandleTime: varchar("signal_candle_time", { length: 5 }).notNull(),
+    entryCandleTime: varchar("entry_candle_time", { length: 5 }).notNull(),
+    theoreticalSignalPrice: decimal("theoretical_signal_price", {
+      precision: 12,
+      scale: 4,
+    }).notNull(),
+    entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
+    shares: int("shares").notNull(),
+    slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
+    tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
+    exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
+    exitTradeDate: varchar("exit_trade_date", { length: 10 }),
+    exitCandleTime: varchar("exit_candle_time", { length: 5 }),
+    exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
+    exitReason: varchar("exit_reason", { length: 64 }),
+    pnl: int("pnl"),
+    pnlAfterAdverseExit: int("pnl_after_adverse_exit"),
+    realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  table => ({
+    tradeIdentity: uniqueIndex("rt_forward_shadow_trade_identity").on(
+      table.strategyVersion,
+      table.evaluationMode,
+      table.entrySourceEventId
+    ),
+  })
+);
 
 export type RtForwardShadowTrade = typeof rtForwardShadowTrades.$inferSelect;
-export type InsertRtForwardShadowTrade = typeof rtForwardShadowTrades.$inferInsert;
+export type InsertRtForwardShadowTrade =
+  typeof rtForwardShadowTrades.$inferInsert;
 
 /** 現行リアルタイム状態機械をサーバー間でも一列に実行する短時間リース。 */
-export const rtCurrentEngineLocks = mysqlTable("rt_current_engine_locks", {
-  id: int("id").autoincrement().primaryKey(),
-  lockName: varchar("lock_name", { length: 64 }).notNull(),
-  ownerToken: varchar("owner_token", { length: 64 }),
-  leaseUntil: timestamp("lease_until"),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  lockIdentity: uniqueIndex("rt_current_engine_lock_identity").on(table.lockName),
-}));
+export const rtCurrentEngineLocks = mysqlTable(
+  "rt_current_engine_locks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    lockName: varchar("lock_name", { length: 64 }).notNull(),
+    ownerToken: varchar("owner_token", { length: 64 }),
+    leaseUntil: timestamp("lease_until"),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    lockIdentity: uniqueIndex("rt_current_engine_lock_identity").on(
+      table.lockName
+    ),
+  })
+);
 
 export type RtCurrentEngineLock = typeof rtCurrentEngineLocks.$inferSelect;
-export type InsertRtCurrentEngineLock = typeof rtCurrentEngineLocks.$inferInsert;
+export type InsertRtCurrentEngineLock =
+  typeof rtCurrentEngineLocks.$inferInsert;
 
 /**
  * 現行DRY_RUNが実際に状態更新した順序と判断前後状態を保存する追記専用台帳。
  * idがengineSequenceであり、source eventのDB受信順とは別に扱う。
  */
-export const rtRealtimeDecisionEvents = mysqlTable("rt_realtime_decision_events", {
-  id: int("id").autoincrement().primaryKey(),
-  sourceEventDbId: int("source_event_db_id").notNull(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
-  eventSeq: int("event_seq").notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  decisionStartedAtMs: bigint("decision_started_at_ms", { mode: "number" }).notNull(),
-  decisionCompletedAtMs: bigint("decision_completed_at_ms", { mode: "number" }).notNull(),
-  resultType: mysqlEnum("rt_realtime_decision_result", ["no_signal", "pending", "rejected", "entry", "hold", "exit", "error"]).notNull(),
-  routeId: varchar("route_id", { length: 96 }),
-  side: mysqlEnum("rt_realtime_decision_side", ["long", "short"]),
-  reason: text("reason"),
-  inputHash: varchar("input_hash", { length: 64 }).notNull(),
-  stateBeforeJson: json("state_before_json").notNull(),
-  stateAfterJson: json("state_after_json").notNull(),
-  stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
-  stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
-  signalReferencePrice: decimal("signal_reference_price", { precision: 12, scale: 4 }),
-  marketObservedPrice: decimal("market_observed_price", { precision: 12, scale: 4 }),
-  boardPriceTime: varchar("board_price_time", { length: 40 }),
-  executablePriceProxy: decimal("executable_price_proxy", { precision: 12, scale: 4 }),
-  simulatedBarFillPrice: decimal("simulated_bar_fill_price", { precision: 12, scale: 4 }),
-  brokerExecutionPrice: decimal("broker_execution_price", { precision: 12, scale: 4 }),
-  shares: int("shares"),
-  amount: bigint("amount", { mode: "number" }),
-  marginUsedBefore: bigint("margin_used_before", { mode: "number" }),
-  marginUsedAfter: bigint("margin_used_after", { mode: "number" }),
-  causalityStatus: mysqlEnum("rt_realtime_causality_status", ["pass", "violation", "unverified", "not_applicable"]).notNull().default("unverified"),
-  causalityReason: text("causality_reason"),
-  resultJson: json("result_json").notNull(),
-  candidateVirtualStatus: mysqlEnum("rt_candidate_virtual_status", ["pending", "processing", "processed", "error", "terminal"]).notNull().default("processed"),
-  candidateVirtualInputJson: json("candidate_virtual_input_json"),
-  candidateDescriptorJson: json("candidate_descriptor_json"),
-  candidateDescriptorStatus: mysqlEnum("candidate_descriptor_status", ["not_candidate", "complete", "error"]).notNull().default("not_candidate"),
-  candidatePhaseStatus: mysqlEnum("candidate_phase_status", ["pending", "processing", "complete", "retryable_error", "terminal_error", "not_applicable"]).notNull().default("pending"),
-  candidatePhaseAttemptCount: int("candidate_phase_attempt_count").notNull().default(0),
-  candidatePhaseLastError: text("candidate_phase_last_error"),
-  candidatePhaseProcessedAt: timestamp("candidate_phase_processed_at"),
-  virtualPhaseStatus: mysqlEnum("virtual_phase_status", ["pending", "processing", "complete", "retryable_error", "terminal_error", "not_applicable"]).notNull().default("pending"),
-  virtualPhaseAttemptCount: int("virtual_phase_attempt_count").notNull().default(0),
-  virtualPhaseLastError: text("virtual_phase_last_error"),
-  virtualPhaseProcessedAt: timestamp("virtual_phase_processed_at"),
-  candidateVirtualClaimToken: varchar("candidate_virtual_claim_token", { length: 64 }),
-  candidateVirtualLeaseUntil: timestamp("candidate_virtual_lease_until"),
-  candidateVirtualAttemptCount: int("candidate_virtual_attempt_count").notNull().default(0),
-  candidateVirtualLastError: text("candidate_virtual_last_error"),
-  candidateVirtualProcessedAt: timestamp("candidate_virtual_processed_at"),
-  candidateVirtualTerminalAt: timestamp("candidate_virtual_terminal_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  sourceIdentity: uniqueIndex("rt_realtime_decision_source_identity").on(table.sourceEventId),
-}));
+export const rtRealtimeDecisionEvents = mysqlTable(
+  "rt_realtime_decision_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    sourceEventDbId: int("source_event_db_id").notNull(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    relaySessionId: varchar("relay_session_id", { length: 96 }).notNull(),
+    eventSeq: int("event_seq").notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    decisionStartedAtMs: bigint("decision_started_at_ms", {
+      mode: "number",
+    }).notNull(),
+    decisionCompletedAtMs: bigint("decision_completed_at_ms", {
+      mode: "number",
+    }).notNull(),
+    resultType: mysqlEnum("rt_realtime_decision_result", [
+      "no_signal",
+      "pending",
+      "rejected",
+      "entry",
+      "hold",
+      "exit",
+      "error",
+    ]).notNull(),
+    routeId: varchar("route_id", { length: 96 }),
+    side: mysqlEnum("rt_realtime_decision_side", ["long", "short"]),
+    reason: text("reason"),
+    inputHash: varchar("input_hash", { length: 64 }).notNull(),
+    stateBeforeJson: json("state_before_json").notNull(),
+    stateAfterJson: json("state_after_json").notNull(),
+    stateHashBefore: varchar("state_hash_before", { length: 64 }).notNull(),
+    stateHashAfter: varchar("state_hash_after", { length: 64 }).notNull(),
+    signalReferencePrice: decimal("signal_reference_price", {
+      precision: 12,
+      scale: 4,
+    }),
+    marketObservedPrice: decimal("market_observed_price", {
+      precision: 12,
+      scale: 4,
+    }),
+    boardPriceTime: varchar("board_price_time", { length: 40 }),
+    executablePriceProxy: decimal("executable_price_proxy", {
+      precision: 12,
+      scale: 4,
+    }),
+    simulatedBarFillPrice: decimal("simulated_bar_fill_price", {
+      precision: 12,
+      scale: 4,
+    }),
+    brokerExecutionPrice: decimal("broker_execution_price", {
+      precision: 12,
+      scale: 4,
+    }),
+    shares: int("shares"),
+    amount: bigint("amount", { mode: "number" }),
+    marginUsedBefore: bigint("margin_used_before", { mode: "number" }),
+    marginUsedAfter: bigint("margin_used_after", { mode: "number" }),
+    causalityStatus: mysqlEnum("rt_realtime_causality_status", [
+      "pass",
+      "violation",
+      "unverified",
+      "not_applicable",
+    ])
+      .notNull()
+      .default("unverified"),
+    causalityReason: text("causality_reason"),
+    resultJson: json("result_json").notNull(),
+    candidateVirtualStatus: mysqlEnum("rt_candidate_virtual_status", [
+      "pending",
+      "processing",
+      "processed",
+      "error",
+      "terminal",
+    ])
+      .notNull()
+      .default("processed"),
+    candidateVirtualInputJson: json("candidate_virtual_input_json"),
+    candidateDescriptorJson: json("candidate_descriptor_json"),
+    candidateDescriptorStatus: mysqlEnum("candidate_descriptor_status", [
+      "not_candidate",
+      "complete",
+      "error",
+    ])
+      .notNull()
+      .default("not_candidate"),
+    candidatePhaseStatus: mysqlEnum("candidate_phase_status", [
+      "pending",
+      "processing",
+      "complete",
+      "retryable_error",
+      "terminal_error",
+      "not_applicable",
+    ])
+      .notNull()
+      .default("pending"),
+    candidatePhaseAttemptCount: int("candidate_phase_attempt_count")
+      .notNull()
+      .default(0),
+    candidatePhaseLastError: text("candidate_phase_last_error"),
+    candidatePhaseProcessedAt: timestamp("candidate_phase_processed_at"),
+    virtualPhaseStatus: mysqlEnum("virtual_phase_status", [
+      "pending",
+      "processing",
+      "complete",
+      "retryable_error",
+      "terminal_error",
+      "not_applicable",
+    ])
+      .notNull()
+      .default("pending"),
+    virtualPhaseAttemptCount: int("virtual_phase_attempt_count")
+      .notNull()
+      .default(0),
+    virtualPhaseLastError: text("virtual_phase_last_error"),
+    virtualPhaseProcessedAt: timestamp("virtual_phase_processed_at"),
+    candidateVirtualClaimToken: varchar("candidate_virtual_claim_token", {
+      length: 64,
+    }),
+    candidateVirtualLeaseUntil: timestamp("candidate_virtual_lease_until"),
+    candidateVirtualAttemptCount: int("candidate_virtual_attempt_count")
+      .notNull()
+      .default(0),
+    candidateVirtualLastError: text("candidate_virtual_last_error"),
+    candidateVirtualProcessedAt: timestamp("candidate_virtual_processed_at"),
+    candidateVirtualTerminalAt: timestamp("candidate_virtual_terminal_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceIdentity: uniqueIndex("rt_realtime_decision_source_identity").on(
+      table.sourceEventId
+    ),
+  })
+);
 
-export type RtRealtimeDecisionEvent = typeof rtRealtimeDecisionEvents.$inferSelect;
-export type InsertRtRealtimeDecisionEvent = typeof rtRealtimeDecisionEvents.$inferInsert;
+export type RtRealtimeDecisionEvent =
+  typeof rtRealtimeDecisionEvents.$inferSelect;
+export type InsertRtRealtimeDecisionEvent =
+  typeof rtRealtimeDecisionEvents.$inferInsert;
 
 /** strategyVersionごとに実時現行と固定版再生を項目別比較した結果。 */
-export const rtReplayComparisons = mysqlTable("rt_replay_comparisons", {
-  id: int("id").autoincrement().primaryKey(),
-  baselineVersion: varchar("baseline_version", { length: 64 }).notNull(),
-  sourceEventDbId: int("source_event_db_id").notNull(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  engineSequence: int("engine_sequence"),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  matchStatus: mysqlEnum("rt_replay_match_status", ["match", "mismatch", "skipped", "error"]).notNull(),
-  isFirstMismatch: boolean("is_first_mismatch").notNull().default(false),
-  mismatchType: varchar("mismatch_type", { length: 64 }),
-  realtimeDecisionId: int("realtime_decision_id"),
-  realtimeStateHash: varchar("realtime_state_hash", { length: 64 }),
-  replayStateHash: varchar("replay_state_hash", { length: 64 }),
-  diffJson: json("diff_json"),
-  replayResultJson: json("replay_result_json"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  comparisonIdentity: uniqueIndex("rt_replay_comparison_identity").on(table.baselineVersion, table.sourceEventId),
-}));
+export const rtReplayComparisons = mysqlTable(
+  "rt_replay_comparisons",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    baselineVersion: varchar("baseline_version", { length: 64 }).notNull(),
+    sourceEventDbId: int("source_event_db_id").notNull(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    engineSequence: int("engine_sequence"),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    matchStatus: mysqlEnum("rt_replay_match_status", [
+      "match",
+      "mismatch",
+      "skipped",
+      "error",
+    ]).notNull(),
+    isFirstMismatch: boolean("is_first_mismatch").notNull().default(false),
+    mismatchType: varchar("mismatch_type", { length: 64 }),
+    realtimeDecisionId: int("realtime_decision_id"),
+    realtimeStateHash: varchar("realtime_state_hash", { length: 64 }),
+    replayStateHash: varchar("replay_state_hash", { length: 64 }),
+    diffJson: json("diff_json"),
+    replayResultJson: json("replay_result_json"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    comparisonIdentity: uniqueIndex("rt_replay_comparison_identity").on(
+      table.baselineVersion,
+      table.sourceEventId
+    ),
+  })
+);
 
 export type RtReplayComparison = typeof rtReplayComparisons.$inferSelect;
 export type InsertRtReplayComparison = typeof rtReplayComparisons.$inferInsert;
 
 /** 10銘柄共有891万円を実受信順または同一分固定優先順位で配分した判断台帳。 */
-export const rtPortfolioAuditEvents = mysqlTable("rt_portfolio_audit_events", {
-  id: int("id").autoincrement().primaryKey(),
-  portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
-  mode: mysqlEnum("rt_portfolio_audit_mode", ["actual_receipt", "minute_normalized"]).notNull(),
-  generation: int("generation").notNull().default(1),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  batchKey: varchar("batch_key", { length: 32 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  routeId: varchar("route_id", { length: 96 }),
-  side: mysqlEnum("rt_portfolio_audit_side", ["long", "short"]),
-  priorityRank: int("priority_rank"),
-  decision: mysqlEnum("rt_portfolio_audit_decision", ["accepted", "margin_block", "symbol_position_block", "not_candidate", "missing", "closed"]).notNull(),
-  shares: int("shares"),
-  requiredMargin: bigint("required_margin", { mode: "number" }),
-  marginUsedBefore: bigint("margin_used_before", { mode: "number" }).notNull().default(0),
-  marginUsedAfter: bigint("margin_used_after", { mode: "number" }).notNull().default(0),
-  blockerSourceEventId: varchar("blocker_source_event_id", { length: 128 }),
-  blockerSymbol: varchar("blocker_symbol", { length: 10 }),
-  detailJson: json("detail_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  portfolioIdentity: uniqueIndex("rt_portfolio_audit_identity").on(table.portfolioVersion, table.mode, table.generation, table.sourceEventId),
-}));
+export const rtPortfolioAuditEvents = mysqlTable(
+  "rt_portfolio_audit_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
+    mode: mysqlEnum("rt_portfolio_audit_mode", [
+      "actual_receipt",
+      "minute_normalized",
+    ]).notNull(),
+    generation: int("generation").notNull().default(1),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    batchKey: varchar("batch_key", { length: 32 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    routeId: varchar("route_id", { length: 96 }),
+    side: mysqlEnum("rt_portfolio_audit_side", ["long", "short"]),
+    priorityRank: int("priority_rank"),
+    decision: mysqlEnum("rt_portfolio_audit_decision", [
+      "accepted",
+      "margin_block",
+      "symbol_position_block",
+      "not_candidate",
+      "missing",
+      "closed",
+    ]).notNull(),
+    shares: int("shares"),
+    requiredMargin: bigint("required_margin", { mode: "number" }),
+    marginUsedBefore: bigint("margin_used_before", { mode: "number" })
+      .notNull()
+      .default(0),
+    marginUsedAfter: bigint("margin_used_after", { mode: "number" })
+      .notNull()
+      .default(0),
+    blockerSourceEventId: varchar("blocker_source_event_id", { length: 128 }),
+    blockerSymbol: varchar("blocker_symbol", { length: 10 }),
+    detailJson: json("detail_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    portfolioIdentity: uniqueIndex("rt_portfolio_audit_identity").on(
+      table.portfolioVersion,
+      table.mode,
+      table.generation,
+      table.sourceEventId
+    ),
+  })
+);
 
 export type RtPortfolioAuditEvent = typeof rtPortfolioAuditEvents.$inferSelect;
-export type InsertRtPortfolioAuditEvent = typeof rtPortfolioAuditEvents.$inferInsert;
+export type InsertRtPortfolioAuditEvent =
+  typeof rtPortfolioAuditEvents.$inferInsert;
 
 /** MFE・MAE・経過後リターンなど、入口条件には使わない診断専用結果ラベル。 */
-export const rtOutcomeLabels = mysqlTable("rt_outcome_labels", {
-  id: int("id").autoincrement().primaryKey(),
-  baselineVersion: varchar("baseline_version", { length: 64 }).notNull(),
-  entrySourceEventId: varchar("entry_source_event_id", { length: 128 }).notNull(),
-  exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  routeId: varchar("route_id", { length: 96 }).notNull(),
-  side: mysqlEnum("rt_outcome_label_side", ["long", "short"]).notNull(),
-  entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
-  exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
-  shares: int("shares").notNull(),
-  mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
-  maePct: decimal("mae_pct", { precision: 10, scale: 6 }),
-  after1mPct: decimal("after_1m_pct", { precision: 10, scale: 6 }),
-  after3mPct: decimal("after_3m_pct", { precision: 10, scale: 6 }),
-  after5mPct: decimal("after_5m_pct", { precision: 10, scale: 6 }),
-  finalPnl: bigint("final_pnl", { mode: "number" }),
-  counterfactualJson: json("counterfactual_json"),
-  diagnosisOnly: boolean("diagnosis_only").notNull().default(true),
-  completed: boolean("completed").notNull().default(false),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  outcomeIdentity: uniqueIndex("rt_outcome_label_identity").on(table.baselineVersion, table.entrySourceEventId),
-}));
+export const rtOutcomeLabels = mysqlTable(
+  "rt_outcome_labels",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    baselineVersion: varchar("baseline_version", { length: 64 }).notNull(),
+    entrySourceEventId: varchar("entry_source_event_id", {
+      length: 128,
+    }).notNull(),
+    exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    routeId: varchar("route_id", { length: 96 }).notNull(),
+    side: mysqlEnum("rt_outcome_label_side", ["long", "short"]).notNull(),
+    entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
+    exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
+    shares: int("shares").notNull(),
+    mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
+    maePct: decimal("mae_pct", { precision: 10, scale: 6 }),
+    after1mPct: decimal("after_1m_pct", { precision: 10, scale: 6 }),
+    after3mPct: decimal("after_3m_pct", { precision: 10, scale: 6 }),
+    after5mPct: decimal("after_5m_pct", { precision: 10, scale: 6 }),
+    finalPnl: bigint("final_pnl", { mode: "number" }),
+    counterfactualJson: json("counterfactual_json"),
+    diagnosisOnly: boolean("diagnosis_only").notNull().default(true),
+    completed: boolean("completed").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    outcomeIdentity: uniqueIndex("rt_outcome_label_identity").on(
+      table.baselineVersion,
+      table.entrySourceEventId
+    ),
+  })
+);
 
 export type RtOutcomeLabel = typeof rtOutcomeLabels.$inferSelect;
 export type InsertRtOutcomeLabel = typeof rtOutcomeLabels.$inferInsert;
 
 /** 原因候補と反実仮想影響。高確信度は未見シャドーで再現した場合だけ許可する。 */
-export const rtDivergenceHypotheses = mysqlTable("rt_divergence_hypotheses", {
-  id: int("id").autoincrement().primaryKey(),
-  analysisVersion: varchar("analysis_version", { length: 64 }).notNull(),
-  asOfDate: varchar("as_of_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  routeId: varchar("route_id", { length: 96 }).notNull(),
-  causeCode: varchar("cause_code", { length: 64 }).notNull(),
-  confidence: mysqlEnum("rt_divergence_confidence", ["low", "medium", "high"]).notNull(),
-  realtimeLossCount: int("realtime_loss_count").notNull().default(0),
-  historicalLossHit: int("historical_loss_hit").notNull().default(0),
-  historicalWinHit: int("historical_win_hit").notNull().default(0),
-  preventedLossYen: bigint("prevented_loss_yen", { mode: "number" }).notNull().default(0),
-  lostWinYen: bigint("lost_win_yen", { mode: "number" }).notNull().default(0),
-  followingTradeDeltaYen: bigint("following_trade_delta_yen", { mode: "number" }).notNull().default(0),
-  portfolioDeltaYen: bigint("portfolio_delta_yen", { mode: "number" }).notNull().default(0),
-  status: mysqlEnum("rt_divergence_status", ["observing", "shadow_candidate", "rejected"]).notNull().default("observing"),
-  metricsJson: json("metrics_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  hypothesisIdentity: uniqueIndex("rt_divergence_hypothesis_identity").on(
-    table.analysisVersion,
-    table.asOfDate,
-    table.symbol,
-    table.routeId,
-    table.causeCode,
-  ),
-}));
+export const rtDivergenceHypotheses = mysqlTable(
+  "rt_divergence_hypotheses",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    analysisVersion: varchar("analysis_version", { length: 64 }).notNull(),
+    asOfDate: varchar("as_of_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    routeId: varchar("route_id", { length: 96 }).notNull(),
+    causeCode: varchar("cause_code", { length: 64 }).notNull(),
+    confidence: mysqlEnum("rt_divergence_confidence", [
+      "low",
+      "medium",
+      "high",
+    ]).notNull(),
+    realtimeLossCount: int("realtime_loss_count").notNull().default(0),
+    historicalLossHit: int("historical_loss_hit").notNull().default(0),
+    historicalWinHit: int("historical_win_hit").notNull().default(0),
+    preventedLossYen: bigint("prevented_loss_yen", { mode: "number" })
+      .notNull()
+      .default(0),
+    lostWinYen: bigint("lost_win_yen", { mode: "number" }).notNull().default(0),
+    followingTradeDeltaYen: bigint("following_trade_delta_yen", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    portfolioDeltaYen: bigint("portfolio_delta_yen", { mode: "number" })
+      .notNull()
+      .default(0),
+    status: mysqlEnum("rt_divergence_status", [
+      "observing",
+      "shadow_candidate",
+      "rejected",
+    ])
+      .notNull()
+      .default("observing"),
+    metricsJson: json("metrics_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    hypothesisIdentity: uniqueIndex("rt_divergence_hypothesis_identity").on(
+      table.analysisVersion,
+      table.asOfDate,
+      table.symbol,
+      table.routeId,
+      table.causeCode
+    ),
+  })
+);
 
 export type RtDivergenceHypothesis = typeof rtDivergenceHypotheses.$inferSelect;
-export type InsertRtDivergenceHypothesis = typeof rtDivergenceHypotheses.$inferInsert;
+export type InsertRtDivergenceHypothesis =
+  typeof rtDivergenceHypotheses.$inferInsert;
 
 /**
  * 現行エンジンが証拠金判定へ到達した全候補を、採用・margin blockを問わず保存する追記専用台帳。
  * 通常rt_trades・orderBridgeとは接続しない。
  */
-export const rtSignalCandidates = mysqlTable("rt_signal_candidates", {
-  id: int("id").autoincrement().primaryKey(),
-  candidateVersion: varchar("candidate_version", { length: 64 }).notNull(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  sourceEventDbId: int("source_event_db_id").notNull(),
-  engineSequence: int("engine_sequence").notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  candleTime: varchar("candle_time", { length: 5 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  routeId: varchar("route_id", { length: 96 }).notNull(),
-  side: mysqlEnum("rt_signal_candidate_side", ["long", "short"]).notNull(),
-  signalReason: text("signal_reason").notNull(),
-  theoreticalEntryPrice: decimal("theoretical_entry_price", { precision: 12, scale: 4 }).notNull(),
-  signalQualityShares: int("signal_quality_shares").notNull().default(100),
-  capitalShares: int("capital_shares").notNull(),
-  requiredMargin: bigint("required_margin", { mode: "number" }).notNull(),
-  marginUsedBefore: bigint("margin_used_before", { mode: "number" }).notNull(),
-  marginLimit: bigint("margin_limit", { mode: "number" }).notNull(),
-  realtimeDecision: mysqlEnum("rt_signal_candidate_decision", ["accepted", "margin_block", "shadow_only"]).notNull(),
-  slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
-  tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
-  maxHoldingMinutes: int("max_holding_minutes"),
-  sessionExitTime: varchar("session_exit_time", { length: 5 }),
-  profitProtectionJson: json("profit_protection_json"),
-  entryObservedAtMs: bigint("entry_observed_at_ms", { mode: "number" }),
-  decisionAtMs: bigint("decision_at_ms", { mode: "number" }).notNull(),
-  inputJson: json("input_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  candidateIdentity: uniqueIndex("rt_signal_candidate_identity").on(table.candidateVersion, table.sourceEventId),
-}));
+export const rtSignalCandidates = mysqlTable(
+  "rt_signal_candidates",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    candidateVersion: varchar("candidate_version", { length: 64 }).notNull(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    sourceEventDbId: int("source_event_db_id").notNull(),
+    engineSequence: int("engine_sequence").notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    candleTime: varchar("candle_time", { length: 5 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    routeId: varchar("route_id", { length: 96 }).notNull(),
+    side: mysqlEnum("rt_signal_candidate_side", ["long", "short"]).notNull(),
+    signalReason: text("signal_reason").notNull(),
+    theoreticalEntryPrice: decimal("theoretical_entry_price", {
+      precision: 12,
+      scale: 4,
+    }).notNull(),
+    signalQualityShares: int("signal_quality_shares").notNull().default(100),
+    capitalShares: int("capital_shares").notNull(),
+    requiredMargin: bigint("required_margin", { mode: "number" }).notNull(),
+    marginUsedBefore: bigint("margin_used_before", {
+      mode: "number",
+    }).notNull(),
+    marginLimit: bigint("margin_limit", { mode: "number" }).notNull(),
+    realtimeDecision: mysqlEnum("rt_signal_candidate_decision", [
+      "accepted",
+      "margin_block",
+      "shadow_only",
+    ]).notNull(),
+    slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
+    tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
+    maxHoldingMinutes: int("max_holding_minutes"),
+    sessionExitTime: varchar("session_exit_time", { length: 5 }),
+    profitProtectionJson: json("profit_protection_json"),
+    entryObservedAtMs: bigint("entry_observed_at_ms", { mode: "number" }),
+    decisionAtMs: bigint("decision_at_ms", { mode: "number" }).notNull(),
+    inputJson: json("input_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    candidateIdentity: uniqueIndex("rt_signal_candidate_identity").on(
+      table.candidateVersion,
+      table.sourceEventId
+    ),
+  })
+);
 
 export type RtSignalCandidate = typeof rtSignalCandidates.$inferSelect;
 export type InsertRtSignalCandidate = typeof rtSignalCandidates.$inferInsert;
@@ -1400,231 +2025,361 @@ export type InsertRtSignalCandidate = typeof rtSignalCandidates.$inferInsert;
  * rt_signal_candidatesを100株固定・証拠金制限なしで経路固有出口まで追跡した仮想取引。
  * 診断・前向き評価専用であり、通常取引・注文生成へ接続しない。
  */
-export const rtSignalCandidateTrades = mysqlTable("rt_signal_candidate_trades", {
-  id: int("id").autoincrement().primaryKey(),
-  virtualEngineVersion: varchar("virtual_engine_version", { length: 64 }).notNull(),
-  candidateId: int("candidate_id").notNull(),
-  entrySourceEventId: varchar("entry_source_event_id", { length: 128 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  routeId: varchar("route_id", { length: 96 }).notNull(),
-  side: mysqlEnum("rt_signal_candidate_trade_side", ["long", "short"]).notNull(),
-  entryCandleTime: varchar("entry_candle_time", { length: 5 }).notNull(),
-  entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
-  shares: int("shares").notNull().default(100),
-  slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
-  tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
-  maxHoldingMinutes: int("max_holding_minutes"),
-  stateJson: json("state_json").notNull(),
-  exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
-  exitTradeDate: varchar("exit_trade_date", { length: 10 }),
-  exitCandleTime: varchar("exit_candle_time", { length: 5 }),
-  exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
-  exitReason: varchar("exit_reason", { length: 64 }),
-  exitReasonCode: varchar("exit_reason_code", { length: 64 }),
-  exitReasonDetail: text("exit_reason_detail"),
-  pnl: bigint("pnl", { mode: "number" }),
-  realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
-  mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
-  maePct: decimal("mae_pct", { precision: 10, scale: 6 }),
-  completed: boolean("completed").notNull().default(false),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  virtualTradeIdentity: uniqueIndex("rt_signal_candidate_trade_identity").on(
-    table.virtualEngineVersion,
-    table.candidateId,
-  ),
-}));
+export const rtSignalCandidateTrades = mysqlTable(
+  "rt_signal_candidate_trades",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    virtualEngineVersion: varchar("virtual_engine_version", {
+      length: 64,
+    }).notNull(),
+    candidateId: int("candidate_id").notNull(),
+    entrySourceEventId: varchar("entry_source_event_id", {
+      length: 128,
+    }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    routeId: varchar("route_id", { length: 96 }).notNull(),
+    side: mysqlEnum("rt_signal_candidate_trade_side", [
+      "long",
+      "short",
+    ]).notNull(),
+    entryCandleTime: varchar("entry_candle_time", { length: 5 }).notNull(),
+    entryPrice: decimal("entry_price", { precision: 12, scale: 4 }).notNull(),
+    shares: int("shares").notNull().default(100),
+    slPct: decimal("sl_pct", { precision: 8, scale: 4 }).notNull(),
+    tpPct: decimal("tp_pct", { precision: 8, scale: 4 }).notNull(),
+    maxHoldingMinutes: int("max_holding_minutes"),
+    stateJson: json("state_json").notNull(),
+    exitSourceEventId: varchar("exit_source_event_id", { length: 128 }),
+    exitTradeDate: varchar("exit_trade_date", { length: 10 }),
+    exitCandleTime: varchar("exit_candle_time", { length: 5 }),
+    exitPrice: decimal("exit_price", { precision: 12, scale: 4 }),
+    exitReason: varchar("exit_reason", { length: 64 }),
+    exitReasonCode: varchar("exit_reason_code", { length: 64 }),
+    exitReasonDetail: text("exit_reason_detail"),
+    pnl: bigint("pnl", { mode: "number" }),
+    realizedR: decimal("realized_r", { precision: 12, scale: 6 }),
+    mfePct: decimal("mfe_pct", { precision: 10, scale: 6 }),
+    maePct: decimal("mae_pct", { precision: 10, scale: 6 }),
+    completed: boolean("completed").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    virtualTradeIdentity: uniqueIndex("rt_signal_candidate_trade_identity").on(
+      table.virtualEngineVersion,
+      table.candidateId
+    ),
+  })
+);
 
-export type RtSignalCandidateTrade = typeof rtSignalCandidateTrades.$inferSelect;
-export type InsertRtSignalCandidateTrade = typeof rtSignalCandidateTrades.$inferInsert;
+export type RtSignalCandidateTrade =
+  typeof rtSignalCandidateTrades.$inferSelect;
+export type InsertRtSignalCandidateTrade =
+  typeof rtSignalCandidateTrades.$inferInsert;
 
 /** candidate/virtual outbox workerをプロセス間で1本に制限する短時間リース。 */
-export const rtCandidateVirtualWorkerLocks = mysqlTable("rt_candidate_virtual_worker_locks", {
-  id: int("id").autoincrement().primaryKey(),
-  lockName: varchar("lock_name", { length: 64 }).notNull(),
-  ownerToken: varchar("owner_token", { length: 64 }),
-  leaseUntil: timestamp("lease_until"),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  lockIdentity: uniqueIndex("rt_candidate_virtual_worker_lock_identity").on(table.lockName),
-}));
+export const rtCandidateVirtualWorkerLocks = mysqlTable(
+  "rt_candidate_virtual_worker_locks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    lockName: varchar("lock_name", { length: 64 }).notNull(),
+    ownerToken: varchar("owner_token", { length: 64 }),
+    leaseUntil: timestamp("lease_until"),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    lockIdentity: uniqueIndex("rt_candidate_virtual_worker_lock_identity").on(
+      table.lockName
+    ),
+  })
+);
 
-export type RtCandidateVirtualWorkerLock = typeof rtCandidateVirtualWorkerLocks.$inferSelect;
-export type InsertRtCandidateVirtualWorkerLock = typeof rtCandidateVirtualWorkerLocks.$inferInsert;
+export type RtCandidateVirtualWorkerLock =
+  typeof rtCandidateVirtualWorkerLocks.$inferSelect;
+export type InsertRtCandidateVirtualWorkerLock =
+  typeof rtCandidateVirtualWorkerLocks.$inferInsert;
 
 /** terminal化したcandidate/virtual phaseを削除せず、欠損範囲と正式評価除外理由として保存する。 */
-export const rtCandidateVirtualGaps = mysqlTable("rt_candidate_virtual_gaps", {
-  id: int("id").autoincrement().primaryKey(),
-  decisionEventId: int("decision_event_id").notNull(),
-  sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  phase: mysqlEnum("candidate_virtual_gap_phase", ["candidate", "virtual"]).notNull(),
-  reasonCode: varchar("reason_code", { length: 96 }).notNull(),
-  detailJson: json("detail_json").notNull(),
-  resolved: boolean("resolved").notNull().default(false),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  gapIdentity: uniqueIndex("rt_candidate_virtual_gap_identity").on(table.decisionEventId, table.phase),
-}));
+export const rtCandidateVirtualGaps = mysqlTable(
+  "rt_candidate_virtual_gaps",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    decisionEventId: int("decision_event_id").notNull(),
+    sourceEventId: varchar("source_event_id", { length: 128 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    phase: mysqlEnum("candidate_virtual_gap_phase", [
+      "candidate",
+      "virtual",
+    ]).notNull(),
+    reasonCode: varchar("reason_code", { length: 96 }).notNull(),
+    detailJson: json("detail_json").notNull(),
+    resolved: boolean("resolved").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    gapIdentity: uniqueIndex("rt_candidate_virtual_gap_identity").on(
+      table.decisionEventId,
+      table.phase
+    ),
+  })
+);
 
 export type RtCandidateVirtualGap = typeof rtCandidateVirtualGaps.$inferSelect;
-export type InsertRtCandidateVirtualGap = typeof rtCandidateVirtualGaps.$inferInsert;
+export type InsertRtCandidateVirtualGap =
+  typeof rtCandidateVirtualGaps.$inferInsert;
 
 /** candidate/virtualの一回限り修復を二重再生・検証・原子的切替するrun台帳。 */
-export const rtCandidateVirtualRepairRuns = mysqlTable("rt_candidate_virtual_repair_runs", {
-  id: int("id").autoincrement().primaryKey(),
-  runId: varchar("run_id", { length: 64 }).notNull(),
-  repairVersion: varchar("repair_version", { length: 64 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  symbol: varchar("symbol", { length: 10 }).notNull(),
-  status: mysqlEnum("candidate_virtual_repair_status", ["draft", "replayed", "verified", "applied", "failed"]).notNull().default("draft"),
-  inputHash: varchar("input_hash", { length: 64 }),
-  replayHashA: varchar("replay_hash_a", { length: 64 }),
-  replayHashB: varchar("replay_hash_b", { length: 64 }),
-  candidateCount: int("candidate_count").notNull().default(0),
-  acceptedCount: int("accepted_count").notNull().default(0),
-  marginBlockCount: int("margin_block_count").notNull().default(0),
-  virtualTradeCount: int("virtual_trade_count").notNull().default(0),
-  completedTradeCount: int("completed_trade_count").notNull().default(0),
-  totalPnl: bigint("total_pnl", { mode: "number" }).notNull().default(0),
-  firstExitCandleTime: varchar("first_exit_candle_time", { length: 5 }),
-  detailJson: json("detail_json").notNull(),
-  appliedAt: timestamp("applied_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  runIdentity: uniqueIndex("rt_candidate_virtual_repair_run_identity").on(table.runId),
-}));
+export const rtCandidateVirtualRepairRuns = mysqlTable(
+  "rt_candidate_virtual_repair_runs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    runId: varchar("run_id", { length: 64 }).notNull(),
+    repairVersion: varchar("repair_version", { length: 64 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    symbol: varchar("symbol", { length: 10 }).notNull(),
+    status: mysqlEnum("candidate_virtual_repair_status", [
+      "draft",
+      "replayed",
+      "verified",
+      "applied",
+      "failed",
+    ])
+      .notNull()
+      .default("draft"),
+    inputHash: varchar("input_hash", { length: 64 }),
+    replayHashA: varchar("replay_hash_a", { length: 64 }),
+    replayHashB: varchar("replay_hash_b", { length: 64 }),
+    candidateCount: int("candidate_count").notNull().default(0),
+    acceptedCount: int("accepted_count").notNull().default(0),
+    marginBlockCount: int("margin_block_count").notNull().default(0),
+    virtualTradeCount: int("virtual_trade_count").notNull().default(0),
+    completedTradeCount: int("completed_trade_count").notNull().default(0),
+    totalPnl: bigint("total_pnl", { mode: "number" }).notNull().default(0),
+    firstExitCandleTime: varchar("first_exit_candle_time", { length: 5 }),
+    detailJson: json("detail_json").notNull(),
+    appliedAt: timestamp("applied_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    runIdentity: uniqueIndex("rt_candidate_virtual_repair_run_identity").on(
+      table.runId
+    ),
+  })
+);
 
-export type RtCandidateVirtualRepairRun = typeof rtCandidateVirtualRepairRuns.$inferSelect;
-export type InsertRtCandidateVirtualRepairRun = typeof rtCandidateVirtualRepairRuns.$inferInsert;
+export type RtCandidateVirtualRepairRun =
+  typeof rtCandidateVirtualRepairRuns.$inferSelect;
+export type InsertRtCandidateVirtualRepairRun =
+  typeof rtCandidateVirtualRepairRuns.$inferInsert;
 
 /** replay A/Bを本番candidate/virtual表から隔離して保存する一時成果物。 */
-export const rtCandidateVirtualRepairStage = mysqlTable("rt_candidate_virtual_repair_stage", {
-  id: int("id").autoincrement().primaryKey(),
-  runId: varchar("run_id", { length: 64 }).notNull(),
-  replayPass: mysqlEnum("candidate_virtual_repair_pass", ["A", "B"]).notNull(),
-  entityType: mysqlEnum("candidate_virtual_repair_entity", ["candidate", "virtual_trade"]).notNull(),
-  entityKey: varchar("entity_key", { length: 160 }).notNull(),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
-  payloadJson: json("payload_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  stageIdentity: uniqueIndex("rt_candidate_virtual_repair_stage_identity").on(
-    table.runId,
-    table.replayPass,
-    table.entityType,
-    table.entityKey,
-  ),
-}));
+export const rtCandidateVirtualRepairStage = mysqlTable(
+  "rt_candidate_virtual_repair_stage",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    runId: varchar("run_id", { length: 64 }).notNull(),
+    replayPass: mysqlEnum("candidate_virtual_repair_pass", [
+      "A",
+      "B",
+    ]).notNull(),
+    entityType: mysqlEnum("candidate_virtual_repair_entity", [
+      "candidate",
+      "virtual_trade",
+    ]).notNull(),
+    entityKey: varchar("entity_key", { length: 160 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    payloadJson: json("payload_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    stageIdentity: uniqueIndex("rt_candidate_virtual_repair_stage_identity").on(
+      table.runId,
+      table.replayPass,
+      table.entityType,
+      table.entityKey
+    ),
+  })
+);
 
-export type RtCandidateVirtualRepairStage = typeof rtCandidateVirtualRepairStage.$inferSelect;
-export type InsertRtCandidateVirtualRepairStage = typeof rtCandidateVirtualRepairStage.$inferInsert;
+export type RtCandidateVirtualRepairStage =
+  typeof rtCandidateVirtualRepairStage.$inferSelect;
+export type InsertRtCandidateVirtualRepairStage =
+  typeof rtCandidateVirtualRepairStage.$inferInsert;
 
 /** 原子的切替前の本番行を復元可能なJSONとして保存する変更前archive。 */
-export const rtCandidateVirtualRepairArchive = mysqlTable("rt_candidate_virtual_repair_archive", {
-  id: int("id").autoincrement().primaryKey(),
-  runId: varchar("run_id", { length: 64 }).notNull(),
-  entityType: mysqlEnum("candidate_virtual_repair_archive_entity", ["candidate", "virtual_trade", "decision_event", "gap"]).notNull(),
-  entityKey: varchar("entity_key", { length: 160 }).notNull(),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
-  payloadJson: json("payload_json").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, table => ({
-  archiveIdentity: uniqueIndex("rt_candidate_virtual_repair_archive_identity").on(
-    table.runId,
-    table.entityType,
-    table.entityKey,
-  ),
-}));
+export const rtCandidateVirtualRepairArchive = mysqlTable(
+  "rt_candidate_virtual_repair_archive",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    runId: varchar("run_id", { length: 64 }).notNull(),
+    entityType: mysqlEnum("candidate_virtual_repair_archive_entity", [
+      "candidate",
+      "virtual_trade",
+      "decision_event",
+      "gap",
+    ]).notNull(),
+    entityKey: varchar("entity_key", { length: 160 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    payloadJson: json("payload_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    archiveIdentity: uniqueIndex(
+      "rt_candidate_virtual_repair_archive_identity"
+    ).on(table.runId, table.entityType, table.entityKey),
+  })
+);
 
-export type RtCandidateVirtualRepairArchive = typeof rtCandidateVirtualRepairArchive.$inferSelect;
-export type InsertRtCandidateVirtualRepairArchive = typeof rtCandidateVirtualRepairArchive.$inferInsert;
+export type RtCandidateVirtualRepairArchive =
+  typeof rtCandidateVirtualRepairArchive.$inferSelect;
+export type InsertRtCandidateVirtualRepairArchive =
+  typeof rtCandidateVirtualRepairArchive.$inferInsert;
 
 /** 891万円portfolioをbounded batchで再開するためのmode別高水位点と状態。 */
-export const rtPortfolioMaterializationProgress = mysqlTable("rt_portfolio_materialization_progress", {
-  id: int("id").autoincrement().primaryKey(),
-  portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
-  mode: mysqlEnum("portfolio_materialization_mode", ["actual_receipt", "minute_normalized"]).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  status: mysqlEnum("portfolio_materialization_status", ["pending", "processing", "complete", "error", "incomplete_source"]).notNull().default("pending"),
-  activeGeneration: int("active_generation"),
-  buildingGeneration: int("building_generation"),
-  processedThroughEngineSequence: int("processed_through_engine_sequence").notNull().default(0),
-  sourceDecisionCount: int("source_decision_count").notNull().default(0),
-  openAllocationsJson: json("open_allocations_json").notNull(),
-  marginUsed: bigint("margin_used", { mode: "number" }).notNull().default(0),
-  dirtyFromEngineSequence: int("dirty_from_engine_sequence"),
-  resultJson: json("result_json").notNull(),
-  lastError: text("last_error"),
-  generatedAt: timestamp("generated_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  progressIdentity: uniqueIndex("rt_portfolio_materialization_progress_identity").on(table.portfolioVersion, table.mode, table.tradeDate),
-}));
+export const rtPortfolioMaterializationProgress = mysqlTable(
+  "rt_portfolio_materialization_progress",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    portfolioVersion: varchar("portfolio_version", { length: 64 }).notNull(),
+    mode: mysqlEnum("portfolio_materialization_mode", [
+      "actual_receipt",
+      "minute_normalized",
+    ]).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    status: mysqlEnum("portfolio_materialization_status", [
+      "pending",
+      "processing",
+      "complete",
+      "error",
+      "incomplete_source",
+    ])
+      .notNull()
+      .default("pending"),
+    activeGeneration: int("active_generation"),
+    buildingGeneration: int("building_generation"),
+    processedThroughEngineSequence: int("processed_through_engine_sequence")
+      .notNull()
+      .default(0),
+    sourceDecisionCount: int("source_decision_count").notNull().default(0),
+    openAllocationsJson: json("open_allocations_json").notNull(),
+    marginUsed: bigint("margin_used", { mode: "number" }).notNull().default(0),
+    dirtyFromEngineSequence: int("dirty_from_engine_sequence"),
+    resultJson: json("result_json").notNull(),
+    lastError: text("last_error"),
+    generatedAt: timestamp("generated_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    progressIdentity: uniqueIndex(
+      "rt_portfolio_materialization_progress_identity"
+    ).on(table.portfolioVersion, table.mode, table.tradeDate),
+  })
+);
 
-export type RtPortfolioMaterializationProgress = typeof rtPortfolioMaterializationProgress.$inferSelect;
-export type InsertRtPortfolioMaterializationProgress = typeof rtPortfolioMaterializationProgress.$inferInsert;
+export type RtPortfolioMaterializationProgress =
+  typeof rtPortfolioMaterializationProgress.$inferSelect;
+export type InsertRtPortfolioMaterializationProgress =
+  typeof rtPortfolioMaterializationProgress.$inferInsert;
 
 /** 日次監査の上流watermarkとclosed/reopened状態。時刻だけでcompleteにしないための正本。 */
-export const rtAuditTradeDateFinality = mysqlTable("rt_audit_trade_date_finality", {
-  id: int("id").autoincrement().primaryKey(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  status: mysqlEnum("audit_trade_date_finality_status", ["open", "closed", "reopened"]).notNull().default("open"),
-  watermarkHash: varchar("watermark_hash", { length: 64 }),
-  watermarkJson: json("watermark_json").notNull(),
-  latestUpstreamCreatedAt: timestamp("latest_upstream_created_at"),
-  closedAt: timestamp("closed_at"),
-  reason: text("reason").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  tradeDateIdentity: uniqueIndex("rt_audit_trade_date_finality_identity").on(table.tradeDate),
-}));
+export const rtAuditTradeDateFinality = mysqlTable(
+  "rt_audit_trade_date_finality",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    status: mysqlEnum("audit_trade_date_finality_status", [
+      "open",
+      "closed",
+      "reopened",
+    ])
+      .notNull()
+      .default("open"),
+    watermarkHash: varchar("watermark_hash", { length: 64 }),
+    watermarkJson: json("watermark_json").notNull(),
+    latestUpstreamCreatedAt: timestamp("latest_upstream_created_at"),
+    closedAt: timestamp("closed_at"),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    tradeDateIdentity: uniqueIndex("rt_audit_trade_date_finality_identity").on(
+      table.tradeDate
+    ),
+  })
+);
 
-export type RtAuditTradeDateFinality = typeof rtAuditTradeDateFinality.$inferSelect;
-export type InsertRtAuditTradeDateFinality = typeof rtAuditTradeDateFinality.$inferInsert;
+export type RtAuditTradeDateFinality =
+  typeof rtAuditTradeDateFinality.$inferSelect;
+export type InsertRtAuditTradeDateFinality =
+  typeof rtAuditTradeDateFinality.$inferInsert;
 
 /** replay/outcome等の重い日次監査をレポートから分離する保存済みsnapshot。 */
-export const rtDailyAuditMaterializations = mysqlTable("rt_daily_audit_materializations", {
-  id: int("id").autoincrement().primaryKey(),
-  component: varchar("component", { length: 64 }).notNull(),
-  version: varchar("version", { length: 128 }).notNull(),
-  tradeDate: varchar("trade_date", { length: 10 }).notNull(),
-  status: mysqlEnum("daily_audit_materialization_status", ["pending", "processing", "complete", "error", "incomplete_source"]).notNull().default("pending"),
-  processedThroughEngineSequence: int("processed_through_engine_sequence").notNull().default(0),
-  sourceDecisionCount: int("source_decision_count").notNull().default(0),
-  resultJson: json("result_json").notNull(),
-  lastError: text("last_error"),
-  generatedAt: timestamp("generated_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  materializationIdentity: uniqueIndex("rt_daily_audit_materialization_identity").on(table.component, table.version, table.tradeDate),
-}));
+export const rtDailyAuditMaterializations = mysqlTable(
+  "rt_daily_audit_materializations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    component: varchar("component", { length: 64 }).notNull(),
+    version: varchar("version", { length: 128 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    status: mysqlEnum("daily_audit_materialization_status", [
+      "pending",
+      "processing",
+      "complete",
+      "error",
+      "incomplete_source",
+    ])
+      .notNull()
+      .default("pending"),
+    processedThroughEngineSequence: int("processed_through_engine_sequence")
+      .notNull()
+      .default(0),
+    sourceDecisionCount: int("source_decision_count").notNull().default(0),
+    resultJson: json("result_json").notNull(),
+    lastError: text("last_error"),
+    generatedAt: timestamp("generated_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    materializationIdentity: uniqueIndex(
+      "rt_daily_audit_materialization_identity"
+    ).on(table.component, table.version, table.tradeDate),
+  })
+);
 
-export type RtDailyAuditMaterialization = typeof rtDailyAuditMaterializations.$inferSelect;
-export type InsertRtDailyAuditMaterialization = typeof rtDailyAuditMaterializations.$inferInsert;
+export type RtDailyAuditMaterialization =
+  typeof rtDailyAuditMaterializations.$inferSelect;
+export type InsertRtDailyAuditMaterialization =
+  typeof rtDailyAuditMaterializations.$inferInsert;
 
 /** 正式評価は人がcheckpointを承認した後の完全営業日からだけ有効化する。 */
-export const rtForwardEvaluationControls = mysqlTable("rt_forward_evaluation_controls", {
-  id: int("id").autoincrement().primaryKey(),
-  controlName: varchar("control_name", { length: 64 }).notNull(),
-  activated: boolean("activated").notNull().default(false),
-  activationCheckpointId: varchar("activation_checkpoint_id", { length: 64 }),
-  activatedAtUtc: timestamp("activated_at_utc"),
-  formalStartTradeDate: varchar("formal_start_trade_date", { length: 10 }),
-  excludedTradeDatesJson: json("excluded_trade_dates_json").notNull(),
-  reason: text("reason").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  controlIdentity: uniqueIndex("rt_forward_evaluation_control_identity").on(table.controlName),
-}));
+export const rtForwardEvaluationControls = mysqlTable(
+  "rt_forward_evaluation_controls",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    controlName: varchar("control_name", { length: 64 }).notNull(),
+    activated: boolean("activated").notNull().default(false),
+    activationCheckpointId: varchar("activation_checkpoint_id", { length: 64 }),
+    activatedAtUtc: timestamp("activated_at_utc"),
+    formalStartTradeDate: varchar("formal_start_trade_date", { length: 10 }),
+    excludedTradeDatesJson: json("excluded_trade_dates_json").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    controlIdentity: uniqueIndex("rt_forward_evaluation_control_identity").on(
+      table.controlName
+    ),
+  })
+);
 
-export type RtForwardEvaluationControl = typeof rtForwardEvaluationControls.$inferSelect;
-export type InsertRtForwardEvaluationControl = typeof rtForwardEvaluationControls.$inferInsert;
+export type RtForwardEvaluationControl =
+  typeof rtForwardEvaluationControls.$inferSelect;
+export type InsertRtForwardEvaluationControl =
+  typeof rtForwardEvaluationControls.$inferInsert;

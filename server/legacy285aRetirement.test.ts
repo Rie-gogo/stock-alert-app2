@@ -53,7 +53,9 @@ describe("legacy 285A selector and comparison retirement", () => {
     expect(activeSet).toContain("monitoring_trend_10_symbols");
     expect(activeSet).not.toContain("monitoring_comparison_285a");
     const backfill = db.slice(
-      db.indexOf("export async function backfillKioxiaSafeCbShortRouteAttribution"),
+      db.indexOf(
+        "export async function backfillKioxiaSafeCbShortRouteAttribution"
+      ),
       db.indexOf("export async function upsertRtSignalCandidateTrade")
     );
     expect(backfill).toContain("tx.update(rtSignalCandidates)");
@@ -81,7 +83,7 @@ describe("legacy 285A selector and comparison retirement", () => {
     // AI適応予測shadowの10銘柄×LONG/SHORT固定監査行を含む。
     expect(rows).toHaveLength(177);
     expect(sha256Stable(rows)).toBe(
-      "7c98956699b40d1b8ccb0723fd4e0ede1b027ce7657b8117d8318c9a22f30137"
+      "94fbd1a1acbe58fa2274aa2a676c3b22f512c70004a938fcbc8c7bd41bb637e3"
     );
   });
 

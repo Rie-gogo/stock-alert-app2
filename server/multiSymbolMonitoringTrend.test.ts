@@ -8,8 +8,16 @@ import {
 import { MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS } from "./multiSymbolMonitoringRegistry";
 
 const dates = [
-  "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11",
-  "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18",
+  "2026-09-07",
+  "2026-09-08",
+  "2026-09-09",
+  "2026-09-10",
+  "2026-09-11",
+  "2026-09-14",
+  "2026-09-15",
+  "2026-09-16",
+  "2026-09-17",
+  "2026-09-18",
 ];
 
 function materialization(tradeDate: string, currentPnl: number) {
@@ -29,8 +37,12 @@ function materialization(tradeDate: string, currentPnl: number) {
         losses: plan.planId === "current:285A" && currentPnl < 0 ? 1 : 0,
         draws: 0,
         pnlPer100: plan.planId === "current:285A" ? currentPnl : 0,
-        grossProfitPer100: plan.planId === "current:285A" && currentPnl > 0 ? currentPnl : 0,
-        grossLossPer100: plan.planId === "current:285A" && currentPnl < 0 ? Math.abs(currentPnl) : 0,
+        grossProfitPer100:
+          plan.planId === "current:285A" && currentPnl > 0 ? currentPnl : 0,
+        grossLossPer100:
+          plan.planId === "current:285A" && currentPnl < 0
+            ? Math.abs(currentPnl)
+            : 0,
       })),
     },
   } as any;
@@ -49,15 +61,26 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     const kioxia = result.symbols.find(item => item.symbol === "285A")!;
     const current = kioxia.plans.find(plan => plan.planId === "current:285A")!;
     expect(current.trend.status).toBe("improving");
-    expect(current.windows.recent5).toMatchObject({ completedTrades: 5, wins: 5, pnlPer100: 10_000 });
-    expect(current.windows.previous5).toMatchObject({ completedTrades: 5, losses: 5, pnlPer100: -5_000 });
+    expect(current.windows.recent5).toMatchObject({
+      completedTrades: 5,
+      wins: 5,
+      pnlPer100: 10_000,
+    });
+    expect(current.windows.previous5).toMatchObject({
+      completedTrades: 5,
+      losses: 5,
+      pnlPer100: -5_000,
+    });
     expect(result.pendingClosedTradeDates).toEqual(["2026-09-21"]);
     expect(result.symbols).toHaveLength(10);
     expect(result.dataSource).toBe("closed_daily_materializations_only");
   });
 
   it("API集計はraw event・取引履歴を読まない", () => {
-    const source = readFileSync(new URL("./multiSymbolMonitoringTrend.ts", import.meta.url), "utf8");
+    const source = readFileSync(
+      new URL("./multiSymbolMonitoringTrend.ts", import.meta.url),
+      "utf8"
+    );
     expect(source).toContain("getRtDailyAuditMaterializationsForRange");
     expect(source).not.toContain("getRtSourceEvents");
     expect(source).not.toContain("getRtSignalCandidates");
@@ -65,12 +88,18 @@ describe("10-symbol snapshot-only monitoring trend", () => {
   });
 
   it("AI固定行を含む新materialization versionを使用する", () => {
-    expect(MULTI_SYMBOL_MONITORING_COMPONENT).toBe("monitoring_trend_10_symbols");
-    expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v2-ai-daily-forecast");
+    expect(MULTI_SYMBOL_MONITORING_COMPONENT).toBe(
+      "monitoring_trend_10_symbols"
+    );
+    expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe(
+      "monitoring-trend-10-symbols-daily-v3-ai-forecast-learning"
+    );
   });
 
   it("6857と6981は現行・独立2案・Bollinger 5案・AI案を発火ゼロでも固定表示する", () => {
-    const advantest = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6857");
+    const advantest = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(
+      plan => plan.symbol === "6857"
+    );
     expect(advantest).toHaveLength(9);
     expect(advantest.map(plan => plan.label)).toEqual([
       "現行（証拠金ブロック含む）",
@@ -83,7 +112,9 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
       "AI適応予測shadow（08:30＋30分更新）",
     ]);
-    const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => plan.symbol === "6981");
+    const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(
+      plan => plan.symbol === "6981"
+    );
     expect(murata).toHaveLength(9);
     expect(murata.map(plan => plan.label)).toEqual([
       "現行（証拠金ブロック含む）",

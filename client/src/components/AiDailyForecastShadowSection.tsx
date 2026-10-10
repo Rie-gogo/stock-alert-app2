@@ -57,6 +57,10 @@ export default function AiDailyForecastShadowSection({
     { tradeDate },
     { staleTime: 30_000, retry: false }
   );
+  const tradeLedgerQuery = trpc.trading.getAiDailyForecastTradeLedger.useQuery(
+    { tradeDate },
+    { staleTime: 30_000, retry: false }
+  );
   const snapshot = query.data?.snapshot;
   if (query.isLoading)
     return (
@@ -84,6 +88,8 @@ export default function AiDailyForecastShadowSection({
     );
   const intradaySnapshots = intradayQuery.data?.intradaySnapshots ?? [];
   const latestIntraday = intradaySnapshots.at(-1);
+  const sessionTrades = tradeLedgerQuery.data?.rows ?? [];
+  const sessionAsOf = tradeLedgerQuery.data?.asOfCandleTime ?? null;
   const payload = asRecord(snapshot.forecastJson);
   const frozenInput = asRecord(snapshot.inputJson);
   const learningSnapshot = asRecord(frozenInput.learningSnapshot);
@@ -237,6 +243,68 @@ export default function AiDailyForecastShadowSection({
               })}
             </TableBody>
           </Table>
+        </div>
+        <div className="rounded-md border border-violet-500/20 p-2 text-xs">
+          <div className="mb-2 text-muted-foreground">
+            当日AI shadow取引台帳（{sessionTrades.length}件、
+            {sessionAsOf ?? "未受信"}時点）。初回／再entry、plan
+            ID、評価modeを分離して全件表示します。
+          </div>
+          {sessionTrades.length === 0 ? (
+            <div className="text-muted-foreground">
+              取引なし。no_trade・未着・無効計画ではアプリ独自にentryしません。
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border hover:bg-transparent">
+                    <TableHead>銘柄</TableHead>
+                    <TableHead>種別</TableHead>
+                    <TableHead>方向</TableHead>
+                    <TableHead>entry→exit</TableHead>
+                    <TableHead>損益 / R</TableHead>
+                    <TableHead>plan ID</TableHead>
+                    <TableHead>mode</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sessionTrades.map(trade => (
+                    <TableRow
+                      key={`${trade.evaluationMode}:${trade.entrySourceEventId}`}
+                      className="border-border"
+                    >
+                      <TableCell className="font-mono">
+                        {String(trade.symbol)}
+                      </TableCell>
+                      <TableCell>
+                        {trade.entryKind === "reentry"
+                          ? `再entry #${trade.entryOrdinal}`
+                          : "初回"}
+                        {trade.isOpeningTrade ? "（寄付き）" : ""}
+                      </TableCell>
+                      <TableCell>
+                        {trade.side === "long" ? "LONG" : "SHORT"}
+                      </TableCell>
+                      <TableCell className="font-mono">
+                        {trade.entryTime} {yen(trade.entryPrice)} →{" "}
+                        {trade.exitTime ?? "保有中"}{" "}
+                        {trade.exitPrice === null ? "" : yen(trade.exitPrice)}
+                      </TableCell>
+                      <TableCell className="font-mono">
+                        {trade.pnl === null ? "—" : yen(trade.pnl)} /{" "}
+                        {trade.realizedR ?? "—"}
+                      </TableCell>
+                      <TableCell className="font-mono text-[10px] break-all">
+                        {trade.planId ?? "記録なし"}
+                      </TableCell>
+                      <TableCell>{trade.evaluationMode}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
         <div className="text-xs text-muted-foreground flex items-center gap-2">
           <Clock3 className="w-3 h-3" />

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   rtAiIntradayForecastSnapshots,
   rtCandles,
+  rtForwardShadowEvents,
   rtForwardShadowTrades,
   rtMarketContextEvents,
   type InsertRtAiIntradayForecastSnapshot,
@@ -22,6 +23,7 @@ import {
   RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS,
   sha256Stable,
 } from "./runtimeIdentity";
 import {
@@ -227,6 +229,136 @@ function sessionSummary(candles: Candle[], cutoff: string) {
   };
 }
 
+type AiSessionTradeJournalRow = {
+  evaluationMode: "signal_quality" | "capital_constrained";
+  symbol: AiDailyForecastSymbol;
+  side: "long" | "short";
+  entrySourceEventId: string;
+  entryTime: string;
+  exitSourceEventId: string | null;
+  exitTime: string | null;
+  entryPrice: number;
+  exitPrice: number | null;
+  pnl: number | null;
+  realizedR: number | null;
+  mfePct: number | null;
+  maePct: number | null;
+  exitReason: string | null;
+  decisionId: string | null;
+  planId: string | null;
+  entryOrdinal: number;
+  entryKind: "initial" | "reentry";
+  isOpeningTrade: boolean;
+  statusAtCheckpoint: "closed" | "open";
+};
+
+function decisionPlanId(value: unknown) {
+  const decision = object(value);
+  const plan = object(decision.plan);
+  const candidate = plan.sourceSnapshotId ?? decision.activePlanId;
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : null;
+}
+
+/**
+ * Builds the checkpoint-causal AI trade journal.  It deliberately includes neither
+ * a post-checkpoint exit nor a post-checkpoint candle in MFE/MAE.  Each evaluation
+ * mode remains independent so the model never silently double-counts results.
+ */
+export function buildAiSessionTradeJournal(input: {
+  trades: Array<typeof rtForwardShadowTrades.$inferSelect>;
+  events: Array<typeof rtForwardShadowEvents.$inferSelect>;
+  candlesBySymbol: Map<string, Candle[]>;
+  cutoffCandleTime: string;
+}): AiSessionTradeJournalRow[] {
+  const entryPlanByKey = new Map(
+    input.events.map(event => [
+      `${event.strategyVersion}:${event.evaluationMode}:${event.sourceEventId}`,
+      decisionPlanId(event.decisionJson),
+    ])
+  );
+  const ordered = input.trades
+    .filter(trade => trade.entryCandleTime <= input.cutoffCandleTime)
+    .sort(
+      (left, right) =>
+        left.evaluationMode.localeCompare(right.evaluationMode) ||
+        left.symbol.localeCompare(right.symbol) ||
+        left.entryCandleTime.localeCompare(right.entryCandleTime) ||
+        left.id - right.id
+    );
+  const ordinalByKey = new Map<string, number>();
+  return ordered.map(trade => {
+    const ordinalKey = `${trade.evaluationMode}:${trade.symbol}`;
+    const entryOrdinal = (ordinalByKey.get(ordinalKey) ?? 0) + 1;
+    ordinalByKey.set(ordinalKey, entryOrdinal);
+    const closedAtCheckpoint =
+      trade.exitTradeDate === trade.entryTradeDate &&
+      trade.exitCandleTime !== null &&
+      trade.exitCandleTime <= input.cutoffCandleTime;
+    const endTime = closedAtCheckpoint
+      ? trade.exitCandleTime!
+      : input.cutoffCandleTime;
+    const entryPrice = Number(trade.entryPrice);
+    const held = (input.candlesBySymbol.get(trade.symbol) ?? []).filter(
+      candle =>
+        candle.candleTime >= trade.entryCandleTime &&
+        candle.candleTime <= endTime
+    );
+    const high = held.length
+      ? Math.max(...held.map(candle => candle.high))
+      : null;
+    const low = held.length
+      ? Math.min(...held.map(candle => candle.low))
+      : null;
+    const pct = (value: number | null) =>
+      value !== null && entryPrice > 0
+        ? round((value / entryPrice - 1) * 100)
+        : null;
+    const mfePct =
+      trade.side === "long"
+        ? pct(high)
+        : low !== null && entryPrice > 0
+          ? round((entryPrice / low - 1) * 100)
+          : null;
+    const maePct =
+      trade.side === "long"
+        ? pct(low)
+        : high !== null && entryPrice > 0
+          ? round((entryPrice / high - 1) * 100)
+          : null;
+    const planId =
+      entryPlanByKey.get(
+        `${trade.strategyVersion}:${trade.evaluationMode}:${trade.entrySourceEventId}`
+      ) ?? null;
+    return {
+      evaluationMode: trade.evaluationMode,
+      symbol: trade.symbol as AiDailyForecastSymbol,
+      side: trade.side,
+      entrySourceEventId: trade.entrySourceEventId,
+      entryTime: trade.entryCandleTime,
+      exitSourceEventId: closedAtCheckpoint ? trade.exitSourceEventId : null,
+      exitTime: closedAtCheckpoint ? trade.exitCandleTime : null,
+      entryPrice,
+      exitPrice:
+        closedAtCheckpoint && trade.exitPrice !== null
+          ? Number(trade.exitPrice)
+          : null,
+      pnl: closedAtCheckpoint ? trade.pnl : null,
+      realizedR: closedAtCheckpoint ? finite(trade.realizedR) : null,
+      mfePct,
+      maePct,
+      exitReason: closedAtCheckpoint ? trade.exitReason : null,
+      decisionId: planId,
+      planId,
+      entryOrdinal,
+      entryKind: entryOrdinal === 1 ? "initial" : "reentry",
+      isOpeningTrade: trade.signalCandleTime === "09:00",
+      statusAtCheckpoint: closedAtCheckpoint ? "closed" : "open",
+    };
+  });
+}
+
 function summarizeLearning(
   rows: Array<typeof rtForwardShadowTrades.$inferSelect>,
   symbol: AiDailyForecastSymbol
@@ -304,6 +436,9 @@ export type AiIntradayForecastInput = {
     performance: ReturnType<typeof summarizeLearning>;
   }>;
   learningApplicationAudit: LearningApplicationAudit;
+  /** checkpoint以前のAI取引・保有状態。評価modeを混ぜず、未来のexitは含めない。 */
+  aiSessionTradeJournal: AiSessionTradeJournalRow[];
+  aiCurrentPositions: AiSessionTradeJournalRow[];
   inputQuality: "verified" | "degraded" | "invalid";
   qualityReasonCodes: string[];
   inputHash?: string;
@@ -379,6 +514,7 @@ export async function buildAiIntradayForecastInput(input: {
     ...Object.values(RETIRED_AI_DAILY_FORECAST_V1_VERSIONS),
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS),
     ...Object.values(AI_DAILY_FORECAST_VERSIONS),
   ] as string[];
   const learningRows = await db
@@ -387,14 +523,44 @@ export async function buildAiIntradayForecastInput(input: {
     .where(
       and(
         inArray(rtForwardShadowTrades.strategyVersion, versions),
-        eq(rtForwardShadowTrades.evaluationMode, "signal_quality"),
-        lte(rtForwardShadowTrades.entryTradeDate, priorData.dataCutoffDate)
+        lte(rtForwardShadowTrades.entryTradeDate, input.tradeDate)
       )
     )
     .orderBy(
       asc(rtForwardShadowTrades.entryTradeDate),
       asc(rtForwardShadowTrades.id)
     );
+  const sessionTrades = learningRows.filter(
+    row => row.entryTradeDate === input.tradeDate
+  );
+  const sessionEvents = sessionTrades.length
+    ? await db
+        .select()
+        .from(rtForwardShadowEvents)
+        .where(
+          and(
+            inArray(rtForwardShadowEvents.strategyVersion, versions),
+            eq(rtForwardShadowEvents.tradeDate, input.tradeDate),
+            lte(rtForwardShadowEvents.candleTime, spec.cutoff)
+          )
+        )
+        .orderBy(
+          asc(rtForwardShadowEvents.candleTime),
+          asc(rtForwardShadowEvents.id)
+        )
+    : [];
+  const candlesBySymbol = new Map<string, Candle[]>();
+  for (const item of summaries)
+    candlesBySymbol.set(item.symbol, item.summary.latestOneMinuteBars);
+  const aiSessionTradeJournal = buildAiSessionTradeJournal({
+    trades: sessionTrades,
+    events: sessionEvents,
+    candlesBySymbol,
+    cutoffCandleTime: spec.cutoff,
+  });
+  const aiCurrentPositions = aiSessionTradeJournal.filter(
+    item => item.statusAtCheckpoint === "open"
+  );
   const earlier = await db
     .select()
     .from(rtAiIntradayForecastSnapshots)
@@ -469,9 +635,18 @@ export async function buildAiIntradayForecastInput(input: {
     },
     learning: AI_DAILY_FORECAST_SYMBOLS.map(symbol => ({
       symbol,
-      performance: summarizeLearning(learningRows, symbol),
+      performance: summarizeLearning(
+        learningRows.filter(
+          row =>
+            row.evaluationMode === "signal_quality" &&
+            row.entryTradeDate <= priorData.dataCutoffDate
+        ),
+        symbol
+      ),
     })),
     learningApplicationAudit,
+    aiSessionTradeJournal,
+    aiCurrentPositions,
     inputQuality: reasons.length === 0 ? "verified" : "degraded",
     qualityReasonCodes: Array.from(new Set(reasons)),
   };
@@ -730,6 +905,86 @@ export async function getAiIntradayForecastSnapshots(tradeDate: string) {
       asc(rtAiIntradayForecastSnapshots.id)
     );
 }
+/**
+ * Read-only UI projection for every v5 AI shadow entry.  Rows stay independent
+ * by evaluation mode and are never written back to the immutable trade history.
+ */
+export async function getAiSessionTradeDashboardRows(tradeDate: string) {
+  const db = await getDb();
+  if (!db)
+    return { asOfCandleTime: null, rows: [] as AiSessionTradeJournalRow[] };
+  const versions = Object.values(AI_DAILY_FORECAST_VERSIONS) as string[];
+  const [trades, events, candles] = await Promise.all([
+    db
+      .select()
+      .from(rtForwardShadowTrades)
+      .where(
+        and(
+          inArray(rtForwardShadowTrades.strategyVersion, versions),
+          eq(rtForwardShadowTrades.entryTradeDate, tradeDate)
+        )
+      )
+      .orderBy(
+        asc(rtForwardShadowTrades.evaluationMode),
+        asc(rtForwardShadowTrades.symbol),
+        asc(rtForwardShadowTrades.entryCandleTime),
+        asc(rtForwardShadowTrades.id)
+      ),
+    db
+      .select()
+      .from(rtForwardShadowEvents)
+      .where(
+        and(
+          inArray(rtForwardShadowEvents.strategyVersion, versions),
+          eq(rtForwardShadowEvents.tradeDate, tradeDate)
+        )
+      )
+      .orderBy(
+        asc(rtForwardShadowEvents.candleTime),
+        asc(rtForwardShadowEvents.id)
+      ),
+    db
+      .select()
+      .from(rtCandles)
+      .where(
+        and(
+          eq(rtCandles.tradeDate, tradeDate),
+          inArray(rtCandles.symbol, [...AI_DAILY_FORECAST_SYMBOLS])
+        )
+      )
+      .orderBy(
+        asc(rtCandles.symbol),
+        asc(rtCandles.candleTime),
+        asc(rtCandles.id)
+      ),
+  ]);
+  const asOfCandleTime = candles.at(-1)?.candleTime ?? null;
+  if (!asOfCandleTime)
+    return { asOfCandleTime, rows: [] as AiSessionTradeJournalRow[] };
+  const candlesBySymbol = new Map<string, Candle[]>();
+  for (const candle of candles) {
+    const rows = candlesBySymbol.get(candle.symbol) ?? [];
+    rows.push({
+      candleTime: candle.candleTime,
+      open: Number(candle.open),
+      high: Number(candle.high),
+      low: Number(candle.low),
+      close: Number(candle.close),
+      volume: candle.volume,
+    });
+    candlesBySymbol.set(candle.symbol, rows);
+  }
+  return {
+    asOfCandleTime,
+    rows: buildAiSessionTradeJournal({
+      trades,
+      events,
+      candlesBySymbol,
+      cutoffCandleTime: asOfCandleTime,
+    }),
+  };
+}
+
 export async function getAiIntradayForecastDashboardRows(tradeDate: string) {
   const db = await getDb();
   if (!db) return [];
@@ -788,4 +1043,5 @@ export const _aiIntradayForecastTest = {
   completedFiveMinuteBars,
   sessionSummary,
   summarizeLearning,
+  buildAiSessionTradeJournal,
 };

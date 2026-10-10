@@ -225,6 +225,13 @@ export const tradingRouter = router({
       const { getAiIntradayForecastDashboardRows } = await import("../aiIntradayForecastService");
       return { intradaySnapshots: await getAiIntradayForecastDashboardRows(input.tradeDate) };
     }),
+  /** AI v5の当日entry/exitを全件返す読み取り専用台帳。評価mode・plan IDを混在させない。 */
+  getAiDailyForecastTradeLedger: protectedProcedure
+    .input(z.object({ tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getAiSessionTradeDashboardRows } = await import("../aiIntradayForecastService");
+      return getAiSessionTradeDashboardRows(input.tradeDate);
+    }),
   /** sender専用。Secret一致時だけ、指定checkpointまでの確定足と過去成績を返す。 */
   prepareAiIntradayForecastInput: publicProcedure
     .input(z.object({ ingestKey: z.string().min(32).max(256), tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkpoint: aiIntradayCheckpointInput }))

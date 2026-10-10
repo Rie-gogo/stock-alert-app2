@@ -18,6 +18,8 @@ import {
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS,
   getRuntimeIdentity,
 } from "./runtimeIdentity";
 import {
@@ -86,10 +88,14 @@ describe("本番稼働版自己証明", () => {
     expect(versions.every(version => version.length <= 128)).toBe(true);
   });
 
-  it("AI詳細学習v3だけをactive registryへ含め、v2は履歴専用として残す", () => {
+  it("AI再entry v5だけをactive registryへ含め、v1〜v4は履歴専用として残す", () => {
     const identity = getRuntimeIdentity();
     expect(identity.strategyVersions).toEqual(expect.arrayContaining(Object.values(AI_DAILY_FORECAST_VERSIONS)));
-    for (const version of Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS)) {
+    for (const version of [
+      ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
+      ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
+      ...Object.values(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS),
+    ]) {
       expect(identity.strategyVersions).not.toContain(version);
     }
   });

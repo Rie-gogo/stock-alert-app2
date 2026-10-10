@@ -72,10 +72,10 @@ function dailyRow(tradeDate: string) {
 }
 
 describe("AI daily forecast monitoring registry", () => {
-  it("uses non-destructive materialization versions while moving the active AI generation to v4", () => {
+  it("uses non-destructive materialization versions while moving the active AI generation to v5", () => {
     expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v3-ai-forecast-learning");
     expect(ROUTE_GRANULAR_MONITORING_VERSION).toBe("monitoring-route-granular-10-symbols-v3-ai-forecast-learning");
-    expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v4"))).toBe(true);
+    expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v5"))).toBe(true);
   });
 
   it("adds exactly one immutable AI plan per monitored symbol even when no event has fired", () => {

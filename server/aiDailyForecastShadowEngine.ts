@@ -25,6 +25,7 @@ import {
   RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS,
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
+  RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -110,7 +111,8 @@ type State = {
   plan: Plan | null;
   touched: { sourceEventId: string; time: string; side: Side } | null;
   position: Position | null;
-  dailySlotConsumed: boolean;
+  /** 成功entry済みのimmutable AI plan/revision ID。日次回数制限ではない。 */
+  executedPlanIds: string[];
   lastSourceEventId: string | null;
   lastActions: Array<Record<string, unknown>>;
 };
@@ -135,7 +137,7 @@ function emptyState(tradeDate: string): State {
     plan: null,
     touched: null,
     position: null,
-    dailySlotConsumed: false,
+    executedPlanIds: [],
     lastSourceEventId: null,
     lastActions: [],
   };
@@ -172,7 +174,19 @@ function normalizeState(value: unknown, tradeDate: string): State {
         ? (raw.touched as State["touched"])
         : null,
     position,
-    dailySlotConsumed: raw.dailySlotConsumed === true,
+    // v4以前の停止済みstateを読み込む場合だけ、旧slot消費を当時の計画IDへ互換投影する。
+    // v5の新stateでは日次回数上限を保持しない。
+    executedPlanIds: Array.isArray(raw.executedPlanIds)
+      ? Array.from(
+          new Set(
+            raw.executedPlanIds.filter(
+              (value): value is string => typeof value === "string"
+            )
+          )
+        )
+      : raw.dailySlotConsumed === true && typeof raw.activePlanId === "string"
+        ? [raw.activePlanId]
+        : [],
     lastSourceEventId:
       typeof raw.lastSourceEventId === "string" ? raw.lastSourceEventId : null,
     lastActions: Array.isArray(raw.lastActions)
@@ -470,6 +484,7 @@ function transition(
   mode: ForwardEvaluationMode
 ) {
   const planChanged = state.activePlanId !== selection.activePlanId;
+  const sameSourceEvent = state.lastSourceEventId === source.sourceEventId;
   let next = {
     ...state,
     activePlanId: selection.activePlanId,
@@ -500,7 +515,7 @@ function transition(
           : p.entryPrice - exit.price) * p.shares
       );
       const risk = p.initialRiskPerShare * p.shares;
-      next = { ...next, position: null, dailySlotConsumed: true };
+      next = { ...next, position: null };
       return {
         next,
         resultType: "exit" as const,
@@ -529,7 +544,7 @@ function transition(
             : p.entryPrice - c.close) * p.shares
         );
         const risk = p.initialRiskPerShare * p.shares;
-        next = { ...next, position: null, dailySlotConsumed: true };
+        next = { ...next, position: null };
         return {
           next,
           resultType: "exit" as const,
@@ -611,6 +626,21 @@ function transition(
       actions: [{ type: "hold" }],
     };
   }
+  // A position may have just been closed on this same source event.  The next
+  // immutable AI plan can be considered only from a later source event.
+  if (sameSourceEvent)
+    return {
+      next,
+      resultType: "no_signal" as const,
+      opened: null,
+      closed: null,
+      actions: [
+        {
+          type: "no_trade",
+          reason: "same_source_event_reentry_blocked",
+        },
+      ],
+    };
   if (!plan)
     return {
       next,
@@ -637,8 +667,11 @@ function transition(
         },
       ],
     };
+  const planAlreadyExecuted = next.executedPlanIds.includes(
+    plan.sourceSnapshotId
+  );
   if (
-    next.dailySlotConsumed ||
+    planAlreadyExecuted ||
     c.candleTime < plan.entryWindowStart ||
     c.candleTime > plan.entryWindowEnd
   )
@@ -650,9 +683,10 @@ function transition(
       actions: [
         {
           type: "no_trade",
-          reason: next.dailySlotConsumed
-            ? "one_entry_per_symbol_per_day_consumed"
+          reason: planAlreadyExecuted
+            ? "ai_plan_entry_already_executed"
             : "outside_active_ai_entry_window",
+          planSnapshotId: plan.sourceSnapshotId,
         },
       ],
     };
@@ -751,7 +785,16 @@ function transition(
     planSnapshotId: plan.sourceSnapshotId,
     forceExitTime: plan.forceExitTime,
   };
-  next = { ...next, position, touched: null };
+  // 成功entry後は同じimmutable decision/plan IDを再実行しない。
+  // 次のAI revisionが別IDを発行した場合だけ、決済後の再entryを許可する。
+  next = {
+    ...next,
+    position,
+    touched: null,
+    executedPlanIds: Array.from(
+      new Set([...next.executedPlanIds, plan.sourceSnapshotId])
+    ),
+  };
   return {
     next,
     resultType: "entry" as const,
@@ -793,9 +836,9 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
       "15:00",
     ],
     learningInput:
-      "closed_ai_shadow_trades_before_trade_date_only_no_automatic_parameter_mutation",
+      "closed_prior_trades_plus_checkpoint_causal_session_trades_and_positions_no_automatic_parameter_mutation",
     entry:
-      "active_ai_plan_zone_touch_then_separate_confirmation_then_causal_directional_depth_vwap",
+      "new_immutable_ai_plan_id_once_zone_touch_then_separate_confirmation_then_causal_directional_depth_vwap",
     boardMaximumAgeMs: 5_000,
     shares: { signal_quality: 100, capital_constrained: "portfolio_proxy" },
     exits: {
@@ -812,7 +855,7 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
   };
   await upsertRtStrategyVersion({
     versionId: version,
-    strategyId: `${symbol.toLowerCase()}-ai-adaptive-v4`,
+    strategyId: `${symbol.toLowerCase()}-ai-adaptive-v5`,
     baselineGitSha: BASELINE_STRATEGY_GIT_SHA,
     buildGitSha: identity.buildGitSha ?? identity.runtimeBuildIdentifier,
     sourceTreeHash: identity.sourceTreeHash,
@@ -823,7 +866,8 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
     evaluationPurpose: "causality_audit",
     eligibleForAdoption: false,
     status: "monitoring",
-    statusReason: "ai_adaptive_forecast_shadow_manual_review_only",
+    statusReason:
+      "ai_adaptive_forecast_reentry_by_new_plan_id_manual_review_only",
   });
   ensured.add(version);
 }
@@ -834,13 +878,14 @@ export async function registerAiDailyForecastShadowLifecycle() {
     ...Object.values(RETIRED_AI_DAILY_FORECAST_V1_VERSIONS),
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS),
   ]) {
     const existing = await getRtStrategyVersion(versionId);
     if (existing && existing.status !== "stopped")
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: "retired_replaced_by_ai_forecast_learning_v4_2026_10_10",
+        statusReason: "retired_replaced_by_ai_forecast_reentry_v5_2026_10_10",
       });
   }
   for (const symbol of AI_DAILY_FORECAST_SYMBOLS) await ensureVersion(symbol);

@@ -178,7 +178,7 @@ describe("AI daily forecast deterministic contract", () => {
       plan,
       touched: null,
       position: null,
-      dailySlotConsumed: false,
+      executedPlanIds: [],
       lastSourceEventId: null,
       lastActions: [],
     };
@@ -214,7 +214,7 @@ describe("AI daily forecast deterministic contract", () => {
       plan,
       touched: { sourceEventId: "touch", time: "09:30", side: "long" as const },
       position: null,
-      dailySlotConsumed: false,
+      executedPlanIds: [],
       lastSourceEventId: "touch",
       lastActions: [],
     };
@@ -242,7 +242,7 @@ describe("AI daily forecast deterministic contract", () => {
       plan: blockedPlan,
       touched: null,
       position: null,
-      dailySlotConsumed: false,
+      executedPlanIds: [],
       lastSourceEventId: null,
       lastActions: [],
     };
@@ -268,7 +268,7 @@ describe("AI daily forecast deterministic contract", () => {
         side: "long" as const,
       },
       position: null,
-      dailySlotConsumed: false,
+      executedPlanIds: [],
       lastSourceEventId: "old-touch",
       lastActions: [],
     };
@@ -315,7 +315,7 @@ describe("AI daily forecast deterministic contract", () => {
       plan,
       touched: null,
       position,
-      dailySlotConsumed: false,
+      executedPlanIds: [],
       lastSourceEventId: "entry",
       lastActions: [],
     };
@@ -341,6 +341,212 @@ describe("AI daily forecast deterministic contract", () => {
     );
     expect(result.resultType).toBe("exit");
     expect(result.closed?.reason).toBe("ai_direction_revision_exit");
+  });
+
+  it("permits reentry only after a later AI plan ID, never because of a daily reset", () => {
+    const initial = {
+      tradeDate: "2026-10-09",
+      activePlanId: plan.sourceSnapshotId,
+      plan,
+      touched: {
+        sourceEventId: "touch-one",
+        time: "09:30",
+        side: "long" as const,
+      },
+      position: null,
+      executedPlanIds: [],
+      lastSourceEventId: "touch-one",
+      lastActions: [],
+    };
+    const firstEntry = applyAiDailyForecastTransitionForTest(
+      initial,
+      source("confirm-one", "09:31", 102, 103, 101, 102.5),
+      plan,
+      "signal_quality"
+    );
+    const firstExit = applyAiDailyForecastTransitionForTest(
+      firstEntry.next,
+      source("target-one", "09:32", 102.5, 105.5, 102, 105),
+      plan,
+      "signal_quality"
+    );
+    expect(firstExit.resultType).toBe("exit");
+    expect(firstExit.next.executedPlanIds).toEqual([plan.sourceSnapshotId]);
+
+    const samePlan = applyAiDailyForecastTransitionForTest(
+      firstExit.next,
+      source("same-plan-later", "09:40", 101, 102, 99.5, 100),
+      plan,
+      "signal_quality"
+    );
+    expect(samePlan.resultType).toBe("no_signal");
+    expect(samePlan.actions[0]).toMatchObject({
+      reason: "ai_plan_entry_already_executed",
+      planSnapshotId: plan.sourceSnapshotId,
+    });
+
+    const revised = {
+      ...plan,
+      sourceSnapshotId: "ai:1000:reentry",
+      checkpoint: "10:00",
+      entryWindowStart: "10:00",
+      entryWindowEnd: "10:29",
+    };
+    const selected = applyAiDailyForecastSelectionTransitionForTest(
+      firstExit.next,
+      source("revision", "10:00", 101, 102, 99.5, 100),
+      {
+        activePlanId: revised.sourceSnapshotId,
+        plan: revised,
+        disabledReason: null,
+        openPositionAction: "keep",
+      },
+      "signal_quality"
+    );
+    const touch = applyAiDailyForecastTransitionForTest(
+      selected.next,
+      source("touch-two", "10:01", 101, 102, 99.5, 100),
+      revised,
+      "signal_quality"
+    );
+    const secondEntry = applyAiDailyForecastTransitionForTest(
+      touch.next,
+      source("confirm-two", "10:02", 102, 103, 101, 102.5),
+      revised,
+      "signal_quality"
+    );
+    expect(secondEntry.resultType).toBe("entry");
+    expect(secondEntry.next.executedPlanIds).toEqual([
+      plan.sourceSnapshotId,
+      revised.sourceSnapshotId,
+    ]);
+  });
+
+  it("never opens a second position or reenters on the exit source event", () => {
+    const position = {
+      side: "long" as const,
+      entrySourceEventId: "entry",
+      signalTime: "09:30",
+      entryTime: "09:31",
+      entryPrice: 102,
+      targetPrice: 105,
+      stopPrice: 98,
+      initialRiskPerShare: 4,
+      shares: 100,
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 10,
+      planSnapshotId: plan.sourceSnapshotId,
+      forceExitTime: "15:20",
+    };
+    const state = {
+      tradeDate: "2026-10-09",
+      activePlanId: plan.sourceSnapshotId,
+      plan,
+      touched: null,
+      position,
+      executedPlanIds: [plan.sourceSnapshotId],
+      lastSourceEventId: "entry",
+      lastActions: [],
+    };
+    const closed = applyAiDailyForecastTransitionForTest(
+      state,
+      source("exit-event", "09:32", 102, 105.5, 101, 105),
+      plan,
+      "signal_quality"
+    );
+    expect(closed.resultType).toBe("exit");
+    const sameEvent = applyAiDailyForecastTransitionForTest(
+      closed.next,
+      source("exit-event", "09:32", 101, 102, 99.5, 100),
+      { ...plan, sourceSnapshotId: "ai:new-after-exit" },
+      "signal_quality"
+    );
+    expect(sameEvent.resultType).toBe("no_signal");
+    expect(sameEvent.actions[0]).toMatchObject({
+      reason: "same_source_event_reentry_blocked",
+    });
+  });
+
+  it("fails closed without a valid plan or after its window expires, while allowing an AI-planned opening entry", () => {
+    const initial = {
+      tradeDate: "2026-10-09",
+      activePlanId: null,
+      plan: null,
+      touched: null,
+      position: null,
+      executedPlanIds: [],
+      lastSourceEventId: null,
+      lastActions: [],
+    };
+    const missing = applyAiDailyForecastTransitionForTest(
+      initial,
+      source("missing", "09:00", 101, 102, 99.5, 100),
+      null,
+      "signal_quality"
+    );
+    expect(missing.resultType).toBe("no_signal");
+    expect(missing.actions[0]).toMatchObject({
+      reason: "ai_snapshot_missing_invalid_or_non_directional",
+    });
+    const expired = applyAiDailyForecastTransitionForTest(
+      { ...initial, activePlanId: plan.sourceSnapshotId, plan },
+      source("expired", "15:19", 101, 102, 99.5, 100),
+      { ...plan, entryWindowEnd: "15:00" },
+      "signal_quality"
+    );
+    expect(expired.resultType).toBe("no_signal");
+    expect(expired.actions[0]).toMatchObject({
+      reason: "outside_active_ai_entry_window",
+    });
+    const openingTouch = applyAiDailyForecastTransitionForTest(
+      { ...initial, activePlanId: plan.sourceSnapshotId, plan },
+      source("opening-touch", "09:00", 101, 102, 99.5, 100),
+      plan,
+      "signal_quality"
+    );
+    const openingEntry = applyAiDailyForecastTransitionForTest(
+      openingTouch.next,
+      source("opening-confirm", "09:01", 102, 103, 101, 102.5),
+      plan,
+      "signal_quality"
+    );
+    expect(openingEntry.resultType).toBe("entry");
+  });
+
+  it("keeps an open position without opening another before a valid exit", () => {
+    const position = {
+      side: "long" as const,
+      entrySourceEventId: "entry",
+      signalTime: "09:30",
+      entryTime: "09:31",
+      entryPrice: 102,
+      targetPrice: 105,
+      stopPrice: 98,
+      initialRiskPerShare: 4,
+      shares: 100,
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 10,
+      planSnapshotId: plan.sourceSnapshotId,
+      forceExitTime: "15:20",
+    };
+    const result = applyAiDailyForecastTransitionForTest(
+      {
+        tradeDate: "2026-10-09",
+        activePlanId: plan.sourceSnapshotId,
+        plan,
+        touched: null,
+        position,
+        executedPlanIds: [plan.sourceSnapshotId],
+        lastSourceEventId: "entry",
+        lastActions: [],
+      },
+      source("hold", "09:32", 102, 104, 100, 102.5),
+      plan,
+      "signal_quality"
+    );
+    expect(result.resultType).toBe("hold");
+    expect(result.opened).toBeNull();
+    expect(result.next.position).toMatchObject({ entrySourceEventId: "entry" });
   });
 
   it("学習実績0件でもcold-start監査がある不変snapshotは計画を作れる", () => {

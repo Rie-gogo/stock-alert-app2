@@ -573,13 +573,22 @@ export const RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS = Object.freeze(
   ) as Record<keyof typeof RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS, string>
 );
 
-/** 詳細学習診断を是正したv4。通常売買・自動採用・注文instructionには接続しない。 */
-export const AI_DAILY_FORECAST_VERSIONS = Object.freeze(
+/** 詳細学習診断を是正したv4。v5の計画ID単位再entry移行後は履歴参照専用。 */
+export const RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS = Object.freeze(
   Object.fromEntries(
     Object.entries(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS).map(
       ([symbol, version]) => [symbol, version.replace(/-v3$/, "-v4")]
     )
   ) as Record<keyof typeof RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS, string>
+);
+
+/** 計画ID単位の冪等entryのみを制御するv5。通常売買・自動採用・注文instructionには接続しない。 */
+export const AI_DAILY_FORECAST_VERSIONS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS).map(
+      ([symbol, version]) => [symbol, version.replace(/-v4$/, "-v5")]
+    )
+  ) as Record<keyof typeof RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS, string>
 );
 
 export const FORWARD_STRATEGY_VERSIONS = Object.freeze([

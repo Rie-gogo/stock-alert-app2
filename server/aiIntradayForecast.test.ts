@@ -30,6 +30,31 @@ describe("AI intraday forecast causal contract", () => {
     expect(result.valid).toBe(false);
     expect(result.reasonCodes).toContain("entry_window_outside_checkpoint:285A");
   });
+  it("passes checkpoint-causal multiple AI trades and open positions without mode mixing", () => {
+    const journal = _aiIntradayForecastTest.buildAiSessionTradeJournal({
+      trades: [
+        { id: 1, strategyVersion: "candidate-8035-ai-adaptive-forecast-v5", evaluationMode: "signal_quality", symbol: "8035", side: "long", entryTradeDate: "2026-10-09", entryCandleTime: "09:01", entrySourceEventId: "entry-one", signalCandleTime: "09:00", entryPrice: "100", exitTradeDate: "2026-10-09", exitCandleTime: "09:10", exitSourceEventId: "exit-one", exitPrice: "104", pnl: 400, realizedR: "1", exitReason: "first_target" },
+        { id: 2, strategyVersion: "candidate-8035-ai-adaptive-forecast-v5", evaluationMode: "signal_quality", symbol: "8035", side: "short", entryTradeDate: "2026-10-09", entryCandleTime: "10:01", entrySourceEventId: "entry-two", signalCandleTime: "10:00", entryPrice: "105", exitTradeDate: null, exitCandleTime: null, exitSourceEventId: null, exitPrice: null, pnl: null, realizedR: null, exitReason: null },
+        { id: 3, strategyVersion: "candidate-8035-ai-adaptive-forecast-v5", evaluationMode: "capital_constrained", symbol: "8035", side: "long", entryTradeDate: "2026-10-09", entryCandleTime: "09:01", entrySourceEventId: "entry-capital", signalCandleTime: "09:00", entryPrice: "100", exitTradeDate: "2026-10-09", exitCandleTime: "09:10", exitSourceEventId: "exit-capital", exitPrice: "104", pnl: 800, realizedR: "1", exitReason: "first_target" },
+      ] as never[],
+      events: [
+        { strategyVersion: "candidate-8035-ai-adaptive-forecast-v5", evaluationMode: "signal_quality", sourceEventId: "entry-one", decisionJson: { plan: { sourceSnapshotId: "plan-0830" } } },
+        { strategyVersion: "candidate-8035-ai-adaptive-forecast-v5", evaluationMode: "signal_quality", sourceEventId: "entry-two", decisionJson: { plan: { sourceSnapshotId: "plan-1000" } } },
+      ] as never[],
+      candlesBySymbol: new Map([["8035", [
+        { candleTime: "09:01", open: 100, high: 101, low: 99, close: 100, volume: 1 },
+        { candleTime: "09:10", open: 103, high: 105, low: 102, close: 104, volume: 1 },
+        { candleTime: "10:01", open: 105, high: 106, low: 104, close: 105, volume: 1 },
+        { candleTime: "10:02", open: 104, high: 105, low: 102, close: 103, volume: 1 },
+      ]]]),
+      cutoffCandleTime: "10:02",
+    });
+    const signalRows = journal.filter((row: any) => row.evaluationMode === "signal_quality");
+    expect(signalRows).toHaveLength(2);
+    expect(signalRows[0]).toMatchObject({ entryKind: "initial", isOpeningTrade: true, planId: "plan-0830", statusAtCheckpoint: "closed", mfePct: 5 });
+    expect(signalRows[1]).toMatchObject({ entryKind: "reentry", planId: "plan-1000", statusAtCheckpoint: "open", exitTime: null });
+    expect(journal.find((row: any) => row.evaluationMode === "capital_constrained")).toMatchObject({ entryKind: "initial" });
+  });
   it("feeds closed losses and their exit reasons into later AI inputs without changing parameters automatically", () => {
     const performance = _aiIntradayForecastTest.summarizeLearning([
       { id: 1, symbol: "8035", entryTradeDate: "2026-10-08", entryCandleTime: "10:01", exitCandleTime: "10:12", side: "long", pnl: -12_000, realizedR: "-1", exitReason: "stop_loss" },

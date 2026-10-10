@@ -91,8 +91,22 @@ node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM --out /secure
 - その時点までの日経225mini
 - 08:30計画と直前の場中計画
 - 前営業日までに決済済みの当AI shadow成績、直近損失、exit理由
+- `aiSessionTradeJournal`：checkpoint以前に発生した**全**AI entry/exit。方向、entry/exit価格、損益、realized R、MFE・MAE、MFE/MAE品質・欠損分、exit理由、decision ID、plan ID、entry/exit時刻、初回／再entry、寄り付き分類、保有状態を含む
+- `aiSessionStrategyJournal`：`signal_quality`のみの戦略学習台帳。**同一市場機会をここだけで1件として数える**
+- `aiSessionExecutionAuditJournal`：`capital_constrained`の資金・板深度・株数の実行可能性監査。戦略の勝敗・市場事例として二重加算してはならない
+- `aiCurrentStrategyPositions` と `aiCurrentExecutionAuditPositions`：mode別の保有状態。保有中は新規entryを重ねず、既存ポジションに対する `openPositionAction` だけを判断する
+- `generationContract.requiredLearningEvidenceBySymbol`：そのcheckpoint以前の `signal_quality`取引について、各銘柄のcontrolが必ず引用すべき一意のevidence ID
 
 AIは「今すぐ注文するか」ではなく、次のcheckpointまでの方向、entry帯、確認価格、目標、損切り参照、entry有効時間、強制決済時刻を10銘柄ごとに更新します。出力は `forecast` と10件の `controls` を持ち、`planDecision=maintained|adjusted|disabled`、`changeReason`、`openPositionAction` を必須とします。
+
+### v5の同日判断規約
+
+1. `signal_quality`台帳を、その日の方向・entry・exitの**唯一の戦略学習事例**として用いる。`capital_constrained`は同一市場機会の別事例として加算せず、板深度・資金制約・株数の執行監査だけに使う。
+2. `generationContract.requiredLearningEvidenceBySymbol[symbol]` にentryがある場合、該当controlの`learningEvidenceUsed`に**全て**の `session_trade:signal_quality:<entrySourceEventId>` を入れる。アプリは欠けたoutputをinvalidとして保存しない。
+3. 損失があっても自動で方向転換してはならない。台帳・価格推移・日経225mini・過去類似事例を確認したうえで、維持、調整、無効化を`changeReason`に明示する。
+4. `entryKind=initial|reentry`、`isOpeningTrade`、`entryOrdinal`を確認する。09:00〜09:29の**実際のentry時刻**は寄り付き取引であり、一律禁止しない。AIが見送りたい場合だけ`no_trade`／`disabled`を返す。
+5. 決済後の再entryは、新しいimmutable plan/decisionだけで判断する。同じplan IDを再利用した重複entry、保有中の重複entry、exitと同一source eventでの即時再entryは許可しない。
+6. AI判断が未着、無効、期限切れ、または`no_trade`なら、アプリは独自の計画・再entryを作らない（fail-closed）。
 
 過去の損失は次回判断の根拠に含めますが、1件の損失だけで閾値を自動変更しません。AIは調整理由を明示し、アプリは前向きshadowとして保存します。自動採用、実注文接続、通常ロジックの書換えは行いません。
 
@@ -117,5 +131,7 @@ node scripts/ingest-ai-intraday-forecast.mjs /secure/path/ai-intraday-forecast.j
 `signal_quality`（100株）と`capital_constrained`は別state・別event・別tradeとして保存します。旧④日経225mini revisionは最初の09:30 AI計画までの補助安全判定として残し、AI場中計画が生成された後は、その計画内の日経225mini評価が優先されます。朝snapshotも過去の場中計画も更新しません。
 
 ## 5. スケジュール
+
+08:30のCodex定期taskは、[v5朝AIプロンプト](./ai-daily-forecast-codex-prompt-v5.md)を使用し、D-1までのinputだけを使い、当日台帳を参照しません。場中のCodex定期taskは、[v5場中AIプロンプト](./ai-intraday-forecast-codex-prompt-v5.md)を使用し、当日台帳・mode分離・必須evidenceの規約を守ります。
 
 この実装はscheduleそのものを勝手に作成・変更しません。endpoint公開、migration、手動受入が成功した後に、平日08:30と上記11 checkpointのCodexタスクを利用者確認のうえで登録します。Windows relayや通常10銘柄の受信処理からAIを呼び出してはいけません。

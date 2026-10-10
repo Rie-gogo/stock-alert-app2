@@ -102,6 +102,15 @@ function expectedSessionMinutes(cutoff: string) {
   return result;
 }
 
+/** Uses only regular-session minutes and never bridges the lunch break. */
+function causalHoldingMinutes(start: string, end: string) {
+  return expectedSessionMinutes(end).filter(value => value >= start);
+}
+
+function cappedHoldingEnd(timeValue: string) {
+  return timeValue > "15:20" ? "15:20" : timeValue;
+}
+
 function sma(values: number[], period: number) {
   if (values.length < period) return null;
   const subset = values.slice(-period);
@@ -248,8 +257,12 @@ type AiSessionTradeJournalRow = {
   planId: string | null;
   entryOrdinal: number;
   entryKind: "initial" | "reentry";
+  /** Strategy outcomes come only from signal_quality; capital mode is execution audit. */
+  learningRole: "strategy_primary" | "execution_audit";
   isOpeningTrade: boolean;
   statusAtCheckpoint: "closed" | "open";
+  mfeMaeQuality: "verified" | "degraded" | "unavailable";
+  mfeMaeMissingMinutes: string[];
 };
 
 function decisionPlanId(value: unknown) {
@@ -296,15 +309,33 @@ export function buildAiSessionTradeJournal(input: {
       trade.exitTradeDate === trade.entryTradeDate &&
       trade.exitCandleTime !== null &&
       trade.exitCandleTime <= input.cutoffCandleTime;
-    const endTime = closedAtCheckpoint
-      ? trade.exitCandleTime!
-      : input.cutoffCandleTime;
-    const entryPrice = Number(trade.entryPrice);
-    const held = (input.candlesBySymbol.get(trade.symbol) ?? []).filter(
-      candle =>
-        candle.candleTime >= trade.entryCandleTime &&
-        candle.candleTime <= endTime
+    const endTime = cappedHoldingEnd(
+      closedAtCheckpoint ? trade.exitCandleTime! : input.cutoffCandleTime
     );
+    const entryPrice = Number(trade.entryPrice);
+    const held = (input.candlesBySymbol.get(trade.symbol) ?? [])
+      .filter(
+        candle =>
+          candle.candleTime >= trade.entryCandleTime &&
+          candle.candleTime <= endTime
+      )
+      .sort((left, right) => left.candleTime.localeCompare(right.candleTime));
+    const expectedHoldingMinutes = causalHoldingMinutes(
+      trade.entryCandleTime,
+      endTime
+    );
+    const presentHoldingMinutes = new Set(
+      held.map(candle => candle.candleTime)
+    );
+    const mfeMaeMissingMinutes = expectedHoldingMinutes.filter(
+      candleTime => !presentHoldingMinutes.has(candleTime)
+    );
+    const mfeMaeQuality =
+      held.length === 0
+        ? "unavailable"
+        : mfeMaeMissingMinutes.length === 0
+          ? "verified"
+          : "degraded";
     const high = held.length
       ? Math.max(...held.map(candle => candle.high))
       : null;
@@ -353,8 +384,15 @@ export function buildAiSessionTradeJournal(input: {
       planId,
       entryOrdinal,
       entryKind: entryOrdinal === 1 ? "initial" : "reentry",
-      isOpeningTrade: trade.signalCandleTime === "09:00",
+      learningRole:
+        trade.evaluationMode === "signal_quality"
+          ? "strategy_primary"
+          : "execution_audit",
+      isOpeningTrade:
+        trade.entryCandleTime >= "09:00" && trade.entryCandleTime < "09:30",
       statusAtCheckpoint: closedAtCheckpoint ? "closed" : "open",
+      mfeMaeQuality,
+      mfeMaeMissingMinutes,
     };
   });
 }
@@ -436,9 +474,25 @@ export type AiIntradayForecastInput = {
     performance: ReturnType<typeof summarizeLearning>;
   }>;
   learningApplicationAudit: LearningApplicationAudit;
-  /** checkpoint以前のAI取引・保有状態。評価modeを混ぜず、未来のexitは含めない。 */
+  /** 全modeの台帳。各行のlearningRoleで戦略学習と実行監査を明示的に分離する。 */
   aiSessionTradeJournal: AiSessionTradeJournalRow[];
+  /** 同一市場機会を二重学習しないため、戦略判断にはsignal_qualityだけを用いる。 */
+  aiSessionStrategyJournal: AiSessionTradeJournalRow[];
+  /** 資金・板深度の実行可能性監査。戦略市場事例としては加算しない。 */
+  aiSessionExecutionAuditJournal: AiSessionTradeJournalRow[];
   aiCurrentPositions: AiSessionTradeJournalRow[];
+  aiCurrentStrategyPositions: AiSessionTradeJournalRow[];
+  aiCurrentExecutionAuditPositions: AiSessionTradeJournalRow[];
+  /** 外部senderがAIへ渡す、v5の固定・監査可能な判断指示。 */
+  generationContract: {
+    version: "ai-adaptive-v5-same-day-journal-v1";
+    strategyLearningSource: "signal_quality_only";
+    executionAuditSource: "capital_constrained_separate_not_market_case";
+    openingTradeBoundary: "entry_candle_time_09:00_to_09:29";
+    reentryPolicy: "new_immutable_plan_id_only";
+    missingPlanPolicy: "fail_closed_no_trade";
+    requiredLearningEvidenceBySymbol: Record<AiDailyForecastSymbol, string[]>;
+  };
   inputQuality: "verified" | "degraded" | "invalid";
   qualityReasonCodes: string[];
   inputHash?: string;
@@ -549,18 +603,46 @@ export async function buildAiIntradayForecastInput(input: {
           asc(rtForwardShadowEvents.id)
         )
     : [];
+  // MFE/MAE requires the complete causal holding interval, not the UI's latest 60 bars.
   const candlesBySymbol = new Map<string, Candle[]>();
-  for (const item of summaries)
-    candlesBySymbol.set(item.symbol, item.summary.latestOneMinuteBars);
+  for (const symbol of AI_DAILY_FORECAST_SYMBOLS) {
+    candlesBySymbol.set(
+      symbol,
+      Array.from(deduped.entries())
+        .filter(([key]) => key.startsWith(`${symbol}:`))
+        .map(([, value]) => value)
+    );
+  }
   const aiSessionTradeJournal = buildAiSessionTradeJournal({
     trades: sessionTrades,
     events: sessionEvents,
     candlesBySymbol,
     cutoffCandleTime: spec.cutoff,
   });
+  const aiSessionStrategyJournal = aiSessionTradeJournal.filter(
+    item => item.learningRole === "strategy_primary"
+  );
+  const aiSessionExecutionAuditJournal = aiSessionTradeJournal.filter(
+    item => item.learningRole === "execution_audit"
+  );
   const aiCurrentPositions = aiSessionTradeJournal.filter(
     item => item.statusAtCheckpoint === "open"
   );
+  const aiCurrentStrategyPositions = aiSessionStrategyJournal.filter(
+    item => item.statusAtCheckpoint === "open"
+  );
+  const aiCurrentExecutionAuditPositions =
+    aiSessionExecutionAuditJournal.filter(
+      item => item.statusAtCheckpoint === "open"
+    );
+  const requiredLearningEvidenceBySymbol = Object.fromEntries(
+    AI_DAILY_FORECAST_SYMBOLS.map(symbol => [
+      symbol,
+      aiSessionStrategyJournal
+        .filter(item => item.symbol === symbol)
+        .map(item => `session_trade:signal_quality:${item.entrySourceEventId}`),
+    ])
+  ) as Record<AiDailyForecastSymbol, string[]>;
   const earlier = await db
     .select()
     .from(rtAiIntradayForecastSnapshots)
@@ -646,7 +728,20 @@ export async function buildAiIntradayForecastInput(input: {
     })),
     learningApplicationAudit,
     aiSessionTradeJournal,
+    aiSessionStrategyJournal,
+    aiSessionExecutionAuditJournal,
     aiCurrentPositions,
+    aiCurrentStrategyPositions,
+    aiCurrentExecutionAuditPositions,
+    generationContract: {
+      version: "ai-adaptive-v5-same-day-journal-v1",
+      strategyLearningSource: "signal_quality_only",
+      executionAuditSource: "capital_constrained_separate_not_market_case",
+      openingTradeBoundary: "entry_candle_time_09:00_to_09:29",
+      reentryPolicy: "new_immutable_plan_id_only",
+      missingPlanPolicy: "fail_closed_no_trade",
+      requiredLearningEvidenceBySymbol,
+    },
     inputQuality: reasons.length === 0 ? "verified" : "degraded",
     qualityReasonCodes: Array.from(new Set(reasons)),
   };
@@ -666,7 +761,9 @@ const controlSchema = z
       "tighten_only",
       "exit_next_event_if_direction_changed",
     ]),
-    learningEvidenceUsed: z.array(z.string().min(1).max(160)).max(8),
+    // Includes session_trade:signal_quality:<entrySourceEventId> for every
+    // same-day strategy trade.  Capital mode can be cited only as execution audit.
+    learningEvidenceUsed: z.array(z.string().min(1).max(160)).max(500),
   })
   .strict();
 const outputSchema = z
@@ -715,8 +812,16 @@ export function validateAiIntradayForecastOutput(
     )
       reasons.push(`force_exit_time_invalid:${control.symbol}`);
   }
-  for (const symbol of AI_DAILY_FORECAST_SYMBOLS)
+  for (const symbol of AI_DAILY_FORECAST_SYMBOLS) {
     if (!seen.has(symbol)) reasons.push(`missing_control_symbol:${symbol}`);
+    const control = parsed.data.controls.find(item => item.symbol === symbol);
+    const requiredSessionEvidence = (input.aiSessionStrategyJournal ?? [])
+      .filter(item => item.symbol === symbol)
+      .map(item => `session_trade:signal_quality:${item.entrySourceEventId}`);
+    for (const evidence of requiredSessionEvidence)
+      if (!control?.learningEvidenceUsed.includes(evidence))
+        reasons.push(`session_trade_evidence_missing:${symbol}:${evidence}`);
+  }
   return {
     valid: Boolean(forecast.valid && forecast.output && reasons.length === 0),
     output: forecast.output
@@ -1044,4 +1149,5 @@ export const _aiIntradayForecastTest = {
   sessionSummary,
   summarizeLearning,
   buildAiSessionTradeJournal,
+  causalHoldingMinutes,
 };

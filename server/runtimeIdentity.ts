@@ -15,9 +15,9 @@ export const PRE_CAUSAL_EXECUTION_TRADING_SOURCE_TREE_HASH =
 /** 比較基盤の約定価格統一・自動materialization・候補世代reset前の監査基準。 */
 export const PRE_COMPARISON_PLATFORM_FIX_SOURCE_TREE_HASH =
   "98a1d09d76c0d27d1a3026704b777c5e9449bca727ed376434932e77d8f7a9fc";
-/** 9984 Current固定1500株の因果depth VWAP実行を含む承認済み基準。 */
+/** 9984 Current固定1500株の因果depth VWAP・数量換算監査・強制決済fail-closedを含む承認済み基準。 */
 export const BASELINE_TRADING_SOURCE_TREE_HASH =
-  "698893ba07d7f834c29cd1008f7510b3871c95a92cd6ed8fa8dc2464e7989a5f";
+  "8be8a3260a4b51e9f662defc49d410ea31b9ea43048a391f08b74146ba6e0ab8";
 export const FORWARD_STRATEGY_VERSION =
   "forward-shadow-8035-causal-current-price-v2";
 export const FUJIKURA_FORWARD_STRATEGY_VERSION =

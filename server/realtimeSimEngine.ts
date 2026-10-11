@@ -2198,6 +2198,43 @@ function resolveSoftbankFixedDepthExecution(
 }
 
 /**
+ * 9984 Current固定1500株の約定監査を、既存の取引理由表示・保存経路に追記する。
+ * 現行DRY_RUNには手数料率が未設定のためcommission=0を明示し、同じsource eventの
+ * 判断基準価格とdepth VWAPとの差を数量換算slippageとして保存する。
+ */
+function formatSoftbankFixedExecutionAudit(input: {
+  leg: "entry" | "exit";
+  referencePrice: number;
+  executionPrice: number;
+  shares: number;
+  sourceEventId: string;
+  boardAgeMs: number;
+  grossPnl?: number;
+}): string {
+  const referenceDelta = input.leg === "entry"
+    ? input.executionPrice - input.referencePrice
+    : input.referencePrice - input.executionPrice;
+  const slippageYen = Math.round(referenceDelta * input.shares);
+  const commissionYen = 0;
+  const signed = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
+  const parts = [
+    "fixed_execution=1500",
+    `leg=${input.leg}`,
+    `signal_reference=${input.referencePrice.toFixed(2)}`,
+    `depth_vwap=${input.executionPrice.toFixed(2)}`,
+    `slippage_vs_reference=${signed(slippageYen)}円`,
+    `commission=${commissionYen}円(no_fee_model)`,
+    `source_event=${input.sourceEventId}`,
+    `source_board_age_ms=${input.boardAgeMs}`,
+  ];
+  if (input.grossPnl !== undefined) {
+    parts.push(`gross_pnl=${signed(input.grossPnl)}円`);
+    parts.push(`net_pnl=${signed(input.grossPnl - commissionYen)}円`);
+  }
+  return ` [${parts.join("; ")}]`;
+}
+
+/**
  * 板情報から BoardSnapshot を生成する
  */
 function getBoardSnapshot(symbol: string): BoardSnapshot | null {
@@ -2729,12 +2766,26 @@ export async function processCandle(
 
   // ---- 前場強制決済チェック (11:27) ----
   if (candleTime >= AM_SESSION_CLOSE_TIME && candleTime < "11:30" && existingPos) {
-    return await forceClosePosition(existingPos, candle, tradeDate, candleTime, "前場強制決済");
+    return await forceClosePosition(
+      existingPos,
+      candle,
+      tradeDate,
+      candleTime,
+      "前場強制決済",
+      sourceExecutionContext,
+    );
   }
 
   // ---- 大引け強制決済チェック ----
   if (candleTime >= MARKET_CLOSE_TIME && existingPos) {
-    return await forceClosePosition(existingPos, candle, tradeDate, candleTime, "大引け強制決済");
+    return await forceClosePosition(
+      existingPos,
+      candle,
+      tradeDate,
+      candleTime,
+      "大引け強制決済",
+      sourceExecutionContext,
+    );
   }
 
   // ---- 改善④: 09:30以前エントリー禁止 ----
@@ -5423,13 +5474,28 @@ export async function enterPosition(
     confidence = confResult.confidence;
   }
 
+  const persistedReason = (
+    symbol === "9984"
+    && reason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
+    && executionOverride?.shares === SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.shares
+  )
+    ? `${reason}${formatSoftbankFixedExecutionAudit({
+        leg: "entry",
+        referencePrice: executionOverride.signalReferencePrice ?? price,
+        executionPrice: price,
+        shares,
+        sourceEventId: executionOverride.sourceEventId,
+        boardAgeMs: executionOverride.boardAgeMs,
+      })}`
+    : reason;
+
   const pos: OpenPosition = {
     symbol,
     side,
     entryPrice: price,
     shares,
     entryTime: candleTime,
-    entryReason: reason,
+    entryReason: persistedReason,
     separateVirtualCapital: executionOverride?.separateVirtualCapital === true,
     boardSignal,
     confidence,
@@ -5448,13 +5514,13 @@ export async function enterPosition(
     shares,
     amount,
     pnl: null,
-    reason,
+    reason: persistedReason,
     tradeTime: candleTime,
     side,
     boardSignal: boardSignal ?? null,
   });
 
-  console.log(`[RealtimeSim] ${symbol} ${action} @${price}円 ×${shares}株 (${reason})`);
+  console.log(`[RealtimeSim] ${symbol} ${action} @${price}円 ×${shares}株 (${persistedReason})`);
 
   // シグナル履歴に追加（エントリー）
   signalHistory.unshift({
@@ -5465,7 +5531,7 @@ export async function enterPosition(
     price,
     shares,
     pnl: null,
-    reason,
+    reason: persistedReason,
     confidence,
   });
   if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
@@ -5475,7 +5541,7 @@ export async function enterPosition(
     tradeDate,
     candleTime,
     action: "entry",
-    reason,
+    reason: persistedReason,
     executionPrice: executionOverride?.price,
     executionPriceSource: executionOverride?.priceSource,
     executionReferenceTime: executionOverride?.referenceTime,
@@ -5798,7 +5864,43 @@ async function forceClosePosition(
   tradeDate: string,
   candleTime: string,
   reason: string,
+  sourceExecutionContext?: RealtimeSourceExecutionContext,
 ): Promise<ReturnType<typeof processCandle>> {
+  const isSoftbankFixedExecution =
+    pos.symbol === "9984" &&
+    pos.entryReason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX) &&
+    pos.shares === SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.shares &&
+    isSoftbankBreakoutLongFixedExecutionActive(tradeDate);
+  if (isSoftbankFixedExecution) {
+    const executable = resolveSoftbankFixedDepthExecution(sourceExecutionContext, "short");
+    if (!executable.ok) {
+      return {
+        symbol: pos.symbol,
+        tradeDate,
+        candleTime,
+        action: "none",
+        reason: `softbank_1500_depth_exit_pending:${executable.reason}`,
+      };
+    }
+    return await closePosition(
+      pos,
+      executable.price,
+      `${reason}（1500株source event bid depth VWAP）`,
+      "exit",
+      tradeDate,
+      candleTime,
+      null,
+      {
+        price: executable.price,
+        shares: pos.shares,
+        priceSource: "current_event_bid_depth_vwap",
+        referenceTime: pos.entryTime,
+        signalReferencePrice: candle.close,
+        sourceEventId: executable.sourceEventId,
+        boardAgeMs: executable.boardAgeMs,
+      },
+    );
+  }
   return await closePosition(pos, candle.close, reason, "exit", tradeDate, candleTime, null);
 }
 
@@ -5823,6 +5925,23 @@ async function closePosition(
   const pnl = side === "long"
     ? Math.round((exitPrice - entryPrice) * shares)
     : Math.round((entryPrice - exitPrice) * shares);
+
+  const persistedReason = (
+    symbol === "9984"
+    && pos.entryReason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX)
+    && shares === SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.shares
+    && executionOverride?.priceSource === "current_event_bid_depth_vwap"
+  )
+    ? `${reason}${formatSoftbankFixedExecutionAudit({
+        leg: "exit",
+        referencePrice: executionOverride.signalReferencePrice ?? exitPrice,
+        executionPrice: exitPrice,
+        shares,
+        sourceEventId: executionOverride.sourceEventId,
+        boardAgeMs: executionOverride.boardAgeMs,
+        grossPnl: pnl,
+      })}`
+    : reason;
 
   openPositions.delete(symbol);
 
@@ -5849,13 +5968,13 @@ async function closePosition(
     shares,
     amount,
     pnl,
-    reason,
+    reason: persistedReason,
     tradeTime: candleTime,
     side,
     boardSignal: boardSnapshot?.signal ?? null,
   });
 
-  console.log(`[RealtimeSim] ${symbol} ${exitAction} @${exitPrice}円 ×${shares}株 損益:${pnl >= 0 ? "+" : ""}${pnl}円 (${reason})`);
+  console.log(`[RealtimeSim] ${symbol} ${exitAction} @${exitPrice}円 ×${shares}株 損益:${pnl >= 0 ? "+" : ""}${pnl}円 (${persistedReason})`);
 
   // 銘柄別損益を更新
   symbolPnlMap.set(symbol, (symbolPnlMap.get(symbol) ?? 0) + pnl);
@@ -5869,7 +5988,7 @@ async function closePosition(
     price: exitPrice,
     shares,
     pnl,
-    reason,
+    reason: persistedReason,
   });
   if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
 
@@ -5881,7 +6000,7 @@ async function closePosition(
     tradeDate,
     candleTime,
     action,
-    reason,
+    reason: persistedReason,
     pnl,
     executionPrice: executionOverride?.price,
     executionPriceSource: executionOverride?.priceSource,

@@ -28,7 +28,13 @@ vi.mock("../shared/stocks", () => ({
 }));
 
 import { insertRtTrade } from "./db";
-import { getOpenPositions, processCandle, restoreOpenPositions, type RealtimeSourceExecutionContext } from "./realtimeSimEngine";
+import {
+  forceCloseAllPositions,
+  getOpenPositions,
+  processCandle,
+  restoreOpenPositions,
+  type RealtimeSourceExecutionContext,
+} from "./realtimeSimEngine";
 
 const tradeDate = "2026-10-13";
 
@@ -93,9 +99,14 @@ describe("9984 Current 固定1500株・source event depth VWAP", () => {
     expect(getOpenPositions().find(position => position.symbol === "9984")).toBeUndefined();
     expect(vi.mocked(insertRtTrade)).toHaveBeenNthCalledWith(1, expect.objectContaining({
       action: "buy", shares: 1_500, price: String(101 + (0.5 / 3)), amount: (101 + (0.5 / 3)) * 1_500,
+      reason: expect.stringContaining("fixed_execution=1500; leg=entry; signal_reference=101.00; depth_vwap=101.17; slippage_vs_reference=+250円; commission=0円(no_fee_model); source_event=9984-entry; source_board_age_ms=500"),
     }));
     expect(vi.mocked(insertRtTrade)).toHaveBeenNthCalledWith(2, expect.objectContaining({
       action: "sell", shares: 1_500, price: "101.6", amount: 152_400, pnl: 650,
+      reason: expect.stringContaining("fixed_execution=1500; leg=exit"),
+    }));
+    expect(vi.mocked(insertRtTrade)).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      reason: expect.stringContaining("commission=0円(no_fee_model); source_event=9984-exit; source_board_age_ms=500; gross_pnl=+650円; net_pnl=+650円"),
     }));
   });
 
@@ -154,5 +165,29 @@ describe("9984 Current 固定1500株・source event depth VWAP", () => {
       open: 101, high: 101.2, low: 100.8, close: 101.1, volume: 150,
     }, staleContext);
     expect(stale5001).toMatchObject({ action: "none", reason: "softbank_1500_depth_entry_rejected:source_event_board_stale_over_5000ms" });
+  });
+
+  it("source event板がないscheduler強制決済では1500株を終値へフォールバックさせない", async () => {
+    const forcedDate = "2026-10-20";
+    await processCandle({
+      symbol: "9984", tradeDate: forcedDate, candleTime: "09:10",
+      open: 100, high: 100.1, low: 99.9, close: 100, volume: 100,
+    });
+    restoreOpenPositions([{
+      symbol: "9984",
+      side: "long",
+      price: 100,
+      shares: 1_500,
+      tradeTime: "09:40",
+      reason: "ソフトバンクG専用10本高値更新LONG: scheduler source contextなし",
+    }]);
+
+    vi.mocked(insertRtTrade).mockClear();
+    await forceCloseAllPositions(forcedDate, new Map([["9984", 99]]));
+
+    expect(getOpenPositions().find(position => position.symbol === "9984")).toMatchObject({
+      shares: 1_500,
+    });
+    expect(vi.mocked(insertRtTrade)).not.toHaveBeenCalled();
   });
 });

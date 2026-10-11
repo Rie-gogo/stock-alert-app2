@@ -35,6 +35,8 @@ export type MonitoringPlanPurpose = "current" | "candidate" | "diagnostic" | "pa
 
 export interface MonitoringPlanDefinition {
   planId: string;
+  /** 古いimmutable日次snapshotにだけ存在する同一監視行のID。read-time集計専用。 */
+  legacyPlanIds?: readonly string[];
   symbol: string;
   symbolName: string;
   label: string;
@@ -147,9 +149,9 @@ export const MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS: ReadonlyArray<MonitoringP
     eligibleForAdoption: false,
   })),
   // 降格後も通常engineの同一候補をshadow_onlyとして保存し、成績を新規forward版へ付け替えない。
-  { planId: "shadow:current:3436:sumcoBreakdownShort", symbol: "3436", symbolName: NAME_BY_SYMBOL["3436"] ?? "3436", label: "旧Current：前場安値更新SHORT（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "sumcoBreakdownShort", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
-  { planId: "shadow:current:6976:taiyoAfternoonReversal", symbol: "6976", symbolName: NAME_BY_SYMBOL["6976"] ?? "6976", label: "旧Current：後場反転LONG（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "taiyoAfternoonReversal", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
-  { planId: "shadow:current:9984:softbankBreakoutLong", symbol: "9984", symbolName: NAME_BY_SYMBOL["9984"] ?? "9984", label: "旧Current：ブレイクLONG（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "softbankBreakoutLong", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
+  { planId: "shadow:current:3436:sumcoBreakdownShort", legacyPlanIds: ["current:3436"], symbol: "3436", symbolName: NAME_BY_SYMBOL["3436"] ?? "3436", label: "旧Current：前場安値更新SHORT（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "sumcoBreakdownShort", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
+  { planId: "shadow:current:6976:taiyoAfternoonReversal", legacyPlanIds: ["current:6976"], symbol: "6976", symbolName: NAME_BY_SYMBOL["6976"] ?? "6976", label: "旧Current：後場反転LONG（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "taiyoAfternoonReversal", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
+  { planId: "shadow:current:9984:softbankBreakoutLong", legacyPlanIds: ["current:9984"], symbol: "9984", symbolName: NAME_BY_SYMBOL["9984"] ?? "9984", label: "旧Current：ブレイクLONG（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "softbankBreakoutLong", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
   ...SHADOW_PLANS.map(plan => ({
     ...plan,
     planId: `shadow:${plan.strategyVersion}`,

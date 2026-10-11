@@ -66,13 +66,13 @@ function materializationPriority(version: string) {
 
 function metricsForDates(input: {
   rowsByDate: Map<string, MultiSymbolMonitoringDailySnapshot>;
-  planId: string;
+  planIds: readonly string[];
   dates: string[];
   requestedTradingDays: number | "all";
 }): MultiSymbolMonitoringWindowMetrics {
   const plans = input.dates.flatMap(date => {
     const snapshot = input.rowsByDate.get(date);
-    return snapshot?.plans.filter(plan => plan.planId === input.planId) ?? [];
+    return snapshot?.plans.filter(plan => input.planIds.includes(plan.planId)) ?? [];
   });
   const signals = plans.reduce((sum, plan) => sum + finite(plan.signals), 0);
   const completedTrades = plans.reduce((sum, plan) => sum + finite(plan.completedTrades), 0);
@@ -161,11 +161,16 @@ export function buildMultiSymbolMonitoringTrend(input: {
   const previousFiveDates = eligibleTradeDates.slice(-10, -5);
 
   const planResults = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.map(definition => {
-    const recent5 = metricsForDates({ rowsByDate, planId: definition.planId, dates: lastDates(5), requestedTradingDays: 5 });
-    const previous5 = metricsForDates({ rowsByDate, planId: definition.planId, dates: previousFiveDates, requestedTradingDays: 5 });
-    const recent10 = metricsForDates({ rowsByDate, planId: definition.planId, dates: lastDates(10), requestedTradingDays: 10 });
-    const recent20 = metricsForDates({ rowsByDate, planId: definition.planId, dates: lastDates(20), requestedTradingDays: 20 });
-    const all = metricsForDates({ rowsByDate, planId: definition.planId, dates: eligibleTradeDates, requestedTradingDays: "all" });
+    // Immutable historical rows remain byte-for-byte untouched. A role-only
+    // rename maps its pre-promotion plan ID to the new comparison-shadow row
+    // at read time, while each trade date still contributes one selected
+    // materialization version only.
+    const planIds = [definition.planId, ...(definition.legacyPlanIds ?? [])];
+    const recent5 = metricsForDates({ rowsByDate, planIds, dates: lastDates(5), requestedTradingDays: 5 });
+    const previous5 = metricsForDates({ rowsByDate, planIds, dates: previousFiveDates, requestedTradingDays: 5 });
+    const recent10 = metricsForDates({ rowsByDate, planIds, dates: lastDates(10), requestedTradingDays: 10 });
+    const recent20 = metricsForDates({ rowsByDate, planIds, dates: lastDates(20), requestedTradingDays: 20 });
+    const all = metricsForDates({ rowsByDate, planIds, dates: eligibleTradeDates, requestedTradingDays: "all" });
     return {
       ...definition,
       trend: compareFiveDayWindows(recent5, previous5),

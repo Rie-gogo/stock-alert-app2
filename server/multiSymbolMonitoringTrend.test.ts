@@ -126,6 +126,57 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     expect(kioxia.plans.some(plan => plan.planId === "shadow:retired-strategy-version")).toBe(false);
   });
 
+  it("昇格で名称だけ変えた旧Currentは比較shadowへread-timeで引き継ぎ、同日二重計上しない", () => {
+    const beforePromotion = materialization("2026-10-09", 0);
+    beforePromotion.resultJson.plans = (beforePromotion.resultJson.plans as any[])
+      .filter(plan => plan.planId !== "shadow:current:3436:sumcoBreakdownShort")
+      .concat({
+        planId: "current:3436",
+        signals: 2,
+        openedTrades: 2,
+        completedTrades: 2,
+        openTrades: 0,
+        missingTrades: 0,
+        wins: 1,
+        losses: 1,
+        draws: 0,
+        pnlPer100: 1200,
+        grossProfitPer100: 1800,
+        grossLossPer100: 600,
+      });
+    const afterPromotion = materialization("2026-10-10", 0);
+    afterPromotion.resultJson.plans = (afterPromotion.resultJson.plans as any[])
+      .filter(plan => plan.planId !== "shadow:current:3436:sumcoBreakdownShort")
+      .concat({
+        planId: "shadow:current:3436:sumcoBreakdownShort",
+        signals: 1,
+        openedTrades: 1,
+        completedTrades: 1,
+        openTrades: 0,
+        missingTrades: 0,
+        wins: 1,
+        losses: 0,
+        draws: 0,
+        pnlPer100: 700,
+        grossProfitPer100: 700,
+        grossLossPer100: 0,
+      });
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-10-10",
+      closedTradeDates: ["2026-10-09", "2026-10-10"],
+      materializations: [beforePromotion, afterPromotion] as any,
+    });
+    const comparisonShadow = result.symbols.find(item => item.symbol === "3436")!
+      .plans.find(plan => plan.planId === "shadow:current:3436:sumcoBreakdownShort")!;
+    expect(comparisonShadow.role).toBe("shadow");
+    expect(comparisonShadow.windows.all).toMatchObject({
+      completedTrades: 3,
+      wins: 2,
+      losses: 1,
+      pnlPer100: 1900,
+    });
+  });
+
   it("API集計はraw event・取引履歴を読まない", () => {
     const source = readFileSync(
       new URL("./multiSymbolMonitoringTrend.ts", import.meta.url),

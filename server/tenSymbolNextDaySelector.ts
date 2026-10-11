@@ -76,8 +76,6 @@ const currentSlots: SelectorSlot[] = TEN_MONITORED_SYMBOLS.map(symbol => ({
     symbol, slot: "Current" as const, planId: `shadow:${DISCO_SHORT_EXECUTABLE_A_VERSION}`, label: "Current：A・SHORT実行可能価格確認", origin: "forward_shadow" as const, canonicalLogic: "candidate-6146-opening-short-executable-a", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
   } : symbol === "6976" ? {
     symbol, slot: "Current" as const, planId: `shadow:${TAIYO_AFTERNOON_LONG_WINRATE_VERSION}`, label: "Current：後場LONG B・回復勝率型", origin: "forward_shadow" as const, canonicalLogic: "candidate-6976-afternoon-long-recovery-winrate", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
-  } : symbol === "9984" ? {
-    symbol, slot: "Current" as const, planId: `shadow:${SOFTBANK_RR2_PROTECT_VERSION}`, label: "Current：B・2R利益保護", origin: "forward_shadow" as const, canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
   } : {
     symbol, slot: "Current" as const, planId: `current:${symbol}`, label: "Current（現行100株仮想）", origin: "current" as const, canonicalLogic: `current-${symbol}-candidate-ledger`, strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION, lifecycleRequirement: "current_candidate_ledger" as const, unavailableReason: null,
   }),
@@ -103,7 +101,7 @@ const candidateSlots: SelectorSlot[] = [
   { symbol: "8035", slot: "A", planId: `shadow:${FORWARD_STRATEGY_VERSION}`, label: "A：始値方向ブレイク", origin: "forward_shadow", canonicalLogic: "8035_open_direction_breakout", strategyVersion: FORWARD_STRATEGY_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "8035", slot: "B", planId: "unavailable:8035:B", label: "B：退役済み", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "retired_8035_executable_depth" },
   { symbol: "9984", slot: "A", planId: `shadow:${SOFTBANK_DEPTH_CONFIRM_VERSION}`, label: "A：次イベント板確認", origin: "forward_shadow", canonicalLogic: "candidate-9984-breakout-depth-confirm", strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
-  { symbol: "9984", slot: "B", planId: "unavailable:9984:B", label: "旧Current：ブレイクLONG比較シャドー", origin: "unavailable", canonicalLogic: "current-9984-breakout-long", strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "demoted_current_route_is_monitoring_comparison_only" },
+  { symbol: "9984", slot: "B", planId: "unavailable:9984:B", label: "B：2R利益保護（比較シャドー）", origin: "unavailable", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "comparison_shadow_only_not_selector_candidate" },
 ];
 
 export const TEN_SYMBOL_SELECTOR_SLOTS: readonly SelectorSlot[] = Object.freeze([...currentSlots, ...candidateSlots]);

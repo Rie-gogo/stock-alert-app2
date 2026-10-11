@@ -1288,8 +1288,8 @@ export async function buildForwardShadowDryRunMaterialization(asOfDate: string):
       title: "9984 前場10本高値更新LONG B・2R出口＋次足利益保護",
       startDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
       cutoffDate: SOFTBANK_FORWARD_LEARNING_CUTOFF_DATE,
-      adoptionEligible: true,
-      lifecycle: "active_candidate",
+      adoptionEligible: false,
+      lifecycle: "comparison_shadow_only",
     },
     {
       versionId: TAIYO_BOARD_DEMAND_VERSION,

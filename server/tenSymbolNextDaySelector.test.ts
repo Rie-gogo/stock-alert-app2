@@ -62,8 +62,13 @@ describe("10銘柄翌日選択器の固定運用契約", () => {
       "3436:candidate-3436-current-entry-time15-v1",
       "6146:candidate-6146-opening-short-executable-a-v3-parity-reset",
       "6976:candidate-6976-afternoon-long-recovery-winrate-v1",
-      "9984:forward-shadow-9984-breakout-rr2-protect-v1",
     ]);
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.find(slot => slot.symbol === "9984" && slot.slot === "Current")).toMatchObject({
+      planId: "current:9984", origin: "current", canonicalLogic: "current-9984-candidate-ledger",
+    });
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.find(slot => slot.symbol === "9984" && slot.slot === "B")).toMatchObject({
+      origin: "unavailable", canonicalLogic: "candidate-9984-breakout-rr2-protect", unavailableReason: "comparison_shadow_only_not_selector_candidate",
+    });
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.symbol === "6857").map(slot => slot.origin)).toEqual(["current", "forward_shadow", "forward_shadow"]);
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.symbol === "6981").map(slot => slot.origin)).toEqual(["current", "forward_shadow", "forward_shadow"]);
     const versions = TEN_SYMBOL_SELECTOR_SLOTS.map(slot => slot.strategyVersion).filter(Boolean).join("\n");

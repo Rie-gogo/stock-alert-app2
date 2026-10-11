@@ -198,9 +198,9 @@ const variants: RouteGranularVariant[] = [
   current({ symbol: "8035", routeGroupId: "fallback_trend_short", direction: "short", label: "Current：順張りSHORT（予備）", canonicalLogic: "current-8035-fallback-trend-short", candidateRouteId: "trendShort" }),
   stoppedCurrent({ symbol: "8035", routeGroupId: "peak_reversal_short", direction: "short", label: "旧Current：高値反転SHORT（停止・履歴表示）", canonicalLogic: "current-8035-peak-reversal-short", candidateRouteId: "peakReversalShort" }),
 
-  demotedCurrentShadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "旧Current：ブレイクLONG（比較シャドー）", canonicalLogic: "current-9984-breakout-long", candidateRouteId: "softbankBreakoutLong" }),
+  current({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "Current：ブレイクLONG", canonicalLogic: "current-9984-breakout-long", candidateRouteId: "softbankBreakoutLong" }),
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "A：次イベント板確認", canonicalLogic: "candidate-9984-breakout-depth-confirm", strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION }),
-  promotedForwardCurrent({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "現行仮想：B・2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
+  shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護（比較シャドー）", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
 
 // ボリンジャー5案は、案別かつLONG/SHORT別に混ぜず集計する。
@@ -289,8 +289,8 @@ const AUTHORITATIVE_ROUTE_REQUIREMENTS = Object.freeze([
   { symbol: "6976", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, direction: "long", routeGroupId: "afternoon_reversal_long", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
   { symbol: "6146", strategyVersion: DISCO_SHORT_BASELINE_VERSION, direction: "short", routeGroupId: "opening_short", lifecycleRequirement: "monitoring_display_only", role: "shadow" as const },
   { symbol: "6146", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, direction: "short", routeGroupId: "opening_short", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
-  { symbol: "9984", candidateRouteId: "softbankBreakoutLong", direction: "long", routeGroupId: "breakout_long", lifecycleRequirement: "monitoring_display_only", role: "shadow" as const },
-  { symbol: "9984", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, direction: "long", routeGroupId: "breakout_long", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
+  { symbol: "9984", candidateRouteId: "softbankBreakoutLong", direction: "long", routeGroupId: "breakout_long", lifecycleRequirement: "current_candidate_ledger", role: "current" as const },
+  { symbol: "9984", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, direction: "long", routeGroupId: "breakout_long", lifecycleRequirement: "monitoring_candidate", role: "shadow" as const },
   { symbol: "8035", strategyVersion: FORWARD_STRATEGY_VERSION, shadowSide: "long", direction: "long", routeGroupId: "open_direction_breakout_long", lifecycleRequirement: "monitoring_candidate" },
   { symbol: "8035", strategyVersion: FORWARD_STRATEGY_VERSION, shadowSide: "short", direction: "short", routeGroupId: "open_direction_breakout_short", lifecycleRequirement: "monitoring_candidate" },
 ]);

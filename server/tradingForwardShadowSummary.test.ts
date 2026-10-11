@@ -54,6 +54,10 @@ import {
 import { TEL_CURRENT_PARITY_VERSION, TEL_CAUSALITY_AUDIT_VERSION } from "./telCurrentParity";
 import { TEL_EXECUTABLE_CONFIRM_VERSION } from "./telExecutableConfirm";
 import {
+  SOFTBANK_FORWARD_COLLECTION_START_DATE,
+  SOFTBANK_FORWARD_FORMAL_START_DATE,
+} from "./softbankForwardShadow";
+import {
   RETIRED_TAIYO_AFTERNOON_DEPTH_VERSION,
   RETIRED_TAIYO_AFTERNOON_LONG_RR2_VERSION,
   RETIRED_TAIYO_AFTERNOON_RR2_VERSION,
@@ -141,6 +145,12 @@ describe("trading.getForwardShadowSummary", () => {
         evaluationStartDate: "2026-09-18",
       });
     }
+    expect(byVersion.get(SOFTBANK_RR2_PROTECT_VERSION)).toMatchObject({
+      eligibleForAdoption: false,
+      purpose: "comparison_shadow_only",
+      collectionStartDate: SOFTBANK_FORWARD_COLLECTION_START_DATE,
+      evaluationStartDate: SOFTBANK_FORWARD_FORMAL_START_DATE,
+    });
 
     expect(result.auditStrategies).toEqual([
       expect.objectContaining({ strategyVersion: TEL_CURRENT_PARITY_VERSION, purpose: "parity_only", eligibleForAdoption: false }),
@@ -152,12 +162,10 @@ describe("trading.getForwardShadowSummary", () => {
       automaticAdoption: false,
     });
     expect(result.audit.discoShortPortfolioComparison).toMatchObject({ scenarios: { paused_current: { actualReceipt: { complete: true } } } });
-    expect(result.pausedCurrentRoutes).toHaveLength(11);
+    expect(result.pausedCurrentRoutes).toHaveLength(10);
     expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain("6146:寄り付き10本安値更新SHORT");
-    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toEqual(expect.arrayContaining([
-      "3436:前場15本安値更新SHORT",
-      "9984:前場10本高値更新LONG",
-    ]));
+    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain("3436:前場15本安値更新SHORT");
+    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).not.toContain("9984:前場10本高値更新LONG");
     expect(summaryMock).toHaveBeenCalledTimes(expected.length);
     for (const [version] of expected) {
       expect(summaryMock).toHaveBeenCalledWith("2026-09-17", version);

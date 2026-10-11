@@ -18,11 +18,10 @@ const promotions = [
   { symbol: "3436", version: SUMCO_TIME_15_VERSION, routeGroupId: "sumco_breakdown_short", direction: "short" },
   { symbol: "6146", version: DISCO_SHORT_EXECUTABLE_A_VERSION, routeGroupId: "opening_short", direction: "short" },
   { symbol: "6976", version: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, routeGroupId: "afternoon_reversal_long", direction: "long" },
-  { symbol: "9984", version: SOFTBANK_RR2_PROTECT_VERSION, routeGroupId: "breakout_long", direction: "long" },
 ] as const;
 
-describe("four current/shadow role promotions", () => {
-  it("promotes exactly four existing forward versions and retains a distinct old-current comparison row", () => {
+describe("current/shadow role promotions", () => {
+  it("keeps three forward promotions and restores 9984 Current with B as comparison shadow", () => {
     expect(PROMOTED_FORWARD_CURRENT_VERSIONS).toEqual(promotions.map(item => item.version));
     for (const promotion of promotions) {
       const plan = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.find(item => item.strategyVersion === promotion.version);
@@ -31,13 +30,19 @@ describe("four current/shadow role promotions", () => {
       expect(route).toMatchObject({ symbol: promotion.symbol, direction: promotion.direction, origin: "forward_shadow", role: "current", lifecycleRequirement: "monitoring_candidate" });
     }
 
-    expect(MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(item => item.planId.startsWith("current:"))).toHaveLength(6);
-    for (const [symbol, candidateRouteId] of [["3436", "sumcoBreakdownShort"], ["6976", "taiyoAfternoonReversal"], ["9984", "softbankBreakoutLong"]] as const) {
+    expect(MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(item => item.planId.startsWith("current:"))).toHaveLength(7);
+    for (const [symbol, candidateRouteId] of [["3436", "sumcoBreakdownShort"], ["6976", "taiyoAfternoonReversal"]] as const) {
       const oldCurrent = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.find(item => item.symbol === symbol && item.candidateRouteId === candidateRouteId);
       expect(oldCurrent).toMatchObject({ origin: "current", role: "shadow", candidateDisposition: "shadow_only" });
     }
     expect(MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.find(item => item.strategyVersion === DISCO_SHORT_BASELINE_VERSION)).toMatchObject({
       symbol: "6146", role: "shadow", origin: "forward_shadow",
+    });
+    expect(MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.find(item => item.planId === "current:9984")).toMatchObject({
+      origin: "current", role: "current",
+    });
+    expect(MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.find(item => item.strategyVersion === SOFTBANK_RR2_PROTECT_VERSION)).toMatchObject({
+      symbol: "9984", origin: "forward_shadow", role: "shadow", eligibleForAdoption: false,
     });
   });
 
@@ -68,13 +73,40 @@ describe("four current/shadow role promotions", () => {
     expect(demotedRoute).toMatchObject({ role: "shadow", signals: 1, completedTrades: 1, pnlPer100: 400 });
   });
 
-  it("keeps the route catalog complete while excluding demoted rows from selector candidates", () => {
+  it("keeps 9984 Current and B performance on distinct rows without double counting", () => {
+    const currentCandidate = { id: 200, symbol: "9984", routeId: "softbankBreakoutLong", side: "long", realtimeDecision: "accepted" } as any;
+    const bTrade = { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, evaluationMode: "signal_quality", symbol: "9984", pnl: 220, shares: 100, exitTradeDate: "2026-10-13" } as any;
+    const multi = buildMultiSymbolMonitoringDailySnapshot({
+      tradeDate: "2026-10-13",
+      candidates: [currentCandidate],
+      candidateTrades: [{ candidateId: 200, completed: true, pnl: 120, shares: 100 }] as any,
+      shadowTrades: [bTrade],
+    });
+    expect(multi.plans.find(item => item.planId === "current:9984")).toMatchObject({ role: "current", signals: 1, completedTrades: 1, pnlPer100: 120 });
+    expect(multi.plans.find(item => item.strategyVersion === SOFTBANK_RR2_PROTECT_VERSION)).toMatchObject({ role: "shadow", signals: 1, completedTrades: 1, pnlPer100: 220 });
+
+    const route = buildRouteGranularDailySnapshot({
+      tradeDate: "2026-10-13",
+      candidates: [currentCandidate],
+      candidateTrades: [{ candidateId: 200, completed: true, pnl: 120, shares: 100 }] as any,
+      shadowEvents: [],
+      shadowTrades: [bTrade],
+    });
+    expect(route.plans.find(item => item.symbol === "9984" && item.candidateRouteId === "softbankBreakoutLong")).toMatchObject({ role: "current", signals: 1, completedTrades: 1, pnlPer100: 120 });
+    expect(route.plans.find(item => item.strategyVersion === SOFTBANK_RR2_PROTECT_VERSION)).toMatchObject({ role: "shadow", signals: 0, completedTrades: 1, pnlPer100: 220 });
+  });
+
+  it("keeps the route catalog complete with exactly one 9984 Current owner", () => {
     const audit = auditRouteGranularCatalog();
     expect(audit).toMatchObject({ complete: true, requirementMissing: [], duplicateSelectableRows: [] });
-    for (const symbol of ["3436", "6976", "9984"]) {
+    for (const symbol of ["3436", "6976"]) {
       const demoted = ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === symbol && item.role === "shadow" && item.origin === "current");
       expect(demoted).toHaveLength(1);
       expect(demoted[0]?.lifecycleRequirement).toBe("monitoring_display_only");
     }
+    const softbankCurrent = ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "9984" && item.routeGroupId === "breakout_long" && item.role === "current");
+    expect(softbankCurrent).toHaveLength(1);
+    expect(softbankCurrent[0]).toMatchObject({ origin: "current", candidateRouteId: "softbankBreakoutLong", lifecycleRequirement: "current_candidate_ledger" });
+    expect(ROUTE_GRANULAR_VARIANTS.find(item => item.strategyVersion === SOFTBANK_RR2_PROTECT_VERSION)).toMatchObject({ role: "shadow", lifecycleRequirement: "monitoring_candidate" });
   });
 });

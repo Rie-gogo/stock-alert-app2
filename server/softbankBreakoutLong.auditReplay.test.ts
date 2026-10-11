@@ -172,7 +172,7 @@ describe("9984専用10本高値更新LONG Git fixture実エンジン監査", () 
     expect(resolveSpecializedFiredStateKeys("9984", "buy", reason)).toEqual(["softbankBreakoutLong"]);
   });
 
-  it("2026-10-13以降の旧Currentは通常entryをせず比較shadowへ渡す", async () => {
+  it("9984 Currentは証拠金block後も通常entry候補として再探索する", async () => {
     const tradeDate = "2099-03-02";
     await feedFlatPrefix(tradeDate);
     restoreOpenPositions([{
@@ -182,26 +182,26 @@ describe("9984専用10本高値更新LONG Git fixture実エンジン監査", () 
 
     const blocked = await processCandle({ symbol: "9984", tradeDate, candleTime: "09:40", open: 100, high: 101.1, low: 99.9, close: 101, volume: 150 });
     expect(blocked).toMatchObject({ action: "none" });
-    expect(blocked.reason).toMatch(/^shadow_route_pause:softbank_breakout_long /);
+    expect(blocked.reason).toBe("margin_block");
 
     await forceCloseAllPositions(tradeDate, new Map([["285A", 8_800_000]]));
     const repeated = await processCandle({ symbol: "9984", tradeDate, candleTime: "09:41", open: 101, high: 102.1, low: 100.9, close: 102, volume: 150 });
-    expect(repeated).toMatchObject({ action: "none", reason: "shadow_route_repeat:softbank_breakout_long" });
-    expect(getOpenPositions().some(item => item.symbol === "9984")).toBe(false);
+    expect(repeated.action).toBe("entry");
+    expect(getOpenPositions().some(item => item.symbol === "9984")).toBe(true);
     expect(vi.mocked(upsertSoftbankBreakoutLongEvent)).toHaveBeenCalledWith(expect.objectContaining({
-      tradeDate, candleTime: "09:40", eventType: "engine_rejected", detail: expect.stringMatching(/^shadow_route_pause:softbank_breakout_long /),
+      tradeDate, candleTime: "09:40", eventType: "engine_rejected", detail: "margin_block",
     }));
   });
 
-  it("2026-10-13以降の旧CurrentはATR状態にかかわらず通常entryをしない", async () => {
+  it("9984 CurrentはATR block後に条件成立すれば通常entryする", async () => {
     const tradeDate = "2099-03-03";
     await feedFlatPrefix(tradeDate, 1_000, true);
     const blocked = await processCandle({ symbol: "9984", tradeDate, candleTime: "09:40", open: 1_000, high: 1_004.1, low: 999.99, close: 1_004, volume: 150 });
     expect(blocked.action).toBe("none");
     expect(blocked.reason).toMatch(/^atr_block:/);
 
-    const paused = await processCandle({ symbol: "9984", tradeDate, candleTime: "09:41", open: 1_004, high: 1_010, low: 1_000, close: 1_009, volume: 150 });
-    expect(paused.reason).toMatch(/^shadow_route_pause:softbank_breakout_long /);
-    expect(getOpenPositions().some(item => item.symbol === "9984")).toBe(false);
+    const entered = await processCandle({ symbol: "9984", tradeDate, candleTime: "09:41", open: 1_004, high: 1_010, low: 1_000, close: 1_009, volume: 150 });
+    expect(entered.action).toBe("entry");
+    expect(getOpenPositions().some(item => item.symbol === "9984")).toBe(true);
   });
 });

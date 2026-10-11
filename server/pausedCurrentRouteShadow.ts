@@ -98,13 +98,6 @@ export const PAUSED_CURRENT_ROUTE_SPECS: readonly PausedCurrentRouteSpec[] = Obj
     captureViaGenericCandidateLedger: true,
     effectiveDate: "2026-10-13",
   },
-  {
-    symbol: "9984", side: "long", stateKey: "softbankBreakoutLong", publicRouteId: "softbank_breakout_long",
-    label: "前場10本高値更新LONG",
-    reasonPrefixes: Object.freeze(["ソフトバンクG専用10本高値更新LONG"]),
-    captureViaGenericCandidateLedger: true,
-    effectiveDate: "2026-10-13",
-  },
 ]);
 
 export function resolvePausedCurrentRoute(input: {

@@ -178,13 +178,16 @@ export function buildMultiSymbolMonitoringDailySnapshot(input: {
   const candidateTradeByCandidateId = new Map(
     input.candidateTrades.map(trade => [trade.candidateId, trade])
   );
-  const activeCandidates = input.candidates.filter(
-    candidate => candidate.realtimeDecision !== "shadow_only"
-  );
   const plans = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.map(definition => {
     if (definition.origin === "current") {
-      const signals = activeCandidates.filter(
-        candidate => candidate.symbol === definition.symbol
+      const signals = input.candidates.filter(
+        candidate =>
+          candidate.symbol === definition.symbol &&
+          (definition.candidateDisposition === "shadow_only"
+            ? candidate.realtimeDecision === "shadow_only"
+            : candidate.realtimeDecision !== "shadow_only") &&
+          (definition.candidateRouteId === undefined ||
+            candidate.routeId === definition.candidateRouteId)
       );
       const trades = signals.flatMap(candidate => {
         const trade = candidateTradeByCandidateId.get(candidate.id);

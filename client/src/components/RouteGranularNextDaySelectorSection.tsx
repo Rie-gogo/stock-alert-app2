@@ -91,7 +91,7 @@ export default function RouteGranularNextDaySelectorSection({ asOfDate }: { asOf
                 const actual = outcome?.variants?.find((item: any) => item.rowId === row.rowId);
                 const trend = row.recentTrend;
                 return <tr key={row.rowId} className="border-t border-border/50">
-                  <td className="px-3 py-2"><div className="font-medium">{row.label}</div><div className="font-mono text-[10px] text-muted-foreground">{row.canonicalLogic ?? "unclassified"}</div></td>
+                  <td className="px-3 py-2"><div className="font-medium">{row.label}</div><div className="text-[10px] text-muted-foreground">{row.role === "current" ? "現行仮想" : row.role === "shadow" ? "比較シャドー" : "対象外"}</div><div className="font-mono text-[10px] text-muted-foreground">{row.canonicalLogic ?? "unclassified"}</div></td>
                   <td className="px-2 py-2"><Badge variant={row.selectable ? "default" : "outline"} className="text-[10px]">{row.selectable ? "判断候補" : row.lifecycle}</Badge><div className="font-mono text-[10px] text-muted-foreground">{row.strategyVersion ?? "—"}</div></td>
                   <td className="px-2 py-2"><Badge variant="outline" className="text-[10px]">{trendLabel[trend?.status] ?? "未判定"}</Badge></td>
                   <td className="px-2 py-2"><div>{row.technicalRegimeMatch?.level ?? "unavailable"}</div><div className="font-mono text-[10px] text-muted-foreground">{row.technicalRegimeMatch?.completedTrades ?? 0}件 / D−1→D</div></td>

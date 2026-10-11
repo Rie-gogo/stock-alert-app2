@@ -39,6 +39,11 @@ export interface MonitoringPlanDefinition {
   symbolName: string;
   label: string;
   origin: "current" | "forward_shadow";
+  /** 表示上の運用role。データ取得元originと分離し、forward shadowを現行仮想として昇格できる。 */
+  role: "current" | "shadow";
+  /** current ledgerから読む場合だけ、通常候補か降格済みshadow_only候補かを固定する。 */
+  candidateRouteId?: string;
+  candidateDisposition?: "active" | "shadow_only";
   strategyVersion: string;
   purpose: MonitoringPlanPurpose;
   eligibleForAdoption: boolean;
@@ -47,16 +52,27 @@ export interface MonitoringPlanDefinition {
 export const TEN_MONITORED_SYMBOLS = Object.freeze(
   Array.from(ACTIVE_ENTRY_SYMBOLS ?? []).sort(),
 );
+export const PROMOTED_FORWARD_CURRENT_VERSIONS = Object.freeze([
+  SUMCO_TIME_15_VERSION,
+  DISCO_SHORT_EXECUTABLE_A_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
+  SOFTBANK_RR2_PROTECT_VERSION,
+] as const);
+const PROMOTED_FORWARD_CURRENT_SYMBOLS = new Set(["3436", "6146", "6976", "9984"]);
 
-const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "origin" | "symbolName">> = [
+const SHADOW_PLANS: ReadonlyArray<
+  Omit<MonitoringPlanDefinition, "planId" | "origin" | "symbolName" | "role"> & {
+    role?: MonitoringPlanDefinition["role"];
+  }
+> = [
   { strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION, symbol: "285A", label: "A案：確認型前場LONG・MA8失速保護", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, symbol: "285A", label: "B案：現行5経路・ATR0.36%", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SUMCO_VOLUME_110_VERSION, symbol: "3436", label: "A案：出来高1.10倍", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: SUMCO_TIME_15_VERSION, symbol: "3436", label: "B案：15分時間決済", purpose: "candidate", eligibleForAdoption: true },
+  { strategyVersion: SUMCO_TIME_15_VERSION, symbol: "3436", label: "現行仮想：B案・15分時間決済", role: "current", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION, symbol: "5803", label: "安値反転LONG A/B", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: FUJIKURA_MORNING_SHORT_VERSION, symbol: "5803", label: "前場20本安値更新SHORT", purpose: "diagnostic", eligibleForAdoption: false },
-  { strategyVersion: DISCO_SHORT_BASELINE_VERSION, symbol: "6146", label: "停止中・寄り付きSHORT基準", purpose: "paused_baseline", eligibleForAdoption: false },
-  { strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, symbol: "6146", label: "SHORT A案：実行可能価格確認", purpose: "candidate", eligibleForAdoption: true },
+  { strategyVersion: DISCO_SHORT_BASELINE_VERSION, symbol: "6146", label: "旧Current：寄り付きSHORT（比較シャドー）", purpose: "paused_baseline", eligibleForAdoption: false },
+  { strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, symbol: "6146", label: "現行仮想：SHORT A・実行可能価格確認", role: "current", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: DISCO_SHORT_RETEST_B_VERSION, symbol: "6146", label: "SHORT B案：再安値更新", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: DISCO_LONG_PROFIT_PROTECTION_A_VERSION, symbol: "6146", label: "LONG A案：利益保護", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: DISCO_LONG_PRIOR_THREE_B_VERSION, symbol: "6146", label: "LONG B案：直前3本確認", purpose: "candidate", eligibleForAdoption: true },
@@ -66,12 +82,12 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
   { strategyVersion: ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION, symbol: "6857", label: "B案：確認型継続LONG・二段階高値更新＋次イベント板", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: TAIYO_BOARD_DEMAND_VERSION, symbol: "6976", label: "候補B A案：板需要確認", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: TAIYO_RR2_PROTECT_VERSION, symbol: "6976", label: "候補B B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976", label: "後場LONG B案：回復勝率型", purpose: "candidate", eligibleForAdoption: true },
+  { strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, symbol: "6976", label: "現行仮想：後場LONG B・回復勝率型", role: "current", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: MURATA_DEEP_REVERSAL_LONG_VERSION, symbol: "6981", label: "A案：深い下落後の確認反発LONG", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: MURATA_MORNING_BREAKDOWN_SHORT_VERSION, symbol: "6981", label: "B案：前場20本安値更新SHORT", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: FORWARD_STRATEGY_VERSION, symbol: "8035", label: "短期ブレイク既存シャドー", purpose: "candidate", eligibleForAdoption: true },
   { strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, symbol: "9984", label: "A案：次イベント板確認", purpose: "candidate", eligibleForAdoption: true },
-  { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", label: "B案：2R利益保護", purpose: "candidate", eligibleForAdoption: true },
+  { strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, symbol: "9984", label: "現行仮想：B案・2R利益保護", role: "current", purpose: "candidate", eligibleForAdoption: true },
   ...TEN_MONITORED_SYMBOLS.map(symbol => ({
     strategyVersion: BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS[symbol as keyof typeof BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS],
     symbol,
@@ -119,21 +135,27 @@ const SHADOW_PLANS: ReadonlyArray<Omit<MonitoringPlanDefinition, "planId" | "ori
 ];
 
 export const MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS: ReadonlyArray<MonitoringPlanDefinition> = Object.freeze([
-  ...TEN_MONITORED_SYMBOLS.map(symbol => ({
+  ...TEN_MONITORED_SYMBOLS.filter(symbol => !PROMOTED_FORWARD_CURRENT_SYMBOLS.has(symbol)).map(symbol => ({
     planId: `current:${symbol}`,
     symbol,
     symbolName: NAME_BY_SYMBOL[symbol] ?? symbol,
     label: "現行（証拠金ブロック含む）",
     origin: "current" as const,
+    role: "current" as const,
     strategyVersion: "current-candidate-by-trade-date",
     purpose: "current" as const,
     eligibleForAdoption: false,
   })),
+  // 降格後も通常engineの同一候補をshadow_onlyとして保存し、成績を新規forward版へ付け替えない。
+  { planId: "shadow:current:3436:sumcoBreakdownShort", symbol: "3436", symbolName: NAME_BY_SYMBOL["3436"] ?? "3436", label: "旧Current：前場安値更新SHORT（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "sumcoBreakdownShort", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
+  { planId: "shadow:current:6976:taiyoAfternoonReversal", symbol: "6976", symbolName: NAME_BY_SYMBOL["6976"] ?? "6976", label: "旧Current：後場反転LONG（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "taiyoAfternoonReversal", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
+  { planId: "shadow:current:9984:softbankBreakoutLong", symbol: "9984", symbolName: NAME_BY_SYMBOL["9984"] ?? "9984", label: "旧Current：ブレイクLONG（比較シャドー）", origin: "current", role: "shadow", candidateRouteId: "softbankBreakoutLong", candidateDisposition: "shadow_only", strategyVersion: "current-candidate-by-trade-date", purpose: "current", eligibleForAdoption: false },
   ...SHADOW_PLANS.map(plan => ({
     ...plan,
     planId: `shadow:${plan.strategyVersion}`,
     symbolName: NAME_BY_SYMBOL[plan.symbol] ?? plan.symbol,
     origin: "forward_shadow" as const,
+    role: plan.role ?? ("shadow" as const),
   })),
 ]);
 

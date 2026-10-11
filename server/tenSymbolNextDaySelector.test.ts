@@ -57,7 +57,13 @@ describe("10銘柄翌日選択器の固定運用契約", () => {
   it("Current/A/Bを10銘柄×3行で固定し、停止版や診断版を候補に混ぜない", () => {
     expect(TEN_SYMBOL_SELECTOR_SLOTS).toHaveLength(30);
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.slot === "Current")).toHaveLength(10);
-    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.origin === "unavailable").map(slot => `${slot.symbol}:${slot.slot}`)).toEqual(["5803:B", "6526:A", "8035:B"]);
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.origin === "unavailable").map(slot => `${slot.symbol}:${slot.slot}`)).toEqual(["3436:B", "5803:B", "6146:A", "6526:A", "8035:B", "9984:B"]);
+    expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.slot === "Current" && slot.origin === "forward_shadow").map(slot => `${slot.symbol}:${slot.strategyVersion}`).sort()).toEqual([
+      "3436:candidate-3436-current-entry-time15-v1",
+      "6146:candidate-6146-opening-short-executable-a-v3-parity-reset",
+      "6976:candidate-6976-afternoon-long-recovery-winrate-v1",
+      "9984:forward-shadow-9984-breakout-rr2-protect-v1",
+    ]);
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.symbol === "6857").map(slot => slot.origin)).toEqual(["current", "forward_shadow", "forward_shadow"]);
     expect(TEN_SYMBOL_SELECTOR_SLOTS.filter(slot => slot.symbol === "6981").map(slot => slot.origin)).toEqual(["current", "forward_shadow", "forward_shadow"]);
     const versions = TEN_SYMBOL_SELECTOR_SLOTS.map(slot => slot.strategyVersion).filter(Boolean).join("\n");

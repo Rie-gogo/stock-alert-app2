@@ -152,8 +152,12 @@ describe("trading.getForwardShadowSummary", () => {
       automaticAdoption: false,
     });
     expect(result.audit.discoShortPortfolioComparison).toMatchObject({ scenarios: { paused_current: { actualReceipt: { complete: true } } } });
-    expect(result.pausedCurrentRoutes).toHaveLength(9);
+    expect(result.pausedCurrentRoutes).toHaveLength(11);
     expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toContain("6146:寄り付き10本安値更新SHORT");
+    expect(result.pausedCurrentRoutes.map(item => `${item.symbol}:${item.logicName}`)).toEqual(expect.arrayContaining([
+      "3436:前場15本安値更新SHORT",
+      "9984:前場10本高値更新LONG",
+    ]));
     expect(summaryMock).toHaveBeenCalledTimes(expected.length);
     for (const [version] of expected) {
       expect(summaryMock).toHaveBeenCalledWith("2026-09-17", version);

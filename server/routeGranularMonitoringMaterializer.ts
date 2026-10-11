@@ -192,7 +192,9 @@ export function buildRouteGranularDailySnapshot(input: {
       const candidates = input.candidates.filter(
         candidate =>
           candidate.symbol === variant.symbol &&
-          candidate.realtimeDecision !== "shadow_only" &&
+          (variant.candidateDisposition === "shadow_only"
+            ? candidate.realtimeDecision === "shadow_only"
+            : candidate.realtimeDecision !== "shadow_only") &&
           candidate.routeId === variant.candidateRouteId &&
           candidate.side === variant.direction
       );

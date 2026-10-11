@@ -40,6 +40,7 @@ import {
   SOFTBANK_RR2_PROTECT_VERSION,
   SUMCO_TIME_15_VERSION,
   SUMCO_VOLUME_110_VERSION,
+  TAIYO_AFTERNOON_LONG_WINRATE_VERSION,
   TAIYO_BOARD_DEMAND_VERSION,
   TAIYO_RR2_PROTECT_VERSION,
   FORWARD_STRATEGY_VERSION,
@@ -69,25 +70,27 @@ export type SelectorSlot = Readonly<{
 }>;
 
 const currentSlots: SelectorSlot[] = TEN_MONITORED_SYMBOLS.map(symbol => ({
-  symbol,
-  slot: "Current",
-  planId: `current:${symbol}`,
-  label: "Current（現行100株仮想）",
-  origin: "current",
-  canonicalLogic: `current-${symbol}-candidate-ledger`,
-  strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
-  lifecycleRequirement: "current_candidate_ledger",
-  unavailableReason: null,
+  ...(symbol === "3436" ? {
+    symbol, slot: "Current" as const, planId: `shadow:${SUMCO_TIME_15_VERSION}`, label: "Current：B・15分時間決済", origin: "forward_shadow" as const, canonicalLogic: "candidate-3436-current-entry-time15", strategyVersion: SUMCO_TIME_15_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
+  } : symbol === "6146" ? {
+    symbol, slot: "Current" as const, planId: `shadow:${DISCO_SHORT_EXECUTABLE_A_VERSION}`, label: "Current：A・SHORT実行可能価格確認", origin: "forward_shadow" as const, canonicalLogic: "candidate-6146-opening-short-executable-a", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
+  } : symbol === "6976" ? {
+    symbol, slot: "Current" as const, planId: `shadow:${TAIYO_AFTERNOON_LONG_WINRATE_VERSION}`, label: "Current：後場LONG B・回復勝率型", origin: "forward_shadow" as const, canonicalLogic: "candidate-6976-afternoon-long-recovery-winrate", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
+  } : symbol === "9984" ? {
+    symbol, slot: "Current" as const, planId: `shadow:${SOFTBANK_RR2_PROTECT_VERSION}`, label: "Current：B・2R利益保護", origin: "forward_shadow" as const, canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, lifecycleRequirement: "monitoring_candidate" as const, unavailableReason: null,
+  } : {
+    symbol, slot: "Current" as const, planId: `current:${symbol}`, label: "Current（現行100株仮想）", origin: "current" as const, canonicalLogic: `current-${symbol}-candidate-ledger`, strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION, lifecycleRequirement: "current_candidate_ledger" as const, unavailableReason: null,
+  }),
 }));
 
 const candidateSlots: SelectorSlot[] = [
   { symbol: "285A", slot: "A", planId: `shadow:${KIOXIA_FORWARD_STRATEGY_VERSION}`, label: "A：確認型前場LONG", origin: "forward_shadow", canonicalLogic: "285a_confirmed_long_ma8_protection", strategyVersion: KIOXIA_FORWARD_STRATEGY_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "285A", slot: "B", planId: `shadow:${KIOXIA_ATR_FORWARD_STRATEGY_VERSION}`, label: "B：5経路ATR", origin: "forward_shadow", canonicalLogic: "285a_five_routes_atr036_route_daily_end", strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "3436", slot: "A", planId: `shadow:${SUMCO_VOLUME_110_VERSION}`, label: "A：出来高1.10倍", origin: "forward_shadow", canonicalLogic: "candidate-3436-volume110-time15", strategyVersion: SUMCO_VOLUME_110_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
-  { symbol: "3436", slot: "B", planId: `shadow:${SUMCO_TIME_15_VERSION}`, label: "B：15分時間決済", origin: "forward_shadow", canonicalLogic: "candidate-3436-current-entry-time15", strategyVersion: SUMCO_TIME_15_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
+  { symbol: "3436", slot: "B", planId: "unavailable:3436:B", label: "旧Current：比較シャドー", origin: "unavailable", canonicalLogic: "current-3436-breakdown-short", strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "demoted_current_route_is_monitoring_comparison_only" },
   { symbol: "5803", slot: "A", planId: `shadow:${FUJIKURA_FORWARD_STRATEGY_VERSION}`, label: "A：安値反転LONG", origin: "forward_shadow", canonicalLogic: "5803_low_reversal_long_ab", strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "5803", slot: "B", planId: "unavailable:5803:B", label: "B：未登録", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "candidate-5803-morning-20bar-breakdown-short-depth-v1 is stopped and excluded" },
-  { symbol: "6146", slot: "A", planId: `shadow:${DISCO_SHORT_EXECUTABLE_A_VERSION}`, label: "A：SHORT実行可能価格確認", origin: "forward_shadow", canonicalLogic: "candidate-6146-opening-short-executable-a", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
+  { symbol: "6146", slot: "A", planId: "unavailable:6146:A", label: "旧Current：寄り付きSHORT比較シャドー", origin: "unavailable", canonicalLogic: "current-6146-opening-short", strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "demoted_current_route_is_monitoring_comparison_only" },
   { symbol: "6146", slot: "B", planId: `shadow:${DISCO_SHORT_RETEST_B_VERSION}`, label: "B：SHORT再安値リテスト", origin: "forward_shadow", canonicalLogic: "candidate-6146-opening-short-retest-b", strategyVersion: DISCO_SHORT_RETEST_B_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "6526", slot: "A", planId: "unavailable:6526:A", label: "A：未登録", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "initial-strength diagnostic version is stopped and excluded" },
   { symbol: "6526", slot: "B", planId: `shadow:${SOCIONEXT_CONFIRM_STRENGTH_VERSION}`, label: "B：確認足強度", origin: "forward_shadow", canonicalLogic: "candidate-6526-confirm-strength-daily-stop", strategyVersion: SOCIONEXT_CONFIRM_STRENGTH_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
@@ -100,7 +103,7 @@ const candidateSlots: SelectorSlot[] = [
   { symbol: "8035", slot: "A", planId: `shadow:${FORWARD_STRATEGY_VERSION}`, label: "A：始値方向ブレイク", origin: "forward_shadow", canonicalLogic: "8035_open_direction_breakout", strategyVersion: FORWARD_STRATEGY_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
   { symbol: "8035", slot: "B", planId: "unavailable:8035:B", label: "B：退役済み", origin: "unavailable", canonicalLogic: null, strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "retired_8035_executable_depth" },
   { symbol: "9984", slot: "A", planId: `shadow:${SOFTBANK_DEPTH_CONFIRM_VERSION}`, label: "A：次イベント板確認", origin: "forward_shadow", canonicalLogic: "candidate-9984-breakout-depth-confirm", strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
-  { symbol: "9984", slot: "B", planId: `shadow:${SOFTBANK_RR2_PROTECT_VERSION}`, label: "B：2R利益保護", origin: "forward_shadow", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, lifecycleRequirement: "monitoring_candidate", unavailableReason: null },
+  { symbol: "9984", slot: "B", planId: "unavailable:9984:B", label: "旧Current：ブレイクLONG比較シャドー", origin: "unavailable", canonicalLogic: "current-9984-breakout-long", strategyVersion: null, lifecycleRequirement: "unavailable", unavailableReason: "demoted_current_route_is_monitoring_comparison_only" },
 ];
 
 export const TEN_SYMBOL_SELECTOR_SLOTS: readonly SelectorSlot[] = Object.freeze([...currentSlots, ...candidateSlots]);

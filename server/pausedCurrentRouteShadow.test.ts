@@ -15,11 +15,11 @@ import { resolveSpecializedFiredStateKeys } from "./realtimeSimEngine";
 import { resolveCurrentRouteSpec } from "./currentSignalCandidateRegistry";
 
 describe("paused current route shadow policy", () => {
-  it("退役後に残す9経路を重複なく固定する", () => {
+  it("停止・比較shadow経路を重複なく固定する", () => {
     expect(PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE).toBe("2026-09-16");
-    expect(PAUSED_CURRENT_ROUTE_SPECS).toHaveLength(9);
-    expect(new Set(PAUSED_CURRENT_ROUTE_SPECS.map(spec => `${spec.symbol}:${spec.side}:${spec.label}`)).size).toBe(9);
-    expect(PAUSED_CURRENT_ROUTE_SPECS.filter(spec => spec.captureViaGenericCandidateLedger)).toHaveLength(8);
+    expect(PAUSED_CURRENT_ROUTE_SPECS).toHaveLength(11);
+    expect(new Set(PAUSED_CURRENT_ROUTE_SPECS.map(spec => `${spec.symbol}:${spec.side}:${spec.label}`)).size).toBe(11);
+    expect(PAUSED_CURRENT_ROUTE_SPECS.filter(spec => spec.captureViaGenericCandidateLedger)).toHaveLength(10);
     expect(PAUSED_CURRENT_ROUTE_SPECS.find(spec => spec.symbol === "6146")).toMatchObject({
       captureViaGenericCandidateLedger: false,
       label: "寄り付き10本安値更新SHORT",
@@ -44,6 +44,19 @@ describe("paused current route shadow policy", () => {
     expect(resolvePausedCurrentRoute({
       symbol: "6976", side: "short", reason: "太陽誘電後場反転SHORT: テスト", tradeDate: "2026-09-16",
     })).toBeNull();
+  });
+
+  it("3436/9984旧Currentは2026-10-13からだけ比較shadowに降格する", () => {
+    const sumco = { symbol: "3436", side: "short" as const, reason: "SUMCO専用15本安値更新SHORT: テスト" };
+    const softbank = { symbol: "9984", side: "long" as const, reason: "ソフトバンクG専用10本高値更新LONG: テスト" };
+    expect(resolvePausedCurrentRoute({ ...sumco, tradeDate: "2026-10-12" })).toBeNull();
+    expect(resolvePausedCurrentRoute({ ...softbank, tradeDate: "2026-10-12" })).toBeNull();
+    expect(resolvePausedCurrentRoute({ ...sumco, tradeDate: "2026-10-13" })).toMatchObject({
+      stateKey: "sumcoBreakdownShort", publicRouteId: "sumco_breakdown_short",
+    });
+    expect(resolvePausedCurrentRoute({ ...softbank, tradeDate: "2026-10-13" })).toMatchObject({
+      stateKey: "softbankBreakoutLong", publicRouteId: "softbank_breakout_long",
+    });
   });
 
   it("監査理由へ元理由を可逆に格納する", () => {
@@ -71,7 +84,7 @@ describe("paused current route shadow policy", () => {
     for (const spec of PAUSED_CURRENT_ROUTE_SPECS.filter(item => item.captureViaGenericCandidateLedger)) {
       const reason = `${spec.reasonPrefixes[0]}: テスト候補`;
       expect(resolvePausedCurrentRoute({
-        symbol: spec.symbol, side: spec.side, reason, tradeDate: "2026-09-16",
+        symbol: spec.symbol, side: spec.side, reason, tradeDate: spec.effectiveDate ?? "2026-09-16",
       })?.stateKey).toBe(spec.stateKey);
       expect(resolveCurrentRouteSpec({
         symbol: spec.symbol, side: spec.side, reason, entryCandleTime: "10:00",

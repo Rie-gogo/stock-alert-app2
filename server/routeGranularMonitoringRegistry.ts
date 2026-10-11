@@ -11,6 +11,7 @@ import {
   BOLLINGER_DIRECTIONAL_SMA20_SLOPE_GAP_060_V3_VERSIONS,
   DISCO_LONG_PRIOR_THREE_B_VERSION,
   DISCO_LONG_PROFIT_PROTECTION_A_VERSION,
+  DISCO_SHORT_BASELINE_VERSION,
   DISCO_SHORT_EXECUTABLE_A_VERSION,
   DISCO_SHORT_RETEST_B_VERSION,
   FORWARD_STRATEGY_VERSION,
@@ -47,6 +48,10 @@ export type RouteGranularVariant = Readonly<{
   canonicalLogic: string | null;
   strategyVersion: string | null;
   origin: "current" | "forward_shadow" | "unavailable" | "unclassified";
+  /** 運用roleはデータ取得元originと独立。昇格したforward shadowを現行仮想として表示する。 */
+  role: "current" | "shadow" | "unavailable";
+  /** current ledger由来rowについて、通常accepted/margin blockかshadow_onlyかを固定する。 */
+  candidateDisposition?: "active" | "shadow_only";
   candidateRouteId?: string;
   shadowRouteId?: string;
   /** A dual-direction strategyVersion is partitioned by persisted action side. */
@@ -56,59 +61,74 @@ export type RouteGranularVariant = Readonly<{
 }>;
 
 function name(symbol: string) { return NAME_BY_SYMBOL[symbol] ?? symbol; }
-function current(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "strategyVersion" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+function current(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "strategyVersion" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
   return {
     ...input,
     rowId: `current:${input.symbol}:${input.routeGroupId}:${input.candidateRouteId ?? "unknown"}`,
-    symbolName: name(input.symbol), origin: "current", strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    symbolName: name(input.symbol), origin: "current", role: "current", candidateDisposition: "active", strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
     lifecycleRequirement: "current_candidate_ledger", unavailableReason: null,
   };
 }
-function shadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+function demotedCurrentShadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "strategyVersion" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+  return {
+    ...input,
+    rowId: `current:${input.symbol}:${input.routeGroupId}:${input.candidateRouteId ?? "unknown"}`,
+    symbolName: name(input.symbol), origin: "current", role: "shadow", candidateDisposition: "shadow_only", strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    lifecycleRequirement: "monitoring_display_only", unavailableReason: "demoted_current_route_shadow_only",
+  };
+}
+function shadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
   return {
     ...input,
     rowId: `shadow:${input.strategyVersion}:${input.routeGroupId}:${input.shadowRouteId ?? "single"}`,
-    symbolName: name(input.symbol), origin: "forward_shadow", lifecycleRequirement: "monitoring_candidate", unavailableReason: null,
+    symbolName: name(input.symbol), origin: "forward_shadow", role: "shadow", lifecycleRequirement: "monitoring_candidate", unavailableReason: null,
+  };
+}
+function promotedForwardCurrent(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+  return {
+    ...input,
+    rowId: `shadow:${input.strategyVersion}:${input.routeGroupId}:${input.shadowRouteId ?? "single"}`,
+    symbolName: name(input.symbol), origin: "forward_shadow", role: "current", lifecycleRequirement: "monitoring_candidate", unavailableReason: null,
   };
 }
 /** AI fixed rows are visible in route monitoring but never become selector or v4 candidates. */
-function displayOnlyShadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+function displayOnlyShadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
   return {
     ...input,
     rowId: `shadow:${input.strategyVersion}:${input.routeGroupId}:${input.shadowRouteId ?? input.shadowSide ?? "single"}`,
-    symbolName: name(input.symbol), origin: "forward_shadow", lifecycleRequirement: "monitoring_display_only", unavailableReason: "monitoring_display_only_not_selector_candidate",
+    symbolName: name(input.symbol), origin: "forward_shadow", role: "shadow", lifecycleRequirement: "monitoring_display_only", unavailableReason: "monitoring_display_only_not_selector_candidate",
   };
 }
 
-function unavailable(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "strategyVersion" | "canonicalLogic" | "lifecycleRequirement">): RouteGranularVariant {
+function unavailable(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "strategyVersion" | "canonicalLogic" | "lifecycleRequirement">): RouteGranularVariant {
   return {
     ...input,
     rowId: `unavailable:${input.symbol}:${input.routeGroupId}:${input.label}`,
-    symbolName: name(input.symbol), origin: "unavailable", strategyVersion: null, canonicalLogic: null,
+    symbolName: name(input.symbol), origin: "unavailable", role: "unavailable", strategyVersion: null, canonicalLogic: null,
     lifecycleRequirement: "unavailable",
   };
 }
-function stoppedCurrent(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "strategyVersion" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+function stoppedCurrent(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "strategyVersion" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
   return {
     ...input,
     rowId: `stopped-current:${input.symbol}:${input.routeGroupId}:${input.candidateRouteId ?? "unknown"}`,
-    symbolName: name(input.symbol), origin: "unavailable", strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
+    symbolName: name(input.symbol), origin: "unavailable", role: "unavailable", strategyVersion: CURRENT_SIGNAL_CANDIDATE_VERSION,
     lifecycleRequirement: "stopped_current", unavailableReason: "stopped_current_route_display_only",
   };
 }
-function invalidMapping(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+function invalidMapping(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
   return {
     ...input,
     rowId: `invalid-mapping:${input.strategyVersion ?? input.symbol}:${input.routeGroupId}:${input.shadowRouteId ?? "single"}`,
-    symbolName: name(input.symbol), origin: "unavailable", lifecycleRequirement: "invalid_mapping",
+    symbolName: name(input.symbol), origin: "unavailable", role: "unavailable", lifecycleRequirement: "invalid_mapping",
     unavailableReason: "invalid_mapping_quarantined_not_dispatched_or_selectable",
   };
 }
-function stoppedShadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
+function stoppedShadow(input: Omit<RouteGranularVariant, "rowId" | "symbolName" | "origin" | "role" | "candidateDisposition" | "lifecycleRequirement" | "unavailableReason">): RouteGranularVariant {
   return {
     ...input,
     rowId: `stopped-shadow:${input.strategyVersion ?? input.symbol}:${input.routeGroupId}:${input.shadowRouteId ?? input.shadowSide ?? "single"}`,
-    symbolName: name(input.symbol), origin: "unavailable", lifecycleRequirement: "unavailable",
+    symbolName: name(input.symbol), origin: "unavailable", role: "unavailable", lifecycleRequirement: "unavailable",
     unavailableReason: "stopped_or_superseded_shadow_display_only",
   };
 }
@@ -128,11 +148,11 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "285A", routeGroupId: "trend_short", direction: "short", label: "Plan B：順張りSHORT", canonicalLogic: "285a_five_routes_atr036_route_daily_end", strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, shadowRouteId: "trend_short" }),
   current({ symbol: "285A", routeGroupId: "safe_cb_short", direction: "short", label: "Current：安全CB SHORT", canonicalLogic: "current-285a-safe-cb-short", candidateRouteId: "kioxiaSafeCbShort" }),
   shadow({ symbol: "285A", routeGroupId: "safe_cb_short", direction: "short", label: "Plan B：安全CB SHORT", canonicalLogic: "285a_five_routes_atr036_route_daily_end", strategyVersion: KIOXIA_ATR_FORWARD_STRATEGY_VERSION, shadowRouteId: "safe_cb_short" }),
-  { rowId: "unclassified:285A", symbol: "285A", symbolName: name("285A"), routeGroupId: "unclassified", direction: "unknown", label: "未分類（選択対象外）", canonicalLogic: null, strategyVersion: null, origin: "unclassified", lifecycleRequirement: "unclassified", unavailableReason: "unclassified_route_is_never_selectable" },
+  { rowId: "unclassified:285A", symbol: "285A", symbolName: name("285A"), routeGroupId: "unclassified", direction: "unknown", label: "未分類（選択対象外）", canonicalLogic: null, strategyVersion: null, origin: "unclassified", role: "unavailable", lifecycleRequirement: "unclassified", unavailableReason: "unclassified_route_is_never_selectable" },
 
-  current({ symbol: "3436", routeGroupId: "sumco_breakdown_short", direction: "short", label: "Current：前場安値更新SHORT", canonicalLogic: "current-3436-breakdown-short", candidateRouteId: "sumcoBreakdownShort" }),
+  demotedCurrentShadow({ symbol: "3436", routeGroupId: "sumco_breakdown_short", direction: "short", label: "旧Current：前場安値更新SHORT（比較シャドー）", canonicalLogic: "current-3436-breakdown-short", candidateRouteId: "sumcoBreakdownShort" }),
   shadow({ symbol: "3436", routeGroupId: "sumco_breakdown_short", direction: "short", label: "A：出来高1.10倍", canonicalLogic: "candidate-3436-volume110-time15", strategyVersion: SUMCO_VOLUME_110_VERSION }),
-  shadow({ symbol: "3436", routeGroupId: "sumco_breakdown_short", direction: "short", label: "B：15分時間決済", canonicalLogic: "candidate-3436-current-entry-time15", strategyVersion: SUMCO_TIME_15_VERSION }),
+  promotedForwardCurrent({ symbol: "3436", routeGroupId: "sumco_breakdown_short", direction: "short", label: "現行仮想：B・15分時間決済", canonicalLogic: "candidate-3436-current-entry-time15", strategyVersion: SUMCO_TIME_15_VERSION }),
 
   current({ symbol: "5803", routeGroupId: "low_reversal_long", direction: "long", label: "Current：安値反転LONG", canonicalLogic: "current-5803-low-reversal-long", candidateRouteId: "lowReversalBreakLong" }),
   shadow({ symbol: "5803", routeGroupId: "low_reversal_long", direction: "long", label: "A：安値反転LONG", canonicalLogic: "5803_low_reversal_long_ab", strategyVersion: FUJIKURA_FORWARD_STRATEGY_VERSION }),
@@ -140,8 +160,8 @@ const variants: RouteGranularVariant[] = [
   current({ symbol: "5803", routeGroupId: "high_fade_short", direction: "short", label: "Current：高値失速SHORT", canonicalLogic: "current-5803-high-fade-short", candidateRouteId: "highFadeBreakShort" }),
   unavailable({ symbol: "5803", routeGroupId: "high_fade_short", direction: "short", label: "B：停止・旧版", unavailableReason: "stopped_shadow_version_excluded" }),
 
-  stoppedCurrent({ symbol: "6146", routeGroupId: "opening_short", direction: "short", label: "旧Current：寄り付きSHORT（停止・履歴表示）", canonicalLogic: "current-6146-opening-short", candidateRouteId: "discoOpeningBreakShort" }),
-  shadow({ symbol: "6146", routeGroupId: "opening_short", direction: "short", label: "A：実行可能価格確認", canonicalLogic: "candidate-6146-opening-short-executable-a", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION }),
+  displayOnlyShadow({ symbol: "6146", routeGroupId: "opening_short", direction: "short", label: "旧Current：寄り付きSHORT（比較シャドー）", canonicalLogic: "current-6146-opening-short", strategyVersion: DISCO_SHORT_BASELINE_VERSION }),
+  promotedForwardCurrent({ symbol: "6146", routeGroupId: "opening_short", direction: "short", label: "現行仮想：A・実行可能価格確認", canonicalLogic: "candidate-6146-opening-short-executable-a", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION }),
   shadow({ symbol: "6146", routeGroupId: "opening_short", direction: "short", label: "B：再安値リテスト", canonicalLogic: "candidate-6146-opening-short-retest-b", strategyVersion: DISCO_SHORT_RETEST_B_VERSION }),
   current({ symbol: "6146", routeGroupId: "confirmed_long", direction: "long", label: "Current：確認型LONG", canonicalLogic: "current-6146-confirmed-long", candidateRouteId: "discoConfirmedBreakLong" }),
   shadow({ symbol: "6146", routeGroupId: "confirmed_long", direction: "long", label: "A：利益保護", canonicalLogic: "candidate-6146-confirmed-long-profit-protection-a", strategyVersion: DISCO_LONG_PROFIT_PROTECTION_A_VERSION }),
@@ -162,9 +182,9 @@ const variants: RouteGranularVariant[] = [
   shadow({ symbol: "6976", routeGroupId: "candidate_b_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-6976-rr2-protect", strategyVersion: TAIYO_RR2_PROTECT_VERSION }),
   stoppedCurrent({ symbol: "6976", routeGroupId: "candidate_b_short", direction: "short", label: "旧Current：候補B SHORT（停止・履歴表示）", canonicalLogic: "current-6976-candidate-b-short", candidateRouteId: "taiyoCandidateB" }),
   stoppedCurrent({ symbol: "6976", routeGroupId: "morning_initial_short", direction: "short", label: "旧Current：朝初動SHORT（停止・履歴表示）", canonicalLogic: "current-6976-morning-initial-short", candidateRouteId: "taiyoMorningInitialShort" }),
-  stoppedCurrent({ symbol: "6976", routeGroupId: "afternoon_reversal_long", direction: "long", label: "旧Current：後場反転LONG（停止・履歴表示）", canonicalLogic: "current-6976-afternoon-reversal-long", candidateRouteId: "taiyoAfternoonReversal" }),
+  demotedCurrentShadow({ symbol: "6976", routeGroupId: "afternoon_reversal_long", direction: "long", label: "旧Current：後場反転LONG（比較シャドー）", canonicalLogic: "current-6976-afternoon-reversal-long", candidateRouteId: "taiyoAfternoonReversal" }),
   current({ symbol: "6976", routeGroupId: "afternoon_reversal_short", direction: "short", label: "Current：後場反転SHORT", canonicalLogic: "current-6976-afternoon-reversal-short", candidateRouteId: "taiyoAfternoonReversal" }),
-  shadow({ symbol: "6976", routeGroupId: "afternoon_reversal_long", direction: "long", label: "B：後場反転LONG回復型", canonicalLogic: "candidate-6976-afternoon-long-recovery-winrate", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION }),
+  promotedForwardCurrent({ symbol: "6976", routeGroupId: "afternoon_reversal_long", direction: "long", label: "現行仮想：B・後場反転LONG回復型", canonicalLogic: "candidate-6976-afternoon-long-recovery-winrate", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION }),
 
   current({ symbol: "6981", routeGroupId: "low_reversal_long", direction: "long", label: "Current：安値反転LONG", canonicalLogic: "current-6981-low-reversal-long", candidateRouteId: "lowReversalBreakLong" }),
   shadow({ symbol: "6981", routeGroupId: "deep_reversal_long", direction: "long", label: "A：深い下落後の確認反発", canonicalLogic: "candidate-6981-deep-reversal-long", strategyVersion: MURATA_DEEP_REVERSAL_LONG_VERSION }),
@@ -178,9 +198,9 @@ const variants: RouteGranularVariant[] = [
   current({ symbol: "8035", routeGroupId: "fallback_trend_short", direction: "short", label: "Current：順張りSHORT（予備）", canonicalLogic: "current-8035-fallback-trend-short", candidateRouteId: "trendShort" }),
   stoppedCurrent({ symbol: "8035", routeGroupId: "peak_reversal_short", direction: "short", label: "旧Current：高値反転SHORT（停止・履歴表示）", canonicalLogic: "current-8035-peak-reversal-short", candidateRouteId: "peakReversalShort" }),
 
-  current({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "Current：ブレイクLONG", canonicalLogic: "current-9984-breakout-long", candidateRouteId: "softbankBreakoutLong" }),
+  demotedCurrentShadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "旧Current：ブレイクLONG（比較シャドー）", canonicalLogic: "current-9984-breakout-long", candidateRouteId: "softbankBreakoutLong" }),
   shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "A：次イベント板確認", canonicalLogic: "candidate-9984-breakout-depth-confirm", strategyVersion: SOFTBANK_DEPTH_CONFIRM_VERSION }),
-  shadow({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "B：2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
+  promotedForwardCurrent({ symbol: "9984", routeGroupId: "breakout_long", direction: "long", label: "現行仮想：B・2R利益保護", canonicalLogic: "candidate-9984-breakout-rr2-protect", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION }),
 ];
 
 // ボリンジャー5案は、案別かつLONG/SHORT別に混ぜず集計する。
@@ -257,14 +277,20 @@ export const ROUTE_GRANULAR_GROUPS = Object.freeze(Array.from(new Set(variants.m
  * row count: one strategyVersion may legitimately have direction child rows.
  */
 const AUTHORITATIVE_ROUTE_REQUIREMENTS = Object.freeze([
+  { symbol: "3436", candidateRouteId: "sumcoBreakdownShort", direction: "short", routeGroupId: "sumco_breakdown_short", lifecycleRequirement: "monitoring_display_only", role: "shadow" as const },
+  { symbol: "3436", strategyVersion: SUMCO_TIME_15_VERSION, direction: "short", routeGroupId: "sumco_breakdown_short", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
   { symbol: "285A", candidateRouteId: "reversalLong", direction: "long", routeGroupId: "reversal_long", lifecycleRequirement: "stopped_current" },
   { symbol: "285A", strategyVersion: KIOXIA_REVERSAL_LONG_EXACT_REOPEN_VERSION, shadowRouteId: "kioxiaReversalLong", direction: "long", routeGroupId: "reversal_long", lifecycleRequirement: "monitoring_candidate" },
   { symbol: "6526", candidateRouteId: "socionextConfirmedLong", direction: "long", routeGroupId: "confirmed_long", lifecycleRequirement: "stopped_current" },
   { symbol: "6526", strategyVersion: SOCIONEXT_CONFIRMED_LONG_EXACT_REOPEN_VERSION, direction: "long", routeGroupId: "confirmed_long", lifecycleRequirement: "monitoring_candidate" },
   { symbol: "6976", candidateRouteId: "taiyoMorningInitialShort", direction: "short", routeGroupId: "morning_initial_short", lifecycleRequirement: "stopped_current" },
   { symbol: "6976", candidateRouteId: "taiyoCandidateB", direction: "short", routeGroupId: "candidate_b_short", lifecycleRequirement: "stopped_current" },
-  { symbol: "6976", candidateRouteId: "taiyoAfternoonReversal", direction: "long", routeGroupId: "afternoon_reversal_long", lifecycleRequirement: "stopped_current" },
-  { symbol: "6976", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, direction: "long", routeGroupId: "afternoon_reversal_long", lifecycleRequirement: "monitoring_candidate" },
+  { symbol: "6976", candidateRouteId: "taiyoAfternoonReversal", direction: "long", routeGroupId: "afternoon_reversal_long", lifecycleRequirement: "monitoring_display_only", role: "shadow" as const },
+  { symbol: "6976", strategyVersion: TAIYO_AFTERNOON_LONG_WINRATE_VERSION, direction: "long", routeGroupId: "afternoon_reversal_long", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
+  { symbol: "6146", strategyVersion: DISCO_SHORT_BASELINE_VERSION, direction: "short", routeGroupId: "opening_short", lifecycleRequirement: "monitoring_display_only", role: "shadow" as const },
+  { symbol: "6146", strategyVersion: DISCO_SHORT_EXECUTABLE_A_VERSION, direction: "short", routeGroupId: "opening_short", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
+  { symbol: "9984", candidateRouteId: "softbankBreakoutLong", direction: "long", routeGroupId: "breakout_long", lifecycleRequirement: "monitoring_display_only", role: "shadow" as const },
+  { symbol: "9984", strategyVersion: SOFTBANK_RR2_PROTECT_VERSION, direction: "long", routeGroupId: "breakout_long", lifecycleRequirement: "monitoring_candidate", role: "current" as const },
   { symbol: "8035", strategyVersion: FORWARD_STRATEGY_VERSION, shadowSide: "long", direction: "long", routeGroupId: "open_direction_breakout_long", lifecycleRequirement: "monitoring_candidate" },
   { symbol: "8035", strategyVersion: FORWARD_STRATEGY_VERSION, shadowSide: "short", direction: "short", routeGroupId: "open_direction_breakout_short", lifecycleRequirement: "monitoring_candidate" },
 ]);
@@ -292,6 +318,7 @@ type RouteCatalogRequirement = Readonly<{
   strategyVersion?: string;
   shadowRouteId?: string;
   shadowSide?: string;
+  role?: RouteGranularVariant["role"];
 }>;
 
 function matchesRequirement(variant: RouteGranularVariant, requirement: RouteCatalogRequirement) {
@@ -302,7 +329,8 @@ function matchesRequirement(variant: RouteGranularVariant, requirement: RouteCat
     && (requirement.candidateRouteId === undefined || variant.candidateRouteId === requirement.candidateRouteId)
     && (requirement.strategyVersion === undefined || variant.strategyVersion === requirement.strategyVersion)
     && (requirement.shadowRouteId === undefined || variant.shadowRouteId === requirement.shadowRouteId)
-    && (requirement.shadowSide === undefined || variant.shadowSide === requirement.shadowSide);
+    && (requirement.shadowSide === undefined || variant.shadowSide === requirement.shadowSide)
+    && (requirement.role === undefined || variant.role === requirement.role);
 }
 
 export type RouteCatalogLifecycleRecord = Readonly<{

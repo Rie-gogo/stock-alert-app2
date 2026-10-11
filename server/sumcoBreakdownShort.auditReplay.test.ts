@@ -161,7 +161,7 @@ describe("3436専用15本安値更新SHORT Git fixture実エンジン監査", ()
     expect(result.reason).toContain("最大保有30分");
   });
 
-  it("証拠金拒否は日次枠を消費せず、解放後の後続候補へ再探索する", async () => {
+  it("2026-10-13以降の旧Currentは通常entryをせず比較shadowへ渡す", async () => {
     const tradeDate = "2099-02-01";
     await feedFlatPrefix(tradeDate);
     restoreOpenPositions([{
@@ -170,35 +170,27 @@ describe("3436専用15本安値更新SHORT Git fixture実エンジン監査", ()
     }]);
 
     const blocked = await processCandle({ symbol: "3436", tradeDate, candleTime: "09:30", open: 100, high: 100.1, low: 98.8, close: 99, volume: 150 });
-    expect(blocked).toMatchObject({ action: "none", reason: "margin_block" });
+    expect(blocked).toMatchObject({ action: "none" });
+    expect(blocked.reason).toMatch(/^shadow_route_pause:sumco_breakdown_short /);
 
     await forceCloseAllPositions(tradeDate, new Map([["285A", 8_800_000]]));
-    const accepted = await processCandle({ symbol: "3436", tradeDate, candleTime: "09:31", open: 99, high: 99.1, low: 97.8, close: 98, volume: 150 });
-    expect(accepted.action).toBe("entry");
-    expect(accepted.reason).toContain("SUMCO専用15本安値更新SHORT");
-    expect(getSumcoBreakdownShortAuditEventsForTest().some(
-      event => event.event === "engine_rejected" && event.detail === "margin_block",
-    )).toBe(true);
+    const repeated = await processCandle({ symbol: "3436", tradeDate, candleTime: "09:31", open: 99, high: 99.1, low: 97.8, close: 98, volume: 150 });
+    expect(repeated).toMatchObject({ action: "none", reason: "shadow_route_repeat:sumco_breakdown_short" });
+    expect(getOpenPositions().some(item => item.symbol === "3436")).toBe(false);
     expect(vi.mocked(upsertSumcoBreakdownShortEvent)).toHaveBeenCalledWith(expect.objectContaining({
-      tradeDate,
-      candleTime: "09:30",
-      eventType: "engine_rejected",
-      detail: "margin_block",
-      referencePrice: "99",
+      tradeDate, candleTime: "09:30", eventType: "engine_rejected", detail: expect.stringMatching(/^shadow_route_pause:sumco_breakdown_short /),
     }));
   });
 
-  it("ATR拒否も日次枠を消費せず、ボラティリティ回復後の後続候補へ再探索する", async () => {
+  it("2026-10-13以降の旧CurrentはATR状態にかかわらず通常entryをしない", async () => {
     const tradeDate = "2099-02-02";
     await feedFlatPrefix(tradeDate, 1_000, true);
     const blocked = await processCandle({ symbol: "3436", tradeDate, candleTime: "09:30", open: 1_000, high: 1_000.01, low: 995.9, close: 996, volume: 150 });
     expect(blocked.action).toBe("none");
     expect(blocked.reason).toMatch(/^atr_block:/);
 
-    const accepted = await processCandle({ symbol: "3436", tradeDate, candleTime: "09:31", open: 996, high: 1_000, low: 990, close: 991, volume: 150 });
-    expect(accepted.action).toBe("entry");
-    expect(getSumcoBreakdownShortAuditEventsForTest().some(
-      event => event.event === "engine_rejected" && event.detail?.startsWith("atr_block:"),
-    )).toBe(true);
+    const paused = await processCandle({ symbol: "3436", tradeDate, candleTime: "09:31", open: 996, high: 1_000, low: 990, close: 991, volume: 150 });
+    expect(paused.reason).toMatch(/^shadow_route_pause:sumco_breakdown_short /);
+    expect(getOpenPositions().some(item => item.symbol === "3436")).toBe(false);
   });
 });

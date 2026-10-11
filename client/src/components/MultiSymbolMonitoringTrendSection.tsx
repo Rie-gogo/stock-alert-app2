@@ -100,7 +100,7 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                               <td className="px-3 py-2 align-top">
                                 <div className="font-medium">{plan.label}</div>
                                 <div className="text-[10px] text-muted-foreground">
-                                  {plan.origin === "current" ? "現行" : "シャドー"}
+                                  {plan.role === "current" ? "現行仮想" : "比較シャドー"}
                                   {plan.eligibleForAdoption ? "・採用候補" : "・診断/比較用"}
                                 </div>
                               </td>

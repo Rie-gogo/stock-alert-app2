@@ -18,7 +18,9 @@ export type PausedCurrentRouteStateKey =
   | "taiyoAfternoonReversal"
   | "reversalLong"
   | "telShortBreak"
-  | "discoOpeningBreakShort";
+  | "discoOpeningBreakShort"
+  | "sumcoBreakdownShort"
+  | "softbankBreakoutLong";
 
 export type PausedCurrentRouteSpec = Readonly<{
   symbol: string;
@@ -28,6 +30,8 @@ export type PausedCurrentRouteSpec = Readonly<{
   label: string;
   reasonPrefixes: readonly string[];
   captureViaGenericCandidateLedger: boolean;
+  /** 個別の役割入替は、過去日を遡及して停止しないため翌営業日から有効化する。 */
+  effectiveDate?: string;
 }>;
 
 export const PAUSED_CURRENT_ROUTE_SPECS: readonly PausedCurrentRouteSpec[] = Object.freeze([
@@ -87,6 +91,20 @@ export const PAUSED_CURRENT_ROUTE_SPECS: readonly PausedCurrentRouteSpec[] = Obj
     reasonPrefixes: Object.freeze(["ディスコ寄り付き10本安値更新SHORT"]),
     captureViaGenericCandidateLedger: false,
   },
+  {
+    symbol: "3436", side: "short", stateKey: "sumcoBreakdownShort", publicRouteId: "sumco_breakdown_short",
+    label: "前場15本安値更新SHORT",
+    reasonPrefixes: Object.freeze(["SUMCO専用15本安値更新SHORT"]),
+    captureViaGenericCandidateLedger: true,
+    effectiveDate: "2026-10-13",
+  },
+  {
+    symbol: "9984", side: "long", stateKey: "softbankBreakoutLong", publicRouteId: "softbank_breakout_long",
+    label: "前場10本高値更新LONG",
+    reasonPrefixes: Object.freeze(["ソフトバンクG専用10本高値更新LONG"]),
+    captureViaGenericCandidateLedger: true,
+    effectiveDate: "2026-10-13",
+  },
 ]);
 
 export function resolvePausedCurrentRoute(input: {
@@ -95,9 +113,9 @@ export function resolvePausedCurrentRoute(input: {
   reason: string;
   tradeDate: string;
 }): PausedCurrentRouteSpec | null {
-  if (input.tradeDate < PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE) return null;
   return PAUSED_CURRENT_ROUTE_SPECS.find(spec =>
     spec.captureViaGenericCandidateLedger
+    && input.tradeDate >= (spec.effectiveDate ?? PAUSED_CURRENT_ROUTE_SHADOW_EFFECTIVE_DATE)
     && spec.symbol === input.symbol
     && spec.side === input.side
     && spec.reasonPrefixes.some(prefix => input.reason.startsWith(prefix)),

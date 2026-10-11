@@ -83,7 +83,7 @@ describe("legacy 285A selector and comparison retirement", () => {
     // AI適応予測shadowの10銘柄×LONG/SHORT固定監査行を含む。
     expect(rows).toHaveLength(177);
     expect(sha256Stable(rows)).toBe(
-      "672abd32b7e41f94e0a759538451fc68eec1365beda0c7af4c80afd80ab8f854"
+      "b248e5df23c954dede277333b97c5c72acfac1cccd816938b6b5459505a9ccbe"
     );
   });
 

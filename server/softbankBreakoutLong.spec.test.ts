@@ -4,6 +4,7 @@ import {
   SOFTBANK_BREAKOUT_LONG_SPEC,
   calculateSoftbankBreakoutLongMetrics,
   evaluateSoftbankBreakoutLongOrderApproval,
+  isSoftbankBreakoutLongFixedExecutionActive,
   isSoftbankBreakoutLongEntryTime,
   type SoftbankBreakoutLongCandle,
 } from "./softbankBreakoutLong";
@@ -54,5 +55,16 @@ describe("ソフトバンクG専用10本高値更新LONG仕様", () => {
       code: "softbank_breakout_long_live_not_approved",
     });
     expect(evaluateSoftbankBreakoutLongOrderApproval({ reason, instructionType: "exit", isDryRun: false })).toEqual({ allowed: true });
+  });
+
+  it("固定1500株executionは10/12休場日の翌完全営業日からCurrentだけに適用する", () => {
+    expect(SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution).toMatchObject({
+      effectiveDate: "2026-10-13",
+      shares: 1_500,
+      priceMode: "same_source_event_directional_depth_vwap",
+      insufficientDepthPolicy: "reject_or_hold_fail_closed",
+    });
+    expect(isSoftbankBreakoutLongFixedExecutionActive("2026-10-12")).toBe(false);
+    expect(isSoftbankBreakoutLongFixedExecutionActive("2026-10-13")).toBe(true);
   });
 });

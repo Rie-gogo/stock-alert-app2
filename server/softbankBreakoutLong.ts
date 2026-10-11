@@ -8,6 +8,16 @@ export const SOFTBANK_BREAKOUT_LONG_SPEC = Object.freeze({
   symbol: "9984",
   dryRunEnabled: true,
   liveOrderApproved: false,
+  /**
+   * 現行Current ownerだけの実取引ログ用execution契約。
+   * signal_qualityの100株正規化・比較shadow・既存ログには介入しない。
+   */
+  fixedExecution: Object.freeze({
+    effectiveDate: "2026-10-13",
+    shares: 1_500,
+    priceMode: "same_source_event_directional_depth_vwap",
+    insufficientDepthPolicy: "reject_or_hold_fail_closed",
+  }),
   primary: Object.freeze({
     startTime: "09:40",
     endTime: "10:30",
@@ -30,6 +40,14 @@ export const SOFTBANK_BREAKOUT_LONG_SPEC = Object.freeze({
 });
 
 export const SOFTBANK_BREAKOUT_LONG_REASON_PREFIX = "ソフトバンクG専用10本高値更新LONG";
+
+/**
+ * 10/12（JPX現物休場）の翌完全営業日からだけ、新規Current entryに固定数量を適用する。
+ * 日付文字列比較はYYYY-MM-DDのcanonical trade dateに限定する。
+ */
+export function isSoftbankBreakoutLongFixedExecutionActive(tradeDate: string): boolean {
+  return tradeDate >= SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.effectiveDate;
+}
 
 export function evaluateSoftbankBreakoutLongOrderApproval(input: {
   reason: string;

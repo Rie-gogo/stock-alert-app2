@@ -152,7 +152,7 @@ describe("9984専用10本高値更新LONG Git fixture実エンジン監査", () 
   });
 
   it("SL/TP未到達なら45分境界の確定足終値で決済する", async () => {
-    const tradeDate = "2099-03-01";
+    const tradeDate = "2026-10-07";
     await feedFlatPrefix(tradeDate, 1_000);
     restoreOpenPositions([{
       symbol: "9984", side: "long", price: 1_000, shares: 100,
@@ -173,7 +173,7 @@ describe("9984専用10本高値更新LONG Git fixture実エンジン監査", () 
   });
 
   it("9984 Currentは証拠金block後も通常entry候補として再探索する", async () => {
-    const tradeDate = "2099-03-02";
+    const tradeDate = "2026-10-08";
     await feedFlatPrefix(tradeDate);
     restoreOpenPositions([{
       symbol: "285A", side: "long", price: 8_800_000, shares: 1,
@@ -194,7 +194,7 @@ describe("9984専用10本高値更新LONG Git fixture実エンジン監査", () 
   });
 
   it("9984 CurrentはATR block後に条件成立すれば通常entryする", async () => {
-    const tradeDate = "2099-03-03";
+    const tradeDate = "2026-10-09";
     await feedFlatPrefix(tradeDate, 1_000, true);
     const blocked = await processCandle({ symbol: "9984", tradeDate, candleTime: "09:40", open: 1_000, high: 1_004.1, low: 999.99, close: 1_004, volume: 150 });
     expect(blocked.action).toBe("none");

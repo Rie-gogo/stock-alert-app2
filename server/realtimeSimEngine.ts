@@ -76,6 +76,7 @@ import {
   SOFTBANK_BREAKOUT_LONG_REASON_PREFIX,
   SOFTBANK_BREAKOUT_LONG_SPEC,
   calculateSoftbankBreakoutLongMetrics,
+  isSoftbankBreakoutLongFixedExecutionActive,
   isSoftbankBreakoutLongEntryTime,
 } from "./softbankBreakoutLong";
 import {
@@ -762,6 +763,8 @@ interface OpenPosition {
   shares: number;
   entryTime: string;
   entryReason: string;
+  /** 9984固定1500株の専用actual-virtual枠。共有証拠金候補の可否へは介入しない。 */
+  separateVirtualCapital?: boolean;
   boardSignal?: string;
   confidence?: SignalConfidence;
   slPctOverride?: number;
@@ -967,6 +970,8 @@ export interface RealtimeSourceExecutionContext {
 interface RealtimeExecutionOverride {
   price: number;
   shares?: number;
+  /** fixed 9984 Currentだけのactual-virtual実行枠。共有margin capを変えない。 */
+  separateVirtualCapital?: boolean;
   priceSource: RealtimeExecutionPriceSource;
   /** 入口なら確認足、時間決済ならエントリー時刻。 */
   referenceTime: string;
@@ -2062,6 +2067,7 @@ export async function restoreBuffersFromDb(): Promise<void> {
 function calcCurrentExposure(): number {
   let total = 0;
   for (const pos of Array.from(openPositions.values())) {
+    if (pos.separateVirtualCapital) continue;
     total += pos.entryPrice * pos.shares;
   }
   return total;
@@ -2152,6 +2158,41 @@ function resolveRealtimeDepthExecution(
     price: fill.price,
     shares,
     boardAgeMs: clockAge.boardAgeMs,
+    sourceEventId: context.sourceEventId,
+  };
+}
+
+/**
+ * 9984 Current固定1500株専用。Windows relay同一時計だけで測るsource board ageを
+ * entry/exit可否に使い、cloud配送・処理遅延を板鮮度として誤計上しない。
+ * 他routeの既存execution契約は変更しない。
+ */
+function resolveSoftbankFixedDepthExecution(
+  context: RealtimeSourceExecutionContext | undefined,
+  side: "long" | "short",
+): RealtimeDepthExecutionResult {
+  if (!context) return { ok: false, reason: "source_event_execution_context_missing" };
+  if (!context.board) return { ok: false, reason: "source_event_board_missing" };
+  const boardObservedAtMs = context.currentAudit.boardObservedAtMs;
+  const relayAssembledAtMs = context.currentAudit.relayAssembledAtMs;
+  if (boardObservedAtMs === null || relayAssembledAtMs === null) {
+    return { ok: false, reason: "source_event_audit_timestamps_missing" };
+  }
+  const sourceBoardAgeMs = relayAssembledAtMs - boardObservedAtMs;
+  if (sourceBoardAgeMs < 0) {
+    return { ok: false, reason: "source_event_audit_timestamps_noncausal" };
+  }
+  if (sourceBoardAgeMs > 5_000) {
+    return { ok: false, reason: "source_event_board_stale_over_5000ms" };
+  }
+  const shares = SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.shares;
+  const fill = calculateDepthVwap({ board: context.board, side, shares });
+  if (!fill) return { ok: false, reason: "source_event_depth_insufficient" };
+  return {
+    ok: true,
+    price: fill.price,
+    shares,
+    boardAgeMs: sourceBoardAgeMs,
     sourceEventId: context.sourceEventId,
   };
 }
@@ -2935,27 +2976,53 @@ export async function processCandle(
         detail: `maSlope2=${metrics.maSlope2Pct.toFixed(3)}%,volume=${metrics.volumeRatio.toFixed(2)}x`,
         referencePrice: candle.close,
       });
-      const result = await enterPosition(
-        "long",
-        candle,
-        tradeDate,
-        candleTime,
-        `${SOFTBANK_BREAKOUT_LONG_REASON_PREFIX}: 10本終値高値更新、MA8二本傾き${metrics.maSlope2Pct.toFixed(3)}%、出来高${metrics.volumeRatio.toFixed(2)}倍`,
-        boardSnapshot,
-        { slPct: spec.slPct, tpPct: spec.tpPct },
-      );
+      const requiresFixedExecution = isSoftbankBreakoutLongFixedExecutionActive(tradeDate);
+      const executable = requiresFixedExecution
+        ? resolveSoftbankFixedDepthExecution(sourceExecutionContext, "long")
+        : null;
+      // fixed executionを必要とする日には、板不足・鮮度不良・source context欠損を
+      // 通常quantityのbar-close entryへフォールバックさせない。
+      const fixedExecutionResult = requiresFixedExecution && !executable?.ok
+        ? {
+            symbol,
+            tradeDate,
+            candleTime,
+            action: "none" as const,
+            reason: `softbank_1500_depth_entry_rejected:${executable?.reason ?? "source_event_execution_context_missing"}`,
+          }
+        : await enterPosition(
+            "long",
+            candle,
+            tradeDate,
+            candleTime,
+            `${SOFTBANK_BREAKOUT_LONG_REASON_PREFIX}: 10本終値高値更新、MA8二本傾き${metrics.maSlope2Pct.toFixed(3)}%、出来高${metrics.volumeRatio.toFixed(2)}倍`,
+            boardSnapshot,
+            { slPct: spec.slPct, tpPct: spec.tpPct },
+            executable?.ok
+              ? {
+                  price: executable.price,
+                  shares: executable.shares,
+                  separateVirtualCapital: true,
+                  priceSource: "current_event_ask_depth_vwap",
+                  referenceTime: candleTime,
+                  signalReferencePrice: candle.close,
+                  sourceEventId: executable.sourceEventId,
+                  boardAgeMs: executable.boardAgeMs,
+                }
+              : undefined,
+          );
       await recordSoftbankBreakoutLongAuditEvent({
         tradeDate,
         candleTime,
         symbol,
-        event: result.action === "entry" ? "entry" : "engine_rejected",
+        event: fixedExecutionResult.action === "entry" ? "entry" : "engine_rejected",
         side: "long",
-        detail: result.reason,
+        detail: fixedExecutionResult.reason,
         referencePrice: candle.close,
       });
-      if (result.action === "entry") {
+      if (fixedExecutionResult.action === "entry") {
         softbankBreakoutLongFired.add(symbol);
-      } else if (result.reason !== "margin_block" && !isPausedCurrentRouteControlReason(result.reason)) {
+      } else if (fixedExecutionResult.reason !== "margin_block" && !isPausedCurrentRouteControlReason(fixedExecutionResult.reason)) {
         signalHistory.unshift({
           time: candleTime,
           symbol,
@@ -2964,11 +3031,11 @@ export async function processCandle(
           price: candle.close,
           shares: 0,
           pnl: null,
-          reason: `${SOFTBANK_BREAKOUT_LONG_REASON_PREFIX}拒否・後続再探索: ${result.reason ?? "unknown_engine_gate"}`,
+          reason: `${SOFTBANK_BREAKOUT_LONG_REASON_PREFIX}拒否・後続再探索: ${fixedExecutionResult.reason ?? "unknown_engine_gate"}`,
         });
         if (signalHistory.length > MAX_SIGNAL_HISTORY) signalHistory.length = MAX_SIGNAL_HISTORY;
       }
-      return result;
+      return fixedExecutionResult;
     }
 
     return { symbol, tradeDate, candleTime, action: "none" };
@@ -5314,7 +5381,7 @@ export async function enterPosition(
   // ---- 証拠金使用率制限チェック ----
   // 現在のオープンポジション合計 + 今回の投資額が MAX_TOTAL_EXPOSURE を超える場合はエントリー停止
   const currentExposure = calcCurrentExposure();
-  if (currentExposure + amount > MAX_TOTAL_EXPOSURE) {
+  if (!executionOverride?.separateVirtualCapital && currentExposure + amount > MAX_TOTAL_EXPOSURE) {
     console.log(
       `[RealtimeSim] 証拠金使用率制限: ${symbol} エントリーキャンセル ` +
       `(現在${(currentExposure / 10000).toFixed(0)}万円 + 今回${(amount / 10000).toFixed(0)}万円 = ` +
@@ -5363,6 +5430,7 @@ export async function enterPosition(
     shares,
     entryTime: candleTime,
     entryReason: reason,
+    separateVirtualCapital: executionOverride?.separateVirtualCapital === true,
     boardSignal,
     confidence,
     slPctOverride: riskOverride?.slPct,
@@ -5681,6 +5749,43 @@ async function checkExitConditions(
     return { symbol, tradeDate, candleTime, action: "none" };
   }
 
+  // 2026-10-13以降に1500株で建てた9984 Currentだけは、exitも同じsource eventの
+  // bid depth VWAPを満たす場合に限る。古い400株ポジションは既存quantityで決済する。
+  if (
+    isSoftbankBreakoutLongPosition &&
+    shares === SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.shares &&
+    isSoftbankBreakoutLongFixedExecutionActive(tradeDate)
+  ) {
+    const executable = resolveSoftbankFixedDepthExecution(sourceExecutionContext, "short");
+    if (!executable.ok) {
+      return {
+        symbol,
+        tradeDate,
+        candleTime,
+        action: "none",
+        reason: `softbank_1500_depth_exit_pending:${executable.reason}`,
+      };
+    }
+    return await closePosition(
+      pos,
+      executable.price,
+      `${exitReason}（1500株source event bid depth VWAP）`,
+      action,
+      tradeDate,
+      candleTime,
+      boardSnapshot,
+      {
+        price: executable.price,
+        shares,
+        priceSource: "current_event_bid_depth_vwap",
+        referenceTime: pos.entryTime,
+        signalReferencePrice: exitPrice,
+        sourceEventId: executable.sourceEventId,
+        boardAgeMs: executable.boardAgeMs,
+      },
+    );
+  }
+
   return await closePosition(pos, exitPrice, exitReason, action, tradeDate, candleTime, boardSnapshot);
 }
 
@@ -5886,6 +5991,10 @@ export function restoreOpenPositions(entries: Array<{
         shares: entry.shares,
         entryTime: entry.tradeTime,
         entryReason: entry.reason,
+        separateVirtualCapital:
+          entry.symbol === "9984" &&
+          entry.shares === SOFTBANK_BREAKOUT_LONG_SPEC.fixedExecution.shares &&
+          entry.reason.startsWith(SOFTBANK_BREAKOUT_LONG_REASON_PREFIX),
         slPctOverride: risk.slPct,
         tpPctOverride: risk.tpPct,
       };

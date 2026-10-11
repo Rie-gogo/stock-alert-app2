@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildMultiSymbolMonitoringTrend } from "./multiSymbolMonitoringTrend";
 import {
+  MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS,
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
 } from "./multiSymbolMonitoringMaterializer";
@@ -20,9 +21,14 @@ const dates = [
   "2026-09-18",
 ];
 
-function materialization(tradeDate: string, currentPnl: number) {
+function materialization(
+  tradeDate: string,
+  currentPnl: number,
+  version = MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+) {
   return {
     status: "complete",
+    version,
     tradeDate,
     resultJson: {
       ready: true,
@@ -73,7 +79,51 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     });
     expect(result.pendingClosedTradeDates).toEqual(["2026-09-21"]);
     expect(result.symbols).toHaveLength(10);
-    expect(result.dataSource).toBe("closed_daily_materializations_only");
+    expect(result.dataSource).toBe(
+      "closed_daily_materializations_with_compatible_legacy_fallback"
+    );
+    expect(result.legacyFallbackTradeDates).toEqual([]);
+  });
+
+  it("新snapshot未作成日は変更のないplanIdだけ旧集計を引き継ぎ、同一日は新snapshotを優先する", () => {
+    const legacyVersion = MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS[0];
+    const oldestLegacyVersion = MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS[1];
+    const legacyOnly = materialization("2026-09-07", 1_000, legacyVersion);
+    const olderLegacySameDay = materialization("2026-09-07", 777_000, oldestLegacyVersion);
+    const supersededLegacy = materialization("2026-09-08", 99_000, legacyVersion);
+    const current = materialization("2026-09-08", 2_000);
+    (legacyOnly.resultJson.plans as any[]).push({
+      planId: "shadow:retired-strategy-version",
+      signals: 1,
+      completedTrades: 1,
+      openTrades: 0,
+      wins: 1,
+      losses: 0,
+      draws: 0,
+      pnlPer100: 500_000,
+      grossProfitPer100: 500_000,
+      grossLossPer100: 0,
+    });
+
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-09-08",
+      closedTradeDates: ["2026-09-07", "2026-09-08"],
+      materializations: [olderLegacySameDay, legacyOnly, supersededLegacy, current],
+    });
+    const kioxia = result.symbols.find(item => item.symbol === "285A")!;
+    const currentPlan = kioxia.plans.find(plan => plan.planId === "current:285A")!;
+
+    expect(currentPlan.windows.all).toMatchObject({
+      completedTrades: 2,
+      wins: 2,
+      pnlPer100: 3_000,
+    });
+    expect(result.legacyFallbackTradeDates).toEqual(["2026-09-07"]);
+    expect(result.sourceMaterializationVersionByDate).toEqual({
+      "2026-09-07": legacyVersion,
+      "2026-09-08": MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+    });
+    expect(kioxia.plans.some(plan => plan.planId === "shadow:retired-strategy-version")).toBe(false);
   });
 
   it("API集計はraw event・取引履歴を読まない", () => {

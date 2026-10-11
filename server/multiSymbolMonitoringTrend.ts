@@ -4,6 +4,7 @@ import {
   getRtDailyAuditMaterializationsForRange,
 } from "./db";
 import {
+  MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS,
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
   MULTI_SYMBOL_MONITORING_START_DATE,
@@ -50,6 +51,17 @@ function parseSnapshot(row: RtDailyAuditMaterialization): MultiSymbolMonitoringD
   const value = record(row.resultJson);
   if (value.ready !== true || !Array.isArray(value.plans)) return null;
   return value as unknown as MultiSymbolMonitoringDailySnapshot;
+}
+
+const MATERIALIZATION_VERSION_PRIORITY = new Map(
+  [
+    ...MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS.slice().reverse(),
+    MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+  ].map((version, index) => [version, index]),
+);
+
+function materializationPriority(version: string) {
+  return MATERIALIZATION_VERSION_PRIORITY.get(version) ?? -1;
 }
 
 function metricsForDates(input: {
@@ -129,12 +141,22 @@ export function buildMultiSymbolMonitoringTrend(input: {
     .filter(date => date >= MULTI_SYMBOL_MONITORING_START_DATE && date <= input.asOfDate)
     .sort();
   const rowsByDate = new Map<string, MultiSymbolMonitoringDailySnapshot>();
+  const sourceVersionByDate = new Map<string, string>();
   for (const row of input.materializations) {
     const parsed = parseSnapshot(row);
-    if (parsed && closedDates.includes(row.tradeDate)) rowsByDate.set(row.tradeDate, parsed);
+    if (!parsed || !closedDates.includes(row.tradeDate)) continue;
+    const selectedVersion = sourceVersionByDate.get(row.tradeDate);
+    if (selectedVersion === undefined
+      || materializationPriority(row.version) > materializationPriority(selectedVersion)) {
+      rowsByDate.set(row.tradeDate, parsed);
+      sourceVersionByDate.set(row.tradeDate, row.version);
+    }
   }
   const eligibleTradeDates = closedDates.filter(date => rowsByDate.has(date));
   const pendingClosedTradeDates = closedDates.filter(date => !rowsByDate.has(date));
+  const legacyFallbackTradeDates = eligibleTradeDates.filter(
+    date => sourceVersionByDate.get(date) !== MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+  );
   const lastDates = (count: number) => eligibleTradeDates.slice(-count);
   const previousFiveDates = eligibleTradeDates.slice(-10, -5);
 
@@ -157,15 +179,18 @@ export function buildMultiSymbolMonitoringTrend(input: {
   return {
     managementVersion: MULTI_SYMBOL_MONITORING_TREND_VERSION,
     materializationVersion: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+    compatibleLegacyMaterializationVersions: MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS,
     asOfDate: input.asOfDate,
     monitoringStartDate: MULTI_SYMBOL_MONITORING_START_DATE,
     eligibleTradeDates,
+    legacyFallbackTradeDates,
+    sourceMaterializationVersionByDate: Object.fromEntries(sourceVersionByDate),
     pendingClosedTradeDates,
     latestCompletedTradeDate: eligibleTradeDates.at(-1) ?? null,
     automaticAdoption: false,
     automaticStopping: false,
     intradayExecutionChanged: false,
-    dataSource: "closed_daily_materializations_only" as const,
+    dataSource: "closed_daily_materializations_with_compatible_legacy_fallback" as const,
     symbols: TEN_MONITORED_SYMBOLS.map(symbol => ({
       symbol,
       plans: planResults.filter(plan => plan.symbol === symbol),
@@ -174,14 +199,24 @@ export function buildMultiSymbolMonitoringTrend(input: {
 }
 
 export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
-  const [closedTradeDates, materializations] = await Promise.all([
+  const materializationVersions = [
+    MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+    ...MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS,
+  ];
+  const [closedTradeDates, materializationGroups] = await Promise.all([
     getClosedRtAuditTradeDates({ fromDate: MULTI_SYMBOL_MONITORING_START_DATE, toDate: asOfDate }),
-    getRtDailyAuditMaterializationsForRange({
-      component: MULTI_SYMBOL_MONITORING_COMPONENT,
-      version: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
-      fromDate: MULTI_SYMBOL_MONITORING_START_DATE,
-      toDate: asOfDate,
-    }),
+    Promise.all(materializationVersions.map(version =>
+      getRtDailyAuditMaterializationsForRange({
+        component: MULTI_SYMBOL_MONITORING_COMPONENT,
+        version,
+        fromDate: MULTI_SYMBOL_MONITORING_START_DATE,
+        toDate: asOfDate,
+      })
+    )),
   ]);
-  return buildMultiSymbolMonitoringTrend({ asOfDate, closedTradeDates, materializations });
+  return buildMultiSymbolMonitoringTrend({
+    asOfDate,
+    closedTradeDates,
+    materializations: materializationGroups.flat(),
+  });
 }

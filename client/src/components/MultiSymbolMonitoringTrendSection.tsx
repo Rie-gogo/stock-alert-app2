@@ -65,6 +65,12 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                   閉場済み・集計待ち：{trendQuery.data.pendingClosedTradeDates.join("、")}
                 </div>
               )}
+              {trendQuery.data.legacyFallbackTradeDates.length > 0 && (
+                <div className="text-sky-300">
+                  旧集計から互換引継ぎ：{trendQuery.data.legacyFallbackTradeDates.length}営業日
+                  （変更のない現行・既存シャドーのみ）
+                </div>
+              )}
             </div>
 
             {trendQuery.data.symbols.map(symbol => {

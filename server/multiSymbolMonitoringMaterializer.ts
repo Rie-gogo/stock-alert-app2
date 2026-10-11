@@ -30,6 +30,15 @@ import { collectRouteAttributionMappingVersions } from "./kioxiaRouteAttribution
 export const MULTI_SYMBOL_MONITORING_COMPONENT = "monitoring_trend_10_symbols";
 export const MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION =
   "monitoring-trend-10-symbols-daily-v3-ai-forecast-learning";
+/**
+ * 変更されていないplanIdの表示を、新しい日次snapshotのbackfill完了まで維持する。
+ * 旧snapshot自体は変更せず、同一日は最も新しい完全版だけを使用する。
+ */
+export const MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS =
+  Object.freeze([
+    "monitoring-trend-10-symbols-daily-v2-ai-daily-forecast",
+    "monitoring-trend-10-symbols-daily-v1",
+  ] as const);
 export const MULTI_SYMBOL_MONITORING_START_DATE = "2026-09-07";
 const MULTI_SYMBOL_MONITORING_BACKFILL_LOCK =
   "monitoring-trend-10-symbol-backfill-v2-ai-daily-forecast";

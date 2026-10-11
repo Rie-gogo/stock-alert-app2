@@ -372,6 +372,35 @@ describe("route-granular next-day monitoring selector", () => {
     expect(JSON.stringify(projectedResult)).toContain("candidate-6976-afternoon-long-recovery-winrate-v1");
   });
 
+  it("保存済みsnapshotでも正式registry roleを使い、各経路のCurrentを先頭に表示する", () => {
+    const snapshot: any = {
+      scores: [
+        { rowId: "shadow:forward-shadow-9984-breakout-rr2-protect-v1:breakout_long:single", symbol: "9984", routeGroupId: "breakout_long", role: "current", label: "B：2R利益保護" },
+        { rowId: "shadow:forward-shadow-9984-breakout-depth-confirm-v1:breakout_long:single", symbol: "9984", routeGroupId: "breakout_long", role: "shadow", label: "A：次イベント板確認" },
+        { rowId: "current:9984:breakout_long:softbankBreakoutLong", symbol: "9984", routeGroupId: "breakout_long", role: "shadow", label: "Current：ブレイクLONG" },
+        { rowId: "shadow:candidate-3436-current-entry-time15-v1:sumco_breakdown_short:single", symbol: "3436", routeGroupId: "sumco_breakdown_short", role: "shadow", label: "現行仮想：B・15分時間決済" },
+        { rowId: "shadow:candidate-3436-volume110-time15-v1:sumco_breakdown_short:single", symbol: "3436", routeGroupId: "sumco_breakdown_short", role: "current", label: "A：出来高1.10倍" },
+      ],
+      variants: [], selections: [], symbolSelections: [], catalogAudit: { complete: true },
+    };
+    snapshot.variants = snapshot.scores;
+    const projected = filterRouteGranularSelectorSnapshotForRead(snapshot) as any;
+    const softbank = projected.scores.filter((row: any) => row.symbol === "9984");
+    const sumco = projected.scores.filter((row: any) => row.symbol === "3436");
+    expect(softbank.map((row: any) => row.rowId)).toEqual([
+      "current:9984:breakout_long:softbankBreakoutLong",
+      "shadow:forward-shadow-9984-breakout-rr2-protect-v1:breakout_long:single",
+      "shadow:forward-shadow-9984-breakout-depth-confirm-v1:breakout_long:single",
+    ]);
+    expect(sumco.map((row: any) => row.rowId)).toEqual([
+      "shadow:candidate-3436-current-entry-time15-v1:sumco_breakdown_short:single",
+      "shadow:candidate-3436-volume110-time15-v1:sumco_breakdown_short:single",
+    ]);
+    // The snapshot's frozen role values are deliberately not rewritten.
+    expect(snapshot.scores[0].role).toBe("current");
+    expect(projected.scores.find((row: any) => row.rowId === softbank[0].rowId)?.role).toBe("shadow");
+  });
+
   it("reports an active lifecycle orphan instead of silently selecting around it", () => {
     const audit = auditRouteGranularCatalog(ROUTE_GRANULAR_VARIANTS, [{
       versionId: "orphan-monitoring-v1", strategyId: "orphan", status: "monitoring", evaluationPurpose: "candidate", eligibleForAdoption: false, configJson: { symbol: "6981" },

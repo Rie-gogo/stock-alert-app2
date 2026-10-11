@@ -53,12 +53,55 @@ type Lifecycle = { lifecycle: string | null; purpose: string | null };
 function object(value: unknown): Value { return value && typeof value === "object" && !Array.isArray(value) ? value as Value : {}; }
 function finite(value: unknown): number | null { const n = Number(value); return Number.isFinite(n) ? n : null; }
 
+// Runtime registry role, never a mutable historical payload label, decides
+// presentation precedence. This affects only the read projection.
+const CURRENT_ROUTE_ROW_IDS = new Set(
+  (ROUTE_GRANULAR_VARIANTS as readonly RouteGranularVariant[])
+    .filter(item => item.role === "current")
+    .map(item => item.rowId),
+);
+
+function currentFirst<T extends Value>(rows: readonly T[]) {
+  return rows.map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const roleDifference = Number(CURRENT_ROUTE_ROW_IDS.has(String(right.row.rowId ?? "")))
+        - Number(CURRENT_ROUTE_ROW_IDS.has(String(left.row.rowId ?? "")));
+      return roleDifference || left.index - right.index;
+    })
+    .map(item => item.row);
+}
+
+function currentFirstWithinRouteGroups(rows: readonly Value[]) {
+  const orderedByGroup = new Map<string, Value[]>();
+  const groupKey = (row: Value, index: number) => {
+    const symbol = String(row.symbol ?? "");
+    const routeGroupId = String(row.routeGroupId ?? "");
+    return symbol && routeGroupId ? `${symbol}:${routeGroupId}` : `unknown:${index}`;
+  };
+  rows.forEach((row, index) => {
+    const key = groupKey(row, index);
+    const group = orderedByGroup.get(key) ?? [];
+    group.push(row);
+    orderedByGroup.set(key, group);
+  });
+  for (const [key, group] of Array.from(orderedByGroup.entries())) {
+    orderedByGroup.set(key, currentFirst(group));
+  }
+  const offsets = new Map<string, number>();
+  return rows.map((row, index) => {
+    const key = groupKey(row, index);
+    const offset = offsets.get(key) ?? 0;
+    offsets.set(key, offset + 1);
+    return orderedByGroup.get(key)![offset]!;
+  });
+}
+
 /** Historical snapshots remain untouched; this is the public read projection. */
 export function filterRouteGranularSelectorSnapshotForRead(snapshot: unknown): Value {
   const source = object(snapshot);
-  const scores = Array.isArray(source.scores)
+  const scores = currentFirstWithinRouteGroups(Array.isArray(source.scores)
     ? source.scores.map(object).filter(row => !isExplicitlyRetiredSelectorCandidate(row))
-    : [];
+    : []);
   const visibleRowIds = new Set(scores.map(row => String(row.rowId ?? "")));
   const selections = Array.isArray(source.selections)
     ? source.selections.map(object)
@@ -80,9 +123,9 @@ export function filterRouteGranularSelectorSnapshotForRead(snapshot: unknown): V
         : row;
     })
     : [];
-  const variants = Array.isArray(source.variants)
+  const variants = currentFirstWithinRouteGroups(Array.isArray(source.variants)
     ? source.variants.map(object).filter(row => !isExplicitlyRetiredSelectorCandidate(row))
-    : [];
+    : []);
   const catalogAudit = object(source.catalogAudit);
   const filteredAudit = Object.fromEntries(Object.entries(catalogAudit).map(([key, value]) => [
     key,
@@ -93,8 +136,8 @@ export function filterRouteGranularSelectorSnapshotForRead(snapshot: unknown): V
 
 export function filterRouteGranularSelectorResultForRead(result: unknown): Value {
   const source = object(result);
-  const filterRows = (rows: unknown[]) => rows.map(object)
-    .filter(row => !isExplicitlyRetiredSelectorCandidate(row));
+  const filterRows = (rows: unknown[]) => currentFirst(rows.map(object)
+    .filter(row => !isExplicitlyRetiredSelectorCandidate(row)));
   const results = Array.isArray(source.results)
     ? source.results.map(object)
       .filter(row => !isExplicitlyRetiredSelectorRouteGroup(row.symbol, row.routeGroupId))

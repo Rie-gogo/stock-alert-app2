@@ -177,6 +177,36 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     });
   });
 
+  it("正式registry roleで各銘柄のCurrentを先頭にし、shadow間の順序は変えない", () => {
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-10-09",
+      closedTradeDates: ["2026-10-09"],
+      materializations: [materialization("2026-10-09", 0)],
+    });
+    expect(result.symbols).toHaveLength(10);
+    for (const symbol of result.symbols) {
+      expect(symbol.plans.filter(plan => plan.role === "current")).toHaveLength(1);
+      expect(symbol.plans[0]?.role).toBe("current");
+    }
+    expect(result.symbols.find(item => item.symbol === "3436")?.plans.slice(0, 3).map(plan => plan.label)).toEqual([
+      "現行仮想：B案・15分時間決済",
+      "旧Current：前場安値更新SHORT（比較シャドー）",
+      "A案：出来高1.10倍",
+    ]);
+    expect(result.symbols.find(item => item.symbol === "6146")?.plans[0]).toMatchObject({
+      strategyVersion: "candidate-6146-opening-short-executable-a-v3-parity-reset",
+      role: "current",
+    });
+    expect(result.symbols.find(item => item.symbol === "6976")?.plans[0]).toMatchObject({
+      strategyVersion: "candidate-6976-afternoon-long-recovery-winrate-v1",
+      role: "current",
+    });
+    expect(result.symbols.find(item => item.symbol === "9984")?.plans[0]).toMatchObject({
+      planId: "current:9984",
+      role: "current",
+    });
+  });
+
   it("API集計はraw event・取引履歴を読まない", () => {
     const source = readFileSync(
       new URL("./multiSymbolMonitoringTrend.ts", import.meta.url),

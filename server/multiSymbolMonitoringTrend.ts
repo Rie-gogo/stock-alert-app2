@@ -64,6 +64,20 @@ function materializationPriority(version: string) {
   return MATERIALIZATION_VERSION_PRIORITY.get(version) ?? -1;
 }
 
+/**
+ * This is a read-time presentation order only. The registry role is the
+ * authority; historical materializations, their hashes, and their metrics are
+ * never changed. Non-current rows retain their existing relative order.
+ */
+function currentFirst<T>(plans: readonly T[], isCurrent: (plan: T) => boolean) {
+  return plans.map((plan, index) => ({ plan, index }))
+    .sort((left, right) => {
+      const roleDifference = Number(isCurrent(right.plan)) - Number(isCurrent(left.plan));
+      return roleDifference || left.index - right.index;
+    })
+    .map(item => item.plan);
+}
+
 function metricsForDates(input: {
   rowsByDate: Map<string, MultiSymbolMonitoringDailySnapshot>;
   planIds: readonly string[];
@@ -198,7 +212,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
     dataSource: "closed_daily_materializations_with_compatible_legacy_fallback" as const,
     symbols: TEN_MONITORED_SYMBOLS.map(symbol => ({
       symbol,
-      plans: planResults.filter(plan => plan.symbol === symbol),
+      plans: currentFirst(planResults.filter(plan => plan.symbol === symbol), plan => plan.role === "current"),
     })),
   };
 }

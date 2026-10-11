@@ -1,8 +1,8 @@
 // 自動生成ファイル。scripts/generate-build-identity.mjs以外で編集しない。
 export const GENERATED_BUILD_IDENTITY = {
-  "gitSha": "cac01f344d4c75436d7f9212d9b1ab4f8006d09f",
+  "gitSha": "d016935c1953961973e387079e772db756597b91",
   "sourceTreeHash": "698893ba07d7f834c29cd1008f7510b3871c95a92cd6ed8fa8dc2464e7989a5f",
-  "generatedAt": "2026-10-11T15:37:51.449Z",
+  "generatedAt": "2026-10-11T15:39:58.183Z",
   "fileHashes": {
     "shared/stocks.ts": "b849001124cc7df3ce8f58f7af7ea39a274672129df7f4a6c4088ef10d2a7401",
     "server/realtimeSimEngine.ts": "0bd494cb188b67478928c200ae480b8df234f6979a1fd98f5679ef448cc5792a",

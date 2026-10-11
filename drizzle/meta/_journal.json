@@ -260,6 +260,13 @@
       "when": 1791625199363,
       "tag": "0036_thin_ultimates",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1791679866189,
+      "tag": "0037_lazy_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

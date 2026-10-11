@@ -18,6 +18,10 @@ import {
   type LearningApplicationAudit,
 } from "./aiForecastLearningAudit";
 import { AI_FORECAST_LEARNING_MODEL_VERSION } from "./aiForecastLearningContract";
+import {
+  getLatestLearningReviewApplicationBefore,
+  type LearningReviewApplication,
+} from "./aiPostmarketLearningService";
 
 export const AI_DAILY_FORECAST_VERSION = "ai-daily-forecast-v1";
 export const AI_DAILY_FORECAST_SYMBOLS = [
@@ -455,6 +459,8 @@ export type AiDailyForecastInput = {
     learning: unknown;
   } | null;
   learningApplicationAudit: LearningApplicationAudit;
+  /** Only a review strictly before tradeDate; advisory review cannot mutate app rules. */
+  latestLearningReview?: LearningReviewApplication;
   symbols: Array<{
     symbol: AiDailyForecastSymbol;
     baseline: QuantBaseline;
@@ -473,7 +479,7 @@ export async function buildAiDailyForecastInput(input: {
   if (!db) throw new Error("database_unavailable");
   const capturedAtMs = input.capturedAtMs ?? Date.now();
   const dataCutoffDate = previousTradeDate(input.tradeDate);
-  const [macro, learningRows, rows] = await Promise.all([
+  const [macro, learningRows, rows, latestLearningReview] = await Promise.all([
     db
       .select()
       .from(rtPremarketContextSnapshots)
@@ -516,6 +522,7 @@ export async function buildAiDailyForecastInput(input: {
         asc(rtCandles.candleTime),
         asc(rtCandles.id)
       ),
+    getLatestLearningReviewApplicationBefore(input.tradeDate),
   ]);
   const macroSnapshot = macro[0] ?? null;
   const learningSnapshot = learningRows[0] ?? null;
@@ -598,10 +605,17 @@ export async function buildAiDailyForecastInput(input: {
         }
       : null,
     learningApplicationAudit,
+    latestLearningReview,
     symbols: symbolInputs,
     inputQuality:
       reasons.length === 0 ? ("verified" as const) : ("degraded" as const),
-    qualityReasonCodes: learningReason ? [...reasons, learningReason] : reasons,
+    qualityReasonCodes: Array.from(
+      new Set([
+        ...reasons,
+        ...(learningReason ? [learningReason] : []),
+        ...latestLearningReview.reasonCodes,
+      ])
+    ),
   };
   return { ...prepared, inputHash: aiDailyForecastInputHash(prepared) };
 }
@@ -907,6 +921,7 @@ export async function ingestAiDailyForecastSubmission(
     aiFinalForecast: validation.output,
     generatorMetadata: submission.generatorMetadata ?? {},
     learningApplicationAudit: prepared.learningApplicationAudit,
+    latestLearningReview: prepared.latestLearningReview,
     validation: {
       inputQuality: prepared.inputQuality,
       inputReasons: prepared.qualityReasonCodes,

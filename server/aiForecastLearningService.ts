@@ -194,7 +194,7 @@ function directionFromSma(value: number | null, sma20: number | null) {
   return value > sma20 ? "up" : value < sma20 ? "down" : "flat";
 }
 
-function snapshotFromCandles(
+export function snapshotFromCandles(
   candles: Candle[],
   entryTime: string
 ): LearningFeature {
@@ -286,7 +286,7 @@ function snapshotFromCandles(
   };
 }
 
-function outcomeFromCandles(
+export function outcomeFromCandles(
   candles: Candle[],
   trade: {
     side: "long" | "short";

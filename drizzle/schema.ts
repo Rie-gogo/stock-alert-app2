@@ -1381,6 +1381,53 @@ export type InsertRtAiForecastLearningSnapshot =
   typeof rtAiForecastLearningSnapshots.$inferInsert;
 
 /**
+ * 閉場finality後の外部Codex学習review。既存forecast・trade・learning snapshotを
+ * 更新せず、reviewIdとpayload hashによるimmutableな追記だけを許可する。
+ */
+export const rtAiPostmarketLearningReviews = mysqlTable(
+  "rt_ai_postmarket_learning_reviews",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    reviewId: varchar("review_id", { length: 180 }).notNull(),
+    tradeDate: varchar("trade_date", { length: 10 }).notNull(),
+    inputHash: varchar("input_hash", { length: 64 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    generatedAtMs: bigint("generated_at_ms", { mode: "number" }).notNull(),
+    generatorId: varchar("generator_id", { length: 96 }).notNull(),
+    promptVersion: varchar("prompt_version", { length: 128 }).notNull(),
+    modelId: varchar("model_id", { length: 128 }).notNull(),
+    status: mysqlEnum("ai_postmarket_learning_review_status", [
+      "observation_only",
+      "candidate",
+      "validated",
+      "rejected",
+    ]).notNull(),
+    reviewJson: json("review_json").notNull(),
+    validationJson: json("validation_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    reviewIdentity: uniqueIndex("rt_ai_postmarket_learning_review_identity").on(
+      table.reviewId
+    ),
+    tradeDateStatus: index("rt_ai_postmarket_learning_trade_date_status").on(
+      table.tradeDate,
+      table.status,
+      table.id
+    ),
+    inputHashLookup: index("rt_ai_postmarket_learning_input_hash").on(
+      table.inputHash,
+      table.id
+    ),
+  })
+);
+
+export type RtAiPostmarketLearningReview =
+  typeof rtAiPostmarketLearningReviews.$inferSelect;
+export type InsertRtAiPostmarketLearningReview =
+  typeof rtAiPostmarketLearningReviews.$inferInsert;
+
+/**
  * 現行エンジンが確定したengineSequence順に、全シャドー版へ同じ入力を渡す永続キュー。
  * source eventの到着順ではなく現行状態更新順を正式順序とし、複数サーバーでも追い越しを防ぐ。
  */

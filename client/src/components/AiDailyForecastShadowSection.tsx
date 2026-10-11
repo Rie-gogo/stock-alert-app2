@@ -61,7 +61,71 @@ export default function AiDailyForecastShadowSection({
     { tradeDate },
     { staleTime: 30_000, retry: false }
   );
+  const reviewQuery =
+    trpc.trading.getAiPostmarketLearningReviewDashboard.useQuery(
+      { asOfDate: tradeDate },
+      { staleTime: 30_000, retry: false }
+    );
   const snapshot = query.data?.snapshot;
+  const latestReview = reviewQuery.data?.latest;
+  const postmarketCard = (
+    <Card className="bg-card border-amber-500/20">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex flex-wrap items-center gap-2">
+          <BrainCircuit className="w-4 h-4 text-amber-300" />
+          閉場後学習（Codex review・監査専用）
+          <Badge variant="outline" className="text-[10px]">
+            review {reviewQuery.data?.count ?? 0}件
+          </Badge>
+          <Badge
+            variant="outline"
+            className="text-[10px] border-amber-400/40 text-amber-200"
+          >
+            戦略コード自動変更なし・注文非接続
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs text-muted-foreground">
+        {!latestReview ? (
+          <div>
+            確定済みのCodex reviewはまだありません。closed/finality・watermark一致後の
+            読取inputと認証済みimmutable ingestだけを受け付け、推測レビューは保存しません。
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <span>
+                最新review日: <b className="text-foreground font-mono">{latestReview.tradeDate}</b>
+              </span>
+              <span>
+                status: <b className="text-foreground">{latestReview.status}</b>
+              </span>
+              <span>
+                検証対象: <b className="text-foreground">{latestReview.targetCount} closed trades</b>
+              </span>
+              <span>
+                翌日反映: <b className={latestReview.eligibleForNextDayPolicy ? "text-emerald-300" : "text-amber-300"}>
+                  {latestReview.eligibleForNextDayPolicy ? "validated policyAdvice（外部Codexのみ）" : "advisory only"}
+                </b>
+              </span>
+            </div>
+            <div>
+              主因: {latestReview.leadingCauses.length === 0
+                ? "記録なし"
+                : latestReview.leadingCauses
+                    .map(item => `${item.tag} (${item.count})`)
+                    .join(" / ")}
+            </div>
+            <div>
+              検証: {String(latestReview.validation.method ?? "—")} ／
+              {String(latestReview.validation.validationBusinessDays ?? "—")}営業日 ／
+              通常・0.10%不利約定の比較結果はreview payloadに固定保存。勝率予測ではありません。
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
   if (query.isLoading)
     return (
       <Card className="bg-card border-border">
@@ -72,19 +136,22 @@ export default function AiDailyForecastShadowSection({
     );
   if (!snapshot)
     return (
-      <Card className="bg-card border-border">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <BrainCircuit className="w-4 h-4 text-violet-300" />
-            10銘柄 AI適応予測shadow（監視専用）
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground flex gap-2">
-          <AlertCircle className="w-4 h-4" />
-          {tradeDate}
-          の08:30予測snapshotは未生成です。入力不足時はno_tradeのまま生成しません。
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        {postmarketCard}
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <BrainCircuit className="w-4 h-4 text-violet-300" />
+              10銘柄 AI適応予測shadow（監視専用）
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground flex gap-2">
+            <AlertCircle className="w-4 h-4" />
+            {tradeDate}
+            の08:30予測snapshotは未生成です。入力不足時はno_tradeのまま生成しません。
+          </CardContent>
+        </Card>
+      </div>
     );
   const intradaySnapshots = intradayQuery.data?.intradaySnapshots ?? [];
   const latestIntraday = intradaySnapshots.at(-1);
@@ -112,7 +179,9 @@ export default function AiDailyForecastShadowSection({
   const validation = asRecord(snapshot.validationJson);
   const revisions = query.data?.revisions ?? [];
   return (
-    <Card className="bg-card border-violet-500/20">
+    <div className="space-y-3">
+      {postmarketCard}
+      <Card className="bg-card border-violet-500/20">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex flex-wrap items-center gap-2">
           <BrainCircuit className="w-4 h-4 text-violet-300" />
@@ -333,6 +402,7 @@ export default function AiDailyForecastShadowSection({
           。場中計画は追記保存され、過去計画は上書きしません。
         </div>
       </CardContent>
-    </Card>
+      </Card>
+    </div>
   );
 }

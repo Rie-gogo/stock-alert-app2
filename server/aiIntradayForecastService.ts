@@ -462,6 +462,8 @@ export type AiIntradayForecastInput = {
   morningForecast: Record<string, unknown>;
   previousIntradayForecast: Record<string, unknown> | null;
   priorData: AiDailyForecastInput;
+  /** The same strictly-prior closed review as the 08:30 input; no same-day review. */
+  latestLearningReview: NonNullable<AiDailyForecastInput["latestLearningReview"]>;
   currentSession: {
     symbols: Array<{
       symbol: AiDailyForecastSymbol;
@@ -696,6 +698,7 @@ export async function buildAiIntradayForecastInput(input: {
       ? object(earlier[0].forecastJson)
       : null,
     priorData,
+    latestLearningReview: priorData.latestLearningReview!,
     currentSession: {
       symbols: summaries,
       nikkei225Mini:

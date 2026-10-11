@@ -232,6 +232,13 @@ export const tradingRouter = router({
       const { getAiSessionTradeDashboardRows } = await import("../aiIntradayForecastService");
       return getAiSessionTradeDashboardRows(input.tradeDate);
     }),
+  /** 閉場後Codex reviewの監査表示。履歴はread-onlyで通常engineへ接続しない。 */
+  getAiPostmarketLearningReviewDashboard: protectedProcedure
+    .input(z.object({ asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input }) => {
+      const { getAiPostmarketLearningReviewDashboard } = await import("../aiPostmarketLearningService");
+      return getAiPostmarketLearningReviewDashboard(input.asOfDate);
+    }),
   /** sender専用。Secret一致時だけ、指定checkpointまでの確定足と過去成績を返す。 */
   prepareAiIntradayForecastInput: publicProcedure
     .input(z.object({ ingestKey: z.string().min(32).max(256), tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkpoint: aiIntradayCheckpointInput }))
@@ -239,6 +246,14 @@ export const tradingRouter = router({
       if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast input authorization failed" });
       const { buildAiIntradayForecastInput } = await import("../aiIntradayForecastService");
       return buildAiIntradayForecastInput({ tradeDate: input.tradeDate, checkpoint: input.checkpoint });
+    }),
+  /** sender専用。closed/finalityとwatermark一致後だけ、閉場後Codex inputを返す。 */
+  prepareAiPostmarketLearningInput: publicProcedure
+    .input(z.object({ ingestKey: z.string().min(32).max(256), tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI postmarket learning input authorization failed" });
+      const { buildAiPostmarketLearningInput } = await import("../aiPostmarketLearningService");
+      return buildAiPostmarketLearningInput({ tradeDate: input.tradeDate });
     }),
   /** Secretの存在確認専用。予測生成・DB書込み・model呼出しは行わない。 */
   validateAiDailyForecastIngestAuth: publicProcedure
@@ -295,6 +310,23 @@ export const tradingRouter = router({
       const { ingestAiIntradayForecastSubmission } = await import("../aiIntradayForecastService");
       const snapshot = await ingestAiIntradayForecastSubmission(input);
       return { sourceRevisionId: snapshot.sourceRevisionId, morningSourceSnapshotId: snapshot.morningSourceSnapshotId, tradeDate: snapshot.tradeDate, checkpoint: snapshot.checkpoint, cutoffCandleTime: snapshot.cutoffCandleTime, qualityStatus: snapshot.qualityStatus, aiModelId: snapshot.aiModelId };
+    }),
+  /** sender専用。Codex reviewをreviewId単位でimmutableに追記し、同一hashだけをduplicateとして受理する。 */
+  ingestAiPostmarketLearningReview: publicProcedure
+    .input(z.object({ ingestKey: z.string().min(32).max(256), review: z.unknown() }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI postmarket learning review authorization failed" });
+      const { ingestAiPostmarketLearningReview } = await import("../aiPostmarketLearningService");
+      const result = await ingestAiPostmarketLearningReview(input.review);
+      return {
+        reviewId: result.row.reviewId,
+        tradeDate: result.row.tradeDate,
+        status: result.row.status,
+        payloadHash: result.row.payloadHash,
+        duplicate: result.duplicate,
+        automaticRuleMutation: false,
+        orderInstructionConnection: false,
+      };
     }),
   /**
    * 手動更新だけで読む、relay→source→decision→shadowの保存済み監査診断。

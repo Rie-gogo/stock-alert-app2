@@ -173,6 +173,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
   );
   const lastDates = (count: number) => eligibleTradeDates.slice(-count);
   const previousFiveDates = eligibleTradeDates.slice(-10, -5);
+  const todayDates = eligibleTradeDates.includes(input.asOfDate) ? [input.asOfDate] : [];
 
   const planResults = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.map(definition => {
     // Immutable historical rows remain byte-for-byte untouched. A role-only
@@ -180,6 +181,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
     // at read time, while each trade date still contributes one selected
     // materialization version only.
     const planIds = [definition.planId, ...(definition.legacyPlanIds ?? [])];
+    const today = metricsForDates({ rowsByDate, planIds, dates: todayDates, requestedTradingDays: 1 });
     const recent5 = metricsForDates({ rowsByDate, planIds, dates: lastDates(5), requestedTradingDays: 5 });
     const previous5 = metricsForDates({ rowsByDate, planIds, dates: previousFiveDates, requestedTradingDays: 5 });
     const recent10 = metricsForDates({ rowsByDate, planIds, dates: lastDates(10), requestedTradingDays: 10 });
@@ -188,7 +190,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
     return {
       ...definition,
       trend: compareFiveDayWindows(recent5, previous5),
-      windows: { recent5, previous5, recent10, recent20, all },
+      windows: { today, recent5, previous5, recent10, recent20, all },
       reviewStatus: eligibleTradeDates.length >= 20 && all.completedTrades >= 10
         ? "four_weeks_ten_trades_manual_review" as const
         : "preliminary" as const,

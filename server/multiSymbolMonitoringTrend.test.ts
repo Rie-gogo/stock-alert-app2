@@ -77,6 +77,11 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       losses: 5,
       pnlPer100: -5_000,
     });
+    expect(current.windows.today).toMatchObject({
+      includedTradingDays: 0,
+      completedTrades: 0,
+      pnlPer100: 0,
+    });
     expect(result.pendingClosedTradeDates).toEqual(["2026-09-21"]);
     expect(result.symbols).toHaveLength(10);
     expect(result.dataSource).toBe(
@@ -117,6 +122,14 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       completedTrades: 2,
       wins: 2,
       pnlPer100: 3_000,
+    });
+    expect(currentPlan.windows.today).toMatchObject({
+      includedTradingDays: 1,
+      fromDate: "2026-09-08",
+      toDate: "2026-09-08",
+      completedTrades: 1,
+      wins: 1,
+      pnlPer100: 2_000,
     });
     expect(result.legacyFallbackTradeDates).toEqual(["2026-09-07"]);
     expect(result.sourceMaterializationVersionByDate).toEqual({

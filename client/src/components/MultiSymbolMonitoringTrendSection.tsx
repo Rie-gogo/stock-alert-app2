@@ -81,11 +81,12 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                     {symbol.symbol} {symbolName}（現行＋シャドー {symbol.plans.length}案）
                   </summary>
                   <div className="overflow-x-auto border-t border-border/60">
-                    <table className="w-full min-w-[820px] text-xs">
+                    <table className="w-full min-w-[920px] text-xs">
                       <thead className="bg-muted/30 text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 text-left">方式</th>
                           <th className="px-2 py-2 text-left">傾向</th>
+                          <th className="px-2 py-2 text-right">本日</th>
                           <th className="px-2 py-2 text-right">直近5日</th>
                           <th className="px-2 py-2 text-right">直近10日</th>
                           <th className="px-2 py-2 text-right">全期間</th>
@@ -107,7 +108,7 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                               <td className="px-2 py-2 align-top">
                                 <Badge variant="outline" className={trend.className}>{trend.label}</Badge>
                               </td>
-                              {[plan.windows.recent5, plan.windows.recent10, plan.windows.all].map((window, index) => (
+                              {[plan.windows.today, plan.windows.recent5, plan.windows.recent10, plan.windows.all].map((window, index) => (
                                 <td key={index} className="px-2 py-2 text-right align-top">
                                   <div>{window.completedTrades}件・{pct(window.winRatePct)}</div>
                                   <div className={window.pnlPer100 < 0 ? "text-rose-300" : "text-emerald-300"}>

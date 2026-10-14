@@ -29,19 +29,20 @@ import { collectRouteAttributionMappingVersions } from "./kioxiaRouteAttribution
 
 export const MULTI_SYMBOL_MONITORING_COMPONENT = "monitoring_trend_10_symbols";
 export const MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION =
-  "monitoring-trend-10-symbols-daily-v3-ai-forecast-learning";
+  "monitoring-trend-10-symbols-daily-v4-ai-forecast-generation-fallback";
 /**
  * 変更されていないplanIdの表示を、新しい日次snapshotのbackfill完了まで維持する。
  * 旧snapshot自体は変更せず、同一日は最も新しい完全版だけを使用する。
  */
 export const MULTI_SYMBOL_MONITORING_COMPATIBLE_LEGACY_VERSIONS =
   Object.freeze([
+    "monitoring-trend-10-symbols-daily-v3-ai-forecast-learning",
     "monitoring-trend-10-symbols-daily-v2-ai-daily-forecast",
     "monitoring-trend-10-symbols-daily-v1",
   ] as const);
 export const MULTI_SYMBOL_MONITORING_START_DATE = "2026-09-07";
 const MULTI_SYMBOL_MONITORING_BACKFILL_LOCK =
-  "monitoring-trend-10-symbol-backfill-v2-ai-daily-forecast";
+  "monitoring-trend-10-symbol-backfill-v4-ai-forecast-generation-fallback";
 
 // 監視snapshotだけは、過去に保存済みのcandidate/virtual世代を同じ組で読む。
 // 現行v2 virtual engineだけで読むと、v1だった9/7〜9/10の現行候補が
@@ -202,10 +203,19 @@ export function buildMultiSymbolMonitoringDailySnapshot(input: {
       return summarizePlan(definition, signals.length, trades);
     }
 
+    // A renamed monitoring row may point at an immutable prior generation.
+    // Include only those explicitly registered legacy IDs so the v5 ledger on
+    // the v6 transition day remains visible without rewriting historical rows.
+    const strategyVersions = new Set([
+      definition.strategyVersion,
+      ...(definition.legacyPlanIds ?? [])
+        .filter(planId => planId.startsWith("shadow:"))
+        .map(planId => planId.slice("shadow:".length)),
+    ]);
     const trades = input.shadowTrades
       .filter(
         trade =>
-          trade.strategyVersion === definition.strategyVersion &&
+          strategyVersions.has(trade.strategyVersion) &&
           trade.evaluationMode === "signal_quality" &&
           trade.symbol === definition.symbol
       )

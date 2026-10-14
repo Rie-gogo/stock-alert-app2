@@ -164,5 +164,10 @@ export const MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS: ReadonlyArray<MonitoringP
 export const MULTI_SYMBOL_MONITORING_PLAN_BY_VERSION = new Map(
   MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS
     .filter(plan => plan.origin === "forward_shadow")
-    .map(plan => [plan.strategyVersion, plan]),
+    .flatMap(plan => [
+      [plan.strategyVersion, plan] as const,
+      ...(plan.legacyPlanIds ?? [])
+        .filter(planId => planId.startsWith("shadow:"))
+        .map(planId => [planId.slice("shadow:".length), plan] as const),
+    ]),
 );

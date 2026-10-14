@@ -236,7 +236,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "monitoring_trend_10_symbols"
     );
     expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe(
-      "monitoring-trend-10-symbols-daily-v3-ai-forecast-learning"
+      "monitoring-trend-10-symbols-daily-v4-ai-forecast-generation-fallback"
     );
   });
 

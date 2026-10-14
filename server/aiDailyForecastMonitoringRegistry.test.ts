@@ -4,6 +4,7 @@ import {
   RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
 } from "./runtimeIdentity";
 import {
+  MULTI_SYMBOL_MONITORING_PLAN_BY_VERSION,
   MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS,
   TEN_MONITORED_SYMBOLS,
 } from "./multiSymbolMonitoringRegistry";
@@ -76,7 +77,7 @@ function dailyRow(tradeDate: string) {
 
 describe("AI daily forecast monitoring registry", () => {
   it("uses non-destructive materialization versions while moving the active AI generation to v6", () => {
-    expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v3-ai-forecast-learning");
+    expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v4-ai-forecast-generation-fallback");
     expect(ROUTE_GRANULAR_MONITORING_VERSION).toBe("monitoring-route-granular-10-symbols-v3-ai-forecast-learning");
     expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v6"))).toBe(true);
     expect(Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v5"))).toBe(true);
@@ -98,6 +99,35 @@ describe("AI daily forecast monitoring registry", () => {
     const zeroFirePlans = snapshot.plans.filter(plan => aiVersions.has(plan.strategyVersion));
     expect(zeroFirePlans).toHaveLength(10);
     expect(zeroFirePlans.every(plan => plan.signals === 0 && plan.openedTrades === 0 && plan.completedTrades === 0)).toBe(true);
+  });
+
+  it("attributes the immutable v5 transition-day ledger to the renamed v6 display row", () => {
+    const legacyVersion = RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS["8035"];
+    const currentVersion = AI_DAILY_FORECAST_VERSIONS["8035"];
+    expect(MULTI_SYMBOL_MONITORING_PLAN_BY_VERSION.get(legacyVersion)?.strategyVersion)
+      .toBe(currentVersion);
+    const snapshot = buildMultiSymbolMonitoringDailySnapshot({
+      tradeDate: "2026-10-14",
+      candidates: [],
+      candidateTrades: [],
+      shadowTrades: [{
+        strategyVersion: legacyVersion,
+        evaluationMode: "signal_quality",
+        symbol: "8035",
+        pnl: 3_000,
+        shares: 200,
+        exitTradeDate: "2026-10-14",
+      }] as any,
+    });
+
+    const aiPlan = snapshot.plans.find(plan => plan.strategyVersion === currentVersion)!;
+    expect(aiPlan).toMatchObject({
+      planId: `shadow:${currentVersion}`,
+      signals: 1,
+      completedTrades: 1,
+      wins: 1,
+      pnlPer100: 1_500,
+    });
   });
 
   it("adds exactly LONG and SHORT audit rows for every AI version and attributes a persisted action side without mixing", () => {

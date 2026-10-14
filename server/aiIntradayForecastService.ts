@@ -24,6 +24,7 @@ import {
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
   sha256Stable,
 } from "./runtimeIdentity";
 import {
@@ -31,12 +32,18 @@ import {
   type LearningApplicationAudit,
 } from "./aiForecastLearningAudit";
 
-export const AI_INTRADAY_FORECAST_VERSION = "ai-intraday-forecast-v2-learning";
+export const AI_INTRADAY_FORECAST_VERSION =
+  "ai-intraday-forecast-v3-v6-morning15-afternoon30";
 export const AI_INTRADAY_CHECKPOINTS = [
+  "09:15",
   "09:30",
+  "09:45",
   "10:00",
+  "10:15",
   "10:30",
+  "10:45",
   "11:00",
+  "11:15",
   "11:30",
   "12:35",
   "13:00",
@@ -59,10 +66,15 @@ const checkpointSpec: Record<
   AiIntradayCheckpoint,
   { cutoff: string; effectiveFrom: string; validUntil: string }
 > = {
-  "09:30": { cutoff: "09:29", effectiveFrom: "09:30", validUntil: "09:59" },
-  "10:00": { cutoff: "09:59", effectiveFrom: "10:00", validUntil: "10:29" },
-  "10:30": { cutoff: "10:29", effectiveFrom: "10:30", validUntil: "10:59" },
-  "11:00": { cutoff: "10:59", effectiveFrom: "11:00", validUntil: "11:29" },
+  "09:15": { cutoff: "09:14", effectiveFrom: "09:15", validUntil: "09:29" },
+  "09:30": { cutoff: "09:29", effectiveFrom: "09:30", validUntil: "09:44" },
+  "09:45": { cutoff: "09:44", effectiveFrom: "09:45", validUntil: "09:59" },
+  "10:00": { cutoff: "09:59", effectiveFrom: "10:00", validUntil: "10:14" },
+  "10:15": { cutoff: "10:14", effectiveFrom: "10:15", validUntil: "10:29" },
+  "10:30": { cutoff: "10:29", effectiveFrom: "10:30", validUntil: "10:44" },
+  "10:45": { cutoff: "10:44", effectiveFrom: "10:45", validUntil: "10:59" },
+  "11:00": { cutoff: "10:59", effectiveFrom: "11:00", validUntil: "11:14" },
+  "11:15": { cutoff: "11:14", effectiveFrom: "11:15", validUntil: "11:29" },
   "11:30": { cutoff: "11:29", effectiveFrom: "11:30", validUntil: "12:34" },
   "12:35": { cutoff: "12:34", effectiveFrom: "12:35", validUntil: "12:59" },
   "13:00": { cutoff: "12:59", effectiveFrom: "13:00", validUntil: "13:29" },
@@ -487,7 +499,7 @@ export type AiIntradayForecastInput = {
   aiCurrentExecutionAuditPositions: AiSessionTradeJournalRow[];
   /** 外部senderがAIへ渡す、v5の固定・監査可能な判断指示。 */
   generationContract: {
-    version: "ai-adaptive-v5-same-day-journal-v1";
+    version: "ai-adaptive-v6-same-day-journal-morning15-afternoon30-v1";
     strategyLearningSource: "signal_quality_only";
     executionAuditSource: "capital_constrained_separate_not_market_case";
     openingTradeBoundary: "entry_candle_time_09:00_to_09:29";
@@ -571,6 +583,7 @@ export async function buildAiIntradayForecastInput(input: {
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS),
     ...Object.values(AI_DAILY_FORECAST_VERSIONS),
   ] as string[];
   const learningRows = await db
@@ -737,7 +750,7 @@ export async function buildAiIntradayForecastInput(input: {
     aiCurrentStrategyPositions,
     aiCurrentExecutionAuditPositions,
     generationContract: {
-      version: "ai-adaptive-v5-same-day-journal-v1",
+      version: "ai-adaptive-v6-same-day-journal-morning15-afternoon30-v1",
       strategyLearningSource: "signal_quality_only",
       executionAuditSource: "capital_constrained_separate_not_market_case",
       openingTradeBoundary: "entry_candle_time_09:00_to_09:29",
@@ -809,6 +822,13 @@ export function validateAiIntradayForecastOutput(
       control.entryWindowStart > control.entryWindowEnd
     )
       reasons.push(`entry_window_outside_checkpoint:${control.symbol}`);
+    // 11:30は前場新規entryを許さず、後場最初の完成5分足を待つまでの
+    // bridge planに限定する。12:35で改めて因果的に再判断する。
+    if (
+      input.checkpoint === "11:30" &&
+      (control.entryWindowStart < "12:30" || control.entryWindowEnd > "12:34")
+    )
+      reasons.push(`1130_bridge_entry_window_invalid:${control.symbol}`);
     if (
       control.forceExitTime < control.entryWindowEnd ||
       control.forceExitTime > "15:20"
@@ -1014,14 +1034,17 @@ export async function getAiIntradayForecastSnapshots(tradeDate: string) {
     );
 }
 /**
- * Read-only UI projection for every v5 AI shadow entry.  Rows stay independent
+ * Read-only UI projection for every v5/v6 AI shadow entry. Rows stay independent
  * by evaluation mode and are never written back to the immutable trade history.
  */
 export async function getAiSessionTradeDashboardRows(tradeDate: string) {
   const db = await getDb();
   if (!db)
     return { asOfCandleTime: null, rows: [] as AiSessionTradeJournalRow[] };
-  const versions = Object.values(AI_DAILY_FORECAST_VERSIONS) as string[];
+  const versions = [
+    ...Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS),
+    ...Object.values(AI_DAILY_FORECAST_VERSIONS),
+  ] as string[];
   const [trades, events, candles] = await Promise.all([
     db
       .select()

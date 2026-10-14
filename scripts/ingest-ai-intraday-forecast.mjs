@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** AIが生成・検証した30分計画をimmutable ingest endpointへ送る。 */
+/** AIが生成・検証したv6 checkpoint計画をimmutable ingest endpointへ送る。 */
 import { readFile } from "node:fs/promises";
 const baseUrl = (process.env.AI_DAILY_FORECAST_APP_URL || "https://stockalert-ulxu9jpf.manus.space").replace(/\/$/, "");
 const ingestKey = process.env.AI_DAILY_FORECAST_INGEST_KEY;
@@ -9,6 +9,13 @@ if (!ingestKey || ingestKey.length < 32) throw new Error("AI_DAILY_FORECAST_INGE
 const payload = JSON.parse(await readFile(file, "utf8"));
 for (const field of ["sourceRevisionId", "morningSourceSnapshotId", "tradeDate", "checkpoint", "capturedAtMs", "inputHash", "aiFinalForecast", "generatorId", "promptVersion"]) if (payload[field] === undefined || payload[field] === null) throw new Error(`intraday forecast payload missing ${field}`);
 const input = { ...payload, sourceMode: payload.sourceMode ?? "scheduled_ai_forecast", ingestKey };
+// Persistの前に、同じサーバーvalidatorでnon-persisting preflightを必ず実行する。
+// KeyはPOST bodyだけで使い、出力・エラー・JSONに含めない。
+const preflightResponse = await fetch(`${baseUrl}/api/trpc/trading.preflightAiIntradayForecast?batch=1`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ 0: { json: { ingestKey, tradeDate: payload.tradeDate, checkpoint: payload.checkpoint, aiFinalForecast: payload.aiFinalForecast } } }) });
+if (!preflightResponse.ok) throw new Error(`intraday preflight endpoint: HTTP ${preflightResponse.status}`);
+const preflightEnvelope = await preflightResponse.json(); const preflight = preflightEnvelope?.[0]?.result?.data?.json;
+if (!preflight?.valid) throw new Error(`intraday preflight rejected: ${(preflight?.reasonCodes ?? ["unknown"]).join(",")}`);
+if (preflight.inputHash !== payload.inputHash) throw new Error("intraday preflight input hash mismatch");
 const response = await fetch(`${baseUrl}/api/trpc/trading.ingestAiIntradayForecast?batch=1`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ 0: { json: input } }) });
 if (!response.ok) throw new Error(`intraday ingest endpoint: HTTP ${response.status}`);
 const envelope = await response.json(); const result = envelope?.[0]?.result?.data?.json;

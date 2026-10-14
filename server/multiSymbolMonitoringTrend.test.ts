@@ -241,7 +241,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "ボリンジャー方向判定 改善A：完成5分足SMA20方向＋傾き一致・最低戻し余地0.60%",
       "ボリンジャー方向判定 改善B：SMA20傾き一致＋BB幅5本非拡大・最低戻し余地0.60%",
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
-      "AI適応予測shadow（08:30＋30分更新）",
+      "AI適応予測shadow v6（前場15分・後場30分更新）",
     ]);
     const murata = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(
       plan => plan.symbol === "6981"
@@ -256,7 +256,7 @@ describe("10-symbol snapshot-only monitoring trend", () => {
       "ボリンジャー方向判定 改善A：完成5分足SMA20方向＋傾き一致・最低戻し余地0.60%",
       "ボリンジャー方向判定 改善B：SMA20傾き一致＋BB幅5本非拡大・最低戻し余地0.60%",
       "ボリンジャー方向判定：5分SMA10＋傾き・最低戻し余地0.50%",
-      "AI適応予測shadow（08:30＋30分更新）",
+      "AI適応予測shadow v6（前場15分・後場30分更新）",
     ]);
   });
 });

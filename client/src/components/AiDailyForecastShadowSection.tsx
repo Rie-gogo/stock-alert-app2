@@ -185,7 +185,7 @@ export default function AiDailyForecastShadowSection({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex flex-wrap items-center gap-2">
           <BrainCircuit className="w-4 h-4 text-violet-300" />
-          10銘柄 AI適応予測shadow（08:30＋30分更新・監視専用）
+              10銘柄 AI適応予測shadow v6（08:30＋前場15分・後場30分更新・監視専用）
           <Badge
             variant="outline"
             className="text-[10px] border-violet-400/40 text-violet-200"

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { AI_DAILY_FORECAST_VERSIONS } from "./runtimeIdentity";
+import {
+  AI_DAILY_FORECAST_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
+} from "./runtimeIdentity";
 import {
   MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS,
   TEN_MONITORED_SYMBOLS,
@@ -72,17 +75,19 @@ function dailyRow(tradeDate: string) {
 }
 
 describe("AI daily forecast monitoring registry", () => {
-  it("uses non-destructive materialization versions while moving the active AI generation to v5", () => {
+  it("uses non-destructive materialization versions while moving the active AI generation to v6", () => {
     expect(MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION).toBe("monitoring-trend-10-symbols-daily-v3-ai-forecast-learning");
     expect(ROUTE_GRANULAR_MONITORING_VERSION).toBe("monitoring-route-granular-10-symbols-v3-ai-forecast-learning");
-    expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v5"))).toBe(true);
+    expect(Object.values(AI_DAILY_FORECAST_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v6"))).toBe(true);
+    expect(Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS).every(version => version.endsWith("-ai-adaptive-forecast-v5"))).toBe(true);
   });
 
   it("adds exactly one immutable AI plan per monitored symbol even when no event has fired", () => {
     const plans = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.filter(plan => aiVersions.has(plan.strategyVersion));
     expect(plans).toHaveLength(10);
     expect(plans.map(plan => plan.symbol).sort()).toEqual([...TEN_MONITORED_SYMBOLS].sort());
-    expect(plans.every(plan => plan.label === "AI適応予測shadow（08:30＋30分更新）" && plan.purpose === "diagnostic" && plan.eligibleForAdoption === false)).toBe(true);
+    expect(plans.every(plan => plan.label === "AI適応予測shadow v6（前場15分・後場30分更新）" && plan.purpose === "diagnostic" && plan.eligibleForAdoption === false)).toBe(true);
+    expect(plans.every(plan => plan.legacyPlanIds?.some(id => id.endsWith("-ai-adaptive-forecast-v5")))).toBe(true);
 
     const snapshot = buildMultiSymbolMonitoringDailySnapshot({
       tradeDate: "2026-10-09",

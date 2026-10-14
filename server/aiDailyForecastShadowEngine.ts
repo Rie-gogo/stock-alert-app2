@@ -26,6 +26,7 @@ import {
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
   getRuntimeIdentity,
   sha256Stable,
 } from "./runtimeIdentity";
@@ -38,7 +39,8 @@ import {
 import { getEffectiveAiIntradayForecastSnapshot } from "./aiIntradayForecastService";
 
 export const AI_DAILY_FORECAST_LEARNING_CUTOFF_DATE = "2026-10-10";
-export const AI_DAILY_FORECAST_COLLECTION_START_DATE = "2026-10-13";
+/** v5と同日混在させない、v6の最初のJPX営業日。 */
+export const AI_DAILY_FORECAST_COLLECTION_START_DATE = "2026-10-15";
 export const AI_DAILY_FORECAST_STRATEGY_VERSIONS =
   AI_DAILY_FORECAST_VERSIONS as Record<AiDailyForecastSymbol, string>;
 const MODES: readonly ForwardEvaluationMode[] =
@@ -819,7 +821,7 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
   const config = {
     family: "ai_daily_forecast_shadow",
     symbol,
-    forecastSnapshot: "immutable_preopen_plus_30min_intraday_v1",
+    forecastSnapshot: "immutable_preopen_plus_morning15_afternoon30_intraday_v6",
     d1OnlyAtOpen: true,
     intradayDataCutoff: "checkpoint_minus_one_minute",
     intradayCheckpoints: [
@@ -855,7 +857,7 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
   };
   await upsertRtStrategyVersion({
     versionId: version,
-    strategyId: `${symbol.toLowerCase()}-ai-adaptive-v5`,
+    strategyId: `${symbol.toLowerCase()}-ai-adaptive-v6`,
     baselineGitSha: BASELINE_STRATEGY_GIT_SHA,
     buildGitSha: identity.buildGitSha ?? identity.runtimeBuildIdentifier,
     sourceTreeHash: identity.sourceTreeHash,
@@ -867,7 +869,7 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
     eligibleForAdoption: false,
     status: "monitoring",
     statusReason:
-      "ai_adaptive_forecast_reentry_by_new_plan_id_manual_review_only",
+      "ai_adaptive_forecast_v6_morning15_afternoon30_reentry_by_new_plan_id_manual_review_only",
   });
   ensured.add(version);
 }
@@ -879,13 +881,14 @@ export async function registerAiDailyForecastShadowLifecycle() {
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS),
   ]) {
     const existing = await getRtStrategyVersion(versionId);
     if (existing && existing.status !== "stopped")
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: "retired_replaced_by_ai_forecast_reentry_v5_2026_10_10",
+        statusReason: "retired_replaced_by_ai_forecast_v6_morning15_afternoon30_2026_10_15",
       });
   }
   for (const symbol of AI_DAILY_FORECAST_SYMBOLS) await ensureVersion(symbol);

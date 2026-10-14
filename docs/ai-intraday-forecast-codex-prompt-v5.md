@@ -1,5 +1,7 @@
 # AI適応予測shadow v5 — 場中Codex定期taskプロンプト
 
+> **履歴専用**: 2026-10-15から新規受付はAI v6です。この文書とv5 snapshotは監査・学習読取のために保持し、v5 payloadを新規に生成・ingestしません。新規作業は[v6場中AIプロンプト](./ai-intraday-forecast-codex-prompt-v6.md)を参照してください。
+
 > **用途**: 08:30の朝予測を保存済みのまま維持し、`09:30 / 10:00 / 10:30 / 11:00 / 11:30 / 12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00` の各checkpointで、外部Codexが次のimmutable AI場中予測を生成するための指示です。通常売買・OrderBridge・Executor・実注文には接続しません。
 
 ## 実行前

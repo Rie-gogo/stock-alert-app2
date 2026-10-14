@@ -23,7 +23,8 @@ import {
   type LearningReviewApplication,
 } from "./aiPostmarketLearningService";
 
-export const AI_DAILY_FORECAST_VERSION = "ai-daily-forecast-v1";
+/** v6 strategy generation: immutable 08:30 baseline for morning-15/afternoon-30 revisions. */
+export const AI_DAILY_FORECAST_VERSION = "ai-daily-forecast-v2-adaptive-v6";
 export const AI_DAILY_FORECAST_SYMBOLS = [
   "285A",
   "3436",

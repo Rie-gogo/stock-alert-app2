@@ -195,7 +195,7 @@ const premarketContextInput = z.object({
 const premarketAutomationInput = premarketContextInput.safeExtend({
   ingestKey: z.string().min(32).max(256),
 });
-const aiIntradayCheckpointInput = z.enum(["09:30", "10:00", "10:30", "11:00", "11:30", "12:35", "13:00", "13:30", "14:00", "14:30", "15:00"]);
+const aiIntradayCheckpointInput = z.enum(["09:15", "09:30", "09:45", "10:00", "10:15", "10:30", "10:45", "11:00", "11:15", "11:30", "12:35", "13:00", "13:30", "14:00", "14:30", "15:00"]);
 function authorizeAiForecastSender(provided: string) {
   const expected = process.env.AI_DAILY_FORECAST_INGEST_KEY;
   if (!expected) return false;
@@ -246,6 +246,21 @@ export const tradingRouter = router({
       if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast input authorization failed" });
       const { buildAiIntradayForecastInput } = await import("../aiIntradayForecastService");
       return buildAiIntradayForecastInput({ tradeDate: input.tradeDate, checkpoint: input.checkpoint });
+    }),
+  /** sender専用のnon-persisting preflight。ingest前に同一validatorを通す。 */
+  preflightAiIntradayForecast: publicProcedure
+    .input(z.object({
+      ingestKey: z.string().min(32).max(256),
+      tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      checkpoint: aiIntradayCheckpointInput,
+      aiFinalForecast: z.unknown(),
+    }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast preflight authorization failed" });
+      const { buildAiIntradayForecastInput, validateAiIntradayForecastOutput } = await import("../aiIntradayForecastService");
+      const prepared = await buildAiIntradayForecastInput({ tradeDate: input.tradeDate, checkpoint: input.checkpoint });
+      const validation = validateAiIntradayForecastOutput(input.aiFinalForecast, prepared);
+      return { valid: validation.valid, reasonCodes: validation.reasonCodes, inputHash: prepared.inputHash };
     }),
   /** sender専用。closed/finalityとwatermark一致後だけ、閉場後Codex inputを返す。 */
   prepareAiPostmarketLearningInput: publicProcedure

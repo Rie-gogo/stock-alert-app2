@@ -5,6 +5,7 @@ import {
   buildRouteGranularSelectorSnapshot,
   filterRouteGranularSelectorResultForRead,
   filterRouteGranularSelectorSnapshotForRead,
+  _routeGranularNextDaySelectorTest,
   ROUTE_GRANULAR_SELECTOR_CONFIG,
   ROUTE_GRANULAR_SELECTOR_VERSION,
 } from "./routeGranularNextDaySelector";
@@ -43,6 +44,30 @@ function dailyRow(tradeDate: string, pnl: number) {
 }
 
 describe("route-granular next-day monitoring selector", () => {
+  it("uses the v5 immutable AI row only when no same-day v6 row exists", () => {
+    const v6 = ROUTE_GRANULAR_VARIANTS.find(
+      item =>
+        item.symbol === "8035" &&
+        item.routeGroupId === "ai_daily_forecast_long" &&
+        item.strategyVersion?.endsWith("-ai-adaptive-forecast-v6")
+    )!;
+    const legacyRowId = v6.legacyRowIds?.[0]!;
+    const legacy = { rowId: legacyRowId, completedTrades: 2, pnlPer100: 100 };
+    const v6Plan = { rowId: v6.rowId, completedTrades: 1, pnlPer100: 50 };
+    expect(
+      _routeGranularNextDaySelectorTest.compatiblePlan(
+        { plans: [legacy] } as any,
+        v6
+      )
+    ).toBe(legacy);
+    expect(
+      _routeGranularNextDaySelectorTest.compatiblePlan(
+        { plans: [legacy, v6Plan] } as any,
+        v6
+      )
+    ).toBe(v6Plan);
+  });
+
   it("declares technical market state as authority and recent trend as a safety gate", () => {
     expect(ROUTE_GRANULAR_SELECTOR_VERSION).toBe("route-granular-technical-regime-authority-v6-ai-display-only");
     expect(ROUTE_GRANULAR_SELECTOR_CONFIG).toMatchObject({
@@ -279,8 +304,8 @@ describe("route-granular next-day monitoring selector", () => {
     ]);
     expect(ROUTE_GRANULAR_VARIANTS.some(item => item.symbol === "5803" && item.candidateRouteId === "afternoonLowBreakShort")).toBe(false);
     expect(ROUTE_GRANULAR_VARIANTS.filter(item => item.symbol === "6857" && item.origin === "forward_shadow").map(item => item.canonicalLogic).sort()).toEqual([
-      "6857_ai_adaptive_forecast_v2",
-      "6857_ai_adaptive_forecast_v2",
+      "6857_ai_adaptive_forecast_v6",
+      "6857_ai_adaptive_forecast_v6",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_fixed_stop140_cooldown30",
       "6857_bollinger_directional_sma10_slope_gap050_stop140_cooldown30",

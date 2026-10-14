@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 30分AI判断用。Secret認証後、checkpoint以前の確定データだけを取得する。 */
+/** AI v6 checkpoint判断用。Secret認証後、checkpoint以前の確定データだけを取得する。 */
 import { writeFile } from "node:fs/promises";
 const baseUrl = (process.env.AI_DAILY_FORECAST_APP_URL || "https://stockalert-ulxu9jpf.manus.space").replace(/\/$/, "");
 const ingestKey = process.env.AI_DAILY_FORECAST_INGEST_KEY;

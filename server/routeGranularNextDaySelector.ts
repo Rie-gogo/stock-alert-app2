@@ -160,7 +160,19 @@ export function filterRouteGranularSelectorResultForRead(result: unknown): Value
     : [];
   return { ...source, results, symbolResults };
 }
-function plan(snapshot: RouteGranularDailySnapshot | null, rowId: string): RouteGranularDailyPlan | null { return snapshot?.plans.find(item => item.rowId === rowId) ?? null; }
+/** v6行を優先し、同日にv6がなければ同一AI v5のimmutable履歴行だけを読む。 */
+function compatiblePlan(
+  snapshot: RouteGranularDailySnapshot | null,
+  variant: RouteGranularVariant
+): RouteGranularDailyPlan | null {
+  if (!snapshot) return null;
+  return (
+    snapshot.plans.find(item => item.rowId === variant.rowId) ??
+    snapshot.plans.find(item => variant.legacyRowIds?.includes(item.rowId)) ??
+    null
+  );
+}
+export const _routeGranularNextDaySelectorTest = { compatiblePlan };
 function snapshot(row: Row): RouteGranularDailySnapshot | null { const item = object(row.resultJson); return row.status === "complete" && item.ready === true && Array.isArray(item.plans) ? item as unknown as RouteGranularDailySnapshot : null; }
 function feature(row: Row, symbol: string): Value {
   const features = object(object(row.resultJson).featuresBySymbol);
@@ -286,7 +298,7 @@ function buildMarketContextCandidate(input: {
   const history = input.dailyRows
     .filter(row => row.tradeDate <= input.sourceTradeDate && snapshot(row) !== null)
     .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate))
-    .map(row => ({ date: row.tradeDate, plan: plan(snapshot(row), input.variant.rowId) }));
+    .map(row => ({ date: row.tradeDate, plan: compatiblePlan(snapshot(row), input.variant) }));
   const trend = buildRouteRecentTrend(history);
   const all = trend.windows.all;
   const recent10 = trend.windows.recent10;
@@ -338,7 +350,7 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
     const technicalRegime = input.technicalTimeline[row.tradeDate]?.[input.variant.symbol];
     const outcomeSnapshot = outcomeDate ? dailyByDate.get(outcomeDate) ?? null : null;
     if (!outcomeDate || !outcomeSnapshot || !technicalRegime?.eligible) return [];
-    return [{ featureDate: row.tradeDate, outcomeDate, technicalRegime, plan: plan(outcomeSnapshot, input.variant.rowId) }];
+    return [{ featureDate: row.tradeDate, outcomeDate, technicalRegime, plan: compatiblePlan(outcomeSnapshot, input.variant) }];
   });
   // Recent performance is independent of the end-of-day regime feature. It must
   // include the latest closed sourceTradeDate; otherwise every decision lags by
@@ -346,7 +358,7 @@ function scoreVariant(input: { variant: RouteGranularVariant; sourceTradeDate: s
   const recentTrendHistory = input.dailyRows
     .filter(row => row.tradeDate <= input.sourceTradeDate && snapshot(row) !== null)
     .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate))
-    .map(row => ({ date: row.tradeDate, plan: plan(snapshot(row), input.variant.rowId) }));
+    .map(row => ({ date: row.tradeDate, plan: compatiblePlan(snapshot(row), input.variant) }));
   const recentTrend = buildRouteRecentTrend(recentTrendHistory);
   const completedHistory = history.filter(item => planSummary(item.plan).completed > 0);
   const levels = [

@@ -3,6 +3,7 @@ import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   AI_DAILY_FORECAST_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V5_VERSIONS,
@@ -128,8 +129,9 @@ const SHADOW_PLANS: ReadonlyArray<
   // causality_audit lifecycleのまま、選択器・自動採用には渡さない。
   ...TEN_MONITORED_SYMBOLS.map(symbol => ({
     strategyVersion: AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS],
+    legacyPlanIds: [`shadow:${RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS[symbol as keyof typeof RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS]}`],
     symbol,
-    label: "AI適応予測shadow（08:30＋30分更新）",
+    label: "AI適応予測shadow v6（前場15分・後場30分更新）",
     purpose: "diagnostic" as const,
     eligibleForAdoption: false,
   })),

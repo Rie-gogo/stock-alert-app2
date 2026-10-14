@@ -90,6 +90,23 @@ const control = (symbol: string) => ({
 });
 
 describe("AI intraday forecast causal contract", () => {
+  it("uses 09:14 as the causal cutoff for the first 09:15 v6 checkpoint", () => {
+    expect(_aiIntradayForecastTest.checkpointSpec["09:15"]).toEqual({
+      cutoff: "09:14",
+      effectiveFrom: "09:15",
+      validUntil: "09:29",
+    });
+    expect(_aiIntradayForecastTest.checkpointSpec["09:45"]).toEqual({
+      cutoff: "09:44",
+      effectiveFrom: "09:45",
+      validUntil: "09:59",
+    });
+    expect(_aiIntradayForecastTest.checkpointSpec["13:30"]).toEqual({
+      cutoff: "13:29",
+      effectiveFrom: "13:30",
+      validUntil: "13:59",
+    });
+  });
   it("uses only minutes completed before each checkpoint and excludes the lunch break", () => {
     const expected = _aiIntradayForecastTest.expectedSessionMinutes("12:34");
     expect(expected[0]).toBe("09:00");
@@ -139,6 +156,33 @@ describe("AI intraday forecast causal contract", () => {
     expect(result.reasonCodes).toContain(
       "entry_window_outside_checkpoint:285A"
     );
+  });
+  it("limits the 11:30 bridge plan to 12:30–12:34 and rejects a new morning entry", () => {
+    const bridgeInput = {
+      ...intradayInput,
+      checkpoint: "11:30",
+      cutoffCandleTime: "11:29",
+      effectiveFrom: "11:30",
+      validUntil: "12:34",
+    } as AiIntradayForecastInput;
+    const output = {
+      forecast: {
+        forecasts: AI_DAILY_FORECAST_SYMBOLS.map(forecast),
+        marketSummary: "bridge",
+        globalReasonCodes: ["causal_checkpoint_only"],
+      },
+      controls: AI_DAILY_FORECAST_SYMBOLS.map(symbol => ({
+        ...control(symbol),
+        entryWindowStart: "12:30",
+        entryWindowEnd: "12:34",
+      })),
+      checkpointSummary: "Lunch bridge only",
+    };
+    expect(validateAiIntradayForecastOutput(output, bridgeInput).valid).toBe(true);
+    output.controls[0]!.entryWindowStart = "11:30";
+    const rejected = validateAiIntradayForecastOutput(output, bridgeInput);
+    expect(rejected.valid).toBe(false);
+    expect(rejected.reasonCodes).toContain("1130_bridge_entry_window_invalid:285A");
   });
   it("passes checkpoint-causal multiple AI trades and open positions without mode mixing", () => {
     const journal = _aiIntradayForecastTest.buildAiSessionTradeJournal({

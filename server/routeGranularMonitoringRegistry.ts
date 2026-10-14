@@ -4,6 +4,7 @@ import {
   ADVANTEST_CONTINUATION_LONG_DEPTH_VERSION,
   ADVANTEST_SHORT_BODY008_DEPTH_VERSION,
   AI_DAILY_FORECAST_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
   BOLLINGER_DIRECTIONAL_FIXED_STOP_140_V3_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA10_SLOPE_GAP_050_V3_VERSIONS,
   BOLLINGER_DIRECTIONAL_SMA20_DYNAMIC_GAP_060_V5_VERSIONS,
@@ -47,6 +48,8 @@ export type RouteGranularVariant = Readonly<{
   label: string;
   canonicalLogic: string | null;
   strategyVersion: string | null;
+  /** 旧immutable日次snapshotにだけ残る同一経路の行ID。read-time集計専用。 */
+  legacyRowIds?: readonly string[];
   origin: "current" | "forward_shadow" | "unavailable" | "unclassified";
   /** 運用roleはデータ取得元originと独立。昇格したforward shadowを現行仮想として表示する。 */
   role: "current" | "shadow" | "unavailable";
@@ -254,15 +257,17 @@ for (const config of bollingerRouteConfigs) {
 // One immutable AI adaptive-plan version per symbol, separated strictly by persisted action side.
 for (const symbol of Object.keys(AI_DAILY_FORECAST_VERSIONS)) {
   const strategyVersion = AI_DAILY_FORECAST_VERSIONS[symbol as keyof typeof AI_DAILY_FORECAST_VERSIONS];
+  const legacyStrategyVersion = RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS[symbol as keyof typeof RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS];
   for (const direction of ["long", "short"] as const) {
     variants.push(displayOnlyShadow({
       symbol,
       routeGroupId: `ai_daily_forecast_${direction}`,
       direction,
-      label: `AI適応予測shadow ${direction.toUpperCase()}`,
-      canonicalLogic: `${symbol.toLowerCase()}_ai_adaptive_forecast_v2`,
+      label: `AI適応予測shadow v6 ${direction.toUpperCase()}`,
+      canonicalLogic: `${symbol.toLowerCase()}_ai_adaptive_forecast_v6`,
       strategyVersion,
       shadowSide: direction,
+      legacyRowIds: [`shadow:${legacyStrategyVersion}:ai_daily_forecast_${direction}:${direction}`],
     }));
   }
 }

@@ -30,6 +30,7 @@ import {
 } from "./aiForecastLearningService";
 import {
   AI_DAILY_FORECAST_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
   sha256Stable,
 } from "./runtimeIdentity";
 
@@ -581,7 +582,11 @@ export async function buildAiPostmarketLearningInput(input: {
     watermark,
     materialization,
   });
-  const versions = Object.values(AI_DAILY_FORECAST_VERSIONS) as string[];
+  // v5 history remains immutable but is valid learning/review evidence for v6.
+  const versions = [
+    ...Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS),
+    ...Object.values(AI_DAILY_FORECAST_VERSIONS),
+  ] as string[];
   const historyDates = closedDates.map(row => row.tradeDate).reverse();
   const [todayExamples, historyExamples] = await Promise.all([
     loadExamples({ tradeDates: [input.tradeDate], versions, limit: 10_000 }),

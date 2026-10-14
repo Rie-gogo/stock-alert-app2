@@ -1,5 +1,7 @@
 # AI適応予測shadow v5 — 08:30 Codex定期taskプロンプト
 
+> **履歴専用**: 2026-10-15から新規受付はAI v6です。この文書とv5 snapshotは監査・学習読取のために保持し、v5 payloadを新規に生成・ingestしません。新規作業は[v6朝AIプロンプト](./ai-daily-forecast-codex-prompt-v6.md)を参照してください。
+
 > **用途**: 平日08:30に、前営業日までに確定済みの保存データだけから、10銘柄のAI適応予測shadow v5の朝planを生成・ingestします。監視専用であり、通常取引・OrderBridge・Executor・実注文には接続しません。
 
 ## 実行前

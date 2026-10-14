@@ -1,6 +1,6 @@
 # AI日次予測（10銘柄）— 既存08:30 Codexタスク連携契約
 
-> **役割分離**: 予測主体は平日08:30および場中30分ごとのCodex定期タスクです。Stock Alert AppはLLMを呼び出しません。アプリは因果的inputの返却、外部生成JSONの検証・immutable保存、shadow参照、UI表示だけを担当します。
+> **役割分離**: 予測主体は平日08:30および場中のv6 checkpoint（前場15分・後場30分）のCodex定期タスクです。Stock Alert AppはLLMを呼び出しません。アプリは因果的inputの返却、外部生成JSONの検証・immutable保存、shadow参照、UI表示だけを担当します。
 
 ## 対象・安全境界
 
@@ -47,7 +47,7 @@ Codexは以下のJSONを安全な一時パスへ作ります。`ingestKey` は**
 
 ```json
 {
-  "sourceSnapshotId": "ai-daily-forecast:YYYY-MM-DD:codex-0830-v1",
+  "sourceSnapshotId": "ai-daily-forecast:YYYY-MM-DD:codex-0830-v6",
   "tradeDate": "YYYY-MM-DD",
   "capturedAtMs": 0,
   "sourceMode": "scheduled_ai_forecast",
@@ -59,7 +59,7 @@ Codexは以下のJSONを安全な一時パスへ作ります。`ingestKey` は**
     "globalReasonCodes": ["d1_and_macro_snapshot_only"]
   },
   "generatorId": "codex-scheduled-task",
-  "promptVersion": "codex-ai-daily-forecast-prompt-v1",
+  "promptVersion": "codex-ai-daily-forecast-prompt-v6",
   "generatorMetadata": {"model": "使用モデルID", "generationMode": "external_codex"}
 }
 ```
@@ -75,9 +75,11 @@ node scripts/ingest-ai-daily-forecast.mjs /secure/path/ai-forecast.json
 
 アプリは input hash、quant baseline完全一致、10銘柄一意性、価格順、方向整合、0.75 ATR例外理由、source IDの冪等性を検証します。失敗時は**保存しません**。
 
-## 4. 場中shadowと30分AI revision
+## 4. 場中shadowとv6 AI revision（前場15分・後場30分）
 
-08:30計画の保存後、`09:30 / 10:00 / 10:30 / 11:00 / 11:30 / 12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00` にAIが再判断します。12:30ではなく12:35なのは、後場最初の確定5分足を入力に含めるためです。
+2026-10-15からv6は、前場に`09:15 / 09:30 / 09:45 / 10:00 / 10:15 / 10:30 / 10:45 / 11:00 / 11:15 / 11:30`、後場に`12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00`で再判断します。各cutoffはcheckpointの1分前（12:35は12:34）であり、前場は15分、後場は30分の有効期間だけを持ちます。12:00、12:30、15:30は実行しません。
+
+`11:30`は前場の新規entryを作らないbridge checkpointです。controlのentry windowは**12:30–12:34内だけ**が許され、範囲外はlocal preflightとサーバーvalidatorがfail-closedでrejectします。12:35には後場最初の完成済み5分足で必ず再判断します。
 
 各checkpointでは次を取得します。SecretはPOST bodyだけで送り、URL・ログ・JSONへ残しません。
 
@@ -99,7 +101,7 @@ node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM --out /secure
 
 AIは「今すぐ注文するか」ではなく、次のcheckpointまでの方向、entry帯、確認価格、目標、損切り参照、entry有効時間、強制決済時刻を10銘柄ごとに更新します。出力は `forecast` と10件の `controls` を持ち、`planDecision=maintained|adjusted|disabled`、`changeReason`、`openPositionAction` を必須とします。
 
-### v5の同日判断規約
+### v6の同日判断規約
 
 1. `signal_quality`台帳を、その日の方向・entry・exitの**唯一の戦略学習事例**として用いる。`capital_constrained`は同一市場機会の別事例として加算せず、板深度・資金制約・株数の執行監査だけに使う。
 2. `generationContract.requiredLearningEvidenceBySymbol[symbol]` にentryがある場合、該当controlの`learningEvidenceUsed`に**全て**の `session_trade:signal_quality:<entrySourceEventId>` を入れる。アプリは欠けたoutputをinvalidとして保存しない。
@@ -128,13 +130,13 @@ node scripts/ingest-ai-intraday-forecast.mjs /secure/path/ai-intraday-forecast.j
 
 新計画で未entryの方向・価格帯が変わった場合、旧touchは破棄して新計画から再判定します。保有中は、損切りを緩めず、同方向かつ `tighten_only` の場合だけ価格を安全側へ更新します。方向転換時の決済は、AIが `exit_next_event_if_direction_changed` を明示した場合だけ、次のsource eventで仮想決済します。
 
-`signal_quality`（100株）と`capital_constrained`は別state・別event・別tradeとして保存します。旧④日経225mini revisionは最初の09:30 AI計画までの補助安全判定として残し、AI場中計画が生成された後は、その計画内の日経225mini評価が優先されます。朝snapshotも過去の場中計画も更新しません。
+`signal_quality`（100株）と`capital_constrained`は別state・別event・別tradeとして保存します。旧④日経225mini revisionは最初の09:15 AI計画までの補助安全判定として残し、AI場中計画が生成された後は、その計画内の日経225mini評価が優先されます。朝snapshotも過去の場中計画も更新しません。
 
 ## 5. スケジュール
 
-08:30のCodex定期taskは、[v5朝AIプロンプト](./ai-daily-forecast-codex-prompt-v5.md)を使用し、D-1までのinputだけを使い、当日台帳を参照しません。場中のCodex定期taskは、[v5場中AIプロンプト](./ai-intraday-forecast-codex-prompt-v5.md)を使用し、当日台帳・mode分離・必須evidenceの規約を守ります。
+v6の08:30 Codex作業は、[v6朝AIプロンプト](./ai-daily-forecast-codex-prompt-v6.md)を使用し、D-1までのinputだけを使い、当日台帳を参照しません。v6場中作業は、[v6場中AIプロンプト](./ai-intraday-forecast-codex-prompt-v6.md)を使用し、前場15分・後場30分のcheckpoint、当日台帳・mode分離・必須evidenceの規約を守ります。
 
-この実装はscheduleそのものを勝手に作成・変更しません。endpoint公開、migration、手動受入が成功した後に、平日08:30と上記11 checkpointのCodexタスクを利用者確認のうえで登録します。Windows relayや通常10銘柄の受信処理からAIを呼び出してはいけません。
+この実装はCodex schedule/task/sessionを作成・変更しません。外部Codex側は、endpoint受入確認後に平日08:30と上記16 checkpointを管理します。Windows relayや通常10銘柄の受信処理からAIを呼び出してはいけません。
 
 
 
@@ -164,7 +166,7 @@ node scripts/fetch-ai-postmarket-learning-input.mjs YYYY-MM-DD \
 返却inputは決定的な `inputHash` を含み、以下を **causalFeatures** と **results** に明確に分けます。
 
 - 08:30と全保存済み場中checkpointのimmutable snapshot（input hash・有効時間を含む）
-- v5の10銘柄・両evaluation modeのAI shadow取引。`signal_quality` は戦略学習の唯一の主事例、`capital_constrained` は同一市場機会を二重計上しない執行監査
+- v5/v6の10銘柄・両evaluation modeのAI shadow取引。v5はimmutableな履歴・学習読取専用、v6だけが新規dispatch対象。`signal_quality` は戦略学習の唯一の主事例、`capital_constrained` は同一市場機会を二重計上しない執行監査
 - entry時点までの1分／完成5分足、SMA、BB、RSI、出来高、gap、板鮮度、日経225mini、保存済みplan、品質状態
 - exit、PnL、R、MFE/MAEと発生時刻、1/3/5/15/30分後return、TP未達反転、SL後の順行などの**結果診断**
 - 保存されている`entry_rejected`だけを「取得可能な見送り候補」として返す。存在しない候補理由を補完しない

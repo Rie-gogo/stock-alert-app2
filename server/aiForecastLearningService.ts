@@ -21,6 +21,7 @@ import {
   RETIRED_AI_DAILY_FORECAST_V1_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS,
   RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS,
+  RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS,
   sha256Stable,
 } from "./runtimeIdentity";
 
@@ -820,6 +821,7 @@ async function loadExamples(asOfDate: string): Promise<LearningExample[]> {
     ...Object.values(RETIRED_AI_ADAPTIVE_FORECAST_V2_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V3_VERSIONS),
     ...Object.values(RETIRED_AI_FORECAST_LEARNING_V4_VERSIONS),
+    ...Object.values(RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS),
     ...Object.values(AI_DAILY_FORECAST_VERSIONS),
   ] as string[];
   const [

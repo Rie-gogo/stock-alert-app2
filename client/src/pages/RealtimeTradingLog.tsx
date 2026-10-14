@@ -27,7 +27,6 @@ import {
   WifiOff,
   AlertCircle,
   CheckCircle2,
-  Minus,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -64,29 +63,45 @@ function formatPnl(pnl: number | null): { text: string; color: string } {
   return { text: "±0円", color: "text-muted-foreground" };
 }
 
-function formatAction(action: string): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } {
-  switch (action) {
-    case "buy": return { label: "買エントリー", variant: "default" };
-    case "short": return { label: "売エントリー", variant: "destructive" };
-    case "sell": return { label: "売決済", variant: "secondary" };
-    case "cover": return { label: "買戻し", variant: "outline" };
-    default: return { label: action, variant: "secondary" };
-  }
-}
+const AI_SHADOW_SYMBOLS = new Set([
+  "285A",
+  "3436",
+  "5803",
+  "6146",
+  "6526",
+  "6857",
+  "6976",
+  "6981",
+  "8035",
+  "9984",
+]);
 
-/** reasonテキストから信頼度を抽出し、信頼度バッジ用情報と残りテキストを返す */
-function extractConfidence(reason: string): { confidence: "strong" | "medium" | "weak" | null; reasonText: string } {
-  const match = reason.match(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\]\s*[^(]*/);
-  if (match) {
-    const level = match[1] === "強" ? "strong" : match[1] === "中" ? "medium" : "weak";
-    // 信頼度部分を削除するが、末尾の括弧タグ（過熱反転SHORT、静かな上昇バイパス等）は保持
-    const tags = reason.match(/\(過熱反転SHORT[^)]*\)|\(静かな上昇バイパス\)|\(即エントリー[^)]*\)|\(押し目確認後\)|\(押し目なし・強トレンド\)/g);
-    const baseText = reason.replace(/[|｜]\s*\[信頼度[：:]\s*(強|中|弱)\].*$/, "").trim();
-    const reasonText = tags ? `${baseText} ${tags.join(" ")}` : baseText;
-    return { confidence: level, reasonText };
-  }
-  return { confidence: null, reasonText: reason };
-}
+type AiShadowTradeRow = {
+  evaluationMode: "signal_quality" | "capital_constrained";
+  symbol: string;
+  side: "long" | "short";
+  entrySourceEventId: string;
+  entryTime: string;
+  exitTime: string | null;
+  entryPrice: number;
+  exitPrice: number | null;
+  pnl: number | null;
+  exitReason: string | null;
+  planId: string | null;
+  entryOrdinal: number;
+  entryKind: "initial" | "reentry";
+  isOpeningTrade: boolean;
+  statusAtCheckpoint: "closed" | "open";
+};
+
+type RtDailySummaryRow = {
+  tradeDate: string;
+  totalPnl: number | null;
+  tradesCount: number;
+  winCount: number;
+  candlesReceived: number | null;
+  reportSent: boolean;
+};
 
 // ===== コンポーネント =====
 
@@ -99,22 +114,23 @@ export default function RealtimeTradingLog() {
 
   // ---- データ取得 ----
 
-  const openPositionsQuery = trpc.trading.getRtOpenPositions.useQuery(undefined, {
+  const realtimeStateQuery = trpc.trading.getRtOpenPositions.useQuery(undefined, {
     refetchInterval: autoRefresh ? 10_000 : false, // 10秒ごとに更新
     staleTime: 5_000,
-  });
+  } as any);
 
-  const tradesQuery = trpc.trading.getRtTrades.useQuery(
+  const aiTradeLedgerQuery = trpc.trading.getAiDailyForecastTradeLedger.useQuery(
     { tradeDate: selectedDate },
     {
       refetchInterval: autoRefresh ? 15_000 : false, // 15秒ごとに更新
       staleTime: 10_000,
-    }
+      retry: false,
+    } as any
   );
 
   const summariesQuery = trpc.trading.getRtDailySummaries.useQuery(
     { limit: 30 },
-    { staleTime: 60_000 }
+    { staleTime: 60_000 } as any
   );
 
   const utils = trpc.useUtils();
@@ -122,7 +138,7 @@ export default function RealtimeTradingLog() {
   const handleRefresh = useCallback(async () => {
     await Promise.all([
       utils.trading.getRtOpenPositions.invalidate(),
-      utils.trading.getRtTrades.invalidate({ tradeDate: selectedDate }),
+      utils.trading.getAiDailyForecastTradeLedger.invalidate({ tradeDate: selectedDate }),
       utils.trading.getRtDailySummaries.invalidate(),
       utils.trading.getRtSignalCandidateLedger.invalidate({ tradeDate: selectedDate }),
       utils.trading.getMultiSymbolMonitoringTrend.invalidate({ asOfDate: selectedDate }),
@@ -141,19 +157,31 @@ export default function RealtimeTradingLog() {
 
   // ---- 集計 ----
 
-  const trades = tradesQuery.data ?? [];
-  const closedTrades = trades.filter(t => t.action === "sell" || t.action === "cover");
+  const trades = ((aiTradeLedgerQuery.data?.rows ?? []) as AiShadowTradeRow[])
+    .filter(trade => trade.evaluationMode === "signal_quality")
+    .sort((left, right) =>
+      (right.exitTime ?? right.entryTime).localeCompare(
+        left.exitTime ?? left.entryTime
+      )
+    );
+  const closedTrades = trades.filter(
+    trade => trade.statusAtCheckpoint === "closed" && trade.pnl !== null
+  );
   const totalPnl = closedTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
   const winCount = closedTrades.filter(t => (t.pnl ?? 0) > 0).length;
   const lossCount = closedTrades.filter(t => (t.pnl ?? 0) <= 0).length;
   const winRate = closedTrades.length > 0 ? (winCount / closedTrades.length * 100).toFixed(1) : "-";
 
-  const openPositions = openPositionsQuery.data?.positions ?? [];
-  const candleCounters = openPositionsQuery.data?.candleCounters ?? {};
-  const totalCandles = Object.values(candleCounters).reduce((sum, c) => sum + c, 0);
+  const openPositions = trades.filter(trade => trade.statusAtCheckpoint === "open");
+  const candleCounters = (realtimeStateQuery.data?.candleCounters ?? {}) as Record<string, number>;
+  const aiCandleCounters: Record<string, number> = Object.fromEntries(
+    Object.entries(candleCounters).filter(([symbol]) => AI_SHADOW_SYMBOLS.has(symbol))
+  );
+  const totalCandles = Object.values(aiCandleCounters).reduce((sum, c) => sum + c, 0);
 
   const isToday = selectedDate === today;
   const pnlFormatted = formatPnl(totalPnl);
+  const dailySummaries = (summariesQuery.data ?? []) as RtDailySummaryRow[];
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -192,9 +220,9 @@ export default function RealtimeTradingLog() {
               size="sm"
               className="gap-2"
               onClick={handleRefresh}
-              disabled={openPositionsQuery.isFetching || tradesQuery.isFetching}
+              disabled={realtimeStateQuery.isFetching || aiTradeLedgerQuery.isFetching}
             >
-              <RefreshCw className={`w-4 h-4 ${(openPositionsQuery.isFetching || tradesQuery.isFetching) ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${(realtimeStateQuery.isFetching || aiTradeLedgerQuery.isFetching) ? "animate-spin" : ""}`} />
               更新
             </Button>
 
@@ -229,12 +257,12 @@ export default function RealtimeTradingLog() {
           {/* 当日損益 */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">当日損益</div>
+              <div className="text-xs text-muted-foreground mb-1">AI shadow当日損益</div>
               <div className={`text-2xl font-bold ${pnlFormatted.color}`}>
                 {closedTrades.length > 0 ? pnlFormatted.text : "-"}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {closedTrades.length > 0 ? `${closedTrades.length}回取引` : "取引なし"}
+                {closedTrades.length > 0 ? `${closedTrades.length}回取引（signal_quality）` : "取引なし（signal_quality）"}
               </div>
             </CardContent>
           </Card>
@@ -242,7 +270,7 @@ export default function RealtimeTradingLog() {
           {/* 勝率 */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">勝率</div>
+              <div className="text-xs text-muted-foreground mb-1">AI shadow勝率</div>
               <div className="text-2xl font-bold text-foreground">{winRate !== "-" ? `${winRate}%` : "-"}</div>
               <div className="text-xs text-muted-foreground mt-1">
                 {closedTrades.length > 0 ? `勝${winCount} / 負${lossCount}` : "-"}
@@ -253,12 +281,12 @@ export default function RealtimeTradingLog() {
           {/* 受信足数 */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">受信1分足数</div>
+              <div className="text-xs text-muted-foreground mb-1">AI対象1分足数</div>
               <div className="text-2xl font-bold text-foreground">
                 {isToday ? totalCandles.toLocaleString() : "-"}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {isToday ? `${Object.keys(candleCounters).length}銘柄` : "当日のみ表示"}
+                {isToday ? `${Object.keys(aiCandleCounters).length}/10銘柄` : "当日のみ表示"}
               </div>
             </CardContent>
           </Card>
@@ -266,29 +294,29 @@ export default function RealtimeTradingLog() {
           {/* オープンポジション */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">保有ポジション</div>
+              <div className="text-xs text-muted-foreground mb-1">AI shadow保有</div>
               <div className="text-2xl font-bold text-foreground">
                 {isToday ? openPositions.length : "-"}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {isToday ? (openPositions.length > 0 ? "運用中" : "なし") : "当日のみ表示"}
+                {isToday ? (openPositions.length > 0 ? "signal_qualityで保有中" : "なし") : "当日のみ表示"}
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* ===== 1分足受信カウンター（当日のみ） ===== */}
-        {isToday && Object.keys(candleCounters).length > 0 && (
+        {isToday && Object.keys(aiCandleCounters).length > 0 && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <BarChart2 className="w-4 h-4 text-blue-400" />
-                1分足受信カウンター（銘柄別）
+                AI対象1分足受信カウンター（10銘柄）
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-3">
-                {Object.entries(candleCounters).map(([symbol, count]) => (
+                {Object.entries(aiCandleCounters).map(([symbol, count]) => (
                   <div key={symbol} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-2">
                     <span className="text-sm font-mono font-medium text-foreground">{symbol}</span>
                     <Badge variant="secondary" className="text-xs">
@@ -301,13 +329,13 @@ export default function RealtimeTradingLog() {
           </Card>
         )}
 
-        {/* ===== オープンポジション（当日のみ） ===== */}
+        {/* ===== AI shadowオープンポジション（signal_quality・当日のみ） ===== */}
         {isToday && openPositions.length > 0 && (
-          <Card className="bg-card border-border">
+          <Card className="bg-card border-violet-500/20">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
-                保有ポジション（リアルタイム）
+                AI shadow保有ポジション（signal_quality）
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -317,16 +345,14 @@ export default function RealtimeTradingLog() {
                     <TableHead className="text-xs text-muted-foreground">銘柄</TableHead>
                     <TableHead className="text-xs text-muted-foreground">方向</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">エントリー価格</TableHead>
-                    <TableHead className="text-xs text-muted-foreground text-right">株数</TableHead>
                     <TableHead className="text-xs text-muted-foreground">エントリー時刻</TableHead>
-                    <TableHead className="text-xs text-muted-foreground">信頼度</TableHead>
-                    <TableHead className="text-xs text-muted-foreground">理由</TableHead>
-                    <TableHead className="text-xs text-muted-foreground">板シグナル</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">種別</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">計画ID</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {openPositions.map((pos, i) => (
-                    <TableRow key={i} className="border-border">
+                  {openPositions.map(pos => (
+                    <TableRow key={pos.entrySourceEventId} className="border-border">
                       <TableCell className="font-mono font-medium">{pos.symbol}</TableCell>
                       <TableCell>
                         {pos.side === "long" ? (
@@ -342,41 +368,18 @@ export default function RealtimeTradingLog() {
                       <TableCell className="text-right font-mono">
                         {Number(pos.entryPrice).toLocaleString()}円
                       </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {pos.shares.toLocaleString()}株
-                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {pos.entryTime}
                         </span>
                       </TableCell>
-                      <TableCell className="py-2">
-                        {(() => {
-                          const { confidence } = extractConfidence(pos.entryReason ?? "");
-                          if (!confidence) return <span className="text-muted-foreground">—</span>;
-                          return (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                              confidence === "strong" ? "text-amber-300 bg-amber-500/15 border-amber-400/50"
-                              : confidence === "medium" ? "text-sky-300 bg-sky-500/10 border-sky-400/40"
-                              : "text-muted-foreground bg-muted border-border/50"
-                            }`}>
-                              {confidence === "strong" ? "強" : confidence === "medium" ? "中" : "弱"}
-                            </span>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[300px] whitespace-normal">
-                        {extractConfidence(pos.entryReason ?? "").reasonText}
-                      </TableCell>
                       <TableCell className="text-xs">
-                        {pos.boardSignal ? (
-                          <Badge variant="outline" className="text-xs">
-                            {pos.boardSignal}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                        {pos.entryKind === "reentry" ? `再entry #${pos.entryOrdinal}` : "初回"}
+                        {pos.isOpeningTrade ? "（寄付き）" : ""}
+                      </TableCell>
+                      <TableCell className="text-[10px] text-muted-foreground font-mono max-w-[360px] break-all">
+                        {pos.planId ?? "記録なし"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -386,13 +389,13 @@ export default function RealtimeTradingLog() {
           </Card>
         )}
 
-        {/* ===== 取引ログ ===== */}
-        <Card className="bg-card border-border">
+        {/* ===== AI shadow取引ログ（signal_quality） ===== */}
+        <Card className="bg-card border-violet-500/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Activity className="w-4 h-4 text-blue-400" />
-              取引ログ（{selectedDate}）
-              {tradesQuery.isLoading && (
+              <Activity className="w-4 h-4 text-violet-300" />
+              AI shadow取引ログ（{selectedDate}・signal_quality）
+              {aiTradeLedgerQuery.isLoading && (
                 <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />
               )}
             </CardTitle>
@@ -402,11 +405,11 @@ export default function RealtimeTradingLog() {
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
                 <AlertCircle className="w-8 h-8 opacity-40" />
                 <p className="text-sm">
-                  {tradesQuery.isLoading ? "読み込み中..." : "この日の取引記録はありません"}
+                  {aiTradeLedgerQuery.isLoading ? "読み込み中..." : "この日のAI shadow取引記録はありません"}
                 </p>
                 {isToday && (
                   <p className="text-xs opacity-60">
-                    取引時間中にWindowsスクリプトから1分足データが送信されると自動で記録されます
+                    有効なAI計画で発火したsignal_quality取引だけを表示します
                   </p>
                 )}
               </div>
@@ -414,65 +417,53 @@ export default function RealtimeTradingLog() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="text-xs text-muted-foreground">時刻</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">entry時刻</TableHead>
                     <TableHead className="text-xs text-muted-foreground">銘柄</TableHead>
-                    <TableHead className="text-xs text-muted-foreground">アクション</TableHead>
-                    <TableHead className="text-xs text-muted-foreground text-right">価格</TableHead>
-                    <TableHead className="text-xs text-muted-foreground text-right">株数</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">種別</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">方向</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">entry → exit</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">損益</TableHead>
-                    <TableHead className="text-xs text-muted-foreground">信頼度</TableHead>
-                    <TableHead className="text-xs text-muted-foreground">理由</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">退出理由</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">計画ID</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {trades.map((trade, i) => {
-                    const actionInfo = formatAction(trade.action);
+                  {trades.map(trade => {
                     const pnl = formatPnl(trade.pnl);
-                    const isEntry = trade.action === "buy" || trade.action === "short";
-                    const { confidence, reasonText } = extractConfidence(trade.reason);
                     return (
-                      <TableRow key={i} className={`border-border ${isEntry ? "bg-muted/10" : ""}`}>
+                      <TableRow key={trade.entrySourceEventId} className="border-border">
                         <TableCell className="text-sm text-muted-foreground font-mono">
-                          {trade.tradeTime}
+                          {trade.entryTime}
                         </TableCell>
-                        <TableCell className="font-mono font-medium">
-                          <div>{trade.symbol}</div>
-                          <div className="text-xs text-muted-foreground">{trade.symbolName}</div>
+                        <TableCell className="font-mono font-medium">{trade.symbol}</TableCell>
+                        <TableCell>
+                          {trade.entryKind === "reentry" ? `再entry #${trade.entryOrdinal}` : "初回"}
+                          {trade.isOpeningTrade ? "（寄付き）" : ""}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={actionInfo.variant} className="text-xs">
-                            {actionInfo.label}
+                          <Badge
+                            variant="outline"
+                            className={trade.side === "long"
+                              ? "text-emerald-300 border-emerald-500/40"
+                              : "text-rose-300 border-rose-500/40"}
+                          >
+                            {trade.side === "long" ? "LONG" : "SHORT"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {Number(trade.price).toLocaleString()}円
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {trade.shares.toLocaleString()}株
+                        <TableCell className="font-mono text-sm whitespace-nowrap">
+                          {Number(trade.entryPrice).toLocaleString()}円 →{" "}
+                          {trade.exitTime === null
+                            ? "保有中"
+                            : `${trade.exitTime} ${Number(trade.exitPrice).toLocaleString()}円`}
                         </TableCell>
                         <TableCell className={`text-right font-mono font-medium ${pnl.color}`}>
-                          {isEntry ? (
-                            <span className="text-muted-foreground flex items-center justify-end gap-1">
-                              <Minus className="w-3 h-3" />
-                              エントリー
-                            </span>
-                          ) : pnl.text}
+                          {trade.pnl === null ? "—" : pnl.text}
                         </TableCell>
-                        <TableCell className="py-2">
-                          {confidence ? (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                              confidence === "strong" ? "text-amber-300 bg-amber-500/15 border-amber-400/50"
-                              : confidence === "medium" ? "text-sky-300 bg-sky-500/10 border-sky-400/40"
-                              : "text-muted-foreground bg-muted border-border/50"
-                            }`}>
-                              {confidence === "strong" ? "強" : confidence === "medium" ? "中" : "弱"}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                        <TableCell className="text-xs text-muted-foreground max-w-[260px] whitespace-normal">
+                          {trade.exitReason ?? (trade.statusAtCheckpoint === "open" ? "保有中" : "記録なし")}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground max-w-[300px] whitespace-normal">
-                          {reasonText}
+                        <TableCell className="text-[10px] text-muted-foreground font-mono max-w-[320px] break-all">
+                          {trade.planId ?? "記録なし"}
                         </TableCell>
                       </TableRow>
                     );
@@ -504,13 +495,13 @@ export default function RealtimeTradingLog() {
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />
 
-        {/* ===== 当日集計（取引がある場合） ===== */}
+        {/* ===== AI shadow当日集計（signal_quality・取引がある場合） ===== */}
         {closedTrades.length > 0 && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                当日決済済み集計
+                AI shadow当日決済済み集計（signal_quality）
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -542,13 +533,13 @@ export default function RealtimeTradingLog() {
           </Card>
         )}
 
-        {/* ===== 過去の日次サマリー ===== */}
+        {/* ===== 通常エンジンの過去の日次サマリー ===== */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowSummaryHistory(prev => !prev)}>
             <CardTitle className="text-sm font-medium flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BarChart2 className="w-4 h-4 text-purple-400" />
-                過去の日次サマリー
+                通常エンジン：過去の日次サマリー
               </div>
               {showSummaryHistory ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </CardTitle>
@@ -557,7 +548,7 @@ export default function RealtimeTradingLog() {
             <CardContent className="p-0">
               {summariesQuery.isLoading ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">読み込み中...</div>
-              ) : (summariesQuery.data ?? []).length === 0 ? (
+              ) : dailySummaries.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">
                   まだ記録がありません
                 </div>
@@ -574,7 +565,7 @@ export default function RealtimeTradingLog() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(summariesQuery.data ?? []).map((summary, i) => {
+                    {dailySummaries.map((summary, i) => {
                       const pnl = formatPnl(summary.totalPnl);
                       const wr = summary.tradesCount > 0
                         ? `${(summary.winCount / summary.tradesCount * 100).toFixed(1)}%`

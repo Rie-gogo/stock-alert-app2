@@ -344,6 +344,53 @@ export const tradingRouter = router({
       };
     }),
   /**
+   * 2026-10-14のAI v5未決済6行だけを対象に、保存済み11:30計画と
+   * immutable dispatch eventから決定的な修復計画を作る。DB更新はしない。
+   */
+  prepareAiShadowLedgerRepair: publicProcedure
+    .input(z.object({
+      ingestKey: z.string().min(32).max(256),
+      tradeDate: z.literal("2026-10-14"),
+    }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey))
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "AI shadow ledger repair authorization failed" });
+      const { prepareAiShadowLedgerRepair } = await import("../aiShadowLedgerRepair");
+      const result = await prepareAiShadowLedgerRepair(input.tradeDate);
+      return {
+        repairId: result.repairId,
+        tradeDate: result.tradeDate,
+        status: result.status,
+        planHash: result.planHash,
+        updateCount: result.updates.length,
+        summary: result.summary,
+      };
+    }),
+  /** prepareで確認した同一planHashだけを、trade/state/statusの単一transactionで適用する。 */
+  applyAiShadowLedgerRepair: publicProcedure
+    .input(z.object({
+      ingestKey: z.string().min(32).max(256),
+      tradeDate: z.literal("2026-10-14"),
+      expectedPlanHash: z.string().regex(/^[a-f0-9]{64}$/),
+    }))
+    .mutation(async ({ input }) => {
+      if (!authorizeAiForecastSender(input.ingestKey))
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "AI shadow ledger repair authorization failed" });
+      const { applyAiShadowLedgerRepair } = await import("../aiShadowLedgerRepair");
+      const result = await applyAiShadowLedgerRepair({
+        tradeDate: input.tradeDate,
+        expectedPlanHash: input.expectedPlanHash,
+      });
+      return {
+        repairId: result.repairId,
+        tradeDate: result.tradeDate,
+        status: result.operationStatus,
+        planHash: result.planHash,
+        repairedRows: result.summary.length,
+        summary: result.summary,
+      };
+    }),
+  /**
    * 手動更新だけで読む、relay→source→decision→shadowの保存済み監査診断。
    * 受信hot path・raw再集計・pollingは増やさない。
    */

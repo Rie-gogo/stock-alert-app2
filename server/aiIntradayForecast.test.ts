@@ -198,6 +198,7 @@ describe("AI intraday forecast causal contract", () => {
           entrySourceEventId: "entry-one",
           signalCandleTime: "09:00",
           entryPrice: "100",
+          shares: 100,
           exitTradeDate: "2026-10-09",
           exitCandleTime: "09:10",
           exitSourceEventId: "exit-one",
@@ -217,6 +218,7 @@ describe("AI intraday forecast causal contract", () => {
           entrySourceEventId: "entry-two",
           signalCandleTime: "10:00",
           entryPrice: "105",
+          shares: 100,
           exitTradeDate: null,
           exitCandleTime: null,
           exitSourceEventId: null,
@@ -236,6 +238,7 @@ describe("AI intraday forecast causal contract", () => {
           entrySourceEventId: "entry-capital",
           signalCandleTime: "09:00",
           entryPrice: "100",
+          shares: 200,
           exitTradeDate: "2026-10-09",
           exitCandleTime: "09:10",
           exitSourceEventId: "exit-capital",
@@ -319,7 +322,7 @@ describe("AI intraday forecast causal contract", () => {
     });
     expect(
       journal.find((row: any) => row.evaluationMode === "capital_constrained")
-    ).toMatchObject({ entryKind: "initial" });
+    ).toMatchObject({ entryKind: "initial", shares: 200 });
   });
   it("feeds closed losses and their exit reasons into later AI inputs without changing parameters automatically", () => {
     const performance = _aiIntradayForecastTest.summarizeLearning(

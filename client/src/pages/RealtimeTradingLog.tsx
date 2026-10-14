@@ -80,6 +80,7 @@ type AiShadowTradeRow = {
   evaluationMode: "signal_quality" | "capital_constrained";
   symbol: string;
   side: "long" | "short";
+  shares: number;
   entrySourceEventId: string;
   entryTime: string;
   exitTime: string | null;
@@ -158,7 +159,7 @@ export default function RealtimeTradingLog() {
   // ---- 集計 ----
 
   const trades = ((aiTradeLedgerQuery.data?.rows ?? []) as AiShadowTradeRow[])
-    .filter(trade => trade.evaluationMode === "signal_quality")
+    .filter(trade => trade.evaluationMode === "capital_constrained")
     .sort((left, right) =>
       (right.exitTime ?? right.entryTime).localeCompare(
         left.exitTime ?? left.entryTime
@@ -257,12 +258,12 @@ export default function RealtimeTradingLog() {
           {/* 当日損益 */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">AI shadow当日損益</div>
+              <div className="text-xs text-muted-foreground mb-1">AI shadow当日損益（資金配分）</div>
               <div className={`text-2xl font-bold ${pnlFormatted.color}`}>
                 {closedTrades.length > 0 ? pnlFormatted.text : "-"}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {closedTrades.length > 0 ? `${closedTrades.length}回取引（signal_quality）` : "取引なし（signal_quality）"}
+                {closedTrades.length > 0 ? `${closedTrades.length}回取引` : "取引なし"}
               </div>
             </CardContent>
           </Card>
@@ -270,7 +271,7 @@ export default function RealtimeTradingLog() {
           {/* 勝率 */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">AI shadow勝率</div>
+              <div className="text-xs text-muted-foreground mb-1">AI shadow勝率（資金配分）</div>
               <div className="text-2xl font-bold text-foreground">{winRate !== "-" ? `${winRate}%` : "-"}</div>
               <div className="text-xs text-muted-foreground mt-1">
                 {closedTrades.length > 0 ? `勝${winCount} / 負${lossCount}` : "-"}
@@ -294,12 +295,12 @@ export default function RealtimeTradingLog() {
           {/* オープンポジション */}
           <Card className="bg-card border-border">
             <CardContent className="pt-4 pb-4">
-              <div className="text-xs text-muted-foreground mb-1">AI shadow保有</div>
+              <div className="text-xs text-muted-foreground mb-1">AI shadow保有（資金配分）</div>
               <div className="text-2xl font-bold text-foreground">
                 {isToday ? openPositions.length : "-"}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {isToday ? (openPositions.length > 0 ? "signal_qualityで保有中" : "なし") : "当日のみ表示"}
+                {isToday ? (openPositions.length > 0 ? "資金配分で保有中" : "なし") : "当日のみ表示"}
               </div>
             </CardContent>
           </Card>
@@ -329,13 +330,13 @@ export default function RealtimeTradingLog() {
           </Card>
         )}
 
-        {/* ===== AI shadowオープンポジション（signal_quality・当日のみ） ===== */}
+        {/* ===== AI shadowオープンポジション（資金配分・当日のみ） ===== */}
         {isToday && openPositions.length > 0 && (
           <Card className="bg-card border-violet-500/20">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
-                AI shadow保有ポジション（signal_quality）
+                AI shadow保有ポジション（資金配分）
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -344,6 +345,7 @@ export default function RealtimeTradingLog() {
                   <TableRow className="border-border hover:bg-transparent">
                     <TableHead className="text-xs text-muted-foreground">銘柄</TableHead>
                     <TableHead className="text-xs text-muted-foreground">方向</TableHead>
+                    <TableHead className="text-xs text-muted-foreground text-right">株数</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">エントリー価格</TableHead>
                     <TableHead className="text-xs text-muted-foreground">エントリー時刻</TableHead>
                     <TableHead className="text-xs text-muted-foreground">種別</TableHead>
@@ -364,6 +366,9 @@ export default function RealtimeTradingLog() {
                             <TrendingDown className="w-3 h-3" /> 売り
                           </Badge>
                         )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {Number(pos.shares).toLocaleString()}株
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {Number(pos.entryPrice).toLocaleString()}円
@@ -389,12 +394,12 @@ export default function RealtimeTradingLog() {
           </Card>
         )}
 
-        {/* ===== AI shadow取引ログ（signal_quality） ===== */}
+        {/* ===== AI shadow取引ログ（資金配分） ===== */}
         <Card className="bg-card border-violet-500/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Activity className="w-4 h-4 text-violet-300" />
-              AI shadow取引ログ（{selectedDate}・signal_quality）
+              AI shadow取引ログ（{selectedDate}・資金配分）
               {aiTradeLedgerQuery.isLoading && (
                 <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />
               )}
@@ -409,7 +414,7 @@ export default function RealtimeTradingLog() {
                 </p>
                 {isToday && (
                   <p className="text-xs opacity-60">
-                    有効なAI計画で発火したsignal_quality取引だけを表示します
+                    資金配分後に実際に発火した取引だけを表示します（証拠金ブロックは除外）
                   </p>
                 )}
               </div>
@@ -421,6 +426,7 @@ export default function RealtimeTradingLog() {
                     <TableHead className="text-xs text-muted-foreground">銘柄</TableHead>
                     <TableHead className="text-xs text-muted-foreground">種別</TableHead>
                     <TableHead className="text-xs text-muted-foreground">方向</TableHead>
+                    <TableHead className="text-xs text-muted-foreground text-right">株数</TableHead>
                     <TableHead className="text-xs text-muted-foreground">entry → exit</TableHead>
                     <TableHead className="text-xs text-muted-foreground text-right">損益</TableHead>
                     <TableHead className="text-xs text-muted-foreground">退出理由</TableHead>
@@ -449,6 +455,9 @@ export default function RealtimeTradingLog() {
                           >
                             {trade.side === "long" ? "LONG" : "SHORT"}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm whitespace-nowrap">
+                          {Number(trade.shares).toLocaleString()}株
                         </TableCell>
                         <TableCell className="font-mono text-sm whitespace-nowrap">
                           {Number(trade.entryPrice).toLocaleString()}円 →{" "}
@@ -495,13 +504,13 @@ export default function RealtimeTradingLog() {
         {/* ===== 停止した現行11経路の累計シャドー損益 ===== */}
         <PausedCurrentRouteShadowSection asOfDate={selectedDate} autoRefresh={autoRefresh} />
 
-        {/* ===== AI shadow当日集計（signal_quality・取引がある場合） ===== */}
+        {/* ===== AI shadow当日集計（資金配分・取引がある場合） ===== */}
         {closedTrades.length > 0 && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                AI shadow当日決済済み集計（signal_quality）
+                AI shadow当日決済済み集計（資金配分）
               </CardTitle>
             </CardHeader>
             <CardContent>

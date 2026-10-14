@@ -254,6 +254,7 @@ type AiSessionTradeJournalRow = {
   evaluationMode: "signal_quality" | "capital_constrained";
   symbol: AiDailyForecastSymbol;
   side: "long" | "short";
+  shares: number;
   entrySourceEventId: string;
   entryTime: string;
   exitSourceEventId: string | null;
@@ -378,6 +379,7 @@ export function buildAiSessionTradeJournal(input: {
       evaluationMode: trade.evaluationMode,
       symbol: trade.symbol as AiDailyForecastSymbol,
       side: trade.side,
+      shares: Number(trade.shares),
       entrySourceEventId: trade.entrySourceEventId,
       entryTime: trade.entryCandleTime,
       exitSourceEventId: closedAtCheckpoint ? trade.exitSourceEventId : null,

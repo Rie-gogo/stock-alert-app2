@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   rtAiIntradayForecastSnapshots,
   rtForwardShadowStates,
@@ -126,6 +126,7 @@ type RepairUpdate = {
   exitCandleTime: string;
   exitPrice: number;
   exitReason: string;
+  entryPrice: number;
   shares: number;
   pnl: number;
   realizedR: number;
@@ -135,6 +136,20 @@ type RepairUpdate = {
   nextStateJson: Record<string, unknown>;
   nextStateHash: string;
 };
+
+function affectedRows(result: unknown): number {
+  const candidate = Array.isArray(result) ? result[0] : result;
+  const value = candidate && typeof candidate === "object"
+    ? (candidate as { affectedRows?: unknown }).affectedRows
+    : undefined;
+  if (typeof value !== "number") throw new Error("repair_affected_rows_unavailable");
+  return value;
+}
+
+function assertAffectedRows(result: unknown, expected: number, label: string) {
+  const actual = affectedRows(result);
+  if (actual !== expected) throw new Error(`repair_${label}_affected_rows:${actual}:${expected}`);
+}
 
 export type AiShadowLedgerRepairPlan = {
   repairId: string;
@@ -368,6 +383,7 @@ export function buildAiShadowLedgerRepairPlanForTest(
         exitCandleTime: expected.candleTime,
         exitPrice: expected.exitPrice,
         exitReason: expected.exitReason,
+        entryPrice: number(trade.entryPrice),
         shares: trade.shares,
         pnl,
         realizedR,
@@ -464,53 +480,66 @@ export async function applyAiShadowLedgerRepair(input: {
   if (initial.planHash !== input.expectedPlanHash)
     throw new Error(`repair_plan_hash_mismatch:${input.expectedPlanHash}:${initial.planHash}`);
 
+  const updates = initial.updates;
+  const tradeIdentity = or(...updates.map(update => and(
+    eq(rtForwardShadowTrades.id, update.tradeId),
+    eq(rtForwardShadowTrades.strategyVersion, update.strategyVersion),
+    eq(rtForwardShadowTrades.evaluationMode, update.evaluationMode),
+    eq(rtForwardShadowTrades.symbol, update.symbol),
+    eq(rtForwardShadowTrades.side, "long"),
+    eq(rtForwardShadowTrades.entrySourceEventId, update.entrySourceEventId),
+    eq(rtForwardShadowTrades.entryTradeDate, AI_SHADOW_LEDGER_REPAIR_TRADE_DATE),
+    eq(rtForwardShadowTrades.entryPrice, String(update.entryPrice)),
+    eq(rtForwardShadowTrades.shares, update.shares),
+    isNull(rtForwardShadowTrades.exitSourceEventId),
+  )))!;
+  const stateIdentity = or(...updates.map(update => and(
+    eq(rtForwardShadowStates.id, update.stateId),
+    eq(rtForwardShadowStates.strategyVersion, update.strategyVersion),
+    eq(rtForwardShadowStates.evaluationMode, update.evaluationMode),
+    eq(rtForwardShadowStates.stateHash, update.beforeStateHash),
+  )))!;
+  const tradeCase = <T>(column: unknown, value: (update: RepairUpdate) => T) =>
+    sql`CASE ${sql.join(updates.map(update =>
+      sql`WHEN ${rtForwardShadowTrades.id} = ${update.tradeId} THEN ${value(update)}`
+    ), sql` `)} ELSE ${column} END`;
+  const stateCase = <T>(column: unknown, value: (update: RepairUpdate) => T) =>
+    sql`CASE ${sql.join(updates.map(update =>
+      sql`WHEN ${rtForwardShadowStates.id} = ${update.stateId} THEN ${value(update)}`
+    ), sql` `)} ELSE ${column} END`;
+
   await db.transaction(async tx => {
-    const current = buildAiShadowLedgerRepairPlanForTest(await loadSource(tx));
-    if (current.status === "already_applied") return;
-    if (current.planHash !== input.expectedPlanHash)
-      throw new Error(`repair_plan_changed_before_apply:${input.expectedPlanHash}:${current.planHash}`);
-    for (const update of current.updates) {
-      await tx.update(rtForwardShadowTrades).set({
-        exitSourceEventId: update.exitSourceEventId,
-        exitTradeDate: AI_SHADOW_LEDGER_REPAIR_TRADE_DATE,
-        exitCandleTime: update.exitCandleTime,
-        exitPrice: String(update.exitPrice),
-        exitReason: update.exitReason,
-        pnl: update.pnl,
-        pnlAfterAdverseExit: update.pnl,
-        realizedR: String(update.realizedR),
-        closedAt: new Date(),
-      }).where(and(
-        eq(rtForwardShadowTrades.id, update.tradeId),
-        eq(rtForwardShadowTrades.strategyVersion, update.strategyVersion),
-        eq(rtForwardShadowTrades.evaluationMode, update.evaluationMode),
-        eq(rtForwardShadowTrades.entrySourceEventId, update.entrySourceEventId),
-        isNull(rtForwardShadowTrades.exitSourceEventId),
-      ));
-      await tx.update(rtForwardShadowStates).set({
-        stateJson: update.nextStateJson,
-        stateHash: update.nextStateHash,
-      }).where(and(
-        eq(rtForwardShadowStates.id, update.stateId),
-        eq(rtForwardShadowStates.strategyVersion, update.strategyVersion),
-        eq(rtForwardShadowStates.evaluationMode, update.evaluationMode),
-        eq(rtForwardShadowStates.stateHash, update.beforeStateHash),
-      ));
-    }
-    for (const symbol of SYMBOLS) {
-      await tx.update(rtStrategyVersions).set({
-        status: "stopped",
-        statusReason: `historical_ledger_reconciled:${AI_SHADOW_LEDGER_REPAIR_ID}:${current.planHash}`,
-      }).where(eq(rtStrategyVersions.versionId, VERSIONS[symbol]));
-    }
-    const receipt = buildAiShadowLedgerRepairPlanForTest(await loadSource(tx));
-    if (receipt.status !== "already_applied")
-      throw new Error("repair_transaction_receipt_invalid");
+    // prepare済みplanに含まれる全行を、同じidentity/hashのまま一括更新する。
+    // 1行でも競合していればaffectedRows検査でtransaction全体をrollbackする。
+    const tradeResult = await tx.update(rtForwardShadowTrades).set({
+      exitSourceEventId: tradeCase(rtForwardShadowTrades.exitSourceEventId, row => row.exitSourceEventId),
+      exitTradeDate: AI_SHADOW_LEDGER_REPAIR_TRADE_DATE,
+      exitCandleTime: tradeCase(rtForwardShadowTrades.exitCandleTime, row => row.exitCandleTime),
+      exitPrice: tradeCase(rtForwardShadowTrades.exitPrice, row => String(row.exitPrice)),
+      exitReason: tradeCase(rtForwardShadowTrades.exitReason, row => row.exitReason),
+      pnl: tradeCase(rtForwardShadowTrades.pnl, row => row.pnl),
+      pnlAfterAdverseExit: tradeCase(rtForwardShadowTrades.pnlAfterAdverseExit, row => row.pnl),
+      realizedR: tradeCase(rtForwardShadowTrades.realizedR, row => String(row.realizedR)),
+      closedAt: new Date(),
+    }).where(tradeIdentity);
+    assertAffectedRows(tradeResult, updates.length, "trade");
+
+    const stateResult = await tx.update(rtForwardShadowStates).set({
+      stateJson: stateCase(rtForwardShadowStates.stateJson, row => JSON.stringify(row.nextStateJson)),
+      stateHash: stateCase(rtForwardShadowStates.stateHash, row => row.nextStateHash),
+    }).where(stateIdentity);
+    assertAffectedRows(stateResult, updates.length, "state");
+
+    const versionResult = await tx.update(rtStrategyVersions).set({
+      status: "stopped",
+      statusReason: `historical_ledger_reconciled:${AI_SHADOW_LEDGER_REPAIR_ID}:${initial.planHash}`,
+    }).where(inArray(rtStrategyVersions.versionId, Object.values(VERSIONS)));
+    assertAffectedRows(versionResult, SYMBOLS.length, "version");
   });
 
-  const receipt = buildAiShadowLedgerRepairPlanForTest(await loadSource(db));
-  if (receipt.status !== "already_applied") throw new Error("repair_post_commit_receipt_invalid");
-  return { ...receipt, operationStatus: "applied" as const };
+  // 完全なreceipt検査は直後のread-only prepareで行う。HTTP内では追加の全証拠再読込をせず、
+  // 公開runtimeの時間上限によるtransaction rollbackを避ける。
+  return { ...initial, operationStatus: "applied" as const };
 }
 
 

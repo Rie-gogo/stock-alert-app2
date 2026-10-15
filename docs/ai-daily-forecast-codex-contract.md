@@ -79,6 +79,8 @@ node scripts/ingest-ai-daily-forecast.mjs /secure/path/ai-forecast.json
 
 2026-10-15からv6は、前場に`09:15 / 09:30 / 09:45 / 10:00 / 10:15 / 10:30 / 10:45 / 11:00 / 11:15 / 11:30`、後場に`12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00`で再判断します。各cutoffはcheckpointの1分前（12:35は12:34）であり、前場は15分、後場は30分の有効期間だけを持ちます。12:00、12:30、15:30は実行しません。
 
+定期taskは原則checkpointの3分後に起動します。実行が遅れても`cutoffCandleTime`はcheckpointSpecの固定値を使います。たとえば13:00計画を13:03以後に生成してもcutoffは12:59であり、13:00以後の足をAI入力へ混ぜません。prepareはcutoff以前のsource eventとAI shadow materializationが一致するまで最大2分間だけ待機し、完了した固定inputへHMAC署名を付けます。ingestは同じ固定inputだけを受理します。
+
 `11:30`は前場の新規entryを作らないbridge checkpointです。controlのentry windowは**12:30–12:34内だけ**が許され、範囲外はlocal preflightとサーバーvalidatorがfail-closedでrejectします。12:35には後場最初の完成済み5分足で必ず再判断します。
 
 各checkpointでは次を取得します。SecretはPOST bodyだけで送り、URL・ログ・JSONへ残しません。
@@ -119,9 +121,13 @@ AI_DAILY_FORECAST_INGEST_KEY="$AI_DAILY_FORECAST_INGEST_KEY" \
 node scripts/ingest-ai-intraday-forecast.mjs /secure/path/ai-intraday-forecast.json
 ```
 
+通常運用では、取得時に保存した入力を`--input /secure/path/ai-intraday-input.json`で同時に渡します。
+
 `sourceRevisionId` は `ai-intraday-forecast:YYYY-MM-DD:HHMM:<一意suffix>` とします。同じ朝snapshot・同じcheckpointは最初の1件だけを凍結し、後から上書きできません。
 
 保存に成功した有効計画だけを、同日・銘柄ごとの独立shadowが参照します。
+
+ingest時点のdispatch `engineSequence`をactivation境界として保存し、新計画はその境界より後のsource eventだけに適用します。到着前の未処理足へ遡ってentry・exitを作りません。checkpointからactivation境界までに`firstTarget`へ到達済みの銘柄は`missed_move_no_entry`とし、そのplan IDからの新規entryだけを禁止します。保有中ポジションは新計画到着まで旧計画のstopで管理し、到着後の管理変更は次source eventから適用します。
 
 1. zoneに触れる
 2. **別イベント**で `confirmPrice` を確認

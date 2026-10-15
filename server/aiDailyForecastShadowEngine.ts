@@ -73,6 +73,7 @@ export type AiDailyForecastPlan = {
   atr5: number;
   stopPrice: number;
   entryBlockedByRevision: boolean;
+  entryBlockReason?: string | null;
   checkpoint: string;
   entryWindowStart: string;
   entryWindowEnd: string;
@@ -331,6 +332,15 @@ function planFromIntradaySnapshot(
     control.openPositionAction === "exit_next_event_if_direction_changed"
       ? control.openPositionAction
       : "keep";
+  const activationAudit = object(object(snapshot.validationJson).activationAudit);
+  const activationSymbols = Array.isArray(activationAudit.symbols)
+    ? activationAudit.symbols
+    : [];
+  const activationSymbol = object(
+    activationSymbols.find(item => object(item).symbol === symbol)
+  );
+  const missedMove =
+    activationSymbol.entryDisposition === "missed_move_no_entry";
   if (control.planDecision === "disabled" || !directional)
     return {
       activePlanId: snapshot.sourceRevisionId,
@@ -384,7 +394,7 @@ function planFromIntradaySnapshot(
     };
   return {
     activePlanId: snapshot.sourceRevisionId,
-    disabledReason: null,
+    disabledReason: missedMove ? "missed_move_no_entry" : null,
     openPositionAction: action,
     plan: {
       sourceSnapshotId: snapshot.sourceRevisionId,
@@ -400,7 +410,8 @@ function planFromIntradaySnapshot(
       stretchTarget,
       atr5,
       stopPrice,
-      entryBlockedByRevision: false,
+      entryBlockedByRevision: missedMove,
+      entryBlockReason: missedMove ? "missed_move_no_entry" : null,
       checkpoint: snapshot.checkpoint,
       entryWindowStart: String(control.entryWindowStart ?? snapshot.checkpoint),
       entryWindowEnd: String(control.entryWindowEnd ?? "15:19"),
@@ -409,18 +420,42 @@ function planFromIntradaySnapshot(
     },
   };
 }
+export function selectAiIntradayPlanForTest(
+  snapshot: {
+    sourceRevisionId: string;
+    qualityStatus: string;
+    checkpoint: string;
+    forecastJson: unknown;
+    inputJson: unknown;
+    validationJson: unknown;
+  } | null,
+  symbol: string
+) {
+  return planFromIntradaySnapshot(
+    snapshot as Awaited<ReturnType<typeof getEffectiveAiIntradayForecastSnapshot>>,
+    symbol
+  );
+}
 function sideForPlan(plan: Plan): Side {
   return plan.direction === "strong_up" || plan.direction === "up"
     ? "long"
     : "short";
 }
-function getPlanData(tradeDate: string, candleTime: string) {
-  const key = `${tradeDate}:${candleTime}`;
+function getPlanData(
+  tradeDate: string,
+  candleTime: string,
+  engineSequence: number | null
+) {
+  const key = `${tradeDate}:${candleTime}:${engineSequence ?? "missing"}`;
   const existing = planDataCache.get(key);
   if (existing) return existing;
   const created = Promise.all([
     getAiDailyForecastDashboard(tradeDate),
-    getEffectiveAiIntradayForecastSnapshot(tradeDate, candleTime),
+    getEffectiveAiIntradayForecastSnapshot(
+      tradeDate,
+      candleTime,
+      engineSequence
+    ),
   ]).then(([dashboard, intradaySnapshot]) => ({ dashboard, intradaySnapshot }));
   planDataCache.set(key, created);
   while (planDataCache.size > 8)
@@ -665,7 +700,9 @@ function transition(
       actions: [
         {
           type: "no_trade",
-          reason: "market_context_revision_invalidated_unentered_signals",
+          reason:
+            plan.entryBlockReason ??
+            "market_context_revision_invalidated_unentered_signals",
         },
       ],
     };
@@ -1055,7 +1092,8 @@ export async function processAiDailyForecastShadowSourceEvent(
     return { skipped: `strategy_${version.status}` as const };
   const { dashboard, intradaySnapshot } = await getPlanData(
     source.candle.tradeDate,
-    source.candle.candleTime
+    source.candle.candleTime,
+    source.currentAudit?.engineSequence ?? null
   );
   const dailyPlan = planFromSnapshot(
     dashboard.snapshot,

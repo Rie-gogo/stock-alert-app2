@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   rtAiIntradayForecastSnapshots,
@@ -6,6 +7,8 @@ import {
   rtForwardShadowEvents,
   rtForwardShadowTrades,
   rtMarketContextEvents,
+  rtShadowDispatchQueue,
+  rtSourceEvents,
   type InsertRtAiIntradayForecastSnapshot,
 } from "../drizzle/schema";
 import { getDb } from "./db";
@@ -31,6 +34,7 @@ import {
   buildLearningApplicationAudit,
   type LearningApplicationAudit,
 } from "./aiForecastLearningAudit";
+import { scheduleForwardShadowDispatchDrain } from "./forwardShadowSequence";
 
 export const AI_INTRADAY_FORECAST_VERSION =
   "ai-intraday-forecast-v3-v6-morning15-afternoon30";
@@ -53,6 +57,31 @@ export const AI_INTRADAY_CHECKPOINTS = [
   "15:00",
 ] as const;
 export type AiIntradayCheckpoint = (typeof AI_INTRADAY_CHECKPOINTS)[number];
+export type AiIntradayCheckpointMaterialization = {
+  status: "complete" | "pending" | "terminal_error";
+  reasonCode:
+    | "ai_intraday_materialization_complete"
+    | "ai_intraday_materialization_pending"
+    | "ai_intraday_materialization_terminal";
+  tradeDate: string;
+  checkpoint: AiIntradayCheckpoint;
+  cutoffCandleTime: string;
+  source: {
+    count: number;
+    processed: number;
+    processing: number;
+    failed: number;
+    latestCandleTime: string | null;
+  };
+  shadow: {
+    count: number;
+    processed: number;
+    pending: number;
+    processing: number;
+    error: number;
+    latestProcessedCandleTime: string | null;
+  };
+};
 type Candle = {
   candleTime: string;
   open: number;
@@ -511,8 +540,111 @@ export type AiIntradayForecastInput = {
   };
   inputQuality: "verified" | "degraded" | "invalid";
   qualityReasonCodes: string[];
+  /** prepare時点でcutoffまでのshadow queueが追い付いたことを示す監査値。 */
+  materializationWatermark?: AiIntradayCheckpointMaterialization;
+  /** serverが発行するHMAC。token自体はinputHashの対象外。 */
+  inputSnapshotToken?: string;
   inputHash?: string;
 };
+
+const countValue = (value: unknown) => {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export function classifyAiIntradayCheckpointMaterialization(input: {
+  tradeDate: string;
+  checkpoint: AiIntradayCheckpoint;
+  cutoffCandleTime: string;
+  source: AiIntradayCheckpointMaterialization["source"];
+  shadow: AiIntradayCheckpointMaterialization["shadow"];
+}): AiIntradayCheckpointMaterialization {
+  const terminal = input.source.failed > 0 || input.shadow.error > 0;
+  const complete =
+    !terminal &&
+    input.source.count > 0 &&
+    input.source.processing === 0 &&
+    input.source.processed === input.source.count &&
+    input.shadow.count === input.source.count &&
+    input.shadow.pending === 0 &&
+    input.shadow.processing === 0 &&
+    input.shadow.processed === input.shadow.count;
+  return {
+    ...input,
+    status: terminal ? "terminal_error" : complete ? "complete" : "pending",
+    reasonCode: terminal
+      ? "ai_intraday_materialization_terminal"
+      : complete
+        ? "ai_intraday_materialization_complete"
+        : "ai_intraday_materialization_pending",
+  };
+}
+
+/** checkpoint cutoff以前だけを対象に、同日AI shadow台帳の追随完了を確認する。 */
+export async function getAiIntradayCheckpointMaterialization(input: {
+  tradeDate: string;
+  checkpoint: AiIntradayCheckpoint;
+}): Promise<AiIntradayCheckpointMaterialization> {
+  const db = await getDb();
+  if (!db) throw Error("database_unavailable");
+  const spec = checkpointSpec[input.checkpoint];
+  if (!spec) throw Error("ai_intraday_checkpoint_invalid");
+  const sourceCondition = and(
+    eq(rtSourceEvents.tradeDate, input.tradeDate),
+    inArray(rtSourceEvents.symbol, [...AI_DAILY_FORECAST_SYMBOLS]),
+    gte(rtSourceEvents.candleTime, "09:00"),
+    lte(rtSourceEvents.candleTime, spec.cutoff)
+  );
+  const [sourceRows, shadowRows] = await Promise.all([
+    db
+      .select({
+        count: sql<number>`count(*)`,
+        processed: sql<number>`coalesce(sum(case when ${rtSourceEvents.status} = 'processed' then 1 else 0 end), 0)`,
+        processing: sql<number>`coalesce(sum(case when ${rtSourceEvents.status} = 'processing' then 1 else 0 end), 0)`,
+        failed: sql<number>`coalesce(sum(case when ${rtSourceEvents.status} in ('failed', 'payload_mismatch') then 1 else 0 end), 0)`,
+        latestCandleTime: sql<string | null>`max(${rtSourceEvents.candleTime})`,
+      })
+      .from(rtSourceEvents)
+      .where(sourceCondition),
+    db
+      .select({
+        count: sql<number>`count(*)`,
+        processed: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'processed' then 1 else 0 end), 0)`,
+        pending: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'pending' then 1 else 0 end), 0)`,
+        processing: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'processing' then 1 else 0 end), 0)`,
+        error: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'error' then 1 else 0 end), 0)`,
+        latestProcessedCandleTime: sql<string | null>`max(case when ${rtShadowDispatchQueue.status} = 'processed' then ${rtSourceEvents.candleTime} else null end)`,
+      })
+      .from(rtShadowDispatchQueue)
+      .innerJoin(
+        rtSourceEvents,
+        eq(rtShadowDispatchQueue.sourceEventId, rtSourceEvents.sourceEventId)
+      )
+      .where(sourceCondition),
+  ]);
+  const source = sourceRows[0];
+  const shadow = shadowRows[0];
+  return classifyAiIntradayCheckpointMaterialization({
+    tradeDate: input.tradeDate,
+    checkpoint: input.checkpoint,
+    cutoffCandleTime: spec.cutoff,
+    source: {
+      count: countValue(source?.count),
+      processed: countValue(source?.processed),
+      processing: countValue(source?.processing),
+      failed: countValue(source?.failed),
+      latestCandleTime: source?.latestCandleTime ?? null,
+    },
+    shadow: {
+      count: countValue(shadow?.count),
+      processed: countValue(shadow?.processed),
+      pending: countValue(shadow?.pending),
+      processing: countValue(shadow?.processing),
+      error: countValue(shadow?.error),
+      latestProcessedCandleTime: shadow?.latestProcessedCandleTime ?? null,
+    },
+  });
+}
 
 export async function buildAiIntradayForecastInput(input: {
   tradeDate: string;
@@ -766,6 +898,103 @@ export async function buildAiIntradayForecastInput(input: {
   return { ...prepared, inputHash: aiIntradayForecastInputHash(prepared) };
 }
 
+function aiIntradayInputSnapshotSecret() {
+  const secret = process.env.AI_DAILY_FORECAST_INGEST_KEY;
+  if (!secret || secret.length < 32)
+    throw Error("ai_intraday_snapshot_signing_key_missing");
+  return secret;
+}
+
+function aiIntradayInputSnapshotSignaturePayload(
+  input: AiIntradayForecastInput
+) {
+  return {
+    version: "ai-intraday-input-snapshot-v1",
+    tradeDate: input.tradeDate,
+    checkpoint: input.checkpoint,
+    cutoffCandleTime: input.cutoffCandleTime,
+    capturedAtMs: input.capturedAtMs,
+    morningSourceSnapshotId: input.morningSourceSnapshotId,
+    inputHash: input.inputHash,
+  };
+}
+
+function signAiIntradayInputSnapshot(input: AiIntradayForecastInput) {
+  return createHmac("sha256", aiIntradayInputSnapshotSecret())
+    .update(sha256Stable(aiIntradayInputSnapshotSignaturePayload(input)))
+    .digest("hex");
+}
+
+function verifyAiIntradayInputSnapshotToken(
+  input: AiIntradayForecastInput,
+  token: string
+) {
+  if (!/^[a-f0-9]{64}$/.test(token)) return false;
+  const expected = Buffer.from(signAiIntradayInputSnapshot(input), "hex");
+  const actual = Buffer.from(token, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+/**
+ * cutoffまでのshadow queueが安定して追い付いた場合だけ、署名付き固定inputを返す。
+ * DB schemaを増やさず、senderが返送する入力全体をHMACで改変検知する。
+ */
+export async function prepareAiIntradayForecastInput(input: {
+  tradeDate: string;
+  checkpoint: AiIntradayCheckpoint;
+}) {
+  const before = await getAiIntradayCheckpointMaterialization(input);
+  if (before.status !== "complete") {
+    if (before.status === "pending") scheduleForwardShadowDispatchDrain(0);
+    console.warn("[AiIntradayForecast] checkpoint materialization unavailable", {
+      tradeDate: input.tradeDate,
+      checkpoint: input.checkpoint,
+      status: before.status,
+      reasonCode: before.reasonCode,
+      source: before.source,
+      shadow: before.shadow,
+    });
+    throw Error(before.reasonCode);
+  }
+  const built = await buildAiIntradayForecastInput(input);
+  const after = await getAiIntradayCheckpointMaterialization(input);
+  if (
+    after.status !== "complete" ||
+    sha256Stable(before) !== sha256Stable(after)
+  ) {
+    console.warn(
+      "[AiIntradayForecast] checkpoint materialization changed while preparing input",
+      {
+        tradeDate: input.tradeDate,
+        checkpoint: input.checkpoint,
+        before: before.status,
+        after: after.status,
+        sourceCountBefore: before.source.count,
+        sourceCountAfter: after.source.count,
+        shadowProcessedBefore: before.shadow.processed,
+        shadowProcessedAfter: after.shadow.processed,
+      }
+    );
+    throw Error(
+      after.status === "terminal_error"
+        ? "ai_intraday_materialization_terminal"
+        : "ai_intraday_materialization_pending"
+    );
+  }
+  const frozenWithoutToken: AiIntradayForecastInput = {
+    ...built,
+    materializationWatermark: after,
+  };
+  const frozen: AiIntradayForecastInput = {
+    ...frozenWithoutToken,
+    inputHash: aiIntradayForecastInputHash(frozenWithoutToken),
+  };
+  return {
+    ...frozen,
+    inputSnapshotToken: signAiIntradayInputSnapshot(frozen),
+  };
+}
+
 const controlSchema = z
   .object({
     symbol: z.enum(AI_DAILY_FORECAST_SYMBOLS),
@@ -796,6 +1025,169 @@ export type AiIntradayForecastOutput = {
   controls: z.infer<typeof controlSchema>[];
   checkpointSummary: string;
 };
+
+export type AiIntradayActivationAudit = {
+  policy: "next_source_event_after_ingest_boundary_v1";
+  activationAfterEngineSequence: number;
+  assessedEventCount: number;
+  symbols: Array<{
+    symbol: AiDailyForecastSymbol;
+    firstTargetReachedBeforeActivation: boolean;
+    stretchTargetReachedBeforeActivation: boolean;
+    firstTargetReachedAt: string | null;
+    stretchTargetReachedAt: string | null;
+    entryDisposition: "eligible_after_activation" | "missed_move_no_entry";
+  }>;
+};
+
+type AiIntradayPreActivationEvent = {
+  engineSequence: number;
+  symbol: string;
+  candleTime: string;
+  high: number;
+  low: number;
+};
+
+/**
+ * A late plan may manage an already-open position, but it must not create a
+ * new entry after its objective was already reached while the plan was absent.
+ */
+export function buildAiIntradayActivationAudit(input: {
+  output: AiIntradayForecastOutput;
+  activationAfterEngineSequence: number;
+  events: AiIntradayPreActivationEvent[];
+}): AiIntradayActivationAudit {
+  const orderedEvents = [...input.events].sort(
+    (left, right) => left.engineSequence - right.engineSequence
+  );
+  return {
+    policy: "next_source_event_after_ingest_boundary_v1",
+    activationAfterEngineSequence: input.activationAfterEngineSequence,
+    assessedEventCount: orderedEvents.length,
+    symbols: AI_DAILY_FORECAST_SYMBOLS.map(symbol => {
+      const forecast = input.output.forecast.forecasts.find(
+        row => row.symbol === symbol
+      );
+      const direction = String(forecast?.direction ?? "");
+      const long = direction === "strong_up" || direction === "up";
+      const short = direction === "strong_down" || direction === "down";
+      const firstTarget = finite(forecast?.firstTarget);
+      const stretchTarget = finite(forecast?.stretchTarget);
+      const events = orderedEvents.filter(event => event.symbol === symbol);
+      const firstEvent =
+        firstTarget === null || (!long && !short)
+          ? null
+          : (events.find(event =>
+              long ? event.high >= firstTarget : event.low <= firstTarget
+            ) ?? null);
+      const stretchEvent =
+        stretchTarget === null || (!long && !short)
+          ? null
+          : (events.find(event =>
+              long ? event.high >= stretchTarget : event.low <= stretchTarget
+            ) ?? null);
+      return {
+        symbol,
+        firstTargetReachedBeforeActivation: Boolean(firstEvent),
+        stretchTargetReachedBeforeActivation: Boolean(stretchEvent),
+        firstTargetReachedAt: firstEvent?.candleTime ?? null,
+        stretchTargetReachedAt: stretchEvent?.candleTime ?? null,
+        entryDisposition: firstEvent
+          ? "missed_move_no_entry"
+          : "eligible_after_activation",
+      };
+    }),
+  };
+}
+
+function activationAuditFromValidation(value: unknown) {
+  return object(object(value).activationAudit);
+}
+
+export function isAiIntradaySnapshotCausallyAvailable(
+  validationJson: unknown,
+  engineSequence: number | null | undefined
+) {
+  const boundary = finite(
+    activationAuditFromValidation(validationJson).activationAfterEngineSequence
+  );
+  // Legacy snapshots remain readable. New snapshots fail closed when an event
+  // has no sequence and become active only after the ingest boundary.
+  if (boundary === null) return true;
+  return (
+    engineSequence !== null &&
+    engineSequence !== undefined &&
+    Number.isFinite(engineSequence) &&
+    engineSequence > boundary
+  );
+}
+
+async function createAiIntradayActivationAudit(input: {
+  tradeDate: string;
+  checkpoint: AiIntradayCheckpoint;
+  output: AiIntradayForecastOutput;
+}) {
+  const db = await getDb();
+  if (!db) throw Error("database_unavailable");
+  const spec = checkpointSpec[input.checkpoint];
+  const boundaryRows = await db
+    .select({
+      engineSequence: sql<number | null>`max(${rtShadowDispatchQueue.engineSequence})`,
+    })
+    .from(rtShadowDispatchQueue);
+  const activationAfterEngineSequence = countValue(
+    boundaryRows[0]?.engineSequence
+  );
+  const rows = activationAfterEngineSequence
+    ? await db
+        .select({
+          engineSequence: rtShadowDispatchQueue.engineSequence,
+          symbol: rtSourceEvents.symbol,
+          candleTime: rtSourceEvents.candleTime,
+          inputJson: rtShadowDispatchQueue.inputJson,
+        })
+        .from(rtShadowDispatchQueue)
+        .innerJoin(
+          rtSourceEvents,
+          eq(rtShadowDispatchQueue.sourceEventId, rtSourceEvents.sourceEventId)
+        )
+        .where(
+          and(
+            eq(rtShadowDispatchQueue.tradeDate, input.tradeDate),
+            inArray(rtShadowDispatchQueue.symbol, [
+              ...AI_DAILY_FORECAST_SYMBOLS,
+            ]),
+            lte(
+              rtShadowDispatchQueue.engineSequence,
+              activationAfterEngineSequence
+            ),
+            gte(rtSourceEvents.candleTime, spec.effectiveFrom),
+            lte(rtSourceEvents.candleTime, spec.validUntil)
+          )
+        )
+        .orderBy(asc(rtShadowDispatchQueue.engineSequence))
+    : [];
+  const events = rows.flatMap(row => {
+    const candle = object(object(row.inputJson).candle);
+    const high = finite(candle.high);
+    const low = finite(candle.low);
+    if (high === null || low === null) return [];
+    return [
+      {
+        engineSequence: row.engineSequence,
+        symbol: row.symbol,
+        candleTime: row.candleTime,
+        high,
+        low,
+      },
+    ];
+  });
+  return buildAiIntradayActivationAudit({
+    output: input.output,
+    activationAfterEngineSequence,
+    events,
+  });
+}
 
 export function validateAiIntradayForecastOutput(
   raw: unknown,
@@ -864,6 +1256,7 @@ export function aiIntradayForecastInputHash(input: AiIntradayForecastInput) {
   const {
     capturedAtMs: _capturedAtMs,
     inputHash: _inputHash,
+    inputSnapshotToken: _inputSnapshotToken,
     priorData,
     ...immutable
   } = input;
@@ -888,7 +1281,69 @@ export type AiIntradayForecastSubmission = {
   generatorId: string;
   promptVersion: string;
   generatorMetadata?: Record<string, unknown>;
+  /** prepare endpointが返した署名付き固定input。旧senderは未指定でも互換経路で動く。 */
+  frozenInput?: unknown;
+  inputSnapshotToken?: string;
 };
+
+function frozenAiIntradayInputFromSubmission(
+  submission: AiIntradayForecastSubmission
+): AiIntradayForecastInput | null {
+  const hasFrozenInput = submission.frozenInput !== undefined;
+  const hasToken = submission.inputSnapshotToken !== undefined;
+  if (!hasFrozenInput && !hasToken) return null;
+  if (!hasFrozenInput || !hasToken)
+    throw Error("ai_intraday_input_snapshot_incomplete");
+  const token = submission.inputSnapshotToken;
+  if (typeof token !== "string")
+    throw Error("ai_intraday_input_snapshot_incomplete");
+  if (!submission.frozenInput || typeof submission.frozenInput !== "object")
+    throw Error("ai_intraday_input_snapshot_invalid");
+  const frozen = submission.frozenInput as AiIntradayForecastInput;
+  const spec = checkpointSpec[submission.checkpoint];
+  if (
+    frozen.tradeDate !== submission.tradeDate ||
+    frozen.checkpoint !== submission.checkpoint ||
+    frozen.cutoffCandleTime !== spec.cutoff ||
+    frozen.effectiveFrom !== spec.effectiveFrom ||
+    frozen.validUntil !== spec.validUntil ||
+    frozen.capturedAtMs !== submission.capturedAtMs ||
+    frozen.morningSourceSnapshotId !== submission.morningSourceSnapshotId ||
+    frozen.inputHash !== submission.inputHash ||
+    frozen.inputSnapshotToken !== token
+  )
+    throw Error("ai_intraday_input_snapshot_identity_mismatch");
+  if (
+    frozen.materializationWatermark?.status !== "complete" ||
+    frozen.materializationWatermark.tradeDate !== submission.tradeDate ||
+    frozen.materializationWatermark.checkpoint !== submission.checkpoint ||
+    frozen.materializationWatermark.cutoffCandleTime !== spec.cutoff
+  )
+    throw Error("ai_intraday_input_snapshot_materialization_invalid");
+  if (
+    !Array.isArray(frozen.currentSession?.symbols) ||
+    frozen.currentSession.symbols.length !== AI_DAILY_FORECAST_SYMBOLS.length ||
+    !Array.isArray(frozen.priorData?.symbols) ||
+    frozen.priorData.symbols.length !== AI_DAILY_FORECAST_SYMBOLS.length
+  )
+    throw Error("ai_intraday_input_snapshot_contract_invalid");
+  const currentSymbols = new Set(
+    frozen.currentSession.symbols.map(item => item.symbol)
+  );
+  const priorSymbols = new Set(frozen.priorData.symbols.map(item => item.symbol));
+  if (
+    AI_DAILY_FORECAST_SYMBOLS.some(
+      symbol => !currentSymbols.has(symbol) || !priorSymbols.has(symbol)
+    )
+  )
+    throw Error("ai_intraday_input_snapshot_symbol_mismatch");
+  const expectedHash = aiIntradayForecastInputHash(frozen);
+  if (expectedHash !== submission.inputHash)
+    throw Error("ai_intraday_input_hash_mismatch");
+  if (!verifyAiIntradayInputSnapshotToken(frozen, token))
+    throw Error("ai_intraday_input_snapshot_signature_invalid");
+  return frozen;
+}
 
 async function getBySourceRevisionId(sourceRevisionId: string) {
   const db = await getDb();
@@ -962,11 +1417,17 @@ export async function ingestAiIntradayForecastSubmission(
     captured.time > spec.validUntil
   )
     throw Error("ai_intraday_capture_outside_checkpoint_window_jst");
-  const prepared = await buildAiIntradayForecastInput({
-    tradeDate: submission.tradeDate,
-    checkpoint: submission.checkpoint,
-    capturedAtMs: submission.capturedAtMs,
-  });
+  // New senders return the exact server-signed prepare input. Never rebuild a
+  // mutable same-day journal for those submissions. The legacy rebuild path is
+  // retained only for already-created files that predate snapshot tokens.
+  const frozenPrepared = frozenAiIntradayInputFromSubmission(submission);
+  const prepared =
+    frozenPrepared ??
+    (await buildAiIntradayForecastInput({
+      tradeDate: submission.tradeDate,
+      checkpoint: submission.checkpoint,
+      capturedAtMs: submission.capturedAtMs,
+    }));
   if (prepared.morningSourceSnapshotId !== submission.morningSourceSnapshotId)
     throw Error("ai_intraday_morning_snapshot_mismatch");
   const expectedInputHash = aiIntradayForecastInputHash(prepared);
@@ -980,6 +1441,11 @@ export async function ingestAiIntradayForecastSubmission(
     throw Error(
       `ai_intraday_validation_failed:${validation.reasonCodes.join(",")}`
     );
+  const activationAudit = await createAiIntradayActivationAudit({
+    tradeDate: submission.tradeDate,
+    checkpoint: submission.checkpoint,
+    output: validation.output,
+  });
   const payload = {
     sourceRevisionId: submission.sourceRevisionId,
     morningSourceSnapshotId: submission.morningSourceSnapshotId,
@@ -996,6 +1462,10 @@ export async function ingestAiIntradayForecastSubmission(
     validation: {
       inputQuality: prepared.inputQuality,
       inputReasons: prepared.qualityReasonCodes,
+      inputSnapshotMode: frozenPrepared
+        ? "signed_frozen_v1"
+        : "legacy_rebuild",
+      materializationWatermark: prepared.materializationWatermark ?? null,
       outputValid: true,
       outputReasons: validation.reasonCodes,
     },
@@ -1019,7 +1489,10 @@ export async function ingestAiIntradayForecastSubmission(
     inferenceAtMs: submission.capturedAtMs,
     inputJson: prepared,
     forecastJson: payload,
-    validationJson: payload.validation,
+    validationJson: {
+      ...payload.validation,
+      activationAudit,
+    },
   });
 }
 
@@ -1146,27 +1619,32 @@ export async function getAiIntradayForecastDashboardRows(tradeDate: string) {
 }
 export async function getEffectiveAiIntradayForecastSnapshot(
   tradeDate: string,
-  candleTime: string
+  candleTime: string,
+  engineSequence: number | null = null
 ) {
   const db = await getDb();
   if (!db) return null;
+  const candidates = await db
+    .select()
+    .from(rtAiIntradayForecastSnapshots)
+    .where(
+      and(
+        eq(rtAiIntradayForecastSnapshots.tradeDate, tradeDate),
+        lte(rtAiIntradayForecastSnapshots.checkpoint, candleTime)
+      )
+    )
+    .orderBy(
+      desc(rtAiIntradayForecastSnapshots.checkpoint),
+      desc(rtAiIntradayForecastSnapshots.id)
+    )
+    .limit(AI_INTRADAY_CHECKPOINTS.length);
   return (
-    (
-      await db
-        .select()
-        .from(rtAiIntradayForecastSnapshots)
-        .where(
-          and(
-            eq(rtAiIntradayForecastSnapshots.tradeDate, tradeDate),
-            lte(rtAiIntradayForecastSnapshots.checkpoint, candleTime)
-          )
-        )
-        .orderBy(
-          desc(rtAiIntradayForecastSnapshots.checkpoint),
-          desc(rtAiIntradayForecastSnapshots.id)
-        )
-        .limit(1)
-    )[0] ?? null
+    candidates.find(snapshot =>
+      isAiIntradaySnapshotCausallyAvailable(
+        snapshot.validationJson,
+        engineSequence
+      )
+    ) ?? null
   );
 }
 
@@ -1178,4 +1656,10 @@ export const _aiIntradayForecastTest = {
   summarizeLearning,
   buildAiSessionTradeJournal,
   causalHoldingMinutes,
+  classifyAiIntradayCheckpointMaterialization,
+  buildAiIntradayActivationAudit,
+  isAiIntradaySnapshotCausallyAvailable,
+  signAiIntradayInputSnapshot,
+  verifyAiIntradayInputSnapshotToken,
+  frozenAiIntradayInputFromSubmission,
 };

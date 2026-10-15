@@ -90,6 +90,108 @@ const control = (symbol: string) => ({
 });
 
 describe("AI intraday forecast causal contract", () => {
+  it("waits until both source processing and shadow materialization are complete", () => {
+    const base = {
+      tradeDate: "2026-10-09",
+      checkpoint: "10:00" as const,
+      cutoffCandleTime: "09:59",
+      source: {
+        count: 10,
+        processed: 10,
+        processing: 0,
+        failed: 0,
+        latestCandleTime: "09:59",
+      },
+      shadow: {
+        count: 10,
+        processed: 9,
+        pending: 1,
+        processing: 0,
+        error: 0,
+        latestProcessedCandleTime: "09:58",
+      },
+    };
+    expect(
+      _aiIntradayForecastTest.classifyAiIntradayCheckpointMaterialization(base)
+        .status
+    ).toBe("pending");
+    expect(
+      _aiIntradayForecastTest.classifyAiIntradayCheckpointMaterialization({
+        ...base,
+        shadow: {
+          ...base.shadow,
+          processed: 10,
+          pending: 0,
+          latestProcessedCandleTime: "09:59",
+        },
+      }).status
+    ).toBe("complete");
+  });
+  it("activates a newly ingested plan only after its engine sequence boundary", () => {
+    const validationJson = {
+      activationAudit: { activationAfterEngineSequence: 120 },
+    };
+    expect(
+      _aiIntradayForecastTest.isAiIntradaySnapshotCausallyAvailable(
+        validationJson,
+        120
+      )
+    ).toBe(false);
+    expect(
+      _aiIntradayForecastTest.isAiIntradaySnapshotCausallyAvailable(
+        validationJson,
+        121
+      )
+    ).toBe(true);
+    expect(
+      _aiIntradayForecastTest.isAiIntradaySnapshotCausallyAvailable(
+        validationJson,
+        null
+      )
+    ).toBe(false);
+    expect(
+      _aiIntradayForecastTest.isAiIntradaySnapshotCausallyAvailable({}, null)
+    ).toBe(true);
+  });
+  it("marks only symbols whose first target was reached before activation", () => {
+    const output = {
+      forecast: {
+        forecasts: AI_DAILY_FORECAST_SYMBOLS.map(forecast),
+        marketSummary: "checkpoint",
+        globalReasonCodes: ["causal_checkpoint_only"],
+      },
+      controls: AI_DAILY_FORECAST_SYMBOLS.map(control),
+      checkpointSummary: "No look-ahead data used",
+    };
+    const audit = _aiIntradayForecastTest.buildAiIntradayActivationAudit({
+      output,
+      activationAfterEngineSequence: 120,
+      events: [
+        {
+          engineSequence: 118,
+          symbol: "285A",
+          candleTime: "10:06",
+          high: 106,
+          low: 100,
+        },
+        {
+          engineSequence: 119,
+          symbol: "3436",
+          candleTime: "10:07",
+          high: 104,
+          low: 100,
+        },
+      ],
+    });
+    expect(audit.symbols.find(item => item.symbol === "285A")).toMatchObject({
+      firstTargetReachedBeforeActivation: true,
+      entryDisposition: "missed_move_no_entry",
+    });
+    expect(audit.symbols.find(item => item.symbol === "3436")).toMatchObject({
+      firstTargetReachedBeforeActivation: false,
+      entryDisposition: "eligible_after_activation",
+    });
+  });
   it("uses 09:14 as the causal cutoff for the first 09:15 v6 checkpoint", () => {
     expect(_aiIntradayForecastTest.checkpointSpec["09:15"]).toEqual({
       cutoff: "09:14",

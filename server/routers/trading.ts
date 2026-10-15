@@ -203,6 +203,50 @@ function authorizeAiForecastSender(provided: string) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+function throwAiIntradayForecastTrpcError(
+  operation: "prepare" | "ingest",
+  error: unknown
+): never {
+  const raw = error instanceof Error ? error.message : String(error);
+  const reasonCode = raw.split(":", 1)[0].slice(0, 160);
+  let code:
+    | "SERVICE_UNAVAILABLE"
+    | "PRECONDITION_FAILED"
+    | "CONFLICT"
+    | "UNPROCESSABLE_CONTENT"
+    | "INTERNAL_SERVER_ERROR" = "INTERNAL_SERVER_ERROR";
+  if (
+    reasonCode === "database_unavailable" ||
+    reasonCode === "ai_intraday_materialization_pending" ||
+    reasonCode === "ai_intraday_snapshot_signing_key_missing"
+  )
+    code = "SERVICE_UNAVAILABLE";
+  else if (
+    reasonCode === "ai_intraday_materialization_terminal" ||
+    reasonCode === "ai_intraday_morning_snapshot_missing_or_invalid"
+  )
+    code = "PRECONDITION_FAILED";
+  else if (
+    reasonCode === "ai_intraday_input_hash_mismatch" ||
+    reasonCode === "ai_intraday_idempotency_payload_mismatch" ||
+    reasonCode === "ai_intraday_checkpoint_already_frozen"
+  )
+    code = "CONFLICT";
+  else if (
+    reasonCode.startsWith("ai_intraday_validation_failed") ||
+    reasonCode.includes("_invalid") ||
+    reasonCode.includes("_mismatch") ||
+    reasonCode.includes("_incomplete")
+  )
+    code = "UNPROCESSABLE_CONTENT";
+  console.warn("[AiIntradayForecast] request failed", {
+    operation,
+    reasonCode,
+    trpcCode: code,
+  });
+  throw new TRPCError({ code, message: reasonCode, cause: error });
+}
+
 export const tradingRouter = router({
   /** D-1のみを返す日次AI予測のread-only input API。通常engineや注文には接続しない。 */
   getAiDailyForecastInput: publicProcedure
@@ -244,8 +288,12 @@ export const tradingRouter = router({
     .input(z.object({ ingestKey: z.string().min(32).max(256), tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkpoint: aiIntradayCheckpointInput }))
     .mutation(async ({ input }) => {
       if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast input authorization failed" });
-      const { buildAiIntradayForecastInput } = await import("../aiIntradayForecastService");
-      return buildAiIntradayForecastInput({ tradeDate: input.tradeDate, checkpoint: input.checkpoint });
+      try {
+        const { prepareAiIntradayForecastInput } = await import("../aiIntradayForecastService");
+        return await prepareAiIntradayForecastInput({ tradeDate: input.tradeDate, checkpoint: input.checkpoint });
+      } catch (error) {
+        throwAiIntradayForecastTrpcError("prepare", error);
+      }
     }),
   /** sender専用のnon-persisting preflight。ingest前に同一validatorを通す。 */
   preflightAiIntradayForecast: publicProcedure
@@ -319,12 +367,18 @@ export const tradingRouter = router({
       generatorId: z.string().min(1).max(96),
       promptVersion: z.string().min(1).max(96),
       generatorMetadata: z.record(z.string(), z.unknown()).optional(),
+      frozenInput: z.unknown().optional(),
+      inputSnapshotToken: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     }))
     .mutation(async ({ input }) => {
       if (!authorizeAiForecastSender(input.ingestKey)) throw new TRPCError({ code: "UNAUTHORIZED", message: "AI intraday forecast ingest authorization failed" });
-      const { ingestAiIntradayForecastSubmission } = await import("../aiIntradayForecastService");
-      const snapshot = await ingestAiIntradayForecastSubmission(input);
-      return { sourceRevisionId: snapshot.sourceRevisionId, morningSourceSnapshotId: snapshot.morningSourceSnapshotId, tradeDate: snapshot.tradeDate, checkpoint: snapshot.checkpoint, cutoffCandleTime: snapshot.cutoffCandleTime, qualityStatus: snapshot.qualityStatus, aiModelId: snapshot.aiModelId };
+      try {
+        const { ingestAiIntradayForecastSubmission } = await import("../aiIntradayForecastService");
+        const snapshot = await ingestAiIntradayForecastSubmission(input);
+        return { sourceRevisionId: snapshot.sourceRevisionId, morningSourceSnapshotId: snapshot.morningSourceSnapshotId, tradeDate: snapshot.tradeDate, checkpoint: snapshot.checkpoint, cutoffCandleTime: snapshot.cutoffCandleTime, qualityStatus: snapshot.qualityStatus, aiModelId: snapshot.aiModelId };
+      } catch (error) {
+        throwAiIntradayForecastTrpcError("ingest", error);
+      }
     }),
   /** sender専用。Codex reviewをreviewId単位でimmutableに追記し、同一hashだけをduplicateとして受理する。 */
   ingestAiPostmarketLearningReview: publicProcedure

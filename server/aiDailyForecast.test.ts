@@ -10,6 +10,7 @@ import {
   applyAiDailyForecastSelectionTransitionForTest,
   applyAiDailyForecastTransitionForTest,
   selectAiDailyPlanForTest,
+  selectAiIntradayPlanForTest,
   type AiDailyForecastPlan,
 } from "./aiDailyForecastShadowEngine";
 import type { ForwardSourceEventInput } from "./forwardShadow";
@@ -255,6 +256,77 @@ describe("AI daily forecast deterministic contract", () => {
     expect(result.resultType).toBe("no_signal");
     expect(result.actions[0]).toMatchObject({
       reason: "market_context_revision_invalidated_unentered_signals",
+    });
+  });
+  it("blocks a late plan after its target was reached before activation", () => {
+    const blockedPlan = {
+      ...plan,
+      sourceSnapshotId: "ai:late-plan",
+      checkpoint: "10:00",
+      entryWindowStart: "10:00",
+      entryWindowEnd: "10:14",
+      entryBlockedByRevision: true,
+      entryBlockReason: "missed_move_no_entry",
+    };
+    const result = applyAiDailyForecastTransitionForTest(
+      {
+        tradeDate: "2026-10-09",
+        activePlanId: blockedPlan.sourceSnapshotId,
+        plan: blockedPlan,
+        touched: null,
+        position: null,
+        executedPlanIds: [],
+        lastSourceEventId: null,
+        lastActions: [],
+      },
+      source("after-plan-arrival", "10:08", 102, 103, 101, 102),
+      blockedPlan,
+      "signal_quality"
+    );
+    expect(result.resultType).toBe("no_signal");
+    expect(result.actions[0]).toMatchObject({ reason: "missed_move_no_entry" });
+  });
+  it("carries the persisted activation audit into intraday plan selection", () => {
+    const selected = selectAiIntradayPlanForTest(
+      {
+        sourceRevisionId: "ai-intraday-forecast:2026-10-09:1000:codex-v1",
+        qualityStatus: "verified",
+        checkpoint: "10:00",
+        forecastJson: {
+          aiFinalForecast: {
+            forecast: { forecasts: [forecast("8035")] },
+            controls: [
+              {
+                symbol: "8035",
+                planDecision: "maintained",
+                entryWindowStart: "10:00",
+                entryWindowEnd: "10:14",
+                forceExitTime: "10:15",
+                openPositionAction: "keep",
+              },
+            ],
+          },
+        },
+        inputJson: {
+          priorData: { symbols: [{ symbol: "8035", baseline: { atr5: 2 } }] },
+        },
+        validationJson: {
+          activationAudit: {
+            symbols: [
+              { symbol: "8035", entryDisposition: "missed_move_no_entry" },
+            ],
+          },
+        },
+      },
+      "8035"
+    );
+    expect(selected).toMatchObject({
+      disabledReason: "missed_move_no_entry",
+      openPositionAction: "keep",
+      plan: {
+        entryBlockedByRevision: true,
+        entryBlockReason: "missed_move_no_entry",
+      },
     });
   });
   it("resets an unentered touch when a newer checkpoint replaces the plan", () => {

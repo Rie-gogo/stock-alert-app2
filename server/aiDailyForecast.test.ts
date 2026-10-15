@@ -208,7 +208,7 @@ describe("AI daily forecast deterministic contract", () => {
     expect(rejected.resultType).toBe("rejected");
     expect(rejected.actions[0]).toMatchObject({ reason: "board_stale" });
   });
-  it("applies stop-first and never changes the frozen target after entry", () => {
+  it("applies stop-first before arming first-target profit protection", () => {
     const initial = {
       tradeDate: "2026-10-09",
       activePlanId: plan.sourceSnapshotId,
@@ -442,11 +442,24 @@ describe("AI daily forecast deterministic contract", () => {
       plan,
       "signal_quality"
     );
-    expect(firstExit.resultType).toBe("exit");
-    expect(firstExit.next.executedPlanIds).toEqual([plan.sourceSnapshotId]);
+    expect(firstExit.resultType).toBe("hold");
+    expect(firstExit.actions[0]).toMatchObject({
+      type: "first_target_reached",
+      automaticExitApplied: false,
+      automaticLineUpdate: false,
+    });
+    const stretchExit = applyAiDailyForecastTransitionForTest(
+      firstExit.next,
+      source("stop-one", "09:33", 99, 100, 97, 98),
+      plan,
+      "signal_quality"
+    );
+    expect(stretchExit.resultType).toBe("exit");
+    expect(stretchExit.closed?.reason).toBe("stop_loss");
+    expect(stretchExit.next.executedPlanIds).toEqual([plan.sourceSnapshotId]);
 
     const samePlan = applyAiDailyForecastTransitionForTest(
-      firstExit.next,
+      stretchExit.next,
       source("same-plan-later", "09:40", 101, 102, 99.5, 100),
       plan,
       "signal_quality"
@@ -465,7 +478,7 @@ describe("AI daily forecast deterministic contract", () => {
       entryWindowEnd: "10:29",
     };
     const selected = applyAiDailyForecastSelectionTransitionForTest(
-      firstExit.next,
+      stretchExit.next,
       source("revision", "10:00", 101, 102, 99.5, 100),
       {
         activePlanId: revised.sourceSnapshotId,
@@ -621,6 +634,324 @@ describe("AI daily forecast deterministic contract", () => {
     expect(result.next.position).toMatchObject({ entrySourceEventId: "entry" });
   });
 
+  it("applies a causal same-direction tightening plan before the old force-exit deadline", () => {
+    const position = {
+      side: "long" as const,
+      entrySourceEventId: "entry-before-lunch",
+      signalTime: "11:15",
+      entryTime: "11:16",
+      entryPrice: 102,
+      targetPrice: 110,
+      stopPrice: 98,
+      initialRiskPerShare: 4,
+      shares: 100,
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 10,
+      planSnapshotId: plan.sourceSnapshotId,
+      forceExitTime: "11:30",
+      successorWaitEnabled: true,
+    };
+    const state = {
+      tradeDate: "2026-10-09",
+      activePlanId: plan.sourceSnapshotId,
+      plan,
+      touched: null,
+      position,
+      executedPlanIds: [plan.sourceSnapshotId],
+      lastSourceEventId: "entry-before-lunch",
+      lastActions: [],
+    };
+    const lunchPlan = {
+      ...plan,
+      sourceSnapshotId: "ai:1130:continue",
+      checkpoint: "11:30",
+      entryWindowStart: "12:30",
+      entryWindowEnd: "12:34",
+      firstTarget: 108,
+      stopPrice: 101,
+      forceExitTime: "13:00",
+      openPositionAction: "tighten_only" as const,
+    };
+    const held = applyAiDailyForecastSelectionTransitionForTest(
+      state,
+      source("afternoon-open", "11:30", 104, 105, 103, 104),
+      {
+        activePlanId: lunchPlan.sourceSnapshotId,
+        plan: lunchPlan,
+        disabledReason: null,
+        openPositionAction: "tighten_only",
+      },
+      "signal_quality"
+    );
+    expect(held.resultType).toBe("hold");
+    expect(held.next.position).toMatchObject({
+      stopPrice: 98,
+      targetPrice: 110,
+      pendingTightening: { stopPrice: 101, targetPrice: 108 },
+      forceExitTime: "13:00",
+      planSnapshotId: lunchPlan.sourceSnapshotId,
+    });
+    expect(held.actions[0]).toMatchObject({
+      type: "position_plan_tightened",
+      oldForceExitTime: "11:30",
+      newForceExitTime: "13:00",
+    });
+
+    const awaiting = applyAiDailyForecastSelectionTransitionForTest(
+      held.next,
+      source("new-deadline", "13:00", 104, 105, 103, 104),
+      {
+        activePlanId: lunchPlan.sourceSnapshotId,
+        plan: lunchPlan,
+        disabledReason: null,
+        openPositionAction: "tighten_only",
+      },
+      "signal_quality"
+    );
+    expect(awaiting.resultType).toBe("hold");
+    expect(awaiting.actions[0]).toMatchObject({
+      type: "awaiting_successor_plan",
+      checkpoint: "13:00",
+      validUntil: "13:29",
+      stopRemainsActive: true,
+      newEntriesAllowed: false,
+    });
+    const successorPlan = {
+      ...lunchPlan,
+      sourceSnapshotId: "ai:1300:continue",
+      checkpoint: "13:00",
+      entryWindowStart: "13:00",
+      entryWindowEnd: "13:29",
+      firstTarget: 107,
+      stopPrice: 102,
+      forceExitTime: "13:30",
+    };
+    const continued = applyAiDailyForecastSelectionTransitionForTest(
+      awaiting.next,
+      source("successor-arrived", "13:28", 104, 105, 103, 104),
+      {
+        activePlanId: successorPlan.sourceSnapshotId,
+        plan: successorPlan,
+        disabledReason: null,
+        openPositionAction: "tighten_only",
+      },
+      "signal_quality"
+    );
+    expect(continued.resultType).toBe("hold");
+    expect(continued.next.position).toMatchObject({
+      stopPrice: 101,
+      targetPrice: 108,
+      pendingTightening: { stopPrice: 102, targetPrice: 107 },
+      forceExitTime: "13:30",
+      planSnapshotId: successorPlan.sourceSnapshotId,
+      awaitingSuccessorPlan: null,
+    });
+    expect(continued.actions[0]).toMatchObject({
+      type: "position_plan_tightened",
+      revisedBy: successorPlan.sourceSnapshotId,
+    });
+    const exited = applyAiDailyForecastSelectionTransitionForTest(
+      awaiting.next,
+      source("successor-timeout", "13:29", 104, 105, 103, 104),
+      {
+        activePlanId: lunchPlan.sourceSnapshotId,
+        plan: lunchPlan,
+        disabledReason: null,
+        openPositionAction: "tighten_only",
+      },
+      "signal_quality"
+    );
+    expect(exited.resultType).toBe("exit");
+    expect(exited.closed?.reason).toBe("ai_successor_plan_missing_exit");
+  });
+
+  it("records firstTarget for a new position without automatically changing its protection", () => {
+    const initial = {
+      tradeDate: "2026-10-09",
+      activePlanId: plan.sourceSnapshotId,
+      plan,
+      touched: { sourceEventId: "touch", time: "10:49", side: "long" as const },
+      position: null,
+      executedPlanIds: [],
+      recentCloses: Array.from({ length: 19 }, (_, index) => 101 + index / 100),
+      lastSourceEventId: "touch",
+      lastActions: [],
+    };
+    const entered = applyAiDailyForecastTransitionForTest(
+      initial,
+      source("entry", "10:50", 102, 103, 101, 102.5),
+      plan,
+      "signal_quality"
+    );
+    expect(entered.resultType).toBe("entry");
+    expect(entered.actions[1]).toMatchObject({
+      type: "entry_revalidation_observed",
+      status: "observation_only",
+      automaticEntryVetoApplied: false,
+    });
+
+    const protectionArmed = applyAiDailyForecastTransitionForTest(
+      entered.next,
+      source("first-target", "10:51", 103, 105.5, 102.8, 105),
+      plan,
+      "signal_quality"
+    );
+    expect(protectionArmed.resultType).toBe("hold");
+    expect(protectionArmed.next.position).toMatchObject({
+      shares: 100,
+      stopPrice: 98,
+      targetPrice: 105,
+      profitProtectionArmed: false,
+      firstTargetReachedAt: "10:51",
+    });
+    expect(protectionArmed.actions[0]).toMatchObject({
+      type: "first_target_reached",
+      automaticLineUpdate: false,
+    });
+
+    const protectedExit = applyAiDailyForecastTransitionForTest(
+      protectionArmed.next,
+      source("momentum-protection-break", "10:52", 105, 105.5, 104.5, 104.8),
+      plan,
+      "signal_quality"
+    );
+    expect(protectedExit.resultType).toBe("hold");
+    expect(protectedExit.next.position?.stopPrice).toBe(98);
+  });
+
+  it("records two-minute SMA20 adversity without turning it into an automatic exit", () => {
+    const position = {
+      side: "long" as const,
+      entrySourceEventId: "entry-observe",
+      signalTime: "09:40",
+      entryTime: "09:41",
+      entryPrice: 102,
+      targetPrice: 105,
+      stretchTarget: 108,
+      stopPrice: 90,
+      initialRiskPerShare: 12,
+      shares: 100,
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 10,
+      planSnapshotId: plan.sourceSnapshotId,
+      forceExitTime: "15:20",
+      firstTargetDecisionEnabled: true,
+      revalidationObservationEnabled: true,
+      adverseSma20Consecutive: 0,
+    };
+    const state = {
+      tradeDate: "2026-10-09",
+      activePlanId: plan.sourceSnapshotId,
+      plan,
+      touched: null,
+      position,
+      executedPlanIds: [plan.sourceSnapshotId],
+      recentCloses: Array.from({ length: 19 }, () => 103),
+      lastSourceEventId: "entry-observe",
+      lastActions: [],
+    };
+    const first = applyAiDailyForecastTransitionForTest(
+      state,
+      source("adverse-one", "09:42", 102, 102.5, 100.5, 101),
+      plan,
+      "signal_quality"
+    );
+    const second = applyAiDailyForecastTransitionForTest(
+      first.next,
+      source("adverse-two", "09:43", 101, 101.5, 99.5, 100),
+      plan,
+      "signal_quality"
+    );
+    expect(second.resultType).toBe("hold");
+    expect(second.next.position?.adverseSma20Consecutive).toBe(2);
+    expect(second.actions.at(-1)).toMatchObject({
+      type: "position_revalidation_observed",
+      adverseSma20Consecutive: 2,
+      automaticExitApplied: false,
+    });
+    expect(second.next.recentCloses).toHaveLength(20);
+  });
+
+  it("never revives a position with a plan fixed after its old deadline", () => {
+    const position = {
+      side: "long" as const,
+      entrySourceEventId: "entry-before-deadline",
+      signalTime: "11:15",
+      entryTime: "11:16",
+      entryPrice: 102,
+      targetPrice: 110,
+      stopPrice: 98,
+      initialRiskPerShare: 4,
+      shares: 100,
+      sourceBoardAgeMs: 100,
+      deliveryBoardAgeMs: 10,
+      planSnapshotId: plan.sourceSnapshotId,
+      forceExitTime: "11:30",
+    };
+    const latePlan = {
+      ...plan,
+      sourceSnapshotId: "ai:1235:too-late",
+      checkpoint: "12:35",
+      entryWindowStart: "12:35",
+      entryWindowEnd: "12:59",
+      stopPrice: 101,
+      forceExitTime: "13:00",
+      openPositionAction: "tighten_only" as const,
+    };
+    const result = applyAiDailyForecastSelectionTransitionForTest(
+      {
+        tradeDate: "2026-10-09",
+        activePlanId: plan.sourceSnapshotId,
+        plan,
+        touched: null,
+        position,
+        executedPlanIds: [plan.sourceSnapshotId],
+        lastSourceEventId: "entry-before-deadline",
+        lastActions: [],
+      },
+      source("late-revision", "12:35", 104, 105, 103, 104),
+      {
+        activePlanId: latePlan.sourceSnapshotId,
+        plan: latePlan,
+        disabledReason: null,
+        openPositionAction: "tighten_only",
+      },
+      "signal_quality"
+    );
+    expect(result.resultType).toBe("exit");
+    expect(result.closed?.reason).toBe("ai_force_exit_time");
+    expect(result.closed?.position.planSnapshotId).toBe(plan.sourceSnapshotId);
+  });
+
+  it("never opens a new position from the 11:30 management-only plan", () => {
+    const lunchPlan = {
+      ...plan,
+      sourceSnapshotId: "ai:1130:flat",
+      checkpoint: "11:30",
+      entryWindowStart: "12:30",
+      entryWindowEnd: "12:34",
+    };
+    const result = applyAiDailyForecastTransitionForTest(
+      {
+        tradeDate: "2026-10-09",
+        activePlanId: lunchPlan.sourceSnapshotId,
+        plan: lunchPlan,
+        touched: null,
+        position: null,
+        executedPlanIds: [],
+        lastSourceEventId: null,
+        lastActions: [],
+      },
+      source("lunch-flat", "12:30", 101, 103, 99, 102),
+      lunchPlan,
+      "signal_quality"
+    );
+    expect(result.resultType).toBe("no_signal");
+    expect(result.actions[0]).toMatchObject({
+      reason: "lunch_position_management_only",
+    });
+  });
+
   it("学習実績0件でもcold-start監査がある不変snapshotは計画を作れる", () => {
     const snapshot = {
       sourceSnapshotId: "ai-daily-forecast:2026-10-14:test",
@@ -635,5 +966,44 @@ describe("AI daily forecast deterministic contract", () => {
       symbol: "285A",
       checkpoint: "08:30",
     });
+  });
+});
+
+it("sets explicit protection from entry and does not migrate an existing position", () => {
+  const initial = {
+    tradeDate: "2026-10-09",
+    activePlanId: plan.sourceSnapshotId,
+    plan,
+    touched: {
+      sourceEventId: "touch-protect",
+      time: "10:49",
+      side: "long" as const,
+    },
+    position: null,
+    executedPlanIds: [],
+    lastSourceEventId: "touch-protect",
+    lastActions: [],
+  };
+  const entry = applyAiDailyForecastTransitionForTest(
+    initial,
+    source("entry-protect", "10:50", 102, 103, 101, 102.5),
+    { ...plan, protectiveStop: 100 },
+    "signal_quality"
+  );
+  expect(entry.opened).toMatchObject({
+    managementVersion: "checkpoint_v1",
+    stopPrice: 98,
+    protectionLine: 100,
+    positionId: "8035:long:entry-protect",
+  });
+  const invalid = applyAiDailyForecastTransitionForTest(
+    initial,
+    source("entry-invalid", "10:50", 102, 103, 101, 102.5),
+    { ...plan, protectiveStop: 97 },
+    "signal_quality"
+  );
+  expect(invalid.opened).toBeNull();
+  expect(invalid.actions[0]).toMatchObject({
+    reason: "initial_protective_stop_invalid",
   });
 });

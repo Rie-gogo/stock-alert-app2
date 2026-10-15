@@ -1,3 +1,8 @@
+import {
+  aiPositionManagementPlanSchema,
+  aiPositionId,
+  type AiPositionManagementPlan,
+} from "./aiPositionManagement";
 import { randomUUID } from "node:crypto";
 import type {
   ForwardEvaluationMode,
@@ -36,7 +41,11 @@ import {
   getAiDailyForecastDashboard,
   type AiDailyForecastSymbol,
 } from "./aiDailyForecastService";
-import { getEffectiveAiIntradayForecastSnapshot } from "./aiIntradayForecastService";
+import {
+  AI_INTRADAY_CHECKPOINTS,
+  getAiIntradayCheckpointSpec,
+  getEffectiveAiIntradayForecastSnapshot,
+} from "./aiIntradayForecastService";
 
 export const AI_DAILY_FORECAST_LEARNING_CUTOFF_DATE = "2026-10-10";
 /** v5と同日混在させない、v6の最初のJPX営業日。 */
@@ -68,10 +77,13 @@ export type AiDailyForecastPlan = {
   zoneLow: number;
   zoneHigh: number;
   confirmPrice: number;
+  protectiveStop?: number;
+  knowledgeIds?: string[];
   firstTarget: number;
   stretchTarget: number;
   atr5: number;
   stopPrice: number;
+  entryPolicy?: "entry_allowed" | "manage_only";
   entryBlockedByRevision: boolean;
   entryBlockReason?: string | null;
   checkpoint: string;
@@ -85,6 +97,8 @@ export type AiDailyForecastPlan = {
 };
 type Plan = AiDailyForecastPlan;
 type PlanSelection = {
+  managementReceivedAtMs?: number;
+  managementPlans?: AiPositionManagementPlan[];
   activePlanId: string | null;
   plan: Plan | null;
   disabledReason: string | null;
@@ -94,12 +108,20 @@ type PlanSelection = {
     | "exit_next_event_if_direction_changed";
 };
 type Position = {
+  managementVersion?: "checkpoint_v1";
+  positionId?: string;
+  managementPlan?: AiPositionManagementPlan;
+  consumedManagementPlanIds?: string[];
+  managementExpired?: boolean;
+  pendingManagementExit?: string;
+  knowledgeIds?: string[];
   side: Side;
   entrySourceEventId: string;
   signalTime: string;
   entryTime: string;
   entryPrice: number;
   targetPrice: number;
+  stretchTarget?: number;
   stopPrice: number;
   initialRiskPerShare: number;
   shares: number;
@@ -107,6 +129,28 @@ type Position = {
   deliveryBoardAgeMs: number | null;
   planSnapshotId: string;
   forceExitTime: string;
+  /** New v6 positions treat firstTarget as a protection decision, not a fill. */
+  firstTargetDecisionEnabled?: boolean;
+  successorWaitEnabled?: boolean;
+  revalidationObservationEnabled?: boolean;
+  profitProtectionArmed?: boolean;
+  protectionLine?: number | null;
+  pendingProtectionExit?: { signalTime: string; line: number } | null;
+  pendingTightening?: {
+    decisionTime: string;
+    stopPrice: number;
+    targetPrice: number;
+    stretchTarget: number;
+  } | null;
+  firstTargetReachedAt?: string | null;
+  adverseSma20Consecutive?: number;
+  lastSma20?: number | null;
+  awaitingSuccessorPlan?: {
+    checkpoint: string;
+    validUntil: string;
+    startedAt: string;
+    priorPlanId: string;
+  } | null;
 };
 type State = {
   tradeDate: string;
@@ -116,6 +160,9 @@ type State = {
   position: Position | null;
   /** 成功entry済みのimmutable AI plan/revision ID。日次回数制限ではない。 */
   executedPlanIds: string[];
+  /** Fixed-size observation buffer; never read by the normal trading engine. */
+  recentCloses?: number[];
+  recentCandles?: Array<{ time: string; low: number; high: number }>;
   lastSourceEventId: string | null;
   lastActions: Array<Record<string, unknown>>;
 };
@@ -129,9 +176,31 @@ function object(value: unknown) {
     ? (value as Record<string, unknown>)
     : {};
 }
+function hasOpenPosition(value: unknown) {
+  const position = object(value).position;
+  return Boolean(
+    position && typeof position === "object" && !Array.isArray(position)
+  );
+}
 function minute(time: string) {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
+}
+function formatMinute(value: number) {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+function successorDeadline(forceExitTime: string) {
+  const expiredAt = minute(forceExitTime);
+  const successor = AI_INTRADAY_CHECKPOINTS.find(
+    checkpoint => minute(checkpoint) >= expiredAt
+  );
+  const validUntil = successor
+    ? getAiIntradayCheckpointSpec(successor)?.validUntil
+    : null;
+  return Math.min(minute(validUntil ?? "15:20"), minute("15:20"));
+}
+function currentJstDate() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1_000).toISOString().slice(0, 10);
 }
 function emptyState(tradeDate: string): State {
   return {
@@ -141,6 +210,7 @@ function emptyState(tradeDate: string): State {
     touched: null,
     position: null,
     executedPlanIds: [],
+    recentCloses: [],
     lastSourceEventId: null,
     lastActions: [],
   };
@@ -163,6 +233,17 @@ function normalizeState(value: unknown, tradeDate: string): State {
         planSnapshotId:
           positionRaw.planSnapshotId ?? plan?.sourceSnapshotId ?? "legacy",
         forceExitTime: positionRaw.forceExitTime ?? "15:20",
+        stretchTarget: positionRaw.stretchTarget ?? positionRaw.targetPrice,
+        firstTargetDecisionEnabled:
+          positionRaw.firstTargetDecisionEnabled ?? false,
+        successorWaitEnabled: positionRaw.successorWaitEnabled ?? false,
+        revalidationObservationEnabled:
+          positionRaw.revalidationObservationEnabled ?? false,
+        profitProtectionArmed: positionRaw.profitProtectionArmed ?? false,
+        firstTargetReachedAt: positionRaw.firstTargetReachedAt ?? null,
+        adverseSma20Consecutive: positionRaw.adverseSma20Consecutive ?? 0,
+        lastSma20: positionRaw.lastSma20 ?? null,
+        awaitingSuccessorPlan: positionRaw.awaitingSuccessorPlan ?? null,
       }
     : null;
   return {
@@ -190,6 +271,15 @@ function normalizeState(value: unknown, tradeDate: string): State {
       : raw.dailySlotConsumed === true && typeof raw.activePlanId === "string"
         ? [raw.activePlanId]
         : [],
+    recentCandles: Array.isArray(raw.recentCandles)
+      ? (raw.recentCandles.slice(-3) as State["recentCandles"])
+      : [],
+    recentCloses: Array.isArray(raw.recentCloses)
+      ? raw.recentCloses
+          .map(number)
+          .filter((value): value is number => value !== null)
+          .slice(-20)
+      : [],
     lastSourceEventId:
       typeof raw.lastSourceEventId === "string" ? raw.lastSourceEventId : null,
     lastActions: Array.isArray(raw.lastActions)
@@ -270,11 +360,18 @@ function planFromSnapshot(
     zoneLow,
     zoneHigh,
     confirmPrice,
+    protectiveStop: number(values.protectiveStop) ?? undefined,
+    knowledgeIds: Array.isArray(values.knowledgeIds)
+      ? values.knowledgeIds.map(String)
+      : [],
     firstTarget,
     stretchTarget,
     atr5,
     stopPrice,
     entryBlockedByRevision,
+    entryBlockReason: entryBlockedByRevision
+      ? "market_context_revision_invalidated_unentered_signals"
+      : null,
     checkpoint: "08:30",
     entryWindowStart: "09:00",
     entryWindowEnd: "15:19",
@@ -307,6 +404,12 @@ function planFromIntradaySnapshot(
   if (!snapshot || snapshot.qualityStatus === "invalid") return null;
   const payload = object(snapshot.forecastJson);
   const final = object(payload.aiFinalForecast);
+  const managementPlans = (
+    Array.isArray(final.managementPlans) ? final.managementPlans : []
+  ).flatMap(value => {
+    const parsed = aiPositionManagementPlanSchema.safeParse(value);
+    return parsed.success && parsed.data.symbol === symbol ? [parsed.data] : [];
+  });
   const forecast = object(final.forecast);
   const rows = Array.isArray(forecast.forecasts) ? forecast.forecasts : [];
   const values = object(rows.find(item => object(item).symbol === symbol));
@@ -332,7 +435,9 @@ function planFromIntradaySnapshot(
     control.openPositionAction === "exit_next_event_if_direction_changed"
       ? control.openPositionAction
       : "keep";
-  const activationAudit = object(object(snapshot.validationJson).activationAudit);
+  const activationAudit = object(
+    object(snapshot.validationJson).activationAudit
+  );
   const activationSymbols = Array.isArray(activationAudit.symbols)
     ? activationAudit.symbols
     : [];
@@ -343,6 +448,8 @@ function planFromIntradaySnapshot(
     activationSymbol.entryDisposition === "missed_move_no_entry";
   if (control.planDecision === "disabled" || !directional)
     return {
+      managementReceivedAtMs: number(activationAudit.receivedAtMs) ?? undefined,
+      managementPlans,
       activePlanId: snapshot.sourceRevisionId,
       plan: null,
       disabledReason: String(
@@ -369,6 +476,8 @@ function planFromIntradaySnapshot(
     atr5 === null
   )
     return {
+      managementReceivedAtMs: number(activationAudit.receivedAtMs) ?? undefined,
+      managementPlans,
       activePlanId: snapshot.sourceRevisionId,
       plan: null,
       disabledReason: "ai_intraday_directional_prices_invalid",
@@ -387,12 +496,16 @@ function planFromIntradaySnapshot(
     !(stopPrice > 0)
   )
     return {
+      managementReceivedAtMs: number(activationAudit.receivedAtMs) ?? undefined,
+      managementPlans,
       activePlanId: snapshot.sourceRevisionId,
       plan: null,
       disabledReason: "ai_intraday_price_order_invalid",
       openPositionAction: action,
     };
   return {
+    managementReceivedAtMs: number(activationAudit.receivedAtMs) ?? undefined,
+    managementPlans,
     activePlanId: snapshot.sourceRevisionId,
     disabledReason: missedMove ? "missed_move_no_entry" : null,
     openPositionAction: action,
@@ -406,10 +519,16 @@ function planFromIntradaySnapshot(
       zoneLow,
       zoneHigh,
       confirmPrice,
+      protectiveStop: number(values.protectiveStop) ?? undefined,
+      knowledgeIds: Array.isArray(values.knowledgeIds)
+        ? values.knowledgeIds.map(String)
+        : [],
       firstTarget,
       stretchTarget,
       atr5,
       stopPrice,
+      entryPolicy:
+        control.entryPolicy === "manage_only" ? "manage_only" : "entry_allowed",
       entryBlockedByRevision: missedMove,
       entryBlockReason: missedMove ? "missed_move_no_entry" : null,
       checkpoint: snapshot.checkpoint,
@@ -432,7 +551,9 @@ export function selectAiIntradayPlanForTest(
   symbol: string
 ) {
   return planFromIntradaySnapshot(
-    snapshot as Awaited<ReturnType<typeof getEffectiveAiIntradayForecastSnapshot>>,
+    snapshot as Awaited<
+      ReturnType<typeof getEffectiveAiIntradayForecastSnapshot>
+    >,
     symbol
   );
 }
@@ -465,7 +586,8 @@ function getPlanData(
 function boardExecution(
   source: ForwardSourceEventInput,
   side: Side,
-  mode: ForwardEvaluationMode
+  mode: ForwardEvaluationMode,
+  exitShares?: number
 ) {
   const audit = source.currentAudit;
   const boardAge =
@@ -487,12 +609,13 @@ function boardExecution(
             : "board_stale",
     };
   const shares =
-    mode === "signal_quality"
+    exitShares ??
+    (mode === "signal_quality"
       ? 100
       : Math.max(
           100,
           Math.floor(2_700_000 / Math.max(1, source.candle.close) / 100) * 100
-        );
+        ));
   const vwap = calculateDepthVwap({ board: source.board, side, shares });
   if (!vwap)
     return { valid: false as const, reason: "directional_depth_insufficient" };
@@ -514,6 +637,201 @@ function boardExecution(
     delivery,
   };
 }
+/** New positions alone use explicit checkpoint decisions; persisted legacy positions drain unchanged. */
+function manageCheckpointPosition(
+  next: State,
+  previous: State,
+  source: ForwardSourceEventInput,
+  selection: PlanSelection,
+  mode: ForwardEvaluationMode
+) {
+  let p = next.position!;
+  const c = source.candle;
+  const actions: Array<Record<string, unknown>> = [];
+  const execution = boardExecution(
+    source,
+    p.side === "long" ? "short" : "long",
+    mode,
+    p.shares
+  );
+  const executablePrice = execution.valid ? execution.price : c.open;
+  const done = (reason?: string, price = executablePrice) => {
+    next = { ...next, position: reason ? null : p };
+    const pnl = Math.round(
+      (p.side === "long" ? price - p.entryPrice : p.entryPrice - price) *
+        p.shares
+    );
+    const risk = p.initialRiskPerShare * p.shares;
+    return {
+      next,
+      resultType: reason ? ("exit" as const) : ("hold" as const),
+      opened: null,
+      closed: reason
+        ? {
+            position: p,
+            price,
+            reason,
+            pnl,
+            realizedR: risk > 0 ? pnl / risk : 0,
+          }
+        : null,
+      actions: reason
+        ? [
+            ...actions,
+            {
+              type: "exit",
+              reason,
+              price,
+              shares: p.shares,
+              managementPlanId: p.managementPlan?.planId,
+              knowledgeIds: p.knowledgeIds ?? [],
+            },
+          ]
+        : actions.length
+          ? actions
+          : [{ type: "hold" }],
+    };
+  };
+  // Never apply a newly arrived instruction retroactively to the same source event.
+  if (previous.lastSourceEventId === source.sourceEventId) return done();
+  if (
+    !p.firstTargetReachedAt &&
+    (p.side === "long" ? c.high >= p.targetPrice : c.low <= p.targetPrice)
+  ) {
+    p = { ...p, firstTargetReachedAt: c.candleTime };
+    actions.push({
+      type: "first_target_reached",
+      automaticExitApplied: false,
+      automaticLineUpdate: false,
+    });
+  }
+  const deadline = p.managementPlan?.validUntil ?? p.forceExitTime;
+  const successorEnd = successorDeadline(deadline);
+  const lateReceipt =
+    selection.managementReceivedAtMs !== undefined &&
+    (selection.managementPlans ?? []).some(
+      command => command.positionId === p.positionId
+    ) &&
+    selection.managementReceivedAtMs >=
+      Date.parse(`${next.tradeDate}T${formatMinute(successorEnd)}:00+09:00`);
+  if (minute(c.candleTime) >= successorEnd || lateReceipt)
+    p = { ...p, managementExpired: true };
+  // Existing hard/protective stops stay active throughout successor waiting.
+  const broken = (line: number, price: number) =>
+    p.side === "long" ? price <= line : price >= line;
+  const effectiveStop =
+    p.protectionLine == null
+      ? p.stopPrice
+      : p.side === "long"
+        ? Math.max(p.stopPrice, p.protectionLine)
+        : Math.min(p.stopPrice, p.protectionLine);
+  if (
+    broken(effectiveStop, p.side === "long" ? c.low : c.high) ||
+    (execution.valid && broken(effectiveStop, execution.price))
+  ) {
+    p = {
+      ...p,
+      pendingManagementExit:
+        p.pendingManagementExit ??
+        (effectiveStop === p.stopPrice ? "stop_loss" : "ai_protective_stop"),
+    };
+  }
+  if (p.managementExpired)
+    p = {
+      ...p,
+      pendingManagementExit:
+        p.pendingManagementExit ?? "ai_management_successor_missing_exit",
+    };
+  if (!execution.valid) {
+    actions.push({
+      type: "management_awaiting_executable_event",
+      reason: execution.reason,
+      expiryLatched: Boolean(p.managementExpired),
+      pendingExit: p.pendingManagementExit ?? null,
+    });
+    return done();
+  }
+  if (p.pendingManagementExit) return done(p.pendingManagementExit);
+  const consumed = new Set(p.consumedManagementPlanIds ?? []);
+  let accepted = false;
+  for (const command of selection.managementPlans ?? []) {
+    if (
+      command.positionId !== p.positionId ||
+      command.symbol !== c.symbol ||
+      command.side !== p.side ||
+      consumed.has(command.planId)
+    )
+      continue;
+    if (command.basedOnEventId === source.sourceEventId) continue;
+    consumed.add(command.planId);
+    p = { ...p, consumedManagementPlanIds: Array.from(consumed) };
+    const tighter = (value: number, old: number) =>
+      p.side === "long" ? value >= old : value <= old;
+    const rejected =
+      command.validUntil <= c.candleTime ||
+      command.validUntil > "15:20" ||
+      !tighter(command.hardStop ?? p.stopPrice, p.stopPrice) ||
+      !tighter(command.protectiveStop, p.protectionLine ?? p.stopPrice) ||
+      !tighter(command.protectiveStop, command.hardStop ?? p.stopPrice);
+    if (rejected) {
+      actions.push({
+        type: "management_plan_rejected",
+        planId: command.planId,
+        reason: "expired_or_stop_relaxation",
+        priorValidUntil: deadline,
+      });
+      continue;
+    }
+    p = {
+      ...p,
+      managementPlan: command,
+      stopPrice: command.hardStop ?? p.stopPrice,
+      protectionLine: command.protectiveStop,
+      forceExitTime: command.validUntil,
+      knowledgeIds: command.knowledgeIds,
+      awaitingSuccessorPlan: null,
+    };
+    accepted = true;
+    actions.push({
+      type: "management_plan_applied",
+      planId: command.planId,
+      basedOnEventId: command.basedOnEventId,
+      reason: command.reason,
+      knowledgeIds: command.knowledgeIds,
+      effectiveSourceEventId: source.sourceEventId,
+    });
+    if (command.action !== "hold")
+      return done(
+        command.action === "take_profit"
+          ? "ai_management_take_profit"
+          : "ai_management_exit"
+      );
+    if (
+      broken(command.protectiveStop, executablePrice) ||
+      broken(p.stopPrice, executablePrice)
+    )
+      return done("ai_protective_stop_broken_on_arrival");
+    break;
+  }
+  if (!accepted && c.candleTime >= deadline) {
+    p = {
+      ...p,
+      awaitingSuccessorPlan: {
+        checkpoint: deadline,
+        validUntil: formatMinute(successorEnd),
+        startedAt: p.awaitingSuccessorPlan?.startedAt ?? c.candleTime,
+        priorPlanId: p.managementPlan?.planId ?? p.planSnapshotId,
+      },
+    };
+    actions.push({
+      type: "awaiting_management_successor",
+      validUntil: formatMinute(successorEnd),
+      stopRemainsActive: true,
+    });
+  }
+  return done();
+}
+
 function transition(
   state: State,
   source: ForwardSourceEventInput,
@@ -522,29 +840,249 @@ function transition(
 ) {
   const planChanged = state.activePlanId !== selection.activePlanId;
   const sameSourceEvent = state.lastSourceEventId === source.sourceEventId;
+  const trackRevalidation =
+    !state.position || state.position.revalidationObservationEnabled === true;
+  const recentCloses = trackRevalidation
+    ? [...(state.recentCloses ?? []), source.candle.close].slice(-20)
+    : (state.recentCloses ?? []);
   let next = {
     ...state,
     activePlanId: selection.activePlanId,
     plan: selection.plan,
     touched: planChanged && !state.position ? null : state.touched,
+    recentCloses,
+    recentCandles: [
+      ...(state.recentCandles ?? []).filter(
+        bar => bar.time !== source.candle.candleTime
+      ),
+      {
+        time: source.candle.candleTime,
+        low: source.candle.low,
+        high: source.candle.high,
+      },
+    ].slice(-3),
     lastSourceEventId: source.sourceEventId,
     lastActions: [] as Array<Record<string, unknown>>,
   };
   const c = source.candle;
   const plan = selection.plan;
+  if (next.position?.managementVersion === "checkpoint_v1") {
+    return manageCheckpointPosition(next, state, source, selection, mode);
+  }
   if (next.position) {
-    const p = next.position;
+    let p = next.position;
+    if (
+      p.pendingTightening &&
+      c.candleTime > (p.pendingTightening.decisionTime ?? "")
+    ) {
+      const { decisionTime: _decisionTime, ...prices } = p.pendingTightening;
+      p = { ...p, ...prices, pendingTightening: null };
+    }
+    if (p.awaitingSuccessorPlan) {
+      p = {
+        ...p,
+        awaitingSuccessorPlan: {
+          ...p.awaitingSuccessorPlan,
+          validUntil: formatMinute(
+            Math.min(
+              minute(p.awaitingSuccessorPlan.validUntil),
+              successorDeadline(p.forceExitTime)
+            )
+          ),
+        },
+      };
+    }
+    const positionActions: Array<Record<string, unknown>> = [];
+    const sma20 =
+      p.revalidationObservationEnabled && recentCloses.length === 20
+        ? recentCloses.reduce((sum, value) => sum + value, 0) / 20
+        : null;
+    const adverseToSma20 =
+      sma20 === null
+        ? false
+        : p.side === "long"
+          ? c.close < sma20
+          : c.close > sma20;
+    p = {
+      ...p,
+      lastSma20: sma20,
+      adverseSma20Consecutive: adverseToSma20
+        ? (p.adverseSma20Consecutive ?? 0) + 1
+        : 0,
+    };
+    next = { ...next, position: p };
+    const revisedSide = plan ? sideForPlan(plan) : null;
+    const directionRevisionExit =
+      planChanged &&
+      p.planSnapshotId !== selection.activePlanId &&
+      (!plan || revisedSide !== p.side) &&
+      selection.openPositionAction === "exit_next_event_if_direction_changed";
+
+    // A plan that was fixed no later than the position's existing deadline may
+    // carry a same-direction position into the next checkpoint.  A later plan
+    // must never revive a position whose deadline had already passed.
+    const causalSameDirectionTightening =
+      planChanged &&
+      p.planSnapshotId !== selection.activePlanId &&
+      plan &&
+      revisedSide === p.side &&
+      plan.openPositionAction === "tighten_only" &&
+      minute(plan.checkpoint) <= minute(p.forceExitTime) &&
+      minute(c.candleTime) < successorDeadline(p.forceExitTime) &&
+      (!p.awaitingSuccessorPlan ||
+        c.candleTime < p.awaitingSuccessorPlan.validUntil);
+    if (causalSameDirectionTightening) {
+      const oldStop = p.stopPrice;
+      const oldTarget = p.targetPrice;
+      const oldForceExitTime = p.forceExitTime;
+      const tighterStop =
+        p.side === "long" &&
+        plan.stopPrice > p.stopPrice &&
+        plan.stopPrice < c.close
+          ? plan.stopPrice
+          : p.side === "short" &&
+              plan.stopPrice < p.stopPrice &&
+              plan.stopPrice > c.close
+            ? plan.stopPrice
+            : p.stopPrice;
+      const desiredTarget = p.profitProtectionArmed
+        ? plan.stretchTarget
+        : plan.firstTarget;
+      const executableTarget =
+        (p.side === "long" &&
+          desiredTarget > c.close &&
+          desiredTarget <= p.targetPrice) ||
+        (p.side === "short" &&
+          desiredTarget < c.close &&
+          desiredTarget >= p.targetPrice)
+          ? desiredTarget
+          : p.targetPrice;
+      p = {
+        ...p,
+        pendingTightening: {
+          decisionTime: c.candleTime,
+          stopPrice: tighterStop,
+          targetPrice: executableTarget,
+          stretchTarget: p.profitProtectionArmed
+            ? executableTarget
+            : plan.stretchTarget,
+        },
+        forceExitTime: plan.forceExitTime,
+        planSnapshotId: plan.sourceSnapshotId,
+        awaitingSuccessorPlan: null,
+      };
+      next = { ...next, position: p };
+      positionActions.push({
+        type: "position_plan_tightened",
+        oldStop,
+        newStop: tighterStop,
+        oldTarget,
+        newTarget: executableTarget,
+        oldForceExitTime,
+        newForceExitTime: plan.forceExitTime,
+        revisedBy: plan.sourceSnapshotId,
+        effectiveFrom: "next_tradable_candle",
+      });
+    }
     let exit: { price: number; reason: string } | null = null;
-    if (p.side === "long" && c.low <= p.stopPrice)
-      exit = { price: Math.min(c.open, p.stopPrice), reason: "stop_loss" };
+    if (
+      p.pendingProtectionExit &&
+      c.candleTime > p.pendingProtectionExit.signalTime
+    )
+      exit = { price: c.open, reason: "profit_protection_next_open" };
+    else if (p.side === "long" && c.low <= p.stopPrice)
+      exit = {
+        price: Math.min(c.open, p.stopPrice),
+        reason: "stop_loss",
+      };
     else if (p.side === "short" && c.high >= p.stopPrice)
-      exit = { price: Math.max(c.open, p.stopPrice), reason: "stop_loss" };
-    else if (p.side === "long" && c.high >= p.targetPrice)
+      exit = {
+        price: Math.max(c.open, p.stopPrice),
+        reason: "stop_loss",
+      };
+    else if (
+      p.firstTargetDecisionEnabled &&
+      !p.profitProtectionArmed &&
+      ((p.side === "long" && c.high >= p.targetPrice) ||
+        (p.side === "short" && c.low <= p.targetPrice))
+    ) {
+      const oldStop = p.stopPrice;
+      const reachedFirstTarget = p.targetPrice;
+      const protectedStop = p.stopPrice;
+      p = {
+        ...p,
+        stopPrice: protectedStop,
+        targetPrice: p.stretchTarget ?? p.targetPrice,
+        profitProtectionArmed: true,
+        pendingTightening: p.pendingTightening
+          ? {
+              ...p.pendingTightening,
+              targetPrice: p.pendingTightening.stretchTarget,
+            }
+          : null,
+        firstTargetReachedAt: c.candleTime,
+      };
+      next = { ...next, position: p };
+      positionActions.push({
+        type: "profit_protection_armed",
+        decisionPoint: "first_target",
+        reachedFirstTarget,
+        oldStop,
+        newStop: protectedStop,
+        nextTarget: p.targetPrice,
+        sharesRetained: p.shares,
+        automaticFullExit: false,
+      });
+    } else if (
+      p.profitProtectionArmed &&
+      p.firstTargetReachedAt !== c.candleTime &&
+      ((p.side === "long" && c.high >= p.targetPrice) ||
+        (p.side === "short" && c.low <= p.targetPrice))
+    )
+      exit = { price: p.targetPrice, reason: "stretch_target" };
+    else if (
+      !p.firstTargetDecisionEnabled &&
+      ((p.side === "long" && c.high >= p.targetPrice) ||
+        (p.side === "short" && c.low <= p.targetPrice))
+    )
       exit = { price: p.targetPrice, reason: "first_target" };
-    else if (p.side === "short" && c.low <= p.targetPrice)
-      exit = { price: p.targetPrice, reason: "first_target" };
-    else if (c.candleTime >= p.forceExitTime)
-      exit = { price: c.close, reason: "ai_force_exit_time" };
+    // The current decision candle is deliberately excluded from the reference.
+    const priorBars = (state.recentCandles ?? [])
+      .filter(bar => bar.time < c.candleTime)
+      .slice(-3);
+    if (
+      !exit &&
+      state.position?.profitProtectionArmed &&
+      p.firstTargetReachedAt !== c.candleTime &&
+      priorBars.length === 3
+    ) {
+      const reference =
+        p.side === "long"
+          ? Math.min(...priorBars.map(bar => bar.low))
+          : Math.max(...priorBars.map(bar => bar.high));
+      const line =
+        p.protectionLine == null
+          ? reference
+          : p.side === "long"
+            ? Math.max(p.protectionLine, reference)
+            : Math.min(p.protectionLine, reference);
+      const broken = p.side === "long" ? c.close < line : c.close > line;
+      p = {
+        ...p,
+        protectionLine: line,
+        pendingProtectionExit: broken
+          ? { signalTime: c.candleTime, line }
+          : p.pendingProtectionExit,
+      };
+      next = { ...next, position: p };
+      positionActions.push({
+        type: "profit_protection_observed",
+        line,
+        reference,
+        exitReserved: broken,
+        fillPolicy: "next_tradable_open",
+      });
+    }
     if (exit) {
       const pnl = Math.round(
         (p.side === "long"
@@ -565,20 +1103,155 @@ function transition(
           realizedR: risk > 0 ? pnl / risk : 0,
         },
         actions: [
-          { type: "exit", ...exit, stopFirst: exit.reason === "stop_loss" },
+          {
+            type: "exit",
+            ...exit,
+            stopFirst:
+              exit.reason === "stop_loss" ||
+              exit.reason === "profit_protection_exit",
+          },
         ],
       };
     }
-    if (planChanged && p.planSnapshotId !== selection.activePlanId) {
-      const revisedSide = plan ? sideForPlan(plan) : null;
-      if (
-        (!plan || revisedSide !== p.side) &&
-        selection.openPositionAction === "exit_next_event_if_direction_changed"
+    if (directionRevisionExit) {
+      const pnl = Math.round(
+        (p.side === "long" ? c.close - p.entryPrice : p.entryPrice - c.close) *
+          p.shares
+      );
+      const risk = p.initialRiskPerShare * p.shares;
+      next = { ...next, position: null };
+      return {
+        next,
+        resultType: "exit" as const,
+        opened: null,
+        closed: {
+          position: p,
+          price: c.close,
+          reason: "ai_direction_revision_exit",
+          pnl,
+          realizedR: risk > 0 ? pnl / risk : 0,
+        },
+        actions: [
+          {
+            type: "exit",
+            price: c.close,
+            reason: "ai_direction_revision_exit",
+            revisedBy: selection.activePlanId,
+          },
+        ],
+      };
+    }
+    const successorRejected =
+      p.awaitingSuccessorPlan &&
+      c.candleTime < p.awaitingSuccessorPlan.validUntil &&
+      planChanged &&
+      p.planSnapshotId !== selection.activePlanId &&
+      !causalSameDirectionTightening;
+    if (successorRejected) {
+      const exitPrice = c.close;
+      const pnl = Math.round(
+        (p.side === "long"
+          ? exitPrice - p.entryPrice
+          : p.entryPrice - exitPrice) * p.shares
+      );
+      const risk = p.initialRiskPerShare * p.shares;
+      next = { ...next, position: null };
+      return {
+        next,
+        resultType: "exit" as const,
+        opened: null,
+        closed: {
+          position: p,
+          price: exitPrice,
+          reason: "ai_successor_plan_rejected_exit",
+          pnl,
+          realizedR: risk > 0 ? pnl / risk : 0,
+        },
+        actions: [
+          {
+            type: "exit",
+            price: exitPrice,
+            reason: "ai_successor_plan_rejected_exit",
+            successorPlanId: selection.activePlanId,
+          },
+        ],
+      };
+    }
+    if (
+      p.awaitingSuccessorPlan &&
+      c.candleTime >= p.awaitingSuccessorPlan.validUntil
+    ) {
+      const exitPrice = c.close;
+      const pnl = Math.round(
+        (p.side === "long"
+          ? exitPrice - p.entryPrice
+          : p.entryPrice - exitPrice) * p.shares
+      );
+      const risk = p.initialRiskPerShare * p.shares;
+      next = { ...next, position: null };
+      return {
+        next,
+        resultType: "exit" as const,
+        opened: null,
+        closed: {
+          position: p,
+          price: exitPrice,
+          reason: "ai_successor_plan_missing_exit",
+          pnl,
+          realizedR: risk > 0 ? pnl / risk : 0,
+        },
+        actions: [
+          {
+            type: "exit",
+            price: exitPrice,
+            reason: "ai_successor_plan_missing_exit",
+            awaitedCheckpoint: p.awaitingSuccessorPlan.checkpoint,
+          },
+        ],
+      };
+    }
+    if (c.candleTime >= p.forceExitTime) {
+      const successor = getAiIntradayCheckpointSpec(p.forceExitTime);
+      if (p.awaitingSuccessorPlan) {
+        // The stop and the original position remain active while the already
+        // recorded wait runs to the canonical checkpoint deadline.
+      } else if (
+        p.successorWaitEnabled &&
+        successor &&
+        selection.activePlanId === p.planSnapshotId &&
+        minute(c.candleTime) < successorDeadline(p.forceExitTime)
       ) {
+        p = {
+          ...p,
+          awaitingSuccessorPlan: {
+            checkpoint: p.forceExitTime,
+            validUntil: formatMinute(successorDeadline(p.forceExitTime)),
+            startedAt: c.candleTime,
+            priorPlanId: p.planSnapshotId,
+          },
+        };
+        next = { ...next, position: p };
+        positionActions.push({
+          type: "awaiting_successor_plan",
+          checkpoint: p.forceExitTime,
+          validUntil: formatMinute(successorDeadline(p.forceExitTime)),
+          stopRemainsActive: true,
+          newEntriesAllowed: false,
+        });
+      } else {
+        const missingSuccessor =
+          p.successorWaitEnabled &&
+          successor &&
+          selection.activePlanId === p.planSnapshotId &&
+          minute(c.candleTime) >= successorDeadline(p.forceExitTime);
+        const forceExitReason = missingSuccessor
+          ? "ai_successor_plan_missing_exit"
+          : "ai_force_exit_time";
+        const exitPrice = c.close;
         const pnl = Math.round(
           (p.side === "long"
-            ? c.close - p.entryPrice
-            : p.entryPrice - c.close) * p.shares
+            ? exitPrice - p.entryPrice
+            : p.entryPrice - exitPrice) * p.shares
         );
         const risk = p.initialRiskPerShare * p.shares;
         next = { ...next, position: null };
@@ -588,79 +1261,39 @@ function transition(
           opened: null,
           closed: {
             position: p,
-            price: c.close,
-            reason: "ai_direction_revision_exit",
+            price: exitPrice,
+            reason: forceExitReason,
             pnl,
             realizedR: risk > 0 ? pnl / risk : 0,
           },
           actions: [
-            {
-              type: "exit",
-              price: c.close,
-              reason: "ai_direction_revision_exit",
-              revisedBy: selection.activePlanId,
-            },
-          ],
-        };
-      }
-      if (
-        plan &&
-        revisedSide === p.side &&
-        plan.openPositionAction === "tighten_only"
-      ) {
-        const tighterStop =
-          p.side === "long" &&
-          plan.stopPrice > p.stopPrice &&
-          plan.stopPrice < c.close
-            ? plan.stopPrice
-            : p.side === "short" &&
-                plan.stopPrice < p.stopPrice &&
-                plan.stopPrice > c.close
-              ? plan.stopPrice
-              : p.stopPrice;
-        const executableTarget =
-          (p.side === "long" &&
-            plan.firstTarget > c.close &&
-            plan.firstTarget <= p.targetPrice) ||
-          (p.side === "short" &&
-            plan.firstTarget < c.close &&
-            plan.firstTarget >= p.targetPrice)
-            ? plan.firstTarget
-            : p.targetPrice;
-        next = {
-          ...next,
-          position: {
-            ...p,
-            stopPrice: tighterStop,
-            targetPrice: executableTarget,
-            forceExitTime: plan.forceExitTime,
-            planSnapshotId: plan.sourceSnapshotId,
-          },
-        };
-        return {
-          next,
-          resultType: "hold" as const,
-          opened: null,
-          closed: null,
-          actions: [
-            {
-              type: "position_plan_tightened",
-              oldStop: p.stopPrice,
-              newStop: tighterStop,
-              oldTarget: p.targetPrice,
-              newTarget: executableTarget,
-              revisedBy: plan.sourceSnapshotId,
-            },
+            { type: "exit", price: exitPrice, reason: forceExitReason },
           ],
         };
       }
     }
+    if (p.revalidationObservationEnabled)
+      positionActions.push({
+        type: "position_revalidation_observed",
+        status: "observation_only",
+        sma20,
+        close: c.close,
+        adverseToSma20,
+        adverseSma20Consecutive: p.adverseSma20Consecutive ?? 0,
+        automaticExitApplied: false,
+      });
     return {
       next,
       resultType: "hold" as const,
       opened: null,
       closed: null,
-      actions: [{ type: "hold" }],
+      actions:
+        positionActions.length > 1
+          ? positionActions
+          : positionActions.length === 1 &&
+              positionActions[0]?.type !== "position_revalidation_observed"
+            ? positionActions
+            : [{ type: "hold" }, ...positionActions],
     };
   }
   // A position may have just been closed on this same source event.  The next
@@ -675,6 +1308,54 @@ function transition(
         {
           type: "no_trade",
           reason: "same_source_event_reentry_blocked",
+        },
+      ],
+    };
+  if (
+    plan &&
+    !next.executedPlanIds.includes(plan.sourceSnapshotId) &&
+    (sideForPlan(plan) === "long"
+      ? c.high >= plan.firstTarget
+      : c.low <= plan.firstTarget)
+  ) {
+    next = {
+      ...next,
+      touched: null,
+      executedPlanIds: [...next.executedPlanIds, plan.sourceSnapshotId],
+    };
+    return {
+      next,
+      resultType: "no_signal" as const,
+      opened: null,
+      closed: null,
+      actions: [
+        {
+          type: "no_trade",
+          reason: "flat_plan_first_target_consumed",
+          planSnapshotId: plan.sourceSnapshotId,
+        },
+      ],
+    };
+  }
+  if (plan?.entryPolicy === "manage_only")
+    return {
+      next: { ...next, touched: null },
+      resultType: "no_signal" as const,
+      opened: null,
+      closed: null,
+      actions: [{ type: "no_trade", reason: "plan_management_only" }],
+    };
+  if (plan?.checkpoint === "11:30")
+    return {
+      next,
+      resultType: "no_signal" as const,
+      opened: null,
+      closed: null,
+      actions: [
+        {
+          type: "no_trade",
+          reason: "lunch_position_management_only",
+          planSnapshotId: plan.sourceSnapshotId,
         },
       ],
     };
@@ -809,13 +1490,37 @@ function transition(
         { type: "entry_rejected", reason: "target_or_stop_not_executable" },
       ],
     };
+  if (
+    plan.protectiveStop !== undefined &&
+    (side === "long"
+      ? plan.protectiveStop < plan.stopPrice ||
+        plan.protectiveStop >= execution.price
+      : plan.protectiveStop > plan.stopPrice ||
+        plan.protectiveStop <= execution.price)
+  ) {
+    return {
+      next,
+      resultType: "no_signal" as const,
+      opened: null,
+      closed: null,
+      actions: [
+        { type: "entry_blocked", reason: "initial_protective_stop_invalid" },
+      ],
+    };
+  }
   const position: Position = {
+    managementVersion: "checkpoint_v1",
+    positionId: aiPositionId(plan.symbol, side, source.sourceEventId),
+    protectionLine: plan.protectiveStop ?? null,
+    knowledgeIds: plan.knowledgeIds ?? [],
+    consumedManagementPlanIds: [],
     side,
     entrySourceEventId: source.sourceEventId,
     signalTime: next.touched.time,
     entryTime: c.candleTime,
     entryPrice: execution.price,
     targetPrice: plan.firstTarget,
+    stretchTarget: plan.stretchTarget,
     stopPrice: plan.stopPrice,
     initialRiskPerShare: Math.abs(execution.price - plan.stopPrice),
     shares: execution.shares,
@@ -823,6 +1528,17 @@ function transition(
     deliveryBoardAgeMs: execution.delivery,
     planSnapshotId: plan.sourceSnapshotId,
     forceExitTime: plan.forceExitTime,
+    firstTargetDecisionEnabled: true,
+    successorWaitEnabled: true,
+    revalidationObservationEnabled: true,
+    profitProtectionArmed: false,
+    firstTargetReachedAt: null,
+    adverseSma20Consecutive: 0,
+    lastSma20:
+      recentCloses.length === 20
+        ? recentCloses.reduce((sum, value) => sum + value, 0) / 20
+        : null,
+    awaitingSuccessorPlan: null,
   };
   // 成功entry後は同じimmutable decision/plan IDを再実行しない。
   // 次のAI revisionが別IDを発行した場合だけ、決済後の再entryを許可する。
@@ -847,6 +1563,19 @@ function transition(
         deliveryBoardAgeMs: execution.delivery,
         boardAgeBasis: "board_observed_to_relay_assembled_same_clock",
       },
+      {
+        type: "entry_revalidation_observed",
+        status: "observation_only",
+        thresholdPolicy: "not_fixed_pending_holdout_validation",
+        planAgeMinutes: Math.max(
+          0,
+          minute(c.candleTime) - minute(plan.checkpoint)
+        ),
+        close: c.close,
+        sma20: position.lastSma20,
+        closeVsConfirmPrice: c.close - plan.confirmPrice,
+        automaticEntryVetoApplied: false,
+      },
     ],
   };
 }
@@ -858,14 +1587,20 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
   const config = {
     family: "ai_daily_forecast_shadow",
     symbol,
-    forecastSnapshot: "immutable_preopen_plus_morning15_afternoon30_intraday_v6",
+    forecastSnapshot:
+      "immutable_preopen_plus_morning15_afternoon30_intraday_v6",
     d1OnlyAtOpen: true,
     intradayDataCutoff: "checkpoint_minus_one_minute",
     intradayCheckpoints: [
+      "09:15",
       "09:30",
+      "09:45",
       "10:00",
+      "10:15",
       "10:30",
+      "10:45",
       "11:00",
+      "11:15",
       "11:30",
       "12:35",
       "13:00",
@@ -881,10 +1616,19 @@ async function ensureVersion(symbol: AiDailyForecastSymbol) {
     boardMaximumAgeMs: 5_000,
     shares: { signal_quality: 100, capital_constrained: "portfolio_proxy" },
     exits: {
-      target: "active_plan_with_same_direction_tighten_only",
-      stop: "never_loosen_after_entry",
+      firstTarget: "new_positions_record_only_checkpoint_decision_full_exit",
+      stretchTarget: "new_positions_information_only",
+      stop: "new_positions_independent_hard_and_explicit_protective_stop_never_loosen",
       directionChange: "explicit_exit_next_event_policy_only",
-      sameCandlePriority: "stop_first",
+      sameDirectionContinuation:
+        "tighten_only_next_candle_prices_successor_checkpoint_valid_until",
+      successorPlanMissing:
+        "keep_hard_stop_exit_after_successor_checkpoint_valid_until",
+      lunchCheckpoint: "position_management_only_no_new_entry",
+      revalidation:
+        "fixed_20_close_observation_only_no_entry_veto_no_automatic_exit",
+      sameCandlePriority:
+        "reserved_open_exit_then_hard_stop_then_target_no_stretch_on_arm",
       dayEnd: "active_plan_force_exit_not_later_than_15:20",
     },
     evaluation: "monitoring_only",
@@ -925,8 +1669,47 @@ export async function registerAiDailyForecastShadowLifecycle() {
       await updateRtStrategyVersionStatus({
         versionId,
         status: "stopped",
-        statusReason: "retired_replaced_by_ai_forecast_v6_morning15_afternoon30_2026_10_15",
+        statusReason:
+          "retired_replaced_by_ai_forecast_v6_morning15_afternoon30_2026_10_15",
       });
+  }
+  for (const versionId of Object.values(
+    RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS
+  )) {
+    const existing = await getRtStrategyVersion(versionId);
+    if (!existing) continue;
+    const savedStates = await Promise.all(
+      MODES.map(mode =>
+        getRtForwardShadowState({
+          strategyVersion: versionId,
+          evaluationMode: mode,
+        })
+      )
+    );
+    const openStateDates = savedStates.flatMap(row => {
+      const state = object(row?.stateJson);
+      return hasOpenPosition(state) && typeof state.tradeDate === "string"
+        ? [state.tradeDate]
+        : [];
+    });
+    const today = currentJstDate();
+    const hasSameDayPendingPosition = openStateDates.includes(today);
+    const hasHistoricalPendingPosition = openStateDates.some(
+      tradeDate => tradeDate !== today
+    );
+    await updateRtStrategyVersionStatus({
+      versionId,
+      status: hasHistoricalPendingPosition
+        ? "insufficient"
+        : hasSameDayPendingPosition
+          ? "monitoring"
+          : "stopped",
+      statusReason: hasHistoricalPendingPosition
+        ? `retirement_blocked_historical_open_position_requires_reconciliation:${openStateDates.join(",")}`
+        : hasSameDayPendingPosition
+          ? "retirement_pending_position_only_drain"
+          : "retired_replaced_by_ai_forecast_am15_v6_2026_10_15",
+    });
   }
   for (const symbol of AI_DAILY_FORECAST_SYMBOLS) await ensureVersion(symbol);
 }
@@ -935,9 +1718,11 @@ async function processMode(
   source: ForwardSourceEventInput,
   symbol: AiDailyForecastSymbol,
   mode: ForwardEvaluationMode,
-  selection: PlanSelection
+  selection: PlanSelection,
+  options: { strategyVersion?: string; positionOnly?: boolean } = {}
 ) {
-  const version = AI_DAILY_FORECAST_STRATEGY_VERSIONS[symbol];
+  const version =
+    options.strategyVersion ?? AI_DAILY_FORECAST_STRATEGY_VERSIONS[symbol];
   const initial = normalizeState(
     (
       await getRtForwardShadowState({
@@ -947,6 +1732,12 @@ async function processMode(
     )?.stateJson,
     source.candle.tradeDate
   );
+  if (options.positionOnly && !initial.position)
+    return {
+      mode,
+      strategyVersion: version,
+      status: "no_same_day_open_position_to_drain" as const,
+    };
   const hash = sha256Stable(initial);
   const claim = await claimOrRetryRtForwardShadowEvent({
     claimToken: randomUUID(),
@@ -961,14 +1752,17 @@ async function processMode(
       resultType: "pending",
       decisionJson: {
         status: "claimed",
-        candidateVariant: "ai_adaptive_forecast",
+        candidateVariant: options.positionOnly
+          ? "ai_adaptive_forecast_retired_position_drain"
+          : "ai_adaptive_forecast",
         eligibleForAdoption: false,
       },
       stateHashBefore: hash,
       stateHashAfter: hash,
     },
   });
-  if (claim !== "claimed") return { mode, status: claim };
+  if (claim !== "claimed")
+    return { mode, strategyVersion: version, status: claim };
   let owner: string | null = null;
   try {
     owner = createForwardShadowLockOwnerToken({
@@ -984,7 +1778,7 @@ async function processMode(
         leaseMs: 30_000,
       }))
     )
-      return { mode, status: "lock_unavailable" };
+      return { mode, strategyVersion: version, status: "lock_unavailable" };
     const latest = normalizeState(
       (
         await getRtForwardShadowState({
@@ -994,7 +1788,21 @@ async function processMode(
       )?.stateJson,
       source.candle.tradeDate
     );
-    const result = transition(latest, source, selection, mode);
+    const result =
+      options.positionOnly && !latest.position
+        ? {
+            next: latest,
+            resultType: "no_signal" as const,
+            opened: null,
+            closed: null,
+            actions: [
+              {
+                type: "no_trade",
+                reason: "retired_version_position_only_drain_complete",
+              },
+            ],
+          }
+        : transition(latest, source, selection, mode);
     const after = sha256Stable(result.next);
     await upsertRtForwardShadowState({
       strategyVersion: version,
@@ -1045,6 +1853,10 @@ async function processMode(
       evaluationMode: mode,
       resultType: result.resultType,
       decisionJson: {
+        managementPosition:
+          result.next.position?.managementVersion === "checkpoint_v1"
+            ? { ...result.next.position, evaluationMode: mode, symbol }
+            : null,
         actions: result.actions,
         activePlanId: selection.activePlanId,
         disabledReason: selection.disabledReason,
@@ -1056,7 +1868,7 @@ async function processMode(
       },
       stateHashAfter: after,
     });
-    return { mode, resultType: result.resultType };
+    return { mode, strategyVersion: version, resultType: result.resultType };
   } catch (error) {
     await failRtForwardShadowEvent({
       strategyVersion: version,
@@ -1081,15 +1893,32 @@ export async function processAiDailyForecastShadowSourceEvent(
 ) {
   if (!symbols.has(source.candle.symbol))
     return { skipped: "non_ai_forecast_symbol" as const };
-  if (source.candle.tradeDate < AI_DAILY_FORECAST_COLLECTION_START_DATE)
-    return { skipped: "before_collection_start" as const };
   const symbol = source.candle.symbol as AiDailyForecastSymbol;
-  await ensureVersion(symbol);
-  const version = await getRtStrategyVersion(
-    AI_DAILY_FORECAST_STRATEGY_VERSIONS[symbol]
+  const legacyVersionId = RETIRED_AI_FORECAST_REENTRY_V5_VERSIONS[symbol];
+  const legacyVersion = await getRtStrategyVersion(legacyVersionId);
+  const drainLegacyPosition = Boolean(
+    legacyVersion &&
+      legacyVersion.status !== "stopped" &&
+      legacyVersion.status !== "insufficient"
   );
-  if (version?.status === "stopped" || version?.status === "insufficient")
-    return { skipped: `strategy_${version.status}` as const };
+  const currentVersionEligible =
+    source.candle.tradeDate >= AI_DAILY_FORECAST_COLLECTION_START_DATE;
+  let currentVersionActive = false;
+  if (currentVersionEligible) {
+    await ensureVersion(symbol);
+    const currentVersion = await getRtStrategyVersion(
+      AI_DAILY_FORECAST_STRATEGY_VERSIONS[symbol]
+    );
+    currentVersionActive = Boolean(
+      currentVersion &&
+        currentVersion.status !== "stopped" &&
+        currentVersion.status !== "insufficient"
+    );
+  }
+  if (!drainLegacyPosition && !currentVersionEligible)
+    return { skipped: "before_collection_start" as const };
+  if (!drainLegacyPosition && !currentVersionActive)
+    return { skipped: "strategy_not_active" as const };
   const { dashboard, intradaySnapshot } = await getPlanData(
     source.candle.tradeDate,
     source.candle.candleTime,
@@ -1112,6 +1941,24 @@ export async function processAiDailyForecastShadowSourceEvent(
   };
   const evaluations = [];
   for (const mode of MODES) {
+    if (drainLegacyPosition) {
+      try {
+        evaluations.push(
+          await processMode(source, symbol, mode, selection, {
+            strategyVersion: legacyVersionId,
+            positionOnly: true,
+          })
+        );
+      } catch (error) {
+        evaluations.push({
+          mode,
+          strategyVersion: legacyVersionId,
+          skipped: "isolated_legacy_position_drain_error",
+          error: String(error),
+        });
+      }
+    }
+    if (!currentVersionActive) continue;
     try {
       evaluations.push(await processMode(source, symbol, mode, selection));
     } catch (error) {
@@ -1121,6 +1968,24 @@ export async function processAiDailyForecastShadowSourceEvent(
         error: String(error),
       });
     }
+  }
+  if (drainLegacyPosition) {
+    const stillOpen = (
+      await Promise.all(
+        MODES.map(mode =>
+          getRtForwardShadowState({
+            strategyVersion: legacyVersionId,
+            evaluationMode: mode,
+          })
+        )
+      )
+    ).some(row => hasOpenPosition(row?.stateJson));
+    if (!stillOpen)
+      await updateRtStrategyVersionStatus({
+        versionId: legacyVersionId,
+        status: "stopped",
+        statusReason: "retired_position_only_drain_complete",
+      });
   }
   return { skipped: false as const, symbol, evaluations };
 }

@@ -60,7 +60,10 @@ Codexは以下のJSONを安全な一時パスへ作ります。`ingestKey` は**
   },
   "generatorId": "codex-scheduled-task",
   "promptVersion": "codex-ai-daily-forecast-prompt-v6",
-  "generatorMetadata": {"model": "使用モデルID", "generationMode": "external_codex"}
+  "generatorMetadata": {
+    "model": "使用モデルID",
+    "generationMode": "external_codex"
+  }
 }
 ```
 
@@ -90,7 +93,15 @@ AI_DAILY_FORECAST_INGEST_KEY="$AI_DAILY_FORECAST_INGEST_KEY" \
 node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM --out /secure/path/ai-intraday-input.json
 ```
 
-- cutoffは必ずcheckpointの1分前（12:35だけ12:34）
+- 定期taskは原則checkpointの3分後に起動する。実行がcheckpointより後でも、`cutoffCandleTime`はcheckpointSpecの固定値を使う。たとえば13:00計画を13:03以後に生成してもcutoffは12:59であり、13:00以後の足をAI入力へ混ぜない
+- prepareはcutoff以前のsource eventとforward-shadow dispatchを照合し、source処理済み、queue件数一致、pending/processing/errorなしになるまでinputを返さない
+- queueが未完了ならHTTP 503 `ai_intraday_materialization_pending`とし、取得scriptは次の分析時間を残せる範囲で15秒間隔・最大2分だけ再確認する。追い付かなければ`ai_intraday_materialization_timeout`として生成を開始しない
+- queueにterminal errorがあればHTTP 412 `ai_intraday_materialization_terminal`として再試行せずfail-closedにする
+- prepare中にwatermarkが変化した場合もinputを返さず再確認させる。completeで安定したwatermarkは`materializationWatermark`としてinput hashへ含める
+- prepareは固定inputへ`inputSnapshotToken`を付ける。tokenは鍵そのものではなく、tradeDate・checkpoint・cutoff・capturedAtMs・morning snapshot・input hashをサーバー側HMACで結んだ改変検知値である
+- ingest時点のdispatch `engineSequence`をactivation境界として保存し、新計画はその境界より後のsource eventだけに適用する。到着前の未処理足へ遡ってentry・exitを作らない
+- checkpointからactivation境界までにfirstTargetへ到達済みの銘柄は`missed_move_no_entry`とし、その計画からの新規entryを終日ではなく当該plan IDについてだけ禁止する。保有中ポジションの旧stopは新計画到着まで維持し、到着後のポジション管理は次source eventからだけ適用する
+- cutoffは必ずcheckpointの1分前
 - 当日1分足、欠損状況、完全な5分足、SMA・RSI・Bollinger
 - その時点までの日経225mini
 - 08:30計画と直前の場中計画
@@ -100,6 +111,8 @@ node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM --out /secure
 - `aiSessionExecutionAuditJournal`：`capital_constrained`の資金・板深度・株数の実行可能性監査。戦略の勝敗・市場事例として二重加算してはならない
 - `aiCurrentStrategyPositions` と `aiCurrentExecutionAuditPositions`：mode別の保有状態。保有中は新規entryを重ねず、既存ポジションに対する `openPositionAction` だけを判断する
 - `generationContract.requiredLearningEvidenceBySymbol`：そのcheckpoint以前の `signal_quality`取引について、各銘柄のcontrolが必ず引用すべき一意のevidence ID
+- `generationContract.lunchCheckpointPolicy=position_management_only_no_new_entry`：11:30計画は既存ポジション管理だけに使い、flat銘柄を新規建てしない
+- `generationContract.openPositionContinuationPolicy=same_direction_tighten_only_with_successor_wait_until_valid_until`：この旧互換フィールドは既存保有のみに適用する。新規保有は独立managementPlansで期限を指定し、後継待機は後継checkpointの`validUntil`までとする
 
 AIは「今すぐ注文するか」ではなく、次のcheckpointまでの方向、entry帯、確認価格、目標、損切り参照、entry有効時間、強制決済時刻を10銘柄ごとに更新します。出力は `forecast` と10件の `controls` を持ち、`planDecision=maintained|adjusted|disabled`、`changeReason`、`openPositionAction` を必須とします。
 
@@ -111,14 +124,29 @@ AIは「今すぐ注文するか」ではなく、次のcheckpointまでの方�
 4. `entryKind=initial|reentry`、`isOpeningTrade`、`entryOrdinal`を確認する。09:00〜09:29の**実際のentry時刻**は寄り付き取引であり、一律禁止しない。AIが見送りたい場合だけ`no_trade`／`disabled`を返す。
 5. 決済後の再entryは、新しいimmutable plan/decisionだけで判断する。同じplan IDを再利用した重複entry、保有中の重複entry、exitと同一source eventでの即時再entryは許可しない。
 6. AI判断が未着、無効、期限切れ、または`no_trade`なら、アプリは独自の計画・再entryを作らない（fail-closed）。
+7. `11:30` は前場終了後の既存ポジション管理専用とする。時刻を11:29へ変更するものではない。11:29は入力に含められる最後の完成1分足、11:30はその足までをcutoffにする管理checkpointである。flat銘柄のcontrolは `planDecision=disabled` とし、schema上のentry windowは `12:30〜12:34` を置くが新規entry権限には使わない。新規保有の継続・利確・退出は独立managementPlansで判断する。既存保有のtighten_onlyは旧互換処理として維持する。後場は12:30から始まり、11:30管理計画は12:30以後の最初のsource eventで適用される。`12:35` 以降は後場最初の完成5分足で再評価する。
+8. entry時と保有中の各1分足で、plan経過時間、confirmPriceとの差、直近20終値のSMA20、方向に不利なSMA20側の連続本数を記録する。アプリ側の固定閾値、自動entry拒否、自動損切りには使わず、2分連続のSMA20逆行も単独の自動決済条件にはしない。一方、翌営業日以降のCodexは、前営業日までの失敗・改善仮説を注意材料として、checkpoint cutoff以前の当日1分足・完成5分足・SMA/BB/RSI・支持抵抗・出来高・日経225miniと照合し、銘柄ごとにentry、方向、継続、tighten_only、退出を定性的に判断する。固定本数・固定乖離率は置かず、SMA20逆行だけで変更せず、当日市場構造の独立した裏付けをchangeReason/evidenceUsed/confidenceBasisへ具体的に残す。
+
+- 新規保有の `firstTarget` は到達記録・判断材料のみ。自動決済・自動トレール・自動ライン更新はしない。`stretchTarget` でも自動決済しない。保有管理は独立した `managementPlans` に従う。既存保有は決済まで旧ルールを維持する。
+- 新規保有は管理計画の `validUntil` 失効後、後継checkpointの `validUntil` まで後継を待つ。待機中は新規entry禁止、stop緩和禁止とし、hard stopと保護stopを維持する。期限未着なら次の実行可能イベントで全株決済し、失効済み保有を遅着計画で延命しない。15:20を最終期限とする。
 
 過去の損失は次回判断の根拠に含めますが、1件の損失だけで閾値を自動変更しません。AIは調整理由を明示し、アプリは前向きshadowとして保存します。自動採用、実注文接続、通常ロジックの書換えは行いません。
 
-生成JSONは次で送ります。
+生成JSONは、送信前にサーバーと同じ決定的条件をローカルで検査します。価格順序・方向別目標価格・10銘柄一意性・checkpoint時間帯・input hash対応・当日`signal_quality`取引の必須evidence IDを確認し、不合格なら外部送信を開始しません。修正後に再検査し、合格した同一payloadだけを送ります。
+
+```bash
+node scripts/ai-intraday-preflight.mjs \
+  /secure/path/ai-intraday-forecast.json \
+  --input /secure/path/ai-intraday-input.json
+```
+
+送信スクリプト自身も同じpreflightを必ず実行するため、検査を省略した送信はできません。
 
 ```bash
 AI_DAILY_FORECAST_INGEST_KEY="$AI_DAILY_FORECAST_INGEST_KEY" \
-node scripts/ingest-ai-intraday-forecast.mjs /secure/path/ai-intraday-forecast.json
+node scripts/ingest-ai-intraday-forecast.mjs \
+  /secure/path/ai-intraday-forecast.json \
+  --input /secure/path/ai-intraday-input.json
 ```
 
 通常運用では、取得時に保存した入力を`--input /secure/path/ai-intraday-input.json`で同時に渡します。
@@ -132,9 +160,10 @@ ingest時点のdispatch `engineSequence`をactivation境界として保存し、
 1. zoneに触れる
 2. **別イベント**で `confirmPrice` を確認
 3. そのイベント時点の因果的・方向別depth VWAP（板観測→relay組立が0〜5秒）で仮想entry
-4. `firstTarget`、forecast boundary + 0.15 ATRによるSL、SL優先、指定時刻（最遅15:20）決済を記録
 
-新計画で未entryの方向・価格帯が変わった場合、旧touchは破棄して新計画から再判定します。保有中は、損切りを緩めず、同方向かつ `tighten_only` の場合だけ価格を安全側へ更新します。方向転換時の決済は、AIが `exit_next_event_if_direction_changed` を明示した場合だけ、次のsource eventで仮想決済します。
+- 新規保有の `firstTarget` は到達記録・判断材料のみ。自動決済・自動トレール・自動ライン更新はしない。`stretchTarget` でも自動決済しない。保有管理は独立した `managementPlans` に従う。既存保有は決済まで旧ルールを維持する。
+
+新計画で未entryの方向・価格帯が変わった場合、旧touchは破棄して新計画から再判定します。新規保有はmanagementPlansの明示判断と独立stopで管理します。既存保有のtighten_only・方向転換指示は旧互換処理です。毎分の再検証観測は同じshadow state遷移の固定長計算で行い、追加のDB query、外部通信、AI呼び出し、通常engineへの書込みは行いません。
 
 `signal_quality`（100株）と`capital_constrained`は別state・別event・別tradeとして保存します。旧④日経225mini revisionは最初の09:15 AI計画までの補助安全判定として残し、AI場中計画が生成された後は、その計画内の日経225mini評価が優先されます。朝snapshotも過去の場中計画も更新しません。
 
@@ -144,7 +173,7 @@ v6の08:30 Codex作業は、[v6朝AIプロンプト](./ai-daily-forecast-codex-p
 
 この実装はCodex schedule/task/sessionを作成・変更しません。外部Codex側は、endpoint受入確認後に平日08:30と上記16 checkpointを管理します。Windows relayや通常10銘柄の受信処理からAIを呼び出してはいけません。
 
-
+この実装はscheduleそのものを勝手に作成・変更しません。endpoint公開、migration、手動受入が成功した後に、平日08:30と上記16 checkpointのCodexタスクを利用者確認のうえで登録します。Windows relayや通常10銘柄の受信処理からAIを呼び出してはいけません。
 
 ## 6. 閉場後Codex学習review（v1）
 
@@ -217,3 +246,7 @@ node scripts/ingest-ai-postmarket-learning-review.mjs \
 08:30 inputと場中inputは`latestLearningReview`を含め、review dateがforecast trade dateより**厳密に前**の場合だけ参照します。reviewがない・古い・advisory-onlyの場合も、既存のimmutable baselineとno-trade/fail-closed境界を維持して安全に継続し、理由コードを返します。review identity/hashは両inputの`inputHash`へ含まれます。
 
 画面の「閉場後学習」は、最新日・status・対象件数・主因・walk-forward検証・翌日policyAdvice適格性を監査表示します。勝率予測や自動採用の表示ではありません。
+
+## 保有管理・ナレッジ更新案（本番適用は別途承認）
+
+新規保有については [保有管理契約](ai-position-management-checkpoint-contract.md) を併用する。管理命令は `aiFinalForecast.managementPlans`、保有開始時の保護ラインは各forecastの `protectiveStop`、参照ナレッジは `knowledgeIds` に出力する。

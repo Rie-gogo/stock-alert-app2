@@ -1,3 +1,7 @@
+import {
+  aiDecisionKnowledgeSchema,
+  type AiDecisionKnowledge,
+} from "./aiDecisionKnowledge";
 import { and, asc, count, desc, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -75,7 +79,7 @@ const finite = (value: unknown): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
-const unique = <T,>(values: readonly T[]) => Array.from(new Set(values));
+const unique = <T>(values: readonly T[]) => Array.from(new Set(values));
 const jstDate = (epochMs: number) =>
   new Date(epochMs + 9 * 60 * 60 * 1_000).toISOString().slice(0, 10);
 
@@ -132,8 +136,9 @@ function snapshotProjection(
   return kind === "morning"
     ? {
         ...base,
-        sourceSnapshotId: (row as typeof rtAiDailyForecastSnapshots.$inferSelect)
-          .sourceSnapshotId,
+        sourceSnapshotId: (
+          row as typeof rtAiDailyForecastSnapshots.$inferSelect
+        ).sourceSnapshotId,
         capturedAtMs: (row as typeof rtAiDailyForecastSnapshots.$inferSelect)
           .capturedAtMs,
         effectiveFrom: "09:00",
@@ -141,14 +146,17 @@ function snapshotProjection(
       }
     : {
         ...base,
-        sourceRevisionId: (row as typeof rtAiIntradayForecastSnapshots.$inferSelect)
-          .sourceRevisionId,
+        sourceRevisionId: (
+          row as typeof rtAiIntradayForecastSnapshots.$inferSelect
+        ).sourceRevisionId,
         checkpoint: (row as typeof rtAiIntradayForecastSnapshots.$inferSelect)
           .checkpoint,
-        cutoffCandleTime: (row as typeof rtAiIntradayForecastSnapshots.$inferSelect)
-          .cutoffCandleTime,
-        effectiveFrom: (row as typeof rtAiIntradayForecastSnapshots.$inferSelect)
-          .checkpoint,
+        cutoffCandleTime: (
+          row as typeof rtAiIntradayForecastSnapshots.$inferSelect
+        ).cutoffCandleTime,
+        effectiveFrom: (
+          row as typeof rtAiIntradayForecastSnapshots.$inferSelect
+        ).checkpoint,
         validUntil: "15:20",
       };
 }
@@ -175,7 +183,9 @@ function causalMarketSnapshot(
   };
 }
 
-function planProjection(event: typeof rtForwardShadowEvents.$inferSelect | undefined) {
+function planProjection(
+  event: typeof rtForwardShadowEvents.$inferSelect | undefined
+) {
   const decision = asRecord(event?.decisionJson);
   const plan = asRecord(decision.plan);
   return {
@@ -202,7 +212,8 @@ function mfeMaeOccurrenceTimes(input: {
   entryCandleTime: string;
   exitCandleTime: string | null;
 }) {
-  if (!input.exitCandleTime) return { mfeOccurredAt: null, maeOccurredAt: null };
+  if (!input.exitCandleTime)
+    return { mfeOccurredAt: null, maeOccurredAt: null };
   const held = input.candles
     .filter(
       candle =>
@@ -228,9 +239,7 @@ function mfeMaeOccurrenceTimes(input: {
       )?.candleTime ?? null,
     maeOccurredAt:
       held.find(candle =>
-        input.side === "long"
-          ? candle.low === adverse
-          : candle.high === adverse
+        input.side === "long" ? candle.low === adverse : candle.high === adverse
       )?.candleTime ?? null,
   };
 }
@@ -258,10 +267,12 @@ function buildExample(input: {
     input.relatedEvents
   ) as RecordValue;
   const entryActions = input.event ? actionRows(input.event) : [];
-  const entryAction = entryActions.find(action => action.type === "entry") ?? {};
-  const exitAction = input.relatedEvents
-    .flatMap(actionRows)
-    .find(action => action.type === "exit") ?? {};
+  const entryAction =
+    entryActions.find(action => action.type === "entry") ?? {};
+  const exitAction =
+    input.relatedEvents
+      .flatMap(actionRows)
+      .find(action => action.type === "exit") ?? {};
   const occurrenceTimes = mfeMaeOccurrenceTimes({
     candles: input.candles,
     side: input.trade.side,
@@ -315,9 +326,11 @@ function buildExample(input: {
         tradeDate: input.trade.exitTradeDate,
         candleTime: input.trade.exitCandleTime,
         sourceEventId: input.trade.exitSourceEventId,
-        price: input.trade.exitPrice === null ? null : Number(input.trade.exitPrice),
+        price:
+          input.trade.exitPrice === null ? null : Number(input.trade.exitPrice),
         reason: input.trade.exitReason,
-        actionReason: typeof exitAction.reason === "string" ? exitAction.reason : null,
+        actionReason:
+          typeof exitAction.reason === "string" ? exitAction.reason : null,
       },
       pnl: input.trade.pnl,
       realizedR: finite(input.trade.realizedR),
@@ -339,7 +352,8 @@ function referenceIndex(input: {
   trades: Array<typeof rtForwardShadowTrades.$inferSelect>;
 }) {
   const eventSymbolById = new Map<string, string>();
-  for (const event of input.events) eventSymbolById.set(event.sourceEventId, event.symbol);
+  for (const event of input.events)
+    eventSymbolById.set(event.sourceEventId, event.symbol);
   const tradeSymbolByEntryId = new Map<string, string>();
   for (const trade of input.trades)
     tradeSymbolByEntryId.set(trade.entrySourceEventId, trade.symbol);
@@ -358,6 +372,12 @@ function referenceIndex(input: {
         input.trades
           .filter(trade => trade.symbol === symbol)
           .map(trade => trade.entrySourceEventId),
+      ])
+    ),
+    eventTimeById: Object.fromEntries(
+      input.events.map(event => [
+        event.sourceEventId,
+        `${event.tradeDate}T${event.candleTime}:00+09:00`,
       ])
     ),
     eventSymbolById: Object.fromEntries(eventSymbolById),
@@ -445,12 +465,19 @@ async function loadExamples(input: {
           inArray(rtCandles.tradeDate, input.tradeDates)
         )
       )
-      .orderBy(asc(rtCandles.tradeDate), asc(rtCandles.symbol), asc(rtCandles.candleTime)),
+      .orderBy(
+        asc(rtCandles.tradeDate),
+        asc(rtCandles.symbol),
+        asc(rtCandles.candleTime)
+      ),
     db
       .select()
       .from(rtMarketContextEvents)
       .where(inArray(rtMarketContextEvents.tradeDate, input.tradeDates))
-      .orderBy(asc(rtMarketContextEvents.tradeDate), asc(rtMarketContextEvents.candleTime)),
+      .orderBy(
+        asc(rtMarketContextEvents.tradeDate),
+        asc(rtMarketContextEvents.candleTime)
+      ),
   ]);
   const eventByKey = new Map(
     events.map(event => [
@@ -458,10 +485,16 @@ async function loadExamples(input: {
       event,
     ])
   );
-  const eventsByDateSymbol = new Map<string, Array<typeof rtForwardShadowEvents.$inferSelect>>();
+  const eventsByDateSymbol = new Map<
+    string,
+    Array<typeof rtForwardShadowEvents.$inferSelect>
+  >();
   for (const event of events) {
     const key = `${event.tradeDate}:${event.symbol}`;
-    eventsByDateSymbol.set(key, [...(eventsByDateSymbol.get(key) ?? []), event]);
+    eventsByDateSymbol.set(key, [
+      ...(eventsByDateSymbol.get(key) ?? []),
+      event,
+    ]);
   }
   const candlesByDateSymbol = new Map<string, Candle[]>();
   for (const candle of candles) {
@@ -478,12 +511,20 @@ async function loadExamples(input: {
       },
     ]);
   }
-  const marketByDate = new Map<string, Array<typeof rtMarketContextEvents.$inferSelect>>();
+  const marketByDate = new Map<
+    string,
+    Array<typeof rtMarketContextEvents.$inferSelect>
+  >();
   for (const event of marketEvents)
-    marketByDate.set(event.tradeDate, [...(marketByDate.get(event.tradeDate) ?? []), event]);
+    marketByDate.set(event.tradeDate, [
+      ...(marketByDate.get(event.tradeDate) ?? []),
+      event,
+    ]);
 
   return trades
-    .filter(trade => POSTMARKET_SYMBOLS.includes(trade.symbol as PostmarketSymbol))
+    .filter(trade =>
+      POSTMARKET_SYMBOLS.includes(trade.symbol as PostmarketSymbol)
+    )
     .map(trade =>
       buildExample({
         trade,
@@ -491,9 +532,11 @@ async function loadExamples(input: {
           `${trade.strategyVersion}:${trade.evaluationMode}:${trade.entrySourceEventId}`
         ),
         relatedEvents:
-          eventsByDateSymbol.get(`${trade.entryTradeDate}:${trade.symbol}`) ?? [],
+          eventsByDateSymbol.get(`${trade.entryTradeDate}:${trade.symbol}`) ??
+          [],
         candles:
-          candlesByDateSymbol.get(`${trade.entryTradeDate}:${trade.symbol}`) ?? [],
+          candlesByDateSymbol.get(`${trade.entryTradeDate}:${trade.symbol}`) ??
+          [],
         marketEvents: marketByDate.get(trade.entryTradeDate) ?? [],
       })
     )
@@ -514,7 +557,9 @@ function assertClosedFinality(input: {
     input.finality.watermarkHash !== currentHash ||
     !isClosedTradeDateWatermarkReady(input.watermark)
   )
-    throw Error("ai_postmarket_learning_finality_not_closed_or_watermark_changed");
+    throw Error(
+      "ai_postmarket_learning_finality_not_closed_or_watermark_changed"
+    );
   if (input.materialization?.status !== "complete")
     throw Error("ai_postmarket_learning_snapshot_materialization_incomplete");
   return currentHash;
@@ -529,7 +574,9 @@ export function assertAiPostmarketFinalityForTest(input: {
 }) {
   return assertClosedFinality({
     tradeDate: input.tradeDate,
-    finality: input.finality as Awaited<ReturnType<typeof getRtAuditTradeDateFinality>>,
+    finality: input.finality as Awaited<
+      ReturnType<typeof getRtAuditTradeDateFinality>
+    >,
     watermark: input.watermark,
     materialization: input.materializationStatus
       ? ({ status: input.materializationStatus } as Awaited<
@@ -558,12 +605,18 @@ export async function buildAiPostmarketLearningInput(input: {
         .select()
         .from(rtAiDailyForecastSnapshots)
         .where(eq(rtAiDailyForecastSnapshots.tradeDate, input.tradeDate))
-        .orderBy(asc(rtAiDailyForecastSnapshots.capturedAtMs), asc(rtAiDailyForecastSnapshots.id)),
+        .orderBy(
+          asc(rtAiDailyForecastSnapshots.capturedAtMs),
+          asc(rtAiDailyForecastSnapshots.id)
+        ),
       db
         .select()
         .from(rtAiIntradayForecastSnapshots)
         .where(eq(rtAiIntradayForecastSnapshots.tradeDate, input.tradeDate))
-        .orderBy(asc(rtAiIntradayForecastSnapshots.checkpoint), asc(rtAiIntradayForecastSnapshots.id)),
+        .orderBy(
+          asc(rtAiIntradayForecastSnapshots.checkpoint),
+          asc(rtAiIntradayForecastSnapshots.id)
+        ),
       db
         .select({ tradeDate: rtAuditTradeDateFinality.tradeDate })
         .from(rtAuditTradeDateFinality)
@@ -605,7 +658,10 @@ export async function buildAiPostmarketLearningInput(input: {
         eq(rtForwardShadowEvents.tradeDate, input.tradeDate)
       )
     )
-    .orderBy(asc(rtForwardShadowEvents.candleTime), asc(rtForwardShadowEvents.id));
+    .orderBy(
+      asc(rtForwardShadowEvents.candleTime),
+      asc(rtForwardShadowEvents.id)
+    );
   const currentTrades = await db
     .select()
     .from(rtForwardShadowTrades)
@@ -623,7 +679,9 @@ export async function buildAiPostmarketLearningInput(input: {
     );
   const missing: string[] = [];
   const morningSymbols = unique(
-    morning.flatMap(row => snapshotSymbols({ forecastJson: row.forecastJson, kind: "morning" }))
+    morning.flatMap(row =>
+      snapshotSymbols({ forecastJson: row.forecastJson, kind: "morning" })
+    )
   );
   if (morning.length === 0) missing.push("morning_0830_snapshot_missing");
   if (
@@ -634,9 +692,15 @@ export async function buildAiPostmarketLearningInput(input: {
   if (morning.some(row => row.qualityStatus === "invalid"))
     missing.push("morning_snapshot_invalid");
   const snapshotQualityReasons = [
-    ...morning.filter(row => row.qualityStatus === "degraded").map(() => "morning_snapshot_degraded"),
-    ...intraday.filter(row => row.qualityStatus === "invalid").map(() => "intraday_snapshot_invalid"),
-    ...intraday.filter(row => row.qualityStatus === "degraded").map(() => "intraday_snapshot_degraded"),
+    ...morning
+      .filter(row => row.qualityStatus === "degraded")
+      .map(() => "morning_snapshot_degraded"),
+    ...intraday
+      .filter(row => row.qualityStatus === "invalid")
+      .map(() => "intraday_snapshot_invalid"),
+    ...intraday
+      .filter(row => row.qualityStatus === "degraded")
+      .map(() => "intraday_snapshot_degraded"),
   ];
   const skippedCandidates = currentEvents
     .flatMap(event =>
@@ -698,7 +762,10 @@ export async function buildAiPostmarketLearningInput(input: {
     },
     currentDay: {
       symbols,
-      referenceIndex: referenceIndex({ events: currentEvents, trades: currentTrades }),
+      referenceIndex: referenceIndex({
+        events: currentEvents,
+        trades: currentTrades,
+      }),
     },
     historical: {
       closedTradeDates: historyDates,
@@ -709,9 +776,10 @@ export async function buildAiPostmarketLearningInput(input: {
     },
     dataState: {
       coldStart: todayExamples.length === 0 && historyExamples.length === 0,
-      smallSample: historyExamples.filter(
-        example => example.learningRole === "strategy_primary"
-      ).length < 10,
+      smallSample:
+        historyExamples.filter(
+          example => example.learningRole === "strategy_primary"
+        ).length < 10,
       missing,
     },
   };
@@ -739,13 +807,17 @@ const executionMetricsSchema = z
 const scopeSchema = z
   .object({
     symbols: z.array(z.enum(POSTMARKET_SYMBOLS)).min(1).max(10),
-    sides: z.array(z.enum(["long", "short"])).min(1).max(2),
+    sides: z
+      .array(z.enum(["long", "short"]))
+      .min(1)
+      .max(2),
     timeWindows: z.array(z.string().min(1).max(32)).max(20),
     regimes: z.array(z.string().min(1).max(64)).max(20),
   })
   .strict();
 const postmarketReviewSchema = z
   .object({
+    knowledge: z.array(aiDecisionKnowledgeSchema).max(100).optional(),
     reviewId: z.string().min(1).max(180),
     tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     inputHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -785,8 +857,12 @@ const postmarketReviewSchema = z
     validation: z
       .object({
         method: z.enum(["walk_forward", "not_run"]),
-        learningPeriod: z.object({ start: z.string().nullable(), end: z.string().nullable() }).strict(),
-        validationPeriod: z.object({ start: z.string().nullable(), end: z.string().nullable() }).strict(),
+        learningPeriod: z
+          .object({ start: z.string().nullable(), end: z.string().nullable() })
+          .strict(),
+        validationPeriod: z
+          .object({ start: z.string().nullable(), end: z.string().nullable() })
+          .strict(),
         closedTrades: z.number().int().nonnegative(),
         validationBusinessDays: z.number().int().nonnegative(),
         dataQuality: z.enum(["verified", "degraded", "invalid"]),
@@ -825,23 +901,36 @@ function validationGate(review: AiPostmarketLearningReview) {
       reasons.push("same_day_review_cannot_be_validated");
     if (validation.method !== "walk_forward")
       reasons.push("validated_requires_walk_forward");
-    if (!validation.learningPeriod.start || !validation.learningPeriod.end || !validation.validationPeriod.start || !validation.validationPeriod.end)
+    if (
+      !validation.learningPeriod.start ||
+      !validation.learningPeriod.end ||
+      !validation.validationPeriod.start ||
+      !validation.validationPeriod.end
+    )
       reasons.push("validated_requires_explicit_time_series_periods");
     if (
       validation.learningPeriod.end &&
       validation.validationPeriod.start &&
       validation.learningPeriod.end >= validation.validationPeriod.start
     )
-      reasons.push("validated_learning_and_validation_periods_overlap_or_reversed");
+      reasons.push(
+        "validated_learning_and_validation_periods_overlap_or_reversed"
+      );
     if (
       validation.validationPeriod.end &&
       validation.validationPeriod.end >= review.tradeDate
     )
-      reasons.push("validated_validation_period_must_end_before_review_trade_date");
-    if (validation.closedTrades < 10) reasons.push("validated_requires_ten_closed_trades");
+      reasons.push(
+        "validated_validation_period_must_end_before_review_trade_date"
+      );
+    if (validation.closedTrades < 10)
+      reasons.push("validated_requires_ten_closed_trades");
     if (validation.validationBusinessDays < 3)
       reasons.push("validated_requires_three_validation_business_days");
-    if (validation.dataQuality !== "verified" || !validation.excludesDegradedInvalid)
+    if (
+      validation.dataQuality !== "verified" ||
+      !validation.excludesDegradedInvalid
+    )
       reasons.push("validated_cannot_include_degraded_or_invalid_data");
     for (const [name, metrics] of [
       ["normal", validation.normalExecution],
@@ -865,7 +954,11 @@ function validateReferenceOwnership(
   const eventSymbolById = asRecord(reference.eventSymbolById);
   const tradeSymbolByEntryId = asRecord(reference.tradeSymbolByEntryId);
   const reasons: string[] = [];
-  const check = (symbol: string, evidence: z.infer<typeof evidenceSchema>, prefix: string) => {
+  const check = (
+    symbol: string,
+    evidence: z.infer<typeof evidenceSchema>,
+    prefix: string
+  ) => {
     for (const eventId of evidence.eventIds)
       if (eventSymbolById[eventId] !== symbol)
         reasons.push(`${prefix}:event_reference_not_owned:${eventId}`);
@@ -873,11 +966,56 @@ function validateReferenceOwnership(
       if (tradeSymbolByEntryId[tradeId] !== symbol)
         reasons.push(`${prefix}:trade_reference_not_owned:${tradeId}`);
   };
+  for (const knowledge of review.knowledge ?? []) {
+    const eventTimeById = asRecord(reference.eventTimeById);
+    for (const [ids, limit, label] of [
+      [knowledge.decisionFacts.eventIds, knowledge.decisionFacts.asOf, "facts"],
+      [
+        knowledge.actualOutcome.eventIds,
+        knowledge.actualOutcome.observedAt,
+        "outcome",
+      ],
+    ] as const) {
+      for (const id of ids)
+        if (
+          typeof eventTimeById[id] === "string" &&
+          Date.parse(String(eventTimeById[id])) > Date.parse(limit)
+        )
+          reasons.push(`knowledge_${label}:future_evidence:${id}`);
+    }
+    if (Date.parse(knowledge.actualOutcome.observedAt) > review.generatedAtMs)
+      reasons.push(`knowledge_outcome_after_review:${knowledge.knowledgeId}`);
+
+    check(
+      knowledge.symbol,
+      {
+        eventIds: knowledge.decisionFacts.eventIds,
+        tradeEntrySourceEventIds: [],
+      },
+      `knowledge_facts:${knowledge.knowledgeId}`
+    );
+    check(
+      knowledge.symbol,
+      {
+        eventIds: knowledge.actualOutcome.eventIds,
+        tradeEntrySourceEventIds: [],
+      },
+      `knowledge_outcome:${knowledge.knowledgeId}`
+    );
+  }
   for (const symbolReview of review.symbolReviews)
-    check(symbolReview.symbol, symbolReview.evidence, `symbol:${symbolReview.symbol}`);
+    check(
+      symbolReview.symbol,
+      symbolReview.evidence,
+      `symbol:${symbolReview.symbol}`
+    );
   for (const hypothesis of review.hypotheses)
     for (const symbol of hypothesis.scope.symbols)
-      check(symbol, hypothesis.evidence, `hypothesis:${hypothesis.hypothesisId}:${symbol}`);
+      check(
+        symbol,
+        hypothesis.evidence,
+        `hypothesis:${hypothesis.hypothesisId}:${symbol}`
+      );
   for (const policy of review.policyAdvice.advice)
     for (const symbol of policy.scope.symbols)
       check(symbol, policy.evidence, `policy:${policy.policyId}:${symbol}`);
@@ -887,14 +1025,42 @@ function validateReferenceOwnership(
 /** Pure validation seam used by regression tests before database persistence. */
 export function validateAiPostmarketLearningReviewForTest(input: {
   review: unknown;
-  prepared: Pick<AiPostmarketLearningInput, "tradeDate" | "inputHash" | "currentDay">;
+  prepared: Pick<
+    AiPostmarketLearningInput,
+    "tradeDate" | "inputHash" | "currentDay"
+  >;
 }) {
   const parsed = postmarketReviewSchema.safeParse(input.review);
   if (!parsed.success)
-    return { valid: false, review: null, reasonCodes: ["review_schema_invalid"] };
+    return {
+      valid: false,
+      review: null,
+      reasonCodes: ["review_schema_invalid"],
+    };
   const review = parsed.data;
+  if (
+    (review.knowledge ?? []).some(row => row.status === "validated") &&
+    review.status !== "validated"
+  )
+    return {
+      valid: false,
+      review: null,
+      reasonCodes: ["knowledge_validation_requires_validated_review"],
+    };
+  if (
+    new Set((review.knowledge ?? []).map(row => row.knowledgeId)).size !==
+    (review.knowledge ?? []).length
+  )
+    return {
+      valid: false,
+      review: null,
+      reasonCodes: ["duplicate_knowledge_id"],
+    };
   const reasons: string[] = [];
-  if (review.reviewId !== `ai-learning-review:${review.tradeDate}:${AI_POSTMARKET_REVIEW_ID_SUFFIX}`)
+  if (
+    review.reviewId !==
+    `ai-learning-review:${review.tradeDate}:${AI_POSTMARKET_REVIEW_ID_SUFFIX}`
+  )
     reasons.push("review_id_invalid");
   if (review.tradeDate !== input.prepared.tradeDate)
     reasons.push("review_trade_date_mismatch");
@@ -904,7 +1070,10 @@ export function validateAiPostmarketLearningReviewForTest(input: {
   if (symbolSet.size !== POSTMARKET_SYMBOLS.length)
     reasons.push("review_symbol_coverage_invalid");
   reasons.push(
-    ...validateReferenceOwnership(review, input.prepared.currentDay.referenceIndex),
+    ...validateReferenceOwnership(
+      review,
+      input.prepared.currentDay.referenceIndex
+    ),
     ...validationGate(review).reasonCodes
   );
   return { valid: reasons.length === 0, review, reasonCodes: reasons };
@@ -914,11 +1083,13 @@ async function getReview(reviewId: string) {
   const db = await getDb();
   if (!db) return null;
   return (
-    (await db
-      .select()
-      .from(rtAiPostmarketLearningReviews)
-      .where(eq(rtAiPostmarketLearningReviews.reviewId, reviewId))
-      .limit(1))[0] ?? null
+    (
+      await db
+        .select()
+        .from(rtAiPostmarketLearningReviews)
+        .where(eq(rtAiPostmarketLearningReviews.reviewId, reviewId))
+        .limit(1)
+    )[0] ?? null
   );
 }
 
@@ -951,7 +1122,8 @@ async function insertReview(
   if (!db) throw Error("database_unavailable");
   await db.insert(rtAiPostmarketLearningReviews).values(data);
   const created = await getReview(data.reviewId);
-  if (!created) throw Error("ai_postmarket_learning_review_missing_after_insert");
+  if (!created)
+    throw Error("ai_postmarket_learning_review_missing_after_insert");
   return { row: created, duplicate: false };
 }
 
@@ -1005,6 +1177,7 @@ export type LearningReviewApplication = {
     payloadHash: string;
     status: string;
     policyAdvice: unknown;
+    knowledge?: AiDecisionKnowledge[];
   } | null;
 };
 
@@ -1038,11 +1211,15 @@ export async function getLatestLearningReviewApplicationBefore(
             "observation_only",
             "candidate",
             "validated",
+            "rejected",
           ])
         )
       )
-      .orderBy(desc(rtAiPostmarketLearningReviews.tradeDate), desc(rtAiPostmarketLearningReviews.id))
-      .limit(1),
+      .orderBy(
+        desc(rtAiPostmarketLearningReviews.tradeDate),
+        desc(rtAiPostmarketLearningReviews.id)
+      )
+      .limit(AI_POSTMARKET_MAX_HISTORY_DAYS),
     db
       .select({ tradeDate: rtAuditTradeDateFinality.tradeDate })
       .from(rtAuditTradeDateFinality)
@@ -1056,7 +1233,10 @@ export async function getLatestLearningReviewApplicationBefore(
       .limit(AI_POSTMARKET_MAX_HISTORY_DAYS),
   ]);
   const row = rows[0];
-  if (!row || !isPostmarketReviewBeforeForecastForTest(row.tradeDate, forecastTradeDate))
+  if (
+    !row ||
+    !isPostmarketReviewBeforeForecastForTest(row.tradeDate, forecastTradeDate)
+  )
     return {
       state: "unavailable",
       reasonCodes: ["postmarket_learning_review_before_trade_date_missing"],
@@ -1064,7 +1244,21 @@ export async function getLatestLearningReviewApplicationBefore(
       review: null,
     };
   const review = asRecord(row.reviewJson);
+  const knowledgeById = new Map<string, AiDecisionKnowledge>();
+  for (const history of rows) {
+    if (!recentClosed.some(item => item.tradeDate === history.tradeDate))
+      continue;
+    const payload = asRecord(history.reviewJson);
+    for (const raw of Array.isArray(payload.knowledge)
+      ? payload.knowledge
+      : []) {
+      const parsed = aiDecisionKnowledgeSchema.safeParse(raw);
+      if (parsed.success && !knowledgeById.has(parsed.data.knowledgeId))
+        knowledgeById.set(parsed.data.knowledgeId, parsed.data);
+    }
+  }
   const compact = {
+    knowledge: Array.from(knowledgeById.values()).slice(0, 300),
     reviewId: row.reviewId,
     tradeDate: row.tradeDate,
     inputHash: row.inputHash,
@@ -1102,7 +1296,10 @@ export async function getAiPostmarketLearningReviewDashboard(asOfDate: string) {
       .select()
       .from(rtAiPostmarketLearningReviews)
       .where(lt(rtAiPostmarketLearningReviews.tradeDate, asOfDate))
-      .orderBy(desc(rtAiPostmarketLearningReviews.tradeDate), desc(rtAiPostmarketLearningReviews.id))
+      .orderBy(
+        desc(rtAiPostmarketLearningReviews.tradeDate),
+        desc(rtAiPostmarketLearningReviews.id)
+      )
       .limit(1),
     db.select({ count: count() }).from(rtAiPostmarketLearningReviews),
   ]);
@@ -1138,7 +1335,9 @@ export async function getAiPostmarketLearningReviewDashboard(asOfDate: string) {
         adverseExecution010Pct: validation.adverseExecution010Pct ?? null,
       },
       leadingCauses: Array.from(causeCounts.entries())
-        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .sort(
+          (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
+        )
         .slice(0, 5)
         .map(([tag, count]) => ({ tag, count })),
       eligibleForNextDayPolicy: row.status === "validated",

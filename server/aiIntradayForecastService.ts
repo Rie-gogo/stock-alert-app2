@@ -1,3 +1,8 @@
+import {
+  aiPositionManagementPlanSchema,
+  aiPositionId,
+  type AiPositionManagementPlan,
+} from "./aiPositionManagement";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -112,6 +117,16 @@ const checkpointSpec: Record<
   "14:30": { cutoff: "14:29", effectiveFrom: "14:30", validUntil: "14:59" },
   "15:00": { cutoff: "14:59", effectiveFrom: "15:00", validUntil: "15:19" },
 };
+
+/**
+ * Runtime consumers use the same validity window as ingest.  Returning a copy
+ * prevents a shadow evaluator from mutating the canonical checkpoint contract.
+ */
+export function getAiIntradayCheckpointSpec(checkpoint: string) {
+  if (!AI_INTRADAY_CHECKPOINTS.includes(checkpoint as AiIntradayCheckpoint))
+    return null;
+  return { ...checkpointSpec[checkpoint as AiIntradayCheckpoint] };
+}
 
 const finite = (value: unknown) => {
   const number = Number(value);
@@ -280,6 +295,7 @@ function sessionSummary(candles: Candle[], cutoff: string) {
 }
 
 type AiSessionTradeJournalRow = {
+  positionId?: string;
   evaluationMode: "signal_quality" | "capital_constrained";
   symbol: AiDailyForecastSymbol;
   side: "long" | "short";
@@ -409,6 +425,11 @@ export function buildAiSessionTradeJournal(input: {
       symbol: trade.symbol as AiDailyForecastSymbol,
       side: trade.side,
       shares: Number(trade.shares),
+      positionId: aiPositionId(
+        trade.symbol,
+        trade.side,
+        trade.entrySourceEventId
+      ),
       entrySourceEventId: trade.entrySourceEventId,
       entryTime: trade.entryCandleTime,
       exitSourceEventId: closedAtCheckpoint ? trade.exitSourceEventId : null,
@@ -506,7 +527,9 @@ export type AiIntradayForecastInput = {
   previousIntradayForecast: Record<string, unknown> | null;
   priorData: AiDailyForecastInput;
   /** The same strictly-prior closed review as the 08:30 input; no same-day review. */
-  latestLearningReview: NonNullable<AiDailyForecastInput["latestLearningReview"]>;
+  latestLearningReview: NonNullable<
+    AiDailyForecastInput["latestLearningReview"]
+  >;
   currentSession: {
     symbols: Array<{
       symbol: AiDailyForecastSymbol;
@@ -525,10 +548,12 @@ export type AiIntradayForecastInput = {
   aiSessionStrategyJournal: AiSessionTradeJournalRow[];
   /** 資金・板深度の実行可能性監査。戦略市場事例としては加算しない。 */
   aiSessionExecutionAuditJournal: AiSessionTradeJournalRow[];
+  managementDecisionEvents?: Array<{ symbol: string; sourceEventId: string }>;
+  managementPositions?: Array<Record<string, unknown>>;
   aiCurrentPositions: AiSessionTradeJournalRow[];
   aiCurrentStrategyPositions: AiSessionTradeJournalRow[];
   aiCurrentExecutionAuditPositions: AiSessionTradeJournalRow[];
-  /** 外部senderがAIへ渡す、v5の固定・監査可能な判断指示。 */
+  /** 外部senderがAIへ渡す、v6の固定・監査可能な判断指示。 */
   generationContract: {
     version: "ai-adaptive-v6-same-day-journal-morning15-afternoon30-v1";
     strategyLearningSource: "signal_quality_only";
@@ -536,6 +561,10 @@ export type AiIntradayForecastInput = {
     openingTradeBoundary: "entry_candle_time_09:00_to_09:29";
     reentryPolicy: "new_immutable_plan_id_only";
     missingPlanPolicy: "fail_closed_no_trade";
+    lunchCheckpointPolicy: "position_management_only_no_new_entry";
+    openPositionContinuationPolicy: "explicit_management_plan_next_executable_event_successor_checkpoint_valid_until_new_positions_only";
+    codexQualitativeRevalidationPolicy: "no_fixed_threshold_current_session_corroboration_required";
+    automaticSma20ExitPolicy: "disabled_observation_only";
     requiredLearningEvidenceBySymbol: Record<AiDailyForecastSymbol, string[]>;
   };
   inputQuality: "verified" | "degraded" | "invalid";
@@ -613,7 +642,9 @@ export async function getAiIntradayCheckpointMaterialization(input: {
         pending: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'pending' then 1 else 0 end), 0)`,
         processing: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'processing' then 1 else 0 end), 0)`,
         error: sql<number>`coalesce(sum(case when ${rtShadowDispatchQueue.status} = 'error' then 1 else 0 end), 0)`,
-        latestProcessedCandleTime: sql<string | null>`max(case when ${rtShadowDispatchQueue.status} = 'processed' then ${rtSourceEvents.candleTime} else null end)`,
+        latestProcessedCandleTime: sql<
+          string | null
+        >`max(case when ${rtShadowDispatchQueue.status} = 'processed' then ${rtSourceEvents.candleTime} else null end)`,
       })
       .from(rtShadowDispatchQueue)
       .innerJoin(
@@ -762,6 +793,20 @@ export async function buildAiIntradayForecastInput(input: {
         .map(([, value]) => value)
     );
   }
+  const latestManagement = new Map<string, Record<string, unknown>>();
+  for (const event of sessionEvents) {
+    latestManagement.set(
+      `${event.symbol}:${event.evaluationMode}`,
+      object(object(event.decisionJson).managementPosition)
+    );
+  }
+  const managementPositions = Array.from(latestManagement.values()).filter(
+    row => row.positionId
+  );
+  const managementDecisionEvents = sessionEvents.map(event => ({
+    symbol: event.symbol,
+    sourceEventId: event.sourceEventId,
+  }));
   const aiSessionTradeJournal = buildAiSessionTradeJournal({
     trades: sessionTrades,
     events: sessionEvents,
@@ -880,6 +925,8 @@ export async function buildAiIntradayForecastInput(input: {
     aiSessionTradeJournal,
     aiSessionStrategyJournal,
     aiSessionExecutionAuditJournal,
+    managementPositions,
+    managementDecisionEvents,
     aiCurrentPositions,
     aiCurrentStrategyPositions,
     aiCurrentExecutionAuditPositions,
@@ -890,6 +937,12 @@ export async function buildAiIntradayForecastInput(input: {
       openingTradeBoundary: "entry_candle_time_09:00_to_09:29",
       reentryPolicy: "new_immutable_plan_id_only",
       missingPlanPolicy: "fail_closed_no_trade",
+      lunchCheckpointPolicy: "position_management_only_no_new_entry",
+      openPositionContinuationPolicy:
+        "explicit_management_plan_next_executable_event_successor_checkpoint_valid_until_new_positions_only",
+      codexQualitativeRevalidationPolicy:
+        "no_fixed_threshold_current_session_corroboration_required",
+      automaticSma20ExitPolicy: "disabled_observation_only",
       requiredLearningEvidenceBySymbol,
     },
     inputQuality: reasons.length === 0 ? "verified" : "degraded",
@@ -946,14 +999,17 @@ export async function prepareAiIntradayForecastInput(input: {
   const before = await getAiIntradayCheckpointMaterialization(input);
   if (before.status !== "complete") {
     if (before.status === "pending") scheduleForwardShadowDispatchDrain(0);
-    console.warn("[AiIntradayForecast] checkpoint materialization unavailable", {
-      tradeDate: input.tradeDate,
-      checkpoint: input.checkpoint,
-      status: before.status,
-      reasonCode: before.reasonCode,
-      source: before.source,
-      shadow: before.shadow,
-    });
+    console.warn(
+      "[AiIntradayForecast] checkpoint materialization unavailable",
+      {
+        tradeDate: input.tradeDate,
+        checkpoint: input.checkpoint,
+        status: before.status,
+        reasonCode: before.reasonCode,
+        source: before.source,
+        shadow: before.shadow,
+      }
+    );
     throw Error(before.reasonCode);
   }
   const built = await buildAiIntradayForecastInput(input);
@@ -1003,6 +1059,7 @@ const controlSchema = z
     entryWindowStart: z.string().regex(/^\d{2}:\d{2}$/),
     entryWindowEnd: z.string().regex(/^\d{2}:\d{2}$/),
     forceExitTime: z.string().regex(/^\d{2}:\d{2}$/),
+    entryPolicy: z.enum(["entry_allowed", "manage_only"]).optional(),
     openPositionAction: z.enum([
       "keep",
       "tighten_only",
@@ -1015,12 +1072,14 @@ const controlSchema = z
   .strict();
 const outputSchema = z
   .object({
+    managementPlans: z.array(aiPositionManagementPlanSchema).max(20).optional(),
     forecast: z.unknown(),
     controls: z.array(controlSchema).length(10),
     checkpointSummary: z.string().min(1).max(600),
   })
   .strict();
 export type AiIntradayForecastOutput = {
+  managementPlans?: AiPositionManagementPlan[];
   forecast: AiDailyForecastOutput;
   controls: z.infer<typeof controlSchema>[];
   checkpointSummary: string;
@@ -1132,7 +1191,9 @@ async function createAiIntradayActivationAudit(input: {
   const spec = checkpointSpec[input.checkpoint];
   const boundaryRows = await db
     .select({
-      engineSequence: sql<number | null>`max(${rtShadowDispatchQueue.engineSequence})`,
+      engineSequence: sql<
+        number | null
+      >`max(${rtShadowDispatchQueue.engineSequence})`,
     })
     .from(rtShadowDispatchQueue);
   const activationAfterEngineSequence = countValue(
@@ -1205,7 +1266,53 @@ export function validateAiIntradayForecastOutput(
     input.priorData
   );
   const reasons = [...forecast.reasonCodes];
+  const knowledgeIds = new Set(
+    (input.latestLearningReview?.review?.knowledge ?? []).map(
+      row => row.knowledgeId
+    )
+  );
+  const managementIds = new Set<string>();
+  const managementPositionIds = new Set<string>();
+  for (const command of parsed.data.managementPlans ?? []) {
+    if (
+      managementIds.has(command.planId) ||
+      managementPositionIds.has(command.positionId)
+    )
+      reasons.push(`duplicate_management_command:${command.planId}`);
+    managementIds.add(command.planId);
+    managementPositionIds.add(command.positionId);
+    if (
+      !(input.aiCurrentPositions ?? []).some(
+        row =>
+          (row.positionId ??
+            aiPositionId(row.symbol, row.side, row.entrySourceEventId)) ===
+            command.positionId &&
+          row.symbol === command.symbol &&
+          row.side === command.side
+      )
+    )
+      reasons.push(`management_position_not_open:${command.positionId}`);
+    if (
+      !(input.managementDecisionEvents ?? []).some(
+        row =>
+          row.symbol === command.symbol &&
+          row.sourceEventId === command.basedOnEventId
+      )
+    )
+      reasons.push(`management_basis_event_unknown:${command.basedOnEventId}`);
+    if (
+      command.validUntil <= input.effectiveFrom ||
+      command.validUntil > "15:20"
+    )
+      reasons.push(`management_valid_until_invalid:${command.planId}`);
+    for (const id of command.knowledgeIds)
+      if (!knowledgeIds.has(id))
+        reasons.push(`management_knowledge_unknown:${id}`);
+  }
   const seen = new Set<string>();
+  const openStrategySymbols = new Set(
+    (input.aiCurrentStrategyPositions ?? []).map(item => item.symbol)
+  );
   for (const control of parsed.data.controls) {
     if (seen.has(control.symbol))
       reasons.push(`duplicate_control_symbol:${control.symbol}`);
@@ -1223,6 +1330,17 @@ export function validateAiIntradayForecastOutput(
       (control.entryWindowStart < "12:30" || control.entryWindowEnd > "12:34")
     )
       reasons.push(`1130_bridge_entry_window_invalid:${control.symbol}`);
+    if (
+      input.checkpoint === "11:30" &&
+      (control.entryWindowStart < "12:30" || control.entryWindowEnd > "12:34")
+    )
+      reasons.push(`lunch_entry_window_invalid:${control.symbol}`);
+    if (
+      input.checkpoint === "11:30" &&
+      !openStrategySymbols.has(control.symbol) &&
+      control.planDecision !== "disabled"
+    )
+      reasons.push(`lunch_flat_symbol_must_be_disabled:${control.symbol}`);
     if (
       control.forceExitTime < control.entryWindowEnd ||
       control.forceExitTime > "15:20"
@@ -1243,6 +1361,7 @@ export function validateAiIntradayForecastOutput(
     valid: Boolean(forecast.valid && forecast.output && reasons.length === 0),
     output: forecast.output
       ? ({
+          managementPlans: parsed.data.managementPlans,
           forecast: forecast.output,
           controls: parsed.data.controls,
           checkpointSummary: parsed.data.checkpointSummary,
@@ -1330,7 +1449,9 @@ function frozenAiIntradayInputFromSubmission(
   const currentSymbols = new Set(
     frozen.currentSession.symbols.map(item => item.symbol)
   );
-  const priorSymbols = new Set(frozen.priorData.symbols.map(item => item.symbol));
+  const priorSymbols = new Set(
+    frozen.priorData.symbols.map(item => item.symbol)
+  );
   if (
     AI_DAILY_FORECAST_SYMBOLS.some(
       symbol => !currentSymbols.has(symbol) || !priorSymbols.has(symbol)
@@ -1441,11 +1562,14 @@ export async function ingestAiIntradayForecastSubmission(
     throw Error(
       `ai_intraday_validation_failed:${validation.reasonCodes.join(",")}`
     );
-  const activationAudit = await createAiIntradayActivationAudit({
-    tradeDate: submission.tradeDate,
-    checkpoint: submission.checkpoint,
-    output: validation.output,
-  });
+  const activationAudit = {
+    ...(await createAiIntradayActivationAudit({
+      tradeDate: submission.tradeDate,
+      checkpoint: submission.checkpoint,
+      output: validation.output,
+    })),
+    receivedAtMs: Date.now(),
+  };
   const payload = {
     sourceRevisionId: submission.sourceRevisionId,
     morningSourceSnapshotId: submission.morningSourceSnapshotId,
@@ -1462,9 +1586,7 @@ export async function ingestAiIntradayForecastSubmission(
     validation: {
       inputQuality: prepared.inputQuality,
       inputReasons: prepared.qualityReasonCodes,
-      inputSnapshotMode: frozenPrepared
-        ? "signed_frozen_v1"
-        : "legacy_rebuild",
+      inputSnapshotMode: frozenPrepared ? "signed_frozen_v1" : "legacy_rebuild",
       materializationWatermark: prepared.materializationWatermark ?? null,
       outputValid: true,
       outputReasons: validation.reasonCodes,

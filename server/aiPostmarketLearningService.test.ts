@@ -45,8 +45,12 @@ const readyWatermark = {
   latestUpstreamCreatedAt: new Date("2026-10-10T09:00:00Z"),
 };
 const referenceIndex = {
-  eventSymbolById: Object.fromEntries(symbols.map(symbol => [`event:${symbol}`, symbol])),
-  tradeSymbolByEntryId: Object.fromEntries(symbols.map(symbol => [`trade:${symbol}`, symbol])),
+  eventSymbolById: Object.fromEntries(
+    symbols.map(symbol => [`event:${symbol}`, symbol])
+  ),
+  tradeSymbolByEntryId: Object.fromEntries(
+    symbols.map(symbol => [`trade:${symbol}`, symbol])
+  ),
 };
 const prepared = {
   tradeDate: "2026-10-10",
@@ -153,14 +157,31 @@ describe("AI postmarket Codex learning review contract", () => {
       dataState: { coldStart: true, smallSample: true, missing: [] },
     } as any;
     const first = aiPostmarketLearningInputHash(input);
-    const second = aiPostmarketLearningInputHash({ ...input, inputHash: "ignored" });
+    const second = aiPostmarketLearningInputHash({
+      ...input,
+      inputHash: "ignored",
+    });
     expect(first).toBe(second);
   });
 
   it("entry後の足をentry causal特徴へ混ぜない", () => {
     const candles = [
-      { candleTime: "09:00", open: 100, high: 101, low: 99, close: 100, volume: 1 },
-      { candleTime: "09:01", open: 100, high: 10_000, low: 1, close: 9_999, volume: 1 },
+      {
+        candleTime: "09:00",
+        open: 100,
+        high: 101,
+        low: 99,
+        close: 100,
+        volume: 1,
+      },
+      {
+        candleTime: "09:01",
+        open: 100,
+        high: 10_000,
+        low: 1,
+        close: 9_999,
+        volume: 1,
+      },
     ];
     const before = snapshotFromCandles(candles, "09:00");
     const mutated = snapshotFromCandles(
@@ -171,9 +192,15 @@ describe("AI postmarket Codex learning review contract", () => {
   });
 
   it("同一reviewIdは同一payloadだけduplicate、異hashはreject対象にする", () => {
-    expect(aiPostmarketReviewIdempotencyOutcomeForTest(null, "a")).toBe("insert");
-    expect(aiPostmarketReviewIdempotencyOutcomeForTest("a", "a")).toBe("duplicate");
-    expect(aiPostmarketReviewIdempotencyOutcomeForTest("a", "b")).toBe("conflict");
+    expect(aiPostmarketReviewIdempotencyOutcomeForTest(null, "a")).toBe(
+      "insert"
+    );
+    expect(aiPostmarketReviewIdempotencyOutcomeForTest("a", "a")).toBe(
+      "duplicate"
+    );
+    expect(aiPostmarketReviewIdempotencyOutcomeForTest("a", "b")).toBe(
+      "conflict"
+    );
   });
 
   it("same-day review、標本不足、劣化品質、通常／不利約定またはDD悪化のvalidatedを拒否する", () => {
@@ -182,7 +209,8 @@ describe("AI postmarket Codex learning review contract", () => {
       generatedAtMs: Date.parse("2026-10-10T18:00:00+09:00"),
     });
     expect(
-      validateAiPostmarketLearningReviewForTest({ review: sameDay, prepared }).reasonCodes
+      validateAiPostmarketLearningReviewForTest({ review: sameDay, prepared })
+        .reasonCodes
     ).toContain("same_day_review_cannot_be_validated");
 
     const degraded = review({
@@ -226,8 +254,12 @@ describe("AI postmarket Codex learning review contract", () => {
   });
 
   it("reviewは翌日以降だけを入力候補にし、app側の自動rule mutationは追加しない", () => {
-    expect(isPostmarketReviewBeforeForecastForTest("2026-10-10", "2026-10-10")).toBe(false);
-    expect(isPostmarketReviewBeforeForecastForTest("2026-10-10", "2026-10-13")).toBe(true);
+    expect(
+      isPostmarketReviewBeforeForecastForTest("2026-10-10", "2026-10-10")
+    ).toBe(false);
+    expect(
+      isPostmarketReviewBeforeForecastForTest("2026-10-10", "2026-10-13")
+    ).toBe(true);
     const daily = readFileSync(
       new URL("./aiDailyForecastService.ts", import.meta.url),
       "utf8"
@@ -236,8 +268,53 @@ describe("AI postmarket Codex learning review contract", () => {
       new URL("./aiIntradayForecastService.ts", import.meta.url),
       "utf8"
     );
-    expect(daily).toContain("getLatestLearningReviewApplicationBefore(input.tradeDate)");
-    expect(intraday).toContain("latestLearningReview: priorData.latestLearningReview");
+    expect(daily).toContain(
+      "getLatestLearningReviewApplicationBefore(input.tradeDate)"
+    );
+    expect(intraday).toContain(
+      "latestLearningReview: priorData.latestLearningReview"
+    );
     expect(daily).not.toContain("automaticRuleMutation: true");
   });
+});
+
+it("retains separated decision knowledge and requires owned evidence and validation", () => {
+  const knowledge = {
+    knowledgeId: "knowledge-8035",
+    symbol: "8035",
+    side: "long",
+    status: "candidate",
+    decisionFacts: {
+      asOf: "2026-10-10T10:00:00+09:00",
+      eventIds: ["event:8035"],
+      facts: ["observed context"],
+    },
+    decisionReason: "hold",
+    actualOutcome: {
+      observedAt: "2026-10-10T11:00:00+09:00",
+      eventIds: ["event:8035"],
+      result: "later exit",
+    },
+    lessonCandidate: "review context",
+    counterexamples: [],
+    uncertainty: ["small sample"],
+  };
+  const result = validateAiPostmarketLearningReviewForTest({
+    prepared,
+    review: review({ knowledge: [knowledge] }),
+  });
+  expect(result.valid).toBe(true);
+  expect(result.review?.knowledge?.[0].actualOutcome.result).toBe("later exit");
+  const invalid = validateAiPostmarketLearningReviewForTest({
+    prepared,
+    review: review({ knowledge: [{ ...knowledge, status: "validated" }] }),
+  });
+  expect(invalid.reasonCodes).toContain(
+    "knowledge_validation_requires_validated_review"
+  );
+  const wrong = validateAiPostmarketLearningReviewForTest({
+    prepared,
+    review: review({ knowledge: [{ ...knowledge, symbol: "5803" }] }),
+  });
+  expect(wrong.valid).toBe(false);
 });

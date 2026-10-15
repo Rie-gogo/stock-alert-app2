@@ -6,6 +6,7 @@ import {
 } from "./aiDailyForecastService";
 import {
   _aiIntradayForecastTest,
+  aiIntradayForecastInputHash,
   validateAiIntradayForecastOutput,
   type AiIntradayForecastInput,
 } from "./aiIntradayForecastService";
@@ -66,7 +67,7 @@ const intradayInput = {
   checkpoint: "10:00",
   cutoffCandleTime: "09:59",
   effectiveFrom: "10:00",
-  validUntil: "10:29",
+  validUntil: "10:14",
   capturedAtMs: 1,
   morningSourceSnapshotId: "morning",
   morningInputHash: "hash",
@@ -83,7 +84,7 @@ const control = (symbol: string) => ({
   planDecision: "maintained",
   changeReason: "No causal contradiction at checkpoint",
   entryWindowStart: "10:00",
-  entryWindowEnd: "10:29",
+  entryWindowEnd: "10:14",
   forceExitTime: "15:20",
   openPositionAction: "keep",
   learningEvidenceUsed: ["prior closed shadow performance"],
@@ -275,16 +276,22 @@ describe("AI intraday forecast causal contract", () => {
       },
       controls: AI_DAILY_FORECAST_SYMBOLS.map(symbol => ({
         ...control(symbol),
+        planDecision: "disabled" as const,
+        entryPolicy: "manage_only" as const,
         entryWindowStart: "12:30",
         entryWindowEnd: "12:34",
       })),
       checkpointSummary: "Lunch bridge only",
     };
-    expect(validateAiIntradayForecastOutput(output, bridgeInput).valid).toBe(true);
+    expect(validateAiIntradayForecastOutput(output, bridgeInput).valid).toBe(
+      true
+    );
     output.controls[0]!.entryWindowStart = "11:30";
     const rejected = validateAiIntradayForecastOutput(output, bridgeInput);
     expect(rejected.valid).toBe(false);
-    expect(rejected.reasonCodes).toContain("1130_bridge_entry_window_invalid:285A");
+    expect(rejected.reasonCodes).toContain(
+      "1130_bridge_entry_window_invalid:285A"
+    );
   });
   it("passes checkpoint-causal multiple AI trades and open positions without mode mixing", () => {
     const journal = _aiIntradayForecastTest.buildAiSessionTradeJournal({
@@ -678,4 +685,55 @@ describe("AI intraday forecast causal contract", () => {
       "session_trade_evidence_missing:8035:session_trade:signal_quality:entry-one"
     );
   });
+});
+
+it("round-trips separate position management and rejects unknown causal evidence", () => {
+  const management = {
+    planId: "management-1",
+    positionId: "8035:long:entry-1",
+    symbol: "8035",
+    side: "long",
+    basedOnEventId: "observed",
+    action: "hold",
+    protectiveStop: 99,
+    validUntil: "10:30",
+    reason: "context",
+    knowledgeIds: [],
+  };
+  const output = {
+    forecast: {
+      forecasts: AI_DAILY_FORECAST_SYMBOLS.map(forecast),
+      marketSummary: "checkpoint",
+      globalReasonCodes: ["causal"],
+    },
+    controls: AI_DAILY_FORECAST_SYMBOLS.map(control),
+    checkpointSummary: "management separated",
+    managementPlans: [management],
+  };
+  const input = {
+    ...intradayInput,
+    aiCurrentPositions: [
+      {
+        symbol: "8035",
+        side: "long",
+        entrySourceEventId: "entry-1",
+        positionId: management.positionId,
+      },
+    ],
+    managementDecisionEvents: [{ symbol: "8035", sourceEventId: "observed" }],
+  } as AiIntradayForecastInput;
+  const result = validateAiIntradayForecastOutput(output, input);
+  expect(result.valid).toBe(true);
+  expect(result.output?.managementPlans).toEqual([management]);
+  const bad = validateAiIntradayForecastOutput(
+    {
+      ...output,
+      managementPlans: [
+        { ...management, basedOnEventId: "future", knowledgeIds: ["unknown"] },
+      ],
+    },
+    input
+  );
+  expect(bad.reasonCodes).toContain("management_basis_event_unknown:future");
+  expect(bad.reasonCodes).toContain("management_knowledge_unknown:unknown");
 });

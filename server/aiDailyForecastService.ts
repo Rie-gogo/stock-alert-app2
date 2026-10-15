@@ -659,6 +659,8 @@ const aiForecastRowSchema = z
     zoneLow: z.number().positive().nullable(),
     zoneHigh: z.number().positive().nullable(),
     confirmPrice: z.number().positive().nullable(),
+    protectiveStop: z.number().finite().positive().optional(),
+    knowledgeIds: z.array(z.string().min(1).max(180)).max(100).optional(),
     firstTarget: z.number().positive().nullable(),
     stretchTarget: z.number().positive().nullable(),
     baselineDecision: z.enum(["maintained", "adjusted", "reference_only"]),
@@ -700,7 +702,15 @@ export function validateAiDailyForecastOutput(
     input.symbols.map(item => [item.symbol, item.baseline])
   );
   const seen = new Set<string>();
+  const knownKnowledge = new Set(
+    (input.latestLearningReview?.review?.knowledge ?? []).map(
+      row => row.knowledgeId
+    )
+  );
   for (const row of output.forecasts) {
+    for (const id of row.knowledgeIds ?? [])
+      if (!knownKnowledge.has(id))
+        reasons.push(`entry_knowledge_unknown:${id}`);
     if (seen.has(row.symbol)) reasons.push(`duplicate_symbol:${row.symbol}`);
     seen.add(row.symbol);
     const base = symbolMap.get(row.symbol)!;

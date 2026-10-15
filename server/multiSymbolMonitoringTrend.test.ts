@@ -85,13 +85,84 @@ describe("10-symbol closed-history monitoring trend with today preview", () => {
     expect(result.pendingClosedTradeDates).toEqual(["2026-09-21"]);
     expect(result.symbols).toHaveLength(10);
     expect(result.dataSource).toBe(
-      "closed_daily_materializations_with_compatible_legacy_fallback_and_today_preview_in_display_windows"
+      "closed_daily_materializations_with_compatible_legacy_fallback_and_ledger_previews_in_display_windows"
     );
     expect(result.legacyFallbackTradeDates).toEqual([]);
     expect(result.todayStatus).toMatchObject({
       source: "unavailable",
       provisional: false,
     });
+  });
+
+  it("日付更新後も未確定の前営業日を保存済み台帳から期間窓へ一度だけ引き継ぐ", () => {
+    const prior = materialization("2026-09-21", 3_000).resultJson;
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-09-22",
+      closedTradeDates: dates,
+      materializations: [
+        ...dates.slice(0, 5).map(date => materialization(date, -1_000)),
+        ...dates.slice(5).map(date => materialization(date, 2_000)),
+      ],
+      priorLedgerPreviews: [{
+        ...prior,
+        component: MULTI_SYMBOL_MONITORING_COMPONENT,
+        materializationVersion: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+        tradeDate: "2026-09-21",
+        incompleteReason: null,
+      } as any],
+    });
+    const current = result.symbols.find(item => item.symbol === "285A")!
+      .plans.find(plan => plan.planId === "current:285A")!;
+
+    expect(current.windows.today).toMatchObject({
+      includedTradingDays: 0,
+      completedTrades: 0,
+      pnlPer100: 0,
+    });
+    expect(current.windows.recent5).toMatchObject({
+      includedTradingDays: 5,
+      completedTrades: 5,
+      pnlPer100: 11_000,
+    });
+    expect(current.windows.all).toMatchObject({
+      includedTradingDays: 11,
+      completedTrades: 11,
+      pnlPer100: 8_000,
+    });
+    expect(result.latestCompletedTradeDate).toBe("2026-09-18");
+    expect(result.latestDisplayedTradeDate).toBe("2026-09-21");
+    expect(result.provisionalLedgerTradeDates).toEqual(["2026-09-21"]);
+  });
+
+  it("前営業日の確定snapshotができたら暫定台帳を同日分へ二重加算しない", () => {
+    const closedPrior = materialization("2026-09-21", 3_000);
+    const conflictingPreview = {
+      ...materialization("2026-09-21", 999_000).resultJson,
+      component: MULTI_SYMBOL_MONITORING_COMPONENT,
+      materializationVersion: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+      tradeDate: "2026-09-21",
+      incompleteReason: null,
+    } as any;
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-09-22",
+      closedTradeDates: [...dates, "2026-09-21"],
+      materializations: [
+        ...dates.slice(0, 5).map(date => materialization(date, -1_000)),
+        ...dates.slice(5).map(date => materialization(date, 2_000)),
+        closedPrior,
+      ],
+      priorLedgerPreviews: [conflictingPreview],
+    });
+    const current = result.symbols.find(item => item.symbol === "285A")!
+      .plans.find(plan => plan.planId === "current:285A")!;
+
+    expect(current.windows.all).toMatchObject({
+      includedTradingDays: 11,
+      completedTrades: 11,
+      pnlPer100: 8_000,
+    });
+    expect(result.provisionalLedgerTradeDates).toEqual([]);
+    expect(result.latestCompletedTradeDate).toBe("2026-09-21");
   });
 
   it("未確定の本日を保存済み台帳previewで表示し、期間窓にも一度だけ加える", () => {

@@ -59,9 +59,15 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground space-y-1">
               <div>
-                集計済み：{trendQuery.data.latestCompletedTradeDate ?? "まだありません"}まで／
+                確定集計：{trendQuery.data.latestCompletedTradeDate ?? "まだありません"}まで／
                 {trendQuery.data.eligibleTradeDates.length}営業日
               </div>
+              {trendQuery.data.provisionalLedgerTradeDates.length > 0 && (
+                <div className="text-cyan-300">
+                  保存済み台帳から暫定反映：{trendQuery.data.provisionalLedgerTradeDates.join("、")}
+                  （直近5日・直近10日・全期間へ一度だけ加算し、確定snapshotで置換）
+                </div>
+              )}
               {trendQuery.data.todayStatus.source === "persisted_ledger_preview" && (
                 <div className="text-cyan-300">
                   本日：保存済み台帳から暫定集計
@@ -72,7 +78,7 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
               )}
               {trendQuery.data.todayStatus.source === "unavailable" && (
                 <div className="text-amber-300">
-                  本日：確定snapshotまたは保存済み台帳がまだありません
+                  本日：保存済み取引はまだありません（開場前・未発火時は0件）
                 </div>
               )}
               {trendQuery.data.pendingClosedTradeDates.length > 0 && (

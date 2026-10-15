@@ -16,6 +16,7 @@ import {
   MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS,
   TEN_MONITORED_SYMBOLS,
 } from "./multiSymbolMonitoringRegistry";
+import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 
 export const MULTI_SYMBOL_MONITORING_TREND_VERSION =
   "monitoring-trend-10-symbols-rolling-windows-with-today-preview-v3";
@@ -153,6 +154,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
   closedTradeDates: string[];
   materializations: RtDailyAuditMaterialization[];
   todayPreview?: MultiSymbolMonitoringDailySnapshot | null;
+  priorLedgerPreviews?: MultiSymbolMonitoringDailySnapshot[];
 }) {
   const closedDates = Array.from(new Set(input.closedTradeDates))
     .filter(date => date >= MULTI_SYMBOL_MONITORING_START_DATE && date <= input.asOfDate)
@@ -189,17 +191,39 @@ export function buildMultiSymbolMonitoringTrend(input: {
       ? "persisted_ledger_preview" as const
       : "unavailable" as const;
 
+  // 日付更新直後に前営業日のfinality/materializationが遅れていても、
+  // 画面上の直近5日・全期間から前日の保存済み成績を消さない。
+  // 確定snapshotを上書きせず、同日の確定版が存在しない場合だけ
+  // read-only台帳previewを表示用の履歴へ一度だけ加える。
+  const provisionalHistoryByDate = new Map<string, MultiSymbolMonitoringDailySnapshot>();
+  for (const preview of input.priorLedgerPreviews ?? []) {
+    if (
+      preview.tradeDate >= MULTI_SYMBOL_MONITORING_START_DATE
+      && preview.tradeDate < input.asOfDate
+      && !rowsByDate.has(preview.tradeDate)
+    ) {
+      provisionalHistoryByDate.set(preview.tradeDate, preview);
+    }
+  }
+  const provisionalLedgerTradeDates = Array.from(
+    provisionalHistoryByDate.keys(),
+  ).sort();
+
   // The stored daily materializations remain immutable. For the display-only
   // rolling windows, append the persisted-ledger preview exactly once until a
   // closed snapshot for the same date replaces it. This keeps the natural
   // meanings of "last 5 days" and "all time": a non-zero Today row cannot be
   // missing from those totals, while no provisional value is written back.
   const displayRowsByDate = new Map(rowsByDate);
+  for (const [tradeDate, preview] of Array.from(provisionalHistoryByDate)) {
+    displayRowsByDate.set(tradeDate, preview);
+  }
   if (!closedTodaySnapshot && previewTodaySnapshot) {
     displayRowsByDate.set(input.asOfDate, previewTodaySnapshot);
   }
   const displayTradeDates = Array.from(new Set([
     ...eligibleTradeDates,
+    ...provisionalLedgerTradeDates,
     ...(todaySnapshot ? [input.asOfDate] : []),
   ])).sort();
   const lastDisplayDates = (count: number) => displayTradeDates.slice(-count);
@@ -270,6 +294,9 @@ export function buildMultiSymbolMonitoringTrend(input: {
     asOfDate: input.asOfDate,
     monitoringStartDate: MULTI_SYMBOL_MONITORING_START_DATE,
     eligibleTradeDates,
+    displayTradeDates,
+    latestDisplayedTradeDate: displayTradeDates.at(-1) ?? null,
+    provisionalLedgerTradeDates,
     legacyFallbackTradeDates,
     sourceMaterializationVersionByDate: Object.fromEntries(sourceVersionByDate),
     pendingClosedTradeDates,
@@ -285,12 +312,27 @@ export function buildMultiSymbolMonitoringTrend(input: {
     automaticStopping: false,
     intradayExecutionChanged: false,
     dataSource:
-      "closed_daily_materializations_with_compatible_legacy_fallback_and_today_preview_in_display_windows" as const,
+      "closed_daily_materializations_with_compatible_legacy_fallback_and_ledger_previews_in_display_windows" as const,
     symbols: TEN_MONITORED_SYMBOLS.map(symbol => ({
       symbol,
       plans: currentFirst(planResults.filter(plan => plan.symbol === symbol), plan => plan.role === "current"),
     })),
   };
+}
+
+function previousTokyoEquityTradeDate(date: string) {
+  const probe = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(probe.getTime())) throw Error("invalid_trade_date");
+  for (let i = 0; i < 14; i += 1) {
+    probe.setUTCDate(probe.getUTCDate() - 1);
+    const candidate = probe.toISOString().slice(0, 10);
+    const dayBefore = new Date(probe);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+    if (nextTokyoEquityTradeDate(dayBefore.toISOString().slice(0, 10)) === candidate) {
+      return candidate;
+    }
+  }
+  throw Error("previous_trade_date_unavailable");
 }
 
 export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
@@ -317,6 +359,7 @@ export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
     .toISOString()
     .slice(0, 10);
   let todayPreview: MultiSymbolMonitoringDailySnapshot | null = null;
+  const priorLedgerPreviews: MultiSymbolMonitoringDailySnapshot[] = [];
   if (!hasClosedTodaySnapshot && asOfDate === currentJstDate) {
     try {
       // The preview only reads already-persisted candidate/trade ledgers. It is
@@ -331,10 +374,32 @@ export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
       });
     }
   }
+  if (asOfDate === currentJstDate) {
+    try {
+      const priorTradeDate = previousTokyoEquityTradeDate(asOfDate);
+      const hasClosedPriorSnapshot = materializations.some(
+        row => row.tradeDate === priorTradeDate && parseSnapshot(row) !== null,
+      );
+      if (!hasClosedPriorSnapshot) {
+        const priorPreview = await materializeMultiSymbolMonitoringForDate(priorTradeDate);
+        const hasPersistedLedger = priorPreview.summary.signals > 0
+          || priorPreview.summary.completedTrades > 0
+          || priorPreview.summary.openTrades > 0
+          || priorPreview.summary.missingTrades > 0;
+        if (hasPersistedLedger) priorLedgerPreviews.push(priorPreview);
+      }
+    } catch (error) {
+      console.warn("[multi-symbol-monitoring] prior ledger preview unavailable", {
+        asOfDate,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   return buildMultiSymbolMonitoringTrend({
     asOfDate,
     closedTradeDates,
     materializations,
     todayPreview,
+    priorLedgerPreviews,
   });
 }

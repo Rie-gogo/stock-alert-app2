@@ -8,6 +8,7 @@ import {
   MULTI_SYMBOL_MONITORING_COMPONENT,
   MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
   MULTI_SYMBOL_MONITORING_START_DATE,
+  materializeMultiSymbolMonitoringForDate,
   type DailyMonitoringPlanSnapshot,
   type MultiSymbolMonitoringDailySnapshot,
 } from "./multiSymbolMonitoringMaterializer";
@@ -16,7 +17,8 @@ import {
   TEN_MONITORED_SYMBOLS,
 } from "./multiSymbolMonitoringRegistry";
 
-export const MULTI_SYMBOL_MONITORING_TREND_VERSION = "monitoring-trend-10-symbols-snapshot-only-v1";
+export const MULTI_SYMBOL_MONITORING_TREND_VERSION =
+  "monitoring-trend-10-symbols-closed-history-with-today-preview-v2";
 
 type TrendStatus = "improving" | "deteriorating" | "mixed" | "stable" | "insufficient";
 
@@ -150,6 +152,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
   asOfDate: string;
   closedTradeDates: string[];
   materializations: RtDailyAuditMaterialization[];
+  todayPreview?: MultiSymbolMonitoringDailySnapshot | null;
 }) {
   const closedDates = Array.from(new Set(input.closedTradeDates))
     .filter(date => date >= MULTI_SYMBOL_MONITORING_START_DATE && date <= input.asOfDate)
@@ -173,7 +176,20 @@ export function buildMultiSymbolMonitoringTrend(input: {
   );
   const lastDates = (count: number) => eligibleTradeDates.slice(-count);
   const previousFiveDates = eligibleTradeDates.slice(-10, -5);
-  const todayDates = eligibleTradeDates.includes(input.asOfDate) ? [input.asOfDate] : [];
+  const closedTodaySnapshot = rowsByDate.get(input.asOfDate) ?? null;
+  const previewTodaySnapshot = input.todayPreview?.tradeDate === input.asOfDate
+    ? input.todayPreview
+    : null;
+  const todaySnapshot = closedTodaySnapshot ?? previewTodaySnapshot;
+  const todayRowsByDate = todaySnapshot
+    ? new Map([[input.asOfDate, todaySnapshot]])
+    : new Map<string, MultiSymbolMonitoringDailySnapshot>();
+  const todayDates = todaySnapshot ? [input.asOfDate] : [];
+  const todaySource = closedTodaySnapshot
+    ? "closed_daily_materialization" as const
+    : previewTodaySnapshot
+      ? "persisted_ledger_preview" as const
+      : "unavailable" as const;
 
   const planResults = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.map(definition => {
     // Immutable historical rows remain byte-for-byte untouched. A role-only
@@ -181,7 +197,12 @@ export function buildMultiSymbolMonitoringTrend(input: {
     // at read time, while each trade date still contributes one selected
     // materialization version only.
     const planIds = [definition.planId, ...(definition.legacyPlanIds ?? [])];
-    const today = metricsForDates({ rowsByDate, planIds, dates: todayDates, requestedTradingDays: 1 });
+    const today = metricsForDates({
+      rowsByDate: todayRowsByDate,
+      planIds,
+      dates: todayDates,
+      requestedTradingDays: 1,
+    });
     const recent5 = metricsForDates({ rowsByDate, planIds, dates: lastDates(5), requestedTradingDays: 5 });
     const previous5 = metricsForDates({ rowsByDate, planIds, dates: previousFiveDates, requestedTradingDays: 5 });
     const recent10 = metricsForDates({ rowsByDate, planIds, dates: lastDates(10), requestedTradingDays: 10 });
@@ -208,10 +229,18 @@ export function buildMultiSymbolMonitoringTrend(input: {
     sourceMaterializationVersionByDate: Object.fromEntries(sourceVersionByDate),
     pendingClosedTradeDates,
     latestCompletedTradeDate: eligibleTradeDates.at(-1) ?? null,
+    todayStatus: {
+      tradeDate: input.asOfDate,
+      source: todaySource,
+      provisional: todaySource === "persisted_ledger_preview",
+      ready: todaySnapshot?.ready ?? false,
+      incompleteReason: todaySnapshot?.incompleteReason ?? null,
+    },
     automaticAdoption: false,
     automaticStopping: false,
     intradayExecutionChanged: false,
-    dataSource: "closed_daily_materializations_with_compatible_legacy_fallback" as const,
+    dataSource:
+      "closed_daily_materializations_with_compatible_legacy_fallback_and_optional_today_preview" as const,
     symbols: TEN_MONITORED_SYMBOLS.map(symbol => ({
       symbol,
       plans: currentFirst(planResults.filter(plan => plan.symbol === symbol), plan => plan.role === "current"),
@@ -235,9 +264,31 @@ export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
       })
     )),
   ]);
+  const materializations = materializationGroups.flat();
+  const hasClosedTodaySnapshot = materializations.some(
+    row => row.tradeDate === asOfDate && parseSnapshot(row) !== null,
+  );
+  const currentJstDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  let todayPreview: MultiSymbolMonitoringDailySnapshot | null = null;
+  if (!hasClosedTodaySnapshot && asOfDate === currentJstDate) {
+    try {
+      // The preview only reads already-persisted candidate/trade ledgers. It is
+      // not written as a closed audit snapshot and is never mixed into the
+      // historical 5/10/all-day windows.
+      todayPreview = await materializeMultiSymbolMonitoringForDate(asOfDate);
+    } catch (error) {
+      console.warn("[multi-symbol-monitoring] today preview unavailable", {
+        asOfDate,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   return buildMultiSymbolMonitoringTrend({
     asOfDate,
     closedTradeDates,
-    materializations: materializationGroups.flat(),
+    materializations,
+    todayPreview,
   });
 }

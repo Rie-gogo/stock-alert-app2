@@ -54,7 +54,7 @@ function materialization(
   } as any;
 }
 
-describe("10-symbol snapshot-only monitoring trend", () => {
+describe("10-symbol closed-history monitoring trend with today preview", () => {
   it("確定snapshotだけで最近5日対前5日を比較し、未集計日を明示する", () => {
     const result = buildMultiSymbolMonitoringTrend({
       asOfDate: "2026-09-21",
@@ -85,9 +85,58 @@ describe("10-symbol snapshot-only monitoring trend", () => {
     expect(result.pendingClosedTradeDates).toEqual(["2026-09-21"]);
     expect(result.symbols).toHaveLength(10);
     expect(result.dataSource).toBe(
-      "closed_daily_materializations_with_compatible_legacy_fallback"
+      "closed_daily_materializations_with_compatible_legacy_fallback_and_optional_today_preview"
     );
     expect(result.legacyFallbackTradeDates).toEqual([]);
+    expect(result.todayStatus).toMatchObject({
+      source: "unavailable",
+      provisional: false,
+    });
+  });
+
+  it("未確定の本日だけ保存済み台帳previewを表示し、履歴窓には混ぜない", () => {
+    const preview = materialization("2026-09-21", 3_000).resultJson;
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-09-21",
+      closedTradeDates: dates,
+      materializations: [
+        ...dates.slice(0, 5).map(date => materialization(date, -1_000)),
+        ...dates.slice(5).map(date => materialization(date, 2_000)),
+      ],
+      todayPreview: {
+        ...preview,
+        component: MULTI_SYMBOL_MONITORING_COMPONENT,
+        materializationVersion: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+        tradeDate: "2026-09-21",
+        incompleteReason: null,
+      } as any,
+    });
+    const current = result.symbols.find(item => item.symbol === "285A")!
+      .plans.find(plan => plan.planId === "current:285A")!;
+
+    expect(current.windows.today).toMatchObject({
+      includedTradingDays: 1,
+      completedTrades: 1,
+      wins: 1,
+      pnlPer100: 3_000,
+    });
+    expect(current.windows.recent5).toMatchObject({
+      includedTradingDays: 5,
+      completedTrades: 5,
+      pnlPer100: 10_000,
+    });
+    expect(current.windows.all).toMatchObject({
+      includedTradingDays: 10,
+      completedTrades: 10,
+      pnlPer100: 5_000,
+    });
+    expect(result.eligibleTradeDates).toEqual(dates);
+    expect(result.latestCompletedTradeDate).toBe("2026-09-18");
+    expect(result.todayStatus).toMatchObject({
+      source: "persisted_ledger_preview",
+      provisional: true,
+      ready: true,
+    });
   });
 
   it("新snapshot未作成日は変更のないplanIdだけ旧集計を引き継ぎ、同一日は新snapshotを優先する", () => {

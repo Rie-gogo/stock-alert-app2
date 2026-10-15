@@ -40,7 +40,8 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
       <CardHeader className="pb-2">
         <CardTitle className="text-base">10銘柄 案単位 最近傾向（概要・選択根拠外）</CardTitle>
         <p className="text-xs text-muted-foreground">
-          閉場後に監査完了した日次snapshotだけを読みます。日中の1分足受信・現行・シャドー処理は待たせません。
+          履歴列は閉場後に監査完了した日次snapshotだけを読みます。「本日」は確定前に限り、保存済み取引台帳の決済済み分を100株換算で暫定表示します。
+          1分足や場中処理は再計算せず、日中の受信・現行・シャドー処理は待たせません。
           複数経路を含む案があるため、この表は概要表示だけです。選択器は下段の経路別最近傾向を正式な判断材料とし、ここから自動採用・自動停止・自動切替は行いません。
         </p>
       </CardHeader>
@@ -49,7 +50,7 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
           <p className="text-sm text-muted-foreground">ログイン後に比較結果を表示します。</p>
         ) : trendQuery.isLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> 保存済み日次集計を読込中です
+            <Loader2 className="h-4 w-4 animate-spin" /> 保存済み日次集計と本日台帳を読込中です
           </p>
         ) : trendQuery.isError ? (
           <p className="text-sm text-amber-300">日次比較結果を取得できませんでした。現行運用とシャドー検証は継続しています。</p>
@@ -60,6 +61,19 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                 集計済み：{trendQuery.data.latestCompletedTradeDate ?? "まだありません"}まで／
                 {trendQuery.data.eligibleTradeDates.length}営業日
               </div>
+              {trendQuery.data.todayStatus.source === "persisted_ledger_preview" && (
+                <div className="text-cyan-300">
+                  本日：保存済み台帳から暫定集計
+                  {trendQuery.data.todayStatus.ready
+                    ? "（全取引決済済み。閉場後snapshot確定時に置き換わります）"
+                    : "（未決済・未生成を含むため、決済済み分だけ表示）"}
+                </div>
+              )}
+              {trendQuery.data.todayStatus.source === "unavailable" && (
+                <div className="text-amber-300">
+                  本日：確定snapshotまたは保存済み台帳がまだありません
+                </div>
+              )}
               {trendQuery.data.pendingClosedTradeDates.length > 0 && (
                 <div className="text-amber-300">
                   閉場済み・集計待ち：{trendQuery.data.pendingClosedTradeDates.join("、")}
@@ -86,7 +100,9 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                         <tr>
                           <th className="px-3 py-2 text-left">方式</th>
                           <th className="px-2 py-2 text-left">傾向</th>
-                          <th className="px-2 py-2 text-right">本日</th>
+                          <th className="px-2 py-2 text-right">
+                            本日{trendQuery.data.todayStatus.provisional ? "（暫定）" : ""}
+                          </th>
                           <th className="px-2 py-2 text-right">直近5日</th>
                           <th className="px-2 py-2 text-right">直近10日</th>
                           <th className="px-2 py-2 text-right">全期間</th>

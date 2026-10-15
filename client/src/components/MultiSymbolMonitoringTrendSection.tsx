@@ -40,7 +40,8 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
       <CardHeader className="pb-2">
         <CardTitle className="text-base">10銘柄 案単位 最近傾向（概要・選択根拠外）</CardTitle>
         <p className="text-xs text-muted-foreground">
-          履歴列は閉場後に監査完了した日次snapshotだけを読みます。「本日」は確定前に限り、保存済み取引台帳の決済済み分を100株換算で暫定表示します。
+          確定済み履歴は閉場後に監査完了した日次snapshotだけを読みます。「本日」は確定前に限り、保存済み取引台帳の決済済み分を100株換算で暫定表示します。
+          直近5日・直近10日・全期間には本日の暫定値を1営業日分として一度だけ加え、閉場後は同日の確定snapshotへ置き換えます。
           1分足や場中処理は再計算せず、日中の受信・現行・シャドー処理は待たせません。
           複数経路を含む案があるため、この表は概要表示だけです。選択器は下段の経路別最近傾向を正式な判断材料とし、ここから自動採用・自動停止・自動切替は行いません。
         </p>
@@ -65,8 +66,8 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                 <div className="text-cyan-300">
                   本日：保存済み台帳から暫定集計
                   {trendQuery.data.todayStatus.ready
-                    ? "（全取引決済済み。閉場後snapshot確定時に置き換わります）"
-                    : "（未決済・未生成を含むため、決済済み分だけ表示）"}
+                    ? "（各期間列にも一度だけ加算。閉場後snapshot確定時に置き換わります）"
+                    : "（未決済・未生成を含むため決済済み分だけを各期間列にも一度だけ加算）"}
                 </div>
               )}
               {trendQuery.data.todayStatus.source === "unavailable" && (

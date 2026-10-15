@@ -18,7 +18,7 @@ import {
 } from "./multiSymbolMonitoringRegistry";
 
 export const MULTI_SYMBOL_MONITORING_TREND_VERSION =
-  "monitoring-trend-10-symbols-closed-history-with-today-preview-v2";
+  "monitoring-trend-10-symbols-rolling-windows-with-today-preview-v3";
 
 type TrendStatus = "improving" | "deteriorating" | "mixed" | "stable" | "insufficient";
 
@@ -174,8 +174,6 @@ export function buildMultiSymbolMonitoringTrend(input: {
   const legacyFallbackTradeDates = eligibleTradeDates.filter(
     date => sourceVersionByDate.get(date) !== MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
   );
-  const lastDates = (count: number) => eligibleTradeDates.slice(-count);
-  const previousFiveDates = eligibleTradeDates.slice(-10, -5);
   const closedTodaySnapshot = rowsByDate.get(input.asOfDate) ?? null;
   const previewTodaySnapshot = input.todayPreview?.tradeDate === input.asOfDate
     ? input.todayPreview
@@ -191,6 +189,22 @@ export function buildMultiSymbolMonitoringTrend(input: {
       ? "persisted_ledger_preview" as const
       : "unavailable" as const;
 
+  // The stored daily materializations remain immutable. For the display-only
+  // rolling windows, append the persisted-ledger preview exactly once until a
+  // closed snapshot for the same date replaces it. This keeps the natural
+  // meanings of "last 5 days" and "all time": a non-zero Today row cannot be
+  // missing from those totals, while no provisional value is written back.
+  const displayRowsByDate = new Map(rowsByDate);
+  if (!closedTodaySnapshot && previewTodaySnapshot) {
+    displayRowsByDate.set(input.asOfDate, previewTodaySnapshot);
+  }
+  const displayTradeDates = Array.from(new Set([
+    ...eligibleTradeDates,
+    ...(todaySnapshot ? [input.asOfDate] : []),
+  ])).sort();
+  const lastDisplayDates = (count: number) => displayTradeDates.slice(-count);
+  const previousFiveDisplayDates = displayTradeDates.slice(-10, -5);
+
   const planResults = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.map(definition => {
     // Immutable historical rows remain byte-for-byte untouched. A role-only
     // rename maps its pre-promotion plan ID to the new comparison-shadow row
@@ -203,16 +217,47 @@ export function buildMultiSymbolMonitoringTrend(input: {
       dates: todayDates,
       requestedTradingDays: 1,
     });
-    const recent5 = metricsForDates({ rowsByDate, planIds, dates: lastDates(5), requestedTradingDays: 5 });
-    const previous5 = metricsForDates({ rowsByDate, planIds, dates: previousFiveDates, requestedTradingDays: 5 });
-    const recent10 = metricsForDates({ rowsByDate, planIds, dates: lastDates(10), requestedTradingDays: 10 });
-    const recent20 = metricsForDates({ rowsByDate, planIds, dates: lastDates(20), requestedTradingDays: 20 });
-    const all = metricsForDates({ rowsByDate, planIds, dates: eligibleTradeDates, requestedTradingDays: "all" });
+    const recent5 = metricsForDates({
+      rowsByDate: displayRowsByDate,
+      planIds,
+      dates: lastDisplayDates(5),
+      requestedTradingDays: 5,
+    });
+    const previous5 = metricsForDates({
+      rowsByDate: displayRowsByDate,
+      planIds,
+      dates: previousFiveDisplayDates,
+      requestedTradingDays: 5,
+    });
+    const recent10 = metricsForDates({
+      rowsByDate: displayRowsByDate,
+      planIds,
+      dates: lastDisplayDates(10),
+      requestedTradingDays: 10,
+    });
+    const recent20 = metricsForDates({
+      rowsByDate: displayRowsByDate,
+      planIds,
+      dates: lastDisplayDates(20),
+      requestedTradingDays: 20,
+    });
+    const all = metricsForDates({
+      rowsByDate: displayRowsByDate,
+      planIds,
+      dates: displayTradeDates,
+      requestedTradingDays: "all",
+    });
+    const closedAll = metricsForDates({
+      rowsByDate,
+      planIds,
+      dates: eligibleTradeDates,
+      requestedTradingDays: "all",
+    });
     return {
       ...definition,
       trend: compareFiveDayWindows(recent5, previous5),
       windows: { today, recent5, previous5, recent10, recent20, all },
-      reviewStatus: eligibleTradeDates.length >= 20 && all.completedTrades >= 10
+      reviewStatus: eligibleTradeDates.length >= 20 && closedAll.completedTrades >= 10
         ? "four_weeks_ten_trades_manual_review" as const
         : "preliminary" as const,
     };
@@ -240,7 +285,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
     automaticStopping: false,
     intradayExecutionChanged: false,
     dataSource:
-      "closed_daily_materializations_with_compatible_legacy_fallback_and_optional_today_preview" as const,
+      "closed_daily_materializations_with_compatible_legacy_fallback_and_today_preview_in_display_windows" as const,
     symbols: TEN_MONITORED_SYMBOLS.map(symbol => ({
       symbol,
       plans: currentFirst(planResults.filter(plan => plan.symbol === symbol), plan => plan.role === "current"),
@@ -275,8 +320,9 @@ export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
   if (!hasClosedTodaySnapshot && asOfDate === currentJstDate) {
     try {
       // The preview only reads already-persisted candidate/trade ledgers. It is
-      // not written as a closed audit snapshot and is never mixed into the
-      // historical 5/10/all-day windows.
+      // not written as a closed audit snapshot. At read time it is added once
+      // to the display-only rolling windows, then replaced by the closed daily
+      // snapshot for the same date.
       todayPreview = await materializeMultiSymbolMonitoringForDate(asOfDate);
     } catch (error) {
       console.warn("[multi-symbol-monitoring] today preview unavailable", {

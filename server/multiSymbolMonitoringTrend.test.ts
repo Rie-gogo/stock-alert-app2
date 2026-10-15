@@ -85,7 +85,7 @@ describe("10-symbol closed-history monitoring trend with today preview", () => {
     expect(result.pendingClosedTradeDates).toEqual(["2026-09-21"]);
     expect(result.symbols).toHaveLength(10);
     expect(result.dataSource).toBe(
-      "closed_daily_materializations_with_compatible_legacy_fallback_and_optional_today_preview"
+      "closed_daily_materializations_with_compatible_legacy_fallback_and_today_preview_in_display_windows"
     );
     expect(result.legacyFallbackTradeDates).toEqual([]);
     expect(result.todayStatus).toMatchObject({
@@ -94,7 +94,7 @@ describe("10-symbol closed-history monitoring trend with today preview", () => {
     });
   });
 
-  it("未確定の本日だけ保存済み台帳previewを表示し、履歴窓には混ぜない", () => {
+  it("未確定の本日を保存済み台帳previewで表示し、期間窓にも一度だけ加える", () => {
     const preview = materialization("2026-09-21", 3_000).resultJson;
     const result = buildMultiSymbolMonitoringTrend({
       asOfDate: "2026-09-21",
@@ -123,12 +123,12 @@ describe("10-symbol closed-history monitoring trend with today preview", () => {
     expect(current.windows.recent5).toMatchObject({
       includedTradingDays: 5,
       completedTrades: 5,
-      pnlPer100: 10_000,
+      pnlPer100: 11_000,
     });
     expect(current.windows.all).toMatchObject({
-      includedTradingDays: 10,
-      completedTrades: 10,
-      pnlPer100: 5_000,
+      includedTradingDays: 11,
+      completedTrades: 11,
+      pnlPer100: 8_000,
     });
     expect(result.eligibleTradeDates).toEqual(dates);
     expect(result.latestCompletedTradeDate).toBe("2026-09-18");
@@ -136,6 +136,67 @@ describe("10-symbol closed-history monitoring trend with today preview", () => {
       source: "persisted_ledger_preview",
       provisional: true,
       ready: true,
+    });
+  });
+
+  it("本日初めて発火した案を全期間0件にせず、本日値を各期間へ一度だけ反映する", () => {
+    const preview = materialization("2026-09-21", 0).resultJson as any;
+    const fixedBollinger = MULTI_SYMBOL_MONITORING_PLAN_DEFINITIONS.find(
+      plan => plan.symbol === "285A" && plan.label.includes("入口時固定±2σ"),
+    )!;
+    preview.plans = preview.plans.map((plan: any) => plan.planId === fixedBollinger.planId
+      ? {
+          ...plan,
+          signals: 3,
+          openedTrades: 3,
+          completedTrades: 3,
+          openTrades: 0,
+          wins: 3,
+          losses: 0,
+          draws: 0,
+          pnlPer100: 65_562,
+          grossProfitPer100: 65_562,
+          grossLossPer100: 0,
+        }
+      : plan);
+
+    const result = buildMultiSymbolMonitoringTrend({
+      asOfDate: "2026-09-21",
+      closedTradeDates: dates,
+      materializations: dates.map(date => materialization(date, 0)),
+      todayPreview: {
+        ...preview,
+        component: MULTI_SYMBOL_MONITORING_COMPONENT,
+        materializationVersion: MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
+        tradeDate: "2026-09-21",
+        incompleteReason: null,
+      },
+    });
+    const displayed = result.symbols.find(item => item.symbol === "285A")!
+      .plans.find(plan => plan.planId === fixedBollinger.planId)!;
+
+    expect(displayed.windows.today).toMatchObject({
+      completedTrades: 3,
+      wins: 3,
+      pnlPer100: 65_562,
+    });
+    expect(displayed.windows.recent5).toMatchObject({
+      includedTradingDays: 5,
+      completedTrades: 3,
+      wins: 3,
+      pnlPer100: 65_562,
+    });
+    expect(displayed.windows.recent10).toMatchObject({
+      includedTradingDays: 10,
+      completedTrades: 3,
+      wins: 3,
+      pnlPer100: 65_562,
+    });
+    expect(displayed.windows.all).toMatchObject({
+      includedTradingDays: 11,
+      completedTrades: 3,
+      wins: 3,
+      pnlPer100: 65_562,
     });
   });
 

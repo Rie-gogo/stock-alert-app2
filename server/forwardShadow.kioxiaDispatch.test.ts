@@ -30,34 +30,19 @@ const input = {
   board: { currentPrice: 1_000 },
 };
 
-describe("285A第1・第2・再開監視シャドー独立ディスパッチ", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    firstShadow.mockResolvedValue({ strategyVersion: "first" });
-    secondShadow.mockResolvedValue({ strategyVersion: "second" });
-    reopenShadow.mockResolvedValue({ strategyVersion: "reopen" });
-  });
+vi.mock("./retiredSixStrategies", () => ({ retireSixShadowStrategyVersions: vi.fn() }));
+vi.mock("./aiDailyForecastShadowEngine", () => ({ processAiDailyForecastShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
+vi.mock("./bollingerDirectionalShadowEngine", () => ({ processBollingerDirectionalShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
 
-  it("同一受信を第1・第2・再開監視へ各1回渡し、別結果として返す", async () => {
-    const result = await processForwardShadowSourceEvent(input);
-    expect(firstShadow).toHaveBeenCalledOnce();
-    expect(secondShadow).toHaveBeenCalledOnce();
-    expect(reopenShadow).toHaveBeenCalledOnce();
-    expect(firstShadow).toHaveBeenCalledWith(input);
-    expect(secondShadow).toHaveBeenCalledWith(input);
-    expect(reopenShadow).toHaveBeenCalledWith(input);
-    expect(result).toMatchObject({
-      skipped: false,
-      symbol: "285A",
-      evaluations: [{ strategyVersion: "first" }, { strategyVersion: "second" }, { strategyVersion: "reopen" }],
-    });
-  });
-
-  it("第1案が失敗しても第2案を実行し、親イベント再試行用の集約エラーを返す", async () => {
-    firstShadow.mockRejectedValueOnce(new Error("first-temporary"));
-    await expect(processForwardShadowSourceEvent(input)).rejects.toThrow("kioxia_forward_shadow_partial_failure");
-    expect(firstShadow).toHaveBeenCalledOnce();
-    expect(secondShadow).toHaveBeenCalledOnce();
-    expect(reopenShadow).toHaveBeenCalledOnce();
+describe("legacy source delivery retired", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("does not call retired engines, even when they would throw", async () => {
+    firstShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    secondShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    reopenShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    await expect(processForwardShadowSourceEvent(input)).resolves.toMatchObject({ skipped: "legacy_shadow_retired_2026_10_17" });
+    expect(firstShadow).not.toHaveBeenCalled();
+    expect(secondShadow).not.toHaveBeenCalled();
+    expect(reopenShadow).not.toHaveBeenCalled();
   });
 });

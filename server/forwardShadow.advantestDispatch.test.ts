@@ -17,23 +17,15 @@ const input = {
   board: null,
 };
 
-describe("6857 A/B forward-shadow dispatch", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    advantestShadow.mockResolvedValue({
-      skipped: false,
-      symbol: "6857",
-      evaluations: ["short-body008-depth", "confirmed-continuation-depth"],
-    });
-  });
+vi.mock("./retiredSixStrategies", () => ({ retireSixShadowStrategyVersions: vi.fn() }));
+vi.mock("./aiDailyForecastShadowEngine", () => ({ processAiDailyForecastShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
+vi.mock("./bollingerDirectionalShadowEngine", () => ({ processBollingerDirectionalShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
 
-  it("同じ6857 source eventを独立A/B engineへ一度だけ渡す", async () => {
-    await expect(processForwardShadowSourceEvent(input)).resolves.toMatchObject({
-      skipped: false,
-      symbol: "6857",
-      evaluations: ["short-body008-depth", "confirmed-continuation-depth"],
-    });
-    expect(advantestShadow).toHaveBeenCalledOnce();
-    expect(advantestShadow).toHaveBeenCalledWith(input);
+describe("legacy source delivery retired", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("does not call retired engines, even when they would throw", async () => {
+    advantestShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    await expect(processForwardShadowSourceEvent(input)).resolves.toMatchObject({ skipped: "legacy_shadow_retired_2026_10_17" });
+    expect(advantestShadow).not.toHaveBeenCalled();
   });
 });

@@ -25,27 +25,17 @@ const input = {
   board: null,
 };
 
-describe("5803 LONG・新SHORTシャドー独立ディスパッチ", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    longShadow.mockResolvedValue({ strategyVersion: "long" });
-    shortShadow.mockResolvedValue({ strategyVersion: "short" });
-  });
+vi.mock("./retiredSixStrategies", () => ({ retireSixShadowStrategyVersions: vi.fn() }));
+vi.mock("./aiDailyForecastShadowEngine", () => ({ processAiDailyForecastShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
+vi.mock("./bollingerDirectionalShadowEngine", () => ({ processBollingerDirectionalShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
 
-  it("同じ5803 source eventを両経路へ渡す", async () => {
-    await expect(processForwardShadowSourceEvent(input)).resolves.toMatchObject({
-      skipped: false,
-      symbol: "5803",
-      evaluations: [{ strategyVersion: "long" }, { strategyVersion: "short" }],
-    });
-    expect(longShadow).toHaveBeenCalledWith(input);
-    expect(shortShadow).toHaveBeenCalledWith(input);
-  });
-
-  it("一方が失敗しても他方を実行し、親event再試行用エラーに集約する", async () => {
-    shortShadow.mockRejectedValueOnce(new Error("short-temporary"));
-    await expect(processForwardShadowSourceEvent(input)).rejects.toThrow("fujikura_forward_shadow_partial_failure");
-    expect(longShadow).toHaveBeenCalledOnce();
-    expect(shortShadow).toHaveBeenCalledOnce();
+describe("legacy source delivery retired", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("does not call retired engines, even when they would throw", async () => {
+    longShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    shortShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    await expect(processForwardShadowSourceEvent(input)).resolves.toMatchObject({ skipped: "legacy_shadow_retired_2026_10_17" });
+    expect(longShadow).not.toHaveBeenCalled();
+    expect(shortShadow).not.toHaveBeenCalled();
   });
 });

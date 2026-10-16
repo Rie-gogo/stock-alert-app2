@@ -21,26 +21,17 @@ const input = {
   board: { bids: [{ price: 59_090, qty: 100 }] },
 };
 
-describe("6146停止中SHORT・現行/A/Bシャドーディスパッチ", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    discoShadow.mockResolvedValue({ skipped: false, symbol: "6146", evaluations: ["baseline", "a", "b"] });
-    discoLongShadow.mockResolvedValue({ skipped: false, symbol: "6146", evaluations: ["long-a", "long-b"] });
-  });
+vi.mock("./retiredSixStrategies", () => ({ retireSixShadowStrategyVersions: vi.fn() }));
+vi.mock("./aiDailyForecastShadowEngine", () => ({ processAiDailyForecastShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
+vi.mock("./bollingerDirectionalShadowEngine", () => ({ processBollingerDirectionalShadowSourceEvent: vi.fn(async () => ({ skipped: false })) }));
 
-  it("6146の同一受信をSHORT 3案とLONG A/Bへ渡す", async () => {
-    const result = await processForwardShadowSourceEvent(input);
-    expect(discoShadow).toHaveBeenCalledOnce();
-    expect(discoShadow).toHaveBeenCalledWith(input);
-    expect(discoLongShadow).toHaveBeenCalledOnce();
-    expect(discoLongShadow).toHaveBeenCalledWith(input);
-    expect(result).toMatchObject({
-      skipped: false,
-      symbol: "6146",
-      evaluations: [
-        { evaluations: ["baseline", "a", "b"] },
-        { evaluations: ["long-a", "long-b"] },
-      ],
-    });
+describe("legacy source delivery retired", () => {
+  beforeEach(() => vi.clearAllMocks());
+  it("does not call retired engines, even when they would throw", async () => {
+    discoShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    discoLongShadow.mockImplementation(() => { throw new Error("retired engine must not run"); });
+    await expect(processForwardShadowSourceEvent(input)).resolves.toMatchObject({ skipped: "legacy_shadow_retired_2026_10_17" });
+    expect(discoShadow).not.toHaveBeenCalled();
+    expect(discoLongShadow).not.toHaveBeenCalled();
   });
 });

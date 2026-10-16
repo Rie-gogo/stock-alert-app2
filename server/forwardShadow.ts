@@ -692,6 +692,13 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     }
     return result;
   }
+  // Keep the active shadow wrappers, their input and their exception boundaries unchanged.
+  // Retain the legacy implementations below without delivering live events.
+  return { skipped: "legacy_shadow_retired_2026_10_17" as const };
+}
+
+/** Retained legacy implementation; intentionally disconnected from live source events. */
+async function processLegacyForwardShadowSourceEvent(input: ForwardSourceEventInput): Promise<Record<string, unknown>> {
   const engineInput: ForwardSourceEventInput = input.internalSkipBollingerDirectionalShadow
     ? (({ internalSkipBollingerDirectionalShadow: _skipBollinger, internalSkipAiDailyForecastShadow: _skipAiForecast, ...rest }) => rest)(input)
     : input;
@@ -701,7 +708,7 @@ export async function processForwardShadowSourceEvent(input: ForwardSourceEventI
     const evaluations: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     for (const evaluate of [
-      () => processForwardShadowSourceEvent({ ...input, internalSkipTelParity: true }),
+      () => processLegacyForwardShadowSourceEvent({ ...input, internalSkipTelParity: true }),
       () => processTelCurrentParitySourceEvent(engineInput, engineInput.currentAudit?.marginUsedBefore ?? 0),
       () => processTelExecutableConfirmSourceEvent(engineInput),
     ]) {

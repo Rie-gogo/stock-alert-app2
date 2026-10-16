@@ -80,9 +80,9 @@ node scripts/ingest-ai-daily-forecast.mjs /secure/path/ai-forecast.json
 
 ## 4. 場中shadowとv6 AI revision（前場15分・後場30分）
 
-2026-10-15からv6は、前場に`09:15 / 09:30 / 09:45 / 10:00 / 10:15 / 10:30 / 10:45 / 11:00 / 11:15 / 11:30`、後場に`12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00`で再判断します。各cutoffはcheckpointの1分前（12:35は12:34）であり、前場は15分、後場は30分の有効期間だけを持ちます。12:00、12:30、15:30は実行しません。
+2026-10-15からv6は、前場に`09:15 / 09:30 / 09:45 / 10:00 / 10:15 / 10:30 / 10:45 / 11:00 / 11:15 / 11:30`、後場に`12:35 / 13:00 / 13:30 / 14:00 / 14:30 / 15:00`で再判断します。各cutoffの下限はcheckpointの1分前（12:35は12:34）であり、前場は15分、後場は30分の有効期間だけを持ちます。12:00、12:30、15:30は実行しません。
 
-定期taskは原則checkpointの3分後に起動します。実行が遅れても`cutoffCandleTime`はcheckpointSpecの固定値を使います。たとえば13:00計画を13:03以後に生成してもcutoffは12:59であり、13:00以後の足をAI入力へ混ぜません。prepareはcutoff以前のsource eventとAI shadow materializationが一致するまで最大2分間だけ待機し、完了した固定inputへHMAC署名を付けます。ingestは同じ固定inputだけを受理します。
+定期taskは原則checkpointの3分後に起動します。cutoffは固定値を下限に、prepare時点でsource processedとshadow dispatchが完了している最新の1分足を選びます。validUntil未満かつ現在分未満とし、未処理イベントを飛び越えません。14:10起動でqueueが14:07まで完了なら14:07でfreezeします。固定cutoffまで未完了なら従来どおり503です。分析開始後は入力を更新せず、署名付きinput/tokenをそのままingestへ返します。
 
 `11:30`は前場の新規entryを作らないbridge checkpointです。controlのentry windowは**12:30–12:34内だけ**が許され、範囲外はlocal preflightとサーバーvalidatorがfail-closedでrejectします。12:35には後場最初の完成済み5分足で必ず再判断します。
 
@@ -93,7 +93,7 @@ AI_DAILY_FORECAST_INGEST_KEY="$AI_DAILY_FORECAST_INGEST_KEY" \
 node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM --out /secure/path/ai-intraday-input.json
 ```
 
-- 定期taskは原則checkpointの3分後に起動する。実行がcheckpointより後でも、`cutoffCandleTime`はcheckpointSpecの固定値を使う。たとえば13:00計画を13:03以後に生成してもcutoffは12:59であり、13:00以後の足をAI入力へ混ぜない
+- 定期taskはprepareが返す署名付きcutoff以前だけを使う。checkpointとvalidUntilは延長しない。cutoffMode、delayMinutes、remainingMinutesを判断材料とし、残り時間による固定のentry禁止閾値は設けない。遅延計画はdelayed_latest_processedとして既存JSON列へ保存する。checkpoint以後のfirstTarget到達済みはmissed_move_no_entryとし、到着後のactivation境界から適用する。
 - prepareはcutoff以前のsource eventとforward-shadow dispatchを照合し、source処理済み、queue件数一致、pending/processing/errorなしになるまでinputを返さない
 - queueが未完了ならHTTP 503 `ai_intraday_materialization_pending`とし、取得scriptは次の分析時間を残せる範囲で15秒間隔・最大2分だけ再確認する。追い付かなければ`ai_intraday_materialization_timeout`として生成を開始しない
 - queueにterminal errorがあればHTTP 412 `ai_intraday_materialization_terminal`として再試行せずfail-closedにする
@@ -124,7 +124,7 @@ AIは「今すぐ注文するか」ではなく、次のcheckpointまでの方�
 4. `entryKind=initial|reentry`、`isOpeningTrade`、`entryOrdinal`を確認する。09:00〜09:29の**実際のentry時刻**は寄り付き取引であり、一律禁止しない。AIが見送りたい場合だけ`no_trade`／`disabled`を返す。
 5. 決済後の再entryは、新しいimmutable plan/decisionだけで判断する。同じplan IDを再利用した重複entry、保有中の重複entry、exitと同一source eventでの即時再entryは許可しない。
 6. AI判断が未着、無効、期限切れ、または`no_trade`なら、アプリは独自の計画・再entryを作らない（fail-closed）。
-7. `11:30` は前場終了後の既存ポジション管理専用とする。時刻を11:29へ変更するものではない。11:29は入力に含められる最後の完成1分足、11:30はその足までをcutoffにする管理checkpointである。flat銘柄のcontrolは `planDecision=disabled` とし、schema上のentry windowは `12:30〜12:34` を置くが新規entry権限には使わない。新規保有の継続・利確・退出は独立managementPlansで判断する。既存保有のtighten_onlyは旧互換処理として維持する。後場は12:30から始まり、11:30管理計画は12:30以後の最初のsource eventで適用される。`12:35` 以降は後場最初の完成5分足で再評価する。
+7. `11:30` は前場終了後の既存ポジション管理専用とする。時刻を11:29へ変更するものではない。11:29は入力cutoffの下限、11:30は管理checkpointである。flat銘柄のcontrolは `planDecision=disabled` とし、schema上のentry windowは `12:30〜12:34` を置くが新規entry権限には使わない。新規保有の継続・利確・退出は独立managementPlansで判断する。既存保有のtighten_onlyは旧互換処理として維持する。後場は12:30から始まり、11:30管理計画は12:30以後の最初のsource eventで適用される。`12:35` 以降は後場最初の完成5分足で再評価する。
 8. entry時と保有中の各1分足で、plan経過時間、confirmPriceとの差、直近20終値のSMA20、方向に不利なSMA20側の連続本数を記録する。アプリ側の固定閾値、自動entry拒否、自動損切りには使わず、2分連続のSMA20逆行も単独の自動決済条件にはしない。一方、翌営業日以降のCodexは、前営業日までの失敗・改善仮説を注意材料として、checkpoint cutoff以前の当日1分足・完成5分足・SMA/BB/RSI・支持抵抗・出来高・日経225miniと照合し、銘柄ごとにentry、方向、継続、tighten_only、退出を定性的に判断する。固定本数・固定乖離率は置かず、SMA20逆行だけで変更せず、当日市場構造の独立した裏付けをchangeReason/evidenceUsed/confidenceBasisへ具体的に残す。
 
 - 新規保有の `firstTarget` は到達記録・判断材料のみ。自動決済・自動トレール・自動ライン更新はしない。`stretchTarget` でも自動決済しない。保有管理は独立した `managementPlans` に従う。既存保有は決済まで旧ルールを維持する。

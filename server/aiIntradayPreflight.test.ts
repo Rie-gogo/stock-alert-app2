@@ -95,6 +95,15 @@ function fixture() {
 }
 
 describe("AI intraday preflight", () => {
+  it("accepts a delayed cutoff but rejects a cutoff outside the checkpoint window", () => {
+    const { input, payload } = fixture();
+    input.cutoffCandleTime = "10:02";
+    expect(validateAiIntradayPreflight(payload, input).valid).toBe(true);
+    for (const cutoff of ["09:58", "10:14", "10:15"]) {
+      input.cutoffCandleTime = cutoff;
+      expect(validateAiIntradayPreflight(payload, input).reasonCodes).toContain("local_checkpoint_spec_mismatch");
+    }
+  });
   it("accepts a server-compatible payload", () => {
     const { input, payload } = fixture();
     expect(validateAiIntradayPreflight(payload, input)).toEqual({

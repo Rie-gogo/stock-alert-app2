@@ -520,6 +520,9 @@ export type AiIntradayForecastInput = {
   tradeDate: string;
   checkpoint: AiIntradayCheckpoint;
   cutoffCandleTime: string;
+  cutoffMode?: "fixed_checkpoint" | "delayed_latest_processed";
+  delayMinutes?: number;
+  remainingMinutes?: number;
   effectiveFrom: string;
   validUntil: string;
   capturedAtMs: number;
@@ -611,14 +614,93 @@ export function classifyAiIntradayCheckpointMaterialization(input: {
   };
 }
 
+export function selectAiIntradayProcessedCutoff(input: {
+  checkpoint: AiIntradayCheckpoint;
+  nowTime: string;
+  rows: Array<{
+    candleTime: string;
+    symbol: string;
+    sourceStatus: string;
+    shadowStatus: string | null;
+  }>;
+}) {
+  const spec = checkpointSpec[input.checkpoint];
+  const groups = new Map<string, typeof input.rows>();
+  for (const row of input.rows) {
+    if (
+      row.candleTime < "09:00" ||
+      row.candleTime >= input.nowTime ||
+      row.candleTime >= spec.validUntil
+    )
+      continue;
+    groups.set(row.candleTime, [...(groups.get(row.candleTime) ?? []), row]);
+  }
+  let latest = spec.cutoff;
+  for (const [time, rows] of Array.from(groups.entries()).sort(([a], [b]) =>
+    a.localeCompare(b)
+  )) {
+    if (
+      rows.some(
+        row =>
+          row.sourceStatus !== "processed" || row.shadowStatus !== "processed"
+      )
+    )
+      break;
+    if (
+      time >= spec.cutoff &&
+      AI_DAILY_FORECAST_SYMBOLS.every(symbol =>
+        rows.some(row => row.symbol === symbol)
+      )
+    )
+      latest = time;
+  }
+  return latest;
+}
+
+async function latestProcessedCutoff(
+  tradeDate: string,
+  checkpoint: AiIntradayCheckpoint,
+  nowTime: string
+) {
+  const db = await getDb();
+  if (!db) throw Error("database_unavailable");
+  const rows = await db
+    .select({
+      candleTime: rtSourceEvents.candleTime,
+      symbol: rtSourceEvents.symbol,
+      sourceStatus: rtSourceEvents.status,
+      shadowStatus: rtShadowDispatchQueue.status,
+    })
+    .from(rtSourceEvents)
+    .leftJoin(
+      rtShadowDispatchQueue,
+      eq(rtShadowDispatchQueue.sourceEventId, rtSourceEvents.sourceEventId)
+    )
+    .where(
+      and(
+        eq(rtSourceEvents.tradeDate, tradeDate),
+        inArray(rtSourceEvents.symbol, [...AI_DAILY_FORECAST_SYMBOLS]),
+        gte(rtSourceEvents.candleTime, "09:00"),
+        lt(rtSourceEvents.candleTime, nowTime),
+        lt(rtSourceEvents.candleTime, checkpointSpec[checkpoint].validUntil)
+      )
+    );
+  return selectAiIntradayProcessedCutoff({ checkpoint, nowTime, rows });
+}
+
 /** checkpoint cutoff以前だけを対象に、同日AI shadow台帳の追随完了を確認する。 */
 export async function getAiIntradayCheckpointMaterialization(input: {
   tradeDate: string;
   checkpoint: AiIntradayCheckpoint;
+  cutoffCandleTime?: string;
 }): Promise<AiIntradayCheckpointMaterialization> {
   const db = await getDb();
   if (!db) throw Error("database_unavailable");
-  const spec = checkpointSpec[input.checkpoint];
+  const fixedSpec = checkpointSpec[input.checkpoint];
+  const spec = fixedSpec && {
+    ...fixedSpec,
+    cutoff: input.cutoffCandleTime ?? fixedSpec.cutoff,
+  };
   if (!spec) throw Error("ai_intraday_checkpoint_invalid");
   const sourceCondition = and(
     eq(rtSourceEvents.tradeDate, input.tradeDate),
@@ -682,11 +764,16 @@ export async function getAiIntradayCheckpointMaterialization(input: {
 export async function buildAiIntradayForecastInput(input: {
   tradeDate: string;
   checkpoint: AiIntradayCheckpoint;
+  cutoffCandleTime?: string;
   capturedAtMs?: number;
 }): Promise<AiIntradayForecastInput> {
   const db = await getDb();
   if (!db) throw Error("database_unavailable");
-  const spec = checkpointSpec[input.checkpoint];
+  const fixedSpec = checkpointSpec[input.checkpoint];
+  const spec = fixedSpec && {
+    ...fixedSpec,
+    cutoff: input.cutoffCandleTime ?? fixedSpec.cutoff,
+  };
   if (!spec) throw Error("ai_intraday_checkpoint_invalid");
   const morning = await getLatestAiDailyForecastSnapshot(input.tradeDate);
   if (!morning || morning.qualityStatus === "invalid")
@@ -998,7 +1085,14 @@ export async function prepareAiIntradayForecastInput(input: {
   tradeDate: string;
   checkpoint: AiIntradayCheckpoint;
 }) {
-  const before = await getAiIntradayCheckpointMaterialization(input);
+  const capturedAtMs = Date.now();
+  const cutoffCandleTime = await latestProcessedCutoff(
+    input.tradeDate,
+    input.checkpoint,
+    jstDateTime(capturedAtMs).time
+  );
+  const selected = { ...input, cutoffCandleTime };
+  const before = await getAiIntradayCheckpointMaterialization(selected);
   if (before.status !== "complete") {
     if (before.status === "pending") scheduleForwardShadowDispatchDrain(0);
     console.warn(
@@ -1014,8 +1108,11 @@ export async function prepareAiIntradayForecastInput(input: {
     );
     throw Error(before.reasonCode);
   }
-  const built = await buildAiIntradayForecastInput(input);
-  const after = await getAiIntradayCheckpointMaterialization(input);
+  const built = await buildAiIntradayForecastInput({
+    ...selected,
+    capturedAtMs,
+  });
+  const after = await getAiIntradayCheckpointMaterialization(selected);
   if (
     after.status !== "complete" ||
     sha256Stable(before) !== sha256Stable(after)
@@ -1041,6 +1138,17 @@ export async function prepareAiIntradayForecastInput(input: {
   }
   const frozenWithoutToken: AiIntradayForecastInput = {
     ...built,
+    cutoffMode:
+      cutoffCandleTime > checkpointSpec[input.checkpoint].cutoff
+        ? "delayed_latest_processed"
+        : "fixed_checkpoint",
+    delayMinutes:
+      minute(cutoffCandleTime) -
+      minute(checkpointSpec[input.checkpoint].cutoff),
+    remainingMinutes: Math.max(
+      0,
+      minute(built.validUntil) - minute(jstDateTime(capturedAtMs).time)
+    ),
     materializationWatermark: after,
   };
   const frozen: AiIntradayForecastInput = {
@@ -1407,6 +1515,19 @@ export type AiIntradayForecastSubmission = {
   inputSnapshotToken?: string;
 };
 
+export function assertAiIntradayCutoffNotAfterArrival(
+  tradeDate: string,
+  cutoff: string,
+  receivedAtMs: number
+) {
+  const arrival = jstDateTime(receivedAtMs);
+  if (
+    arrival.date < tradeDate ||
+    (arrival.date === tradeDate && cutoff > arrival.time)
+  )
+    throw Error("ai_intraday_cutoff_after_arrival");
+}
+
 function frozenAiIntradayInputFromSubmission(
   submission: AiIntradayForecastSubmission
 ): AiIntradayForecastInput | null {
@@ -1425,7 +1546,9 @@ function frozenAiIntradayInputFromSubmission(
   if (
     frozen.tradeDate !== submission.tradeDate ||
     frozen.checkpoint !== submission.checkpoint ||
-    frozen.cutoffCandleTime !== spec.cutoff ||
+    !/^([01]\d|2[0-3]):[0-5]\d$/.test(frozen.cutoffCandleTime) ||
+    frozen.cutoffCandleTime < spec.cutoff ||
+    frozen.cutoffCandleTime >= spec.validUntil ||
     frozen.effectiveFrom !== spec.effectiveFrom ||
     frozen.validUntil !== spec.validUntil ||
     frozen.capturedAtMs !== submission.capturedAtMs ||
@@ -1438,7 +1561,7 @@ function frozenAiIntradayInputFromSubmission(
     frozen.materializationWatermark?.status !== "complete" ||
     frozen.materializationWatermark.tradeDate !== submission.tradeDate ||
     frozen.materializationWatermark.checkpoint !== submission.checkpoint ||
-    frozen.materializationWatermark.cutoffCandleTime !== spec.cutoff
+    frozen.materializationWatermark.cutoffCandleTime !== frozen.cutoffCandleTime
   )
     throw Error("ai_intraday_input_snapshot_materialization_invalid");
   if (
@@ -1525,6 +1648,7 @@ export async function ingestAiIntradayForecastSubmission(
     )
   )
     throw Error("ai_intraday_source_revision_id_invalid");
+  const receivedAtMs = Date.now();
   const spec = checkpointSpec[submission.checkpoint];
   if (!spec) throw Error("ai_intraday_checkpoint_invalid");
   if (
@@ -1551,6 +1675,11 @@ export async function ingestAiIntradayForecastSubmission(
       checkpoint: submission.checkpoint,
       capturedAtMs: submission.capturedAtMs,
     }));
+  assertAiIntradayCutoffNotAfterArrival(
+    submission.tradeDate,
+    prepared.cutoffCandleTime,
+    receivedAtMs
+  );
   if (prepared.morningSourceSnapshotId !== submission.morningSourceSnapshotId)
     throw Error("ai_intraday_morning_snapshot_mismatch");
   const expectedInputHash = aiIntradayForecastInputHash(prepared);
@@ -1577,7 +1706,7 @@ export async function ingestAiIntradayForecastSubmission(
     morningSourceSnapshotId: submission.morningSourceSnapshotId,
     tradeDate: submission.tradeDate,
     checkpoint: submission.checkpoint,
-    cutoffCandleTime: spec.cutoff,
+    cutoffCandleTime: prepared.cutoffCandleTime,
     modelVersion: AI_INTRADAY_FORECAST_VERSION,
     inputHash: expectedInputHash,
     generatorId: submission.generatorId,
@@ -1586,6 +1715,16 @@ export async function ingestAiIntradayForecastSubmission(
     generatorMetadata: submission.generatorMetadata ?? {},
     learningApplicationAudit: prepared.learningApplicationAudit,
     validation: {
+      cutoffMode:
+        prepared.cutoffCandleTime > spec.cutoff
+          ? "delayed_latest_processed"
+          : "fixed_checkpoint",
+      delayMinutes: minute(prepared.cutoffCandleTime) - minute(spec.cutoff),
+      remainingMinutes: Math.max(
+        0,
+        minute(spec.validUntil) -
+          minute(jstDateTime(prepared.capturedAtMs).time)
+      ),
       inputQuality: prepared.inputQuality,
       inputReasons: prepared.qualityReasonCodes,
       inputSnapshotMode: frozenPrepared ? "signed_frozen_v1" : "legacy_rebuild",
@@ -1600,7 +1739,7 @@ export async function ingestAiIntradayForecastSubmission(
     morningSourceSnapshotId: submission.morningSourceSnapshotId,
     tradeDate: submission.tradeDate,
     checkpoint: submission.checkpoint,
-    cutoffCandleTime: spec.cutoff,
+    cutoffCandleTime: prepared.cutoffCandleTime,
     capturedAtMs: submission.capturedAtMs,
     modelVersion: AI_INTRADAY_FORECAST_VERSION,
     sourceMode: submission.sourceMode,

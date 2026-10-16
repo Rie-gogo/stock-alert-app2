@@ -282,7 +282,8 @@ export function validateAiIntradayPreflight(rawSubmission, rawInput) {
   if (submission.inputHash !== input.inputHash)
     reasons.push("ai_intraday_input_hash_mismatch");
   if (
-    input.cutoffCandleTime !== spec.cutoff ||
+    input.cutoffCandleTime < spec.cutoff ||
+    input.cutoffCandleTime >= spec.validUntil ||
     input.effectiveFrom !== spec.effectiveFrom ||
     input.validUntil !== spec.validUntil
   )

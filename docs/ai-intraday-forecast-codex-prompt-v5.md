@@ -27,7 +27,7 @@ node scripts/fetch-ai-intraday-forecast-input.mjs YYYY-MM-DD HH:MM \
 - 新規保有の管理はentry計画から分離した `managementPlans` で判断する。`openPositionAction` は既存保有の互換用。保有中の新規entryは禁止し、entryを行わない計画は `entryPolicy=manage_only` にする。
 - 決済済みなら、**新しい**immutable decision/planだけが再entryを判断できます。同じplan IDを再利用した重複entry、保有中の重複entry、exitと同一source eventでの即時再entryを提案しません。
 - `no_trade`、判断未着、invalid、期限切れでは、アプリは独自entryを作りません。無効化・見送りの場合は`disabled`を使います。
-- `11:30` は既存ポジション管理専用です。11:29は最後の完成1分足、11:30はその足までをcutoffにするcheckpointであり、checkpoint自体を11:29へ移しません。flat銘柄は `planDecision=disabled` とし、新規entryを提案しません。schema上のentry windowは `12:30〜12:34` に限定しますが、新規entry権限には使いません。保有銘柄は、同方向の勢いが継続している場合だけ `tighten_only` とし、stopを緩めず、後場12:30以後の最初のsource eventから次checkpointまでの退出期限を設定できます。方向変更は `exit_next_event_if_direction_changed`、disabledは退出です。
+- `11:30` は既存ポジション管理専用です。11:29は入力cutoffの下限、11:30は管理checkpointであり、checkpoint自体を11:29へ移しません。flat銘柄は `planDecision=disabled` とし、新規entryを提案しません。schema上のentry windowは `12:30〜12:34` に限定しますが、新規entry権限には使いません。保有銘柄は、同方向の勢いが継続している場合だけ `tighten_only` とし、stopを緩めず、後場12:30以後の最初のsource eventから次checkpointまでの退出期限を設定できます。方向変更は `exit_next_event_if_direction_changed`、disabledは退出です。
 - 新規保有は管理計画の `validUntil` 失効後、後継checkpointの `validUntil` まで後継を待つ。待機中は新規entry禁止、stop緩和禁止とし、hard stopと保護stopを維持する。期限未着なら次の実行可能イベントで全株決済し、失効済み保有を遅着計画で延命しない。15:20を最終期限とする。
 - 新規保有の `firstTarget` は到達記録・判断材料のみ。自動決済・自動トレール・自動ライン更新はしない。`stretchTarget` でも自動決済しない。保有管理は独立した `managementPlans` に従う。既存保有は決済まで旧ルールを維持する。
 - entry時と保有中のSMA20逆行連続数などはアプリが前向き観測します。2分連続を含む固定閾値は未確定であり、アプリの自動entry拒否・自動決済にはしません。ただし翌営業日以降のCodexは、前営業日までの失敗・改善仮説を注意材料として、checkpoint cutoff以前の当日1分足・完成5分足・SMA/BB/RSI・支持抵抗・出来高・日経225miniと照合し、銘柄ごとにentry、方向、継続、tighten_only、退出を定性的に判断します。SMA20逆行だけで変更せず、当日市場構造の独立した裏付けをchangeReason/evidenceUsed/confidenceBasisへ具体的に残します。
@@ -65,3 +65,10 @@ node scripts/ingest-ai-intraday-forecast.mjs /secure/path/ai-intraday-forecast.j
 ## 保有管理・ナレッジ
 
 新規保有については [保有管理契約](ai-position-management-checkpoint-contract.md) を併用する。管理命令は `aiFinalForecast.managementPlans`、保有開始時の保護ラインは各forecastの `protectiveStop`、参照ナレッジは `knowledgeIds` に出力する。
+## 遅延起動時のcutoff
+
+入力cutoffの表記は下限です。prepareが返す署名付きcutoff以前だけを使います。固定cutoff以上・validUntil未満・現在分未満でsource processedとshadow dispatch完了済みの最新足をprepareでfreezeします。14:10起動でqueueが14:07まで完了なら14:07を使い、14:08以後は使いません。固定cutoffまで未完了なら503です。分析中にinput/tokenを更新しません。
+
+checkpointとvalidUntilは延長しません。cutoffMode・delayMinutes・remainingMinutesを確認し、残り時間でentryするかはAIが固定閾値を設けず判断します。遅延計画はdelayed_latest_processedとして保存します。checkpointから到着までのfirstTarget到達済みはmissed_move_no_entryとし、新計画は到着後のactivation境界を越えたsource eventから適用します。
+
+定期taskの「cutoffは固定値」は上記へ置き換えます。~/.codex/automationsのtomlは別途承認後に更新します。

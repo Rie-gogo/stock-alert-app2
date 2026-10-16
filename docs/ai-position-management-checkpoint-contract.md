@@ -118,3 +118,10 @@ entryと保有管理を分離し、二重保有・同一イベント再entry・�
 別途試行した `server/aiDailyForecastSecret.test.ts` 1件は、ローカル環境の `AI_DAILY_FORECAST_INGEST_KEY` 未設定のため冒頭の環境条件確認で失敗した。HTTP通信には進んでおらず、認証エンドポイントとの疎通は未検証。テストを通すための秘密値設定・外部接続・サーバー起動は行っていない。
 
 commit / push、Manus送信、公開、本番DB・APIへの書込み、`~/.codex/automations` の変更は実施していない。
+## 遅延起動時のcutoff
+
+入力cutoffの表記は下限です。prepareが返す署名付きcutoff以前だけを使います。固定cutoff以上・validUntil未満・現在分未満でsource processedとshadow dispatch完了済みの最新足をprepareでfreezeします。14:10起動でqueueが14:07まで完了なら14:07を使い、14:08以後は使いません。固定cutoffまで未完了なら503です。分析中にinput/tokenを更新しません。
+
+checkpointとvalidUntilは延長しません。cutoffMode・delayMinutes・remainingMinutesを確認し、残り時間でentryするかはAIが固定閾値を設けず判断します。遅延計画はdelayed_latest_processedとして保存します。checkpointから到着までのfirstTarget到達済みはmissed_move_no_entryとし、新計画は到着後のactivation境界を越えたsource eventから適用します。
+
+定期taskの「cutoffは固定値」は上記へ置き換えます。~/.codex/automationsのtomlは別途承認後に更新します。

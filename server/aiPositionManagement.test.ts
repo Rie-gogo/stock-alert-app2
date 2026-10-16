@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  selectAiIntradayPlanForTest,
+  selectAiIntradayPlanForTest as selectLegacyIntradayPlan,
   applyAiDailyForecastSelectionTransitionForTest as step,
   type AiDailyForecastPlan,
 } from "./aiDailyForecastShadowEngine";
@@ -369,3 +369,23 @@ it("rejects a plan received after the successor deadline even if the next source
   );
   expect(result.closed?.reason).toBe("ai_management_successor_missing_exit");
 });
+
+function selectAiIntradayPlanForTest(
+  snapshot: Parameters<typeof selectLegacyIntradayPlan>[0],
+  symbol: string
+) {
+  const legacy = selectLegacyIntradayPlan(snapshot, symbol);
+  if (!snapshot) return legacy;
+  const { inputJson, ...rest } = snapshot;
+  const projected = {
+    ...rest,
+    inputJson: undefined,
+    priorSymbols: JSON.stringify(
+      (inputJson as { priorData?: { symbols?: unknown[] } })?.priorData
+        ?.symbols ?? []
+    ),
+  };
+  const selected = selectLegacyIntradayPlan(projected, symbol);
+  expect(selected).toEqual(legacy);
+  return selected;
+}

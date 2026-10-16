@@ -8,6 +8,8 @@ import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   rtAiIntradayForecastSnapshots,
+  rtAiDailyForecastSnapshots,
+  rtAiDailyForecastRevisions,
   rtCandles,
   rtForwardShadowEvents,
   rtForwardShadowTrades,
@@ -1739,34 +1741,71 @@ export async function getAiIntradayForecastDashboardRows(tradeDate: string) {
       asc(rtAiIntradayForecastSnapshots.id)
     );
 }
+// These three forecast tables are append-only; duplicate revision writes are no-ops.
+// Read all watermarks in one statement so a revision describes one DB view.
+export async function getAiForecastPlanRevision(tradeDate: string) {
+  const db = await getDb();
+  if (!db) throw Error("database_unavailable");
+  const [rows] = await db.execute(sql`select
+    (select concat(coalesce(max(id), 0), ':', count(*)) from ${rtAiDailyForecastSnapshots} where trade_date = ${tradeDate}) as daily,
+    (select concat(coalesce(max(id), 0), ':', count(*)) from ${rtAiDailyForecastRevisions} where trade_date = ${tradeDate}) as revision,
+    (select concat(coalesce(max(id), 0), ':', count(*)) from ${rtAiIntradayForecastSnapshots} where trade_date = ${tradeDate}) as intraday`);
+  const row = (
+    rows as unknown as { daily: string; revision: string; intraday: string }[]
+  )[0];
+  return `${row.daily}:${row.revision}:${row.intraday}`;
+}
+
+export async function getAiIntradayPlanCandidates(tradeDate: string) {
+  const db = await getDb();
+  if (!db) throw Error("database_unavailable");
+  return db
+    .select({
+      id: rtAiIntradayForecastSnapshots.id,
+      sourceRevisionId: rtAiIntradayForecastSnapshots.sourceRevisionId,
+      checkpoint: rtAiIntradayForecastSnapshots.checkpoint,
+      qualityStatus: rtAiIntradayForecastSnapshots.qualityStatus,
+      forecastJson: rtAiIntradayForecastSnapshots.forecastJson,
+      validationJson: rtAiIntradayForecastSnapshots.validationJson,
+      // Only fallback ATR and its symbol association are needed from the frozen input.
+      priorSymbols: sql<unknown>`json_extract(${rtAiIntradayForecastSnapshots.inputJson}, '$.priorData.symbols')`,
+    })
+    .from(rtAiIntradayForecastSnapshots)
+    .where(eq(rtAiIntradayForecastSnapshots.tradeDate, tradeDate))
+    .orderBy(
+      desc(rtAiIntradayForecastSnapshots.checkpoint),
+      desc(rtAiIntradayForecastSnapshots.id)
+    );
+}
+
+export function selectEffectiveAiIntradayPlan(
+  candidates: Awaited<ReturnType<typeof getAiIntradayPlanCandidates>>,
+  candleTime: string,
+  engineSequence: number | null
+) {
+  // Preserve the former SQL filter, ordering and limit before causal selection.
+  return (
+    candidates
+      .filter(snapshot => snapshot.checkpoint <= candleTime)
+      .slice(0, AI_INTRADAY_CHECKPOINTS.length)
+      .find(snapshot =>
+        isAiIntradaySnapshotCausallyAvailable(
+          snapshot.validationJson,
+          engineSequence
+        )
+      ) ?? null
+  );
+}
+
 export async function getEffectiveAiIntradayForecastSnapshot(
   tradeDate: string,
   candleTime: string,
   engineSequence: number | null = null
 ) {
-  const db = await getDb();
-  if (!db) return null;
-  const candidates = await db
-    .select()
-    .from(rtAiIntradayForecastSnapshots)
-    .where(
-      and(
-        eq(rtAiIntradayForecastSnapshots.tradeDate, tradeDate),
-        lte(rtAiIntradayForecastSnapshots.checkpoint, candleTime)
-      )
-    )
-    .orderBy(
-      desc(rtAiIntradayForecastSnapshots.checkpoint),
-      desc(rtAiIntradayForecastSnapshots.id)
-    )
-    .limit(AI_INTRADAY_CHECKPOINTS.length);
-  return (
-    candidates.find(snapshot =>
-      isAiIntradaySnapshotCausallyAvailable(
-        snapshot.validationJson,
-        engineSequence
-      )
-    ) ?? null
+  return selectEffectiveAiIntradayPlan(
+    await getAiIntradayPlanCandidates(tradeDate),
+    candleTime,
+    engineSequence
   );
 }
 

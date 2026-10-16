@@ -45,6 +45,9 @@ import {
   AI_INTRADAY_CHECKPOINTS,
   getAiIntradayCheckpointSpec,
   getEffectiveAiIntradayForecastSnapshot,
+  getAiForecastPlanRevision,
+  getAiIntradayPlanCandidates,
+  selectEffectiveAiIntradayPlan,
 } from "./aiIntradayForecastService";
 
 export const AI_DAILY_FORECAST_LEARNING_CUTOFF_DATE = "2026-10-10";
@@ -56,15 +59,31 @@ const MODES: readonly ForwardEvaluationMode[] =
   FORWARD_EVALUATION_POLICY.evaluationModes;
 const symbols = new Set<string>(AI_DAILY_FORECAST_SYMBOLS);
 const ensured = new Set<string>();
-const planDataCache = new Map<
-  string,
-  Promise<{
-    dashboard: Awaited<ReturnType<typeof getAiDailyForecastDashboard>>;
-    intradaySnapshot: Awaited<
-      ReturnType<typeof getEffectiveAiIntradayForecastSnapshot>
-    >;
-  }>
->();
+type SharedPlanData = {
+  dashboard: Awaited<ReturnType<typeof getAiDailyForecastDashboard>>;
+  candidates: Awaited<ReturnType<typeof getAiIntradayPlanCandidates>>;
+};
+const planDataCache = new Map<string, Promise<SharedPlanData>>();
+const planRevisionChecks = new Map<string, Promise<string>>();
+
+// Delete only our own failed promise: an evicted request may fail after replacement.
+export function shareAiPlanPromise<T>(
+  cache: Map<string, Promise<T>>,
+  key: string,
+  load: () => Promise<T>
+) {
+  const existing = cache.get(key);
+  if (existing) return { promise: existing, shared: true };
+  const promise = Promise.resolve()
+    .then(load)
+    .catch(error => {
+      if (cache.get(key) === promise) cache.delete(key);
+      throw error;
+    });
+  cache.set(key, promise);
+  while (cache.size > 8) cache.delete(cache.keys().next().value!);
+  return { promise, shared: false };
+}
 
 type Side = "long" | "short";
 export type AiDailyForecastPlan = {
@@ -415,15 +434,28 @@ function planFromIntradaySnapshot(
   const values = object(rows.find(item => object(item).symbol === symbol));
   const controls = Array.isArray(final.controls) ? final.controls : [];
   const control = object(controls.find(item => object(item).symbol === symbol));
-  const input = object(snapshot.inputJson);
-  const priorData = object(input.priorData);
-  const priorSymbols = Array.isArray(priorData.symbols)
-    ? priorData.symbols
-    : [];
-  const priorSymbol = object(
-    priorSymbols.find(item => object(item).symbol === symbol)
+  // Legacy test fixtures may still carry the full input; DB reads carry projections.
+  const legacy = object((snapshot as { inputJson?: unknown }).inputJson);
+  const prior = object(legacy.priorData).symbols;
+  const legacyBaseline = object(
+    object(
+      Array.isArray(prior)
+        ? prior.find(item => object(item).symbol === symbol)
+        : null
+    ).baseline
   );
-  const baseline = object(priorSymbol.baseline);
+  const decodeArray = (value: unknown): unknown[] => {
+    if (typeof value === "string") value = JSON.parse(value);
+    return Array.isArray(value) ? value : [];
+  };
+  const priorSymbols = decodeArray(snapshot.priorSymbols);
+  const baseline = {
+    atr5:
+      object(
+        object(priorSymbols.find(item => object(item).symbol === symbol))
+          .baseline
+      ).atr5 ?? legacyBaseline.atr5,
+  };
   const direction = String(values.direction ?? "");
   const directional =
     direction === "strong_up" ||
@@ -562,27 +594,93 @@ function sideForPlan(plan: Plan): Side {
     ? "long"
     : "short";
 }
-function getPlanData(
+export async function getPlanData(
   tradeDate: string,
   candleTime: string,
-  engineSequence: number | null
+  engineSequence: number | null,
+  eventId = "unknown"
 ) {
-  const key = `${tradeDate}:${candleTime}:${engineSequence ?? "missing"}`;
-  const existing = planDataCache.get(key);
-  if (existing) return existing;
-  const created = Promise.all([
-    getAiDailyForecastDashboard(tradeDate),
-    getEffectiveAiIntradayForecastSnapshot(
-      tradeDate,
-      candleTime,
-      engineSequence
-    ),
-  ]).then(([dashboard, intradaySnapshot]) => ({ dashboard, intradaySnapshot }));
-  planDataCache.set(key, created);
-  while (planDataCache.size > 8)
-    planDataCache.delete(planDataCache.keys().next().value!);
-  return created;
+  const started = performance.now();
+  const readRevision = async () => {
+    const probeStarted = performance.now();
+    try {
+      return await getAiForecastPlanRevision(tradeDate);
+    } finally {
+      console.info(
+        JSON.stringify({
+          metric: "ai_plan_revision",
+          eventId,
+          fetchCount: 1,
+          durationMs: performance.now() - probeStarted,
+        })
+      );
+    }
+  };
+  // Coalesce probes only for the same event; a later event must see new arrivals.
+  const probeKey = `${tradeDate}:${eventId}:${candleTime}:${engineSequence ?? "missing"}`;
+  const probe = shareAiPlanPromise(planRevisionChecks, probeKey, readRevision);
+  let revision: string;
+  try {
+    revision = await probe.promise;
+  } finally {
+    if (planRevisionChecks.get(probeKey) === probe.promise)
+      planRevisionChecks.delete(probeKey);
+  }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const key = `${tradeDate}:${revision}`;
+    const requestedRevision = revision;
+    const load = shareAiPlanPromise(planDataCache, key, async () => {
+      const fetchStarted = performance.now();
+      const [dashboard, candidates] = await Promise.all([
+        getAiDailyForecastDashboard(tradeDate),
+        getAiIntradayPlanCandidates(tradeDate),
+      ]);
+      const after = await readRevision();
+      console.info(
+        JSON.stringify({
+          metric: "ai_plan_fetch",
+          eventId,
+          revision: requestedRevision,
+          after,
+          fetchCount: 1,
+          durationMs: performance.now() - fetchStarted,
+          snapshotCount: candidates.length,
+        })
+      );
+      if (after !== requestedRevision) throw Error("ai_plan_revision_changed");
+      return { dashboard, candidates };
+    });
+    try {
+      const data = await load.promise;
+      const intradaySnapshot = selectEffectiveAiIntradayPlan(
+        data.candidates,
+        candleTime,
+        engineSequence
+      );
+      console.info(
+        JSON.stringify({
+          metric: "ai_plan_access",
+          eventId,
+          revision,
+          snapshotId: intradaySnapshot?.sourceRevisionId ?? null,
+          cacheShared: Number(load.shared),
+          revisionShared: Number(probe.shared),
+          durationMs: performance.now() - started,
+        })
+      );
+      return { dashboard: data.dashboard, intradaySnapshot, revision };
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        error.message !== "ai_plan_revision_changed"
+      )
+        throw error;
+      revision = await readRevision();
+    }
+  }
+  throw Error("ai_plan_revision_unstable");
 }
+
 function boardExecution(
   source: ForwardSourceEventInput,
   side: Side,
@@ -1721,6 +1819,37 @@ async function processMode(
   selection: PlanSelection,
   options: { strategyVersion?: string; positionOnly?: boolean } = {}
 ) {
+  const started = performance.now();
+  try {
+    return await processModeImplementation(
+      source,
+      symbol,
+      mode,
+      selection,
+      options
+    );
+  } finally {
+    console.info(
+      JSON.stringify({
+        metric: "ai_plan_strategy",
+        eventId: source.sourceEventId,
+        strategyVersion:
+          options.strategyVersion ??
+          AI_DAILY_FORECAST_STRATEGY_VERSIONS[symbol],
+        mode,
+        snapshotId: selection.activePlanId,
+        durationMs: performance.now() - started,
+      })
+    );
+  }
+}
+async function processModeImplementation(
+  source: ForwardSourceEventInput,
+  symbol: AiDailyForecastSymbol,
+  mode: ForwardEvaluationMode,
+  selection: PlanSelection,
+  options: { strategyVersion?: string; positionOnly?: boolean } = {}
+) {
   const version =
     options.strategyVersion ?? AI_DAILY_FORECAST_STRATEGY_VERSIONS[symbol];
   const initial = normalizeState(
@@ -1891,6 +2020,22 @@ async function processMode(
 export async function processAiDailyForecastShadowSourceEvent(
   source: ForwardSourceEventInput
 ) {
+  const started = performance.now();
+  try {
+    return await processAiDailyForecastShadowSourceEventImplementation(source);
+  } finally {
+    console.info(
+      JSON.stringify({
+        metric: "ai_plan_event",
+        eventId: source.sourceEventId,
+        durationMs: performance.now() - started,
+      })
+    );
+  }
+}
+async function processAiDailyForecastShadowSourceEventImplementation(
+  source: ForwardSourceEventInput
+) {
   if (!symbols.has(source.candle.symbol))
     return { skipped: "non_ai_forecast_symbol" as const };
   const symbol = source.candle.symbol as AiDailyForecastSymbol;
@@ -1922,7 +2067,8 @@ export async function processAiDailyForecastShadowSourceEvent(
   const { dashboard, intradaySnapshot } = await getPlanData(
     source.candle.tradeDate,
     source.candle.candleTime,
-    source.currentAudit?.engineSequence ?? null
+    source.currentAudit?.engineSequence ?? null,
+    source.sourceEventId
   );
   const dailyPlan = planFromSnapshot(
     dashboard.snapshot,
@@ -1989,6 +2135,7 @@ export async function processAiDailyForecastShadowSourceEvent(
   }
   return { skipped: false as const, symbol, evaluations };
 }
+
 export function applyAiDailyForecastTransitionForTest(
   state: State,
   source: ForwardSourceEventInput,

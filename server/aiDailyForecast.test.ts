@@ -10,7 +10,7 @@ import {
   applyAiDailyForecastSelectionTransitionForTest,
   applyAiDailyForecastTransitionForTest,
   selectAiDailyPlanForTest,
-  selectAiIntradayPlanForTest,
+  selectAiIntradayPlanForTest as selectLegacyIntradayPlan,
   type AiDailyForecastPlan,
 } from "./aiDailyForecastShadowEngine";
 import type { ForwardSourceEventInput } from "./forwardShadow";
@@ -1007,3 +1007,23 @@ it("sets explicit protection from entry and does not migrate an existing positio
     reason: "initial_protective_stop_invalid",
   });
 });
+
+function selectAiIntradayPlanForTest(
+  snapshot: Parameters<typeof selectLegacyIntradayPlan>[0],
+  symbol: string
+) {
+  const legacy = selectLegacyIntradayPlan(snapshot, symbol);
+  if (!snapshot) return legacy;
+  const { inputJson, ...rest } = snapshot;
+  const projected = {
+    ...rest,
+    inputJson: undefined,
+    priorSymbols: JSON.stringify(
+      (inputJson as { priorData?: { symbols?: unknown[] } })?.priorData
+        ?.symbols ?? []
+    ),
+  };
+  const selected = selectLegacyIntradayPlan(projected, symbol);
+  expect(selected).toEqual(legacy);
+  return selected;
+}

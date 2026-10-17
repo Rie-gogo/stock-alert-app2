@@ -40,8 +40,8 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
       <CardHeader className="pb-2">
         <CardTitle className="text-base">10銘柄 案単位 最近傾向（概要・選択根拠外）</CardTitle>
         <p className="text-xs text-muted-foreground">
-          確定済み履歴は閉場後に監査完了した日次snapshotだけを読みます。「本日」は確定前に限り、保存済み取引台帳の決済済み分を100株換算で暫定表示します。
-          直近5日・直近10日・全期間には本日の暫定値を1営業日分として一度だけ加え、閉場後は同日の確定snapshotへ置き換えます。
+          確定済み履歴は閉場後に監査完了した日次snapshotだけを読みます。確定snapshotを使えない過去営業日と、確定前の本日は、保存済み取引台帳の決済済み分だけを100株換算で暫定表示します。
+          直近5日・直近10日・全期間には各暫定値を1営業日分として一度だけ加え、同日の確定snapshotができたら置き換えます。JPX休場日は加えません。
           1分足や場中処理は再計算せず、日中の受信・現行・シャドー処理は待たせません。
           複数経路を含む案があるため、この表は概要表示だけです。選択器は下段の経路別最近傾向を正式な判断材料とし、ここから自動採用・自動停止・自動切替は行いません。
         </p>
@@ -64,8 +64,16 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
               </div>
               {trendQuery.data.provisionalLedgerTradeDates.length > 0 && (
                 <div className="text-cyan-300">
-                  保存済み台帳から暫定反映：{trendQuery.data.provisionalLedgerTradeDates.join("、")}
-                  （直近5日・直近10日・全期間へ一度だけ加算し、確定snapshotで置換）
+                  暫定日（保存済み台帳・決済済み100株換算）：
+                  {trendQuery.data.provisionalLedgerTradeDates.join("、")}
+                  （各期間へ一度だけ加算し、確定snapshotで置換）
+                </div>
+              )}
+              {trendQuery.data.provisionalIncompleteTradeDates.length > 0 && (
+                <div className="text-amber-300">
+                  未決済・missingを含む暫定日：
+                  {trendQuery.data.provisionalIncompleteTradeDates.join("、")}
+                  （未解決分を0件の確定成績とは扱わず、決済済み分だけ反映）
                 </div>
               )}
               {trendQuery.data.todayStatus.source === "persisted_ledger_preview" && (
@@ -76,10 +84,11 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                     : "（未決済・未生成を含むため決済済み分だけを各期間列にも一度だけ加算）"}
                 </div>
               )}
-              {trendQuery.data.todayStatus.source === "unavailable" && (
-                <div className="text-amber-300">
-                  本日：保存済み取引はまだありません（開場前・未発火時は0件）
-                </div>
+              {!trendQuery.data.todayStatus.isTradingDay && (
+                <div className="text-sky-300">本日：JPX休場日のため集計対象外（期間列にも加算しません）</div>
+              )}
+              {trendQuery.data.todayStatus.isTradingDay && trendQuery.data.todayStatus.source === "unavailable" && (
+                <div className="text-amber-300">本日：保存済み取引はまだありません（開場前・未発火時は0件）</div>
               )}
               {trendQuery.data.pendingClosedTradeDates.length > 0 && (
                 <div className="text-amber-300">
@@ -108,7 +117,12 @@ export default function MultiSymbolMonitoringTrendSection({ asOfDate }: { asOfDa
                           <th className="px-3 py-2 text-left">方式</th>
                           <th className="px-2 py-2 text-left">傾向</th>
                           <th className="px-2 py-2 text-right">
-                            本日{trendQuery.data.todayStatus.provisional ? "（暫定）" : ""}
+                            本日
+                            {!trendQuery.data.todayStatus.isTradingDay
+                              ? "（休場）"
+                              : trendQuery.data.todayStatus.provisional
+                                ? "（暫定）"
+                                : ""}
                           </th>
                           <th className="px-2 py-2 text-right">直近5日</th>
                           <th className="px-2 py-2 text-right">直近10日</th>

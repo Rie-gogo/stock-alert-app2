@@ -19,7 +19,9 @@ import {
 import { nextTokyoEquityTradeDate } from "./jpxEquityCalendar";
 
 export const MULTI_SYMBOL_MONITORING_TREND_VERSION =
-  "monitoring-trend-10-symbols-rolling-windows-with-today-preview-v3";
+  "monitoring-trend-10-symbols-rolling-windows-with-ledger-fallback-v4";
+
+const LEDGER_PREVIEW_CONCURRENCY = 2;
 
 type TrendStatus = "improving" | "deteriorating" | "mixed" | "stable" | "insufficient";
 
@@ -65,6 +67,78 @@ const MATERIALIZATION_VERSION_PRIORITY = new Map(
 
 function materializationPriority(version: string) {
   return MATERIALIZATION_VERSION_PRIORITY.get(version) ?? -1;
+}
+
+function previousCalendarDate(date: string) {
+  const previous = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(previous.getTime())) throw Error("invalid_trade_date");
+  previous.setUTCDate(previous.getUTCDate() - 1);
+  return previous.toISOString().slice(0, 10);
+}
+
+export function isTokyoEquityTradeDate(date: string) {
+  return nextTokyoEquityTradeDate(previousCalendarDate(date)) === date;
+}
+
+export function listTokyoEquityTradeDatesBefore(date: string) {
+  const dates: string[] = [];
+  let cursor = previousCalendarDate(MULTI_SYMBOL_MONITORING_START_DATE);
+  while (true) {
+    const tradeDate = nextTokyoEquityTradeDate(cursor);
+    if (tradeDate >= date) return dates;
+    dates.push(tradeDate);
+    cursor = tradeDate;
+  }
+}
+
+function selectClosedReadySnapshots(input: {
+  closedTradeDates: readonly string[];
+  materializations: readonly RtDailyAuditMaterialization[];
+}) {
+  const closedDates = Array.from(new Set(input.closedTradeDates))
+    .filter(date => date >= MULTI_SYMBOL_MONITORING_START_DATE && isTokyoEquityTradeDate(date))
+    .sort();
+  const closedDateSet = new Set(closedDates);
+  const rowsByDate = new Map<string, MultiSymbolMonitoringDailySnapshot>();
+  const sourceVersionByDate = new Map<string, string>();
+  for (const row of input.materializations) {
+    const parsed = parseSnapshot(row);
+    if (!parsed || !closedDateSet.has(row.tradeDate)) continue;
+    const selectedVersion = sourceVersionByDate.get(row.tradeDate);
+    if (
+      selectedVersion === undefined ||
+      materializationPriority(row.version) > materializationPriority(selectedVersion)
+    ) {
+      rowsByDate.set(row.tradeDate, parsed);
+      sourceVersionByDate.set(row.tradeDate, row.version);
+    }
+  }
+  return { closedDates, rowsByDate, sourceVersionByDate };
+}
+
+export async function loadLedgerPreviewsForDates(
+  tradeDates: readonly string[],
+  load: (tradeDate: string) => Promise<MultiSymbolMonitoringDailySnapshot> = materializeMultiSymbolMonitoringForDate
+) {
+  const previews: MultiSymbolMonitoringDailySnapshot[] = [];
+  for (let index = 0; index < tradeDates.length; index += LEDGER_PREVIEW_CONCURRENCY) {
+    const batch = tradeDates.slice(index, index + LEDGER_PREVIEW_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async tradeDate => {
+        try {
+          return await load(tradeDate);
+        } catch (error) {
+          console.warn("[multi-symbol-monitoring] ledger preview unavailable", {
+            tradeDate,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        }
+      })
+    );
+    previews.push(...results.filter((preview): preview is MultiSymbolMonitoringDailySnapshot => preview !== null));
+  }
+  return previews;
 }
 
 /**
@@ -156,30 +230,19 @@ export function buildMultiSymbolMonitoringTrend(input: {
   todayPreview?: MultiSymbolMonitoringDailySnapshot | null;
   priorLedgerPreviews?: MultiSymbolMonitoringDailySnapshot[];
 }) {
-  const closedDates = Array.from(new Set(input.closedTradeDates))
-    .filter(date => date >= MULTI_SYMBOL_MONITORING_START_DATE && date <= input.asOfDate)
-    .sort();
-  const rowsByDate = new Map<string, MultiSymbolMonitoringDailySnapshot>();
-  const sourceVersionByDate = new Map<string, string>();
-  for (const row of input.materializations) {
-    const parsed = parseSnapshot(row);
-    if (!parsed || !closedDates.includes(row.tradeDate)) continue;
-    const selectedVersion = sourceVersionByDate.get(row.tradeDate);
-    if (selectedVersion === undefined
-      || materializationPriority(row.version) > materializationPriority(selectedVersion)) {
-      rowsByDate.set(row.tradeDate, parsed);
-      sourceVersionByDate.set(row.tradeDate, row.version);
-    }
-  }
+  const { closedDates, rowsByDate, sourceVersionByDate } = selectClosedReadySnapshots({
+    closedTradeDates: input.closedTradeDates.filter(date => date <= input.asOfDate),
+    materializations: input.materializations,
+  });
   const eligibleTradeDates = closedDates.filter(date => rowsByDate.has(date));
   const pendingClosedTradeDates = closedDates.filter(date => !rowsByDate.has(date));
   const legacyFallbackTradeDates = eligibleTradeDates.filter(
     date => sourceVersionByDate.get(date) !== MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
   );
-  const closedTodaySnapshot = rowsByDate.get(input.asOfDate) ?? null;
-  const previewTodaySnapshot = input.todayPreview?.tradeDate === input.asOfDate
-    ? input.todayPreview
-    : null;
+  const asOfIsTradingDay = isTokyoEquityTradeDate(input.asOfDate);
+  const closedTodaySnapshot = asOfIsTradingDay ? rowsByDate.get(input.asOfDate) ?? null : null;
+  const previewTodaySnapshot =
+    asOfIsTradingDay && input.todayPreview?.tradeDate === input.asOfDate ? input.todayPreview : null;
   const todaySnapshot = closedTodaySnapshot ?? previewTodaySnapshot;
   const todayRowsByDate = todaySnapshot
     ? new Map([[input.asOfDate, todaySnapshot]])
@@ -200,6 +263,7 @@ export function buildMultiSymbolMonitoringTrend(input: {
     if (
       preview.tradeDate >= MULTI_SYMBOL_MONITORING_START_DATE
       && preview.tradeDate < input.asOfDate
+      && isTokyoEquityTradeDate(preview.tradeDate)
       && !rowsByDate.has(preview.tradeDate)
     ) {
       provisionalHistoryByDate.set(preview.tradeDate, preview);
@@ -297,12 +361,16 @@ export function buildMultiSymbolMonitoringTrend(input: {
     displayTradeDates,
     latestDisplayedTradeDate: displayTradeDates.at(-1) ?? null,
     provisionalLedgerTradeDates,
+    provisionalIncompleteTradeDates: provisionalLedgerTradeDates.filter(
+      tradeDate => provisionalHistoryByDate.get(tradeDate)?.ready !== true
+    ),
     legacyFallbackTradeDates,
     sourceMaterializationVersionByDate: Object.fromEntries(sourceVersionByDate),
     pendingClosedTradeDates,
     latestCompletedTradeDate: eligibleTradeDates.at(-1) ?? null,
     todayStatus: {
       tradeDate: input.asOfDate,
+      isTradingDay: asOfIsTradingDay,
       source: todaySource,
       provisional: todaySource === "persisted_ledger_preview",
       ready: todaySnapshot?.ready ?? false,
@@ -320,21 +388,6 @@ export function buildMultiSymbolMonitoringTrend(input: {
   };
 }
 
-function previousTokyoEquityTradeDate(date: string) {
-  const probe = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(probe.getTime())) throw Error("invalid_trade_date");
-  for (let i = 0; i < 14; i += 1) {
-    probe.setUTCDate(probe.getUTCDate() - 1);
-    const candidate = probe.toISOString().slice(0, 10);
-    const dayBefore = new Date(probe);
-    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
-    if (nextTokyoEquityTradeDate(dayBefore.toISOString().slice(0, 10)) === candidate) {
-      return candidate;
-    }
-  }
-  throw Error("previous_trade_date_unavailable");
-}
-
 export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
   const materializationVersions = [
     MULTI_SYMBOL_MONITORING_MATERIALIZATION_VERSION,
@@ -343,24 +396,26 @@ export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
   const [closedTradeDates, materializationGroups] = await Promise.all([
     getClosedRtAuditTradeDates({ fromDate: MULTI_SYMBOL_MONITORING_START_DATE, toDate: asOfDate }),
     Promise.all(materializationVersions.map(version =>
-      getRtDailyAuditMaterializationsForRange({
-        component: MULTI_SYMBOL_MONITORING_COMPONENT,
-        version,
-        fromDate: MULTI_SYMBOL_MONITORING_START_DATE,
-        toDate: asOfDate,
-      })
+        getRtDailyAuditMaterializationsForRange({
+          component: MULTI_SYMBOL_MONITORING_COMPONENT,
+          version,
+          fromDate: MULTI_SYMBOL_MONITORING_START_DATE,
+          toDate: asOfDate,
+        })
     )),
   ]);
   const materializations = materializationGroups.flat();
-  const hasClosedTodaySnapshot = materializations.some(
-    row => row.tradeDate === asOfDate && parseSnapshot(row) !== null,
-  );
+  const selectedSnapshots = selectClosedReadySnapshots({
+    closedTradeDates,
+    materializations,
+  });
+  const hasClosedTodaySnapshot = selectedSnapshots.rowsByDate.has(asOfDate);
   const currentJstDate = new Date(Date.now() + 9 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
+  const asOfIsTradingDay = isTokyoEquityTradeDate(asOfDate);
   let todayPreview: MultiSymbolMonitoringDailySnapshot | null = null;
-  const priorLedgerPreviews: MultiSymbolMonitoringDailySnapshot[] = [];
-  if (!hasClosedTodaySnapshot && asOfDate === currentJstDate) {
+  if (!hasClosedTodaySnapshot && asOfDate === currentJstDate && asOfIsTradingDay) {
     try {
       // The preview only reads already-persisted candidate/trade ledgers. It is
       // not written as a closed audit snapshot. At read time it is added once
@@ -374,27 +429,11 @@ export async function getMultiSymbolMonitoringTrend(asOfDate: string) {
       });
     }
   }
-  if (asOfDate === currentJstDate) {
-    try {
-      const priorTradeDate = previousTokyoEquityTradeDate(asOfDate);
-      const hasClosedPriorSnapshot = materializations.some(
-        row => row.tradeDate === priorTradeDate && parseSnapshot(row) !== null,
-      );
-      if (!hasClosedPriorSnapshot) {
-        const priorPreview = await materializeMultiSymbolMonitoringForDate(priorTradeDate);
-        const hasPersistedLedger = priorPreview.summary.signals > 0
-          || priorPreview.summary.completedTrades > 0
-          || priorPreview.summary.openTrades > 0
-          || priorPreview.summary.missingTrades > 0;
-        if (hasPersistedLedger) priorLedgerPreviews.push(priorPreview);
-      }
-    } catch (error) {
-      console.warn("[multi-symbol-monitoring] prior ledger preview unavailable", {
-        asOfDate,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  const previewBeforeDate = asOfDate <= currentJstDate ? asOfDate : currentJstDate;
+  const priorPreviewDates = listTokyoEquityTradeDatesBefore(previewBeforeDate).filter(
+    tradeDate => !selectedSnapshots.rowsByDate.has(tradeDate),
+  );
+  const priorLedgerPreviews = await loadLedgerPreviewsForDates(priorPreviewDates);
   return buildMultiSymbolMonitoringTrend({
     asOfDate,
     closedTradeDates,

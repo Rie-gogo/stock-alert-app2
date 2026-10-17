@@ -14,6 +14,7 @@ import { auditMaterializerHandler } from "../auditMaterializerHandler";
 import { restoreBuffersFromDb } from "../realtimeSimEngine";
 import { formatRuntimeIdentityForLog } from "../runtimeIdentity";
 import { scheduleCurrentCandidateVirtualDrain } from "../currentCandidateVirtualSequence";
+import { runtimeProcessObservationHandler } from "../runtimeProcessObservation";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -42,6 +43,9 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+
+  // 公開本番で応答したNodeプロセスだけを観測する、キャッシュ不可の読取専用API。
+  app.get("/api/runtime/process-observation", runtimeProcessObservationHandler);
 
   // スケジュール実行エンドポイント（tRPCより前に登録）
   app.post("/api/scheduled/daily-simulation", dailySimulationHandler);

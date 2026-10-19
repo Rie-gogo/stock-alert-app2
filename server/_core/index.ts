@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import { registerDataExport } from "../dataExport";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -43,6 +44,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerDataExport(app);
 
   // 公開本番で応答したNodeプロセスだけを観測する、キャッシュ不可の読取専用API。
   app.get("/api/runtime/process-observation", runtimeProcessObservationHandler);
